@@ -1,0 +1,37 @@
+server:
+  port: 8080
+  mode: debug
+
+database:
+  path: ./data/isdp.db
+
+redis:
+  addr: localhost:6379
+  password: ""
+  db: 0
+
+claude:
+  path: claude
+  default_model: claude-sonnet-4-6
+  timeout: 30m
+
+sandbox:
+  port_range_start: 30000
+  port_range_end: 40000
+  default_cpu_limit: 2
+  default_memory_limit: 4096
+  network: isdp-network
+  repos_dir: ./repos
+
+agent:
+  max_depth: 15
+  max_retries: 3
+  context_max_lines: 400
+
+logging:
+  level: info
+  format: json
+
+mcp:
+  base_url: http://localhost:8080/api/v1/mcp
+  token_ttl: 30m

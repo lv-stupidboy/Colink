@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ISDP 设计风格预览</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      padding: 40px;
+      background: #f5f5f5;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      text-align: center;
+      margin-bottom: 40px;
+      color: #333;
+    }
+
+    .style-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 32px;
+      margin-bottom: 60px;
+    }
+
+    /* ========== A. 现代科技感 ========== */
+    .style-a {
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      border-radius: 16px;
+      padding: 24px;
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      box-shadow: 0 0 30px rgba(99, 102, 241, 0.2);
+    }
+
+    .style-a h2 {
+      color: #8b5cf6;
+      margin-bottom: 16px;
+      font-size: 20px;
+      text-shadow: 0 0 10px rgba(139, 92, 246, 0.5);
+    }
+
+    .style-a .color-palette {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+
+    .style-a .color-swatch {
+      width: 50px;
+      height: 50px;
+      border-radius: 8px;
+      border: 2px solid rgba(255,255,255,0.1);
+    }
+
+    .style-a .btn {
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 500;
+      box-shadow: 0 0 20px rgba(99, 102, 241, 0.4);
+      transition: all 0.3s;
+    }
+
+    .style-a .btn:hover {
+      box-shadow: 0 0 30px rgba(99, 102, 241, 0.6);
+      transform: translateY(-2px);
+    }
+
+    .style-a .card {
+      background: rgba(30, 41, 59, 0.8);
+      border: 1px solid rgba(99, 102, 241, 0.2);
+      border-radius: 12px;
+      padding: 16px;
+      margin-top: 16px;
+      color: #f8fafc;
+    }
+
+    .style-a .input {
+      width: 100%;
+      padding: 12px;
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      border-radius: 8px;
+      color: #f8fafc;
+      margin-top: 12px;
+    }
+
+    .style-a .input:focus {
+      outline: none;
+      border-color: #6366f1;
+      box-shadow: 0 0 15px rgba(99, 102, 241, 0.3);
+    }
+
+    /* ========== B. 专业商务风 ========== */
+    .style-b {
+      background: #ffffff;
+      border-radius: 4px;
+      padding: 24px;
+      border: 1px solid #e8e8e8;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+
+    .style-b h2 {
+      color: #1890ff;
+      margin-bottom: 16px;
+      font-size: 20px;
+      border-bottom: 2px solid #1890ff;
+      padding-bottom: 8px;
+    }
+
+    .style-b .color-palette {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+
+    .style-b .color-swatch {
+      width: 50px;
+      height: 50px;
+      border-radius: 4px;
+      border: 1px solid #e8e8e8;
+    }
+
+    .style-b .btn {
+      background: #1890ff;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 500;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      transition: all 0.2s;
+    }
+
+    .style-b .btn:hover {
+      background: #40a9ff;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.12);
+    }
+
+    .style-b .card {
+      background: #ffffff;
+      border: 1px solid #f0f0f0;
+      border-radius: 4px;
+      padding: 16px;
+      margin-top: 16px;
+      color: #262626;
+    }
+
+    .style-b .input {
+      width: 100%;
+      padding: 10px;
+      background: #ffffff;
+      border: 1px solid #d9d9d9;
+      border-radius: 4px;
+      color: #262626;
+      margin-top: 12px;
+    }
+
+    .style-b .input:focus {
+      outline: none;
+      border-color: #40a9ff;
+      box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
+    }
+
+    /* ========== C. 清新活力风 ========== */
+    .style-c {
+      background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%);
+      border-radius: 20px;
+      padding: 24px;
+      border: 1px solid #d1fae5;
+      box-shadow: 0 8px 24px rgba(16, 185, 129, 0.12);
+    }
+
+    .style-c h2 {
+      color: #10b981;
+      margin-bottom: 16px;
+      font-size: 20px;
+    }
+
+    .style-c .color-palette {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+
+    .style-c .color-swatch {
+      width: 50px;
+      height: 50px;
+      border-radius: 12px;
+      border: 2px solid #d1fae5;
+    }
+
+    .style-c .btn {
+      background: linear-gradient(135deg, #10b981, #14b8a6);
+      color: white;
+      border: none;
+      padding: 14px 28px;
+      border-radius: 14px;
+      cursor: pointer;
+      font-weight: 600;
+      box-shadow: 0 4px 14px rgba(16, 185, 129, 0.3);
+      transition: all 0.3s;
+    }
+
+    .style-c .btn:hover {
+      box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
+      transform: translateY(-2px);
+    }
+
+    .style-c .card {
+      background: #ffffff;
+      border: none;
+      border-radius: 16px;
+      padding: 16px;
+      margin-top: 16px;
+      color: #1f2937;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+    }
+
+    .style-c .input {
+      width: 100%;
+      padding: 14px;
+      background: #f3f4f6;
+      border: 2px solid transparent;
+      border-radius: 12px;
+      color: #1f2937;
+      margin-top: 12px;
+      font-size: 14px;
+    }
+
+    .style-c .input:focus {
+      outline: none;
+      background: #ffffff;
+      border-color: #10b981;
+      box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
+    }
+
+    /* ========== D. 极简主义 ========== */
+    .style-d {
+      background: #ffffff;
+      border-radius: 0;
+      padding: 24px;
+      border: 1px solid #e5e5e5;
+      box-shadow: none;
+    }
+
+    .style-d h2 {
+      color: #1a1a1a;
+      margin-bottom: 16px;
+      font-size: 20px;
+      font-weight: 400;
+      letter-spacing: -0.5px;
+    }
+
+    .style-d .color-palette {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+
+    .style-d .color-swatch {
+      width: 50px;
+      height: 50px;
+      border-radius: 0;
+      border: 1px solid #e5e5e5;
+    }
+
+    .style-d .btn {
+      background: #1a1a1a;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 0;
+      cursor: pointer;
+      font-weight: 500;
+      letter-spacing: 0.5px;
+      transition: all 0.2s;
+    }
+
+    .style-d .btn:hover {
+      background: #333333;
+    }
+
+    .style-d .btn-outline {
+      background: transparent;
+      color: #1a1a1a;
+      border: 1px solid #e5e5e5;
+      margin-left: 8px;
+    }
+
+    .style-d .btn-outline:hover {
+      background: #f5f5f5;
+    }
+
+    .style-d .card {
+      background: #ffffff;
+      border: none;
+      border-radius: 0;
+      padding: 16px;
+      margin-top: 16px;
+      color: #1a1a1a;
+      border-bottom: 1px solid #e5e5e5;
+    }
+
+    .style-d .input {
+      width: 100%;
+      padding: 12px 0;
+      background: transparent;
+      border: none;
+      border-bottom: 1px solid #e5e5e5;
+      color: #1a1a1a;
+      margin-top: 12px;
+      font-size: 14px;
+    }
+
+    .style-d .input:focus {
+      outline: none;
+      border-bottom-color: #1a1a1a;
+    }
+
+    /* ========== 对比展示区 ========== */
+    .comparison {
+      background: #fff;
+      border-radius: 12px;
+      padding: 32px;
+      margin-top: 40px;
+    }
+
+    .comparison h3 {
+      text-align: center;
+      margin-bottom: 24px;
+      color: #333;
+    }
+
+    .component-row {
+      display: flex;
+      justify-content: space-around;
+      align-items: center;
+      padding: 20px;
+      border-bottom: 1px solid #eee;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .component-row:last-child {
+      border-bottom: none;
+    }
+
+    .component-label {
+      width: 100px;
+      font-weight: 600;
+      color: #666;
+    }
+
+    /* 标签样式 */
+    .tag {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .tag-a { background: rgba(99, 102, 241, 0.2); color: #8b5cf6; }
+    .tag-b { background: rgba(24, 144, 255, 0.15); color: #1890ff; }
+    .tag-c { background: rgba(16, 185, 129, 0.15); color: #10b981; }
+    .tag-d { background: #f5f5f5; color: #666; }
+
+    /* 进度条 */
+    .progress-wrapper {
+      width: 200px;
+    }
+
+    .progress-a { height: 8px; background: rgba(99, 102, 241, 0.3); border-radius: 4px; overflow: hidden; }
+    .progress-a .fill { height: 100%; width: 70%; background: linear-gradient(90deg, #6366f1, #8b5cf6); }
+
+    .progress-b { height: 6px; background: #f0f0f0; border-radius: 3px; overflow: hidden; }
+    .progress-b .fill { height: 100%; width: 70%; background: #1890ff; }
+
+    .progress-c { height: 10px; background: #e5e7eb; border-radius: 5px; overflow: hidden; }
+    .progress-c .fill { height: 100%; width: 70%; background: linear-gradient(90deg, #10b981, #14b8a6); border-radius: 5px; }
+
+    .progress-d { height: 4px; background: #e5e5e5; border-radius: 0; overflow: hidden; }
+    .progress-d .fill { height: 100%; width: 70%; background: #1a1a1a; border-radius: 0; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🎨 ISDP 设计风格预览</h1>
+
+    <!-- 四种风格卡片 -->
+    <div class="style-grid">
+      <!-- A. 现代科技感 -->
+      <div class="style-a">
+        <h2>✨ A. 现代科技感</h2>
+        <div class="color-palette">
+          <div class="color-swatch" style="background: #6366f1;" title="主色"></div>
+          <div class="color-swatch" style="background: #8b5cf6;" title="渐变"></div>
+          <div class="color-swatch" style="background: #0f172a;" title="背景"></div>
+          <div class="color-swatch" style="background: #06b6d4;" title="强调"></div>
+        </div>
+        <button class="btn">主要按钮</button>
+        <button class="btn" style="background: transparent; border: 1px solid rgba(99,102,241,0.5); margin-left: 8px;">次要按钮</button>
+        <div class="card">
+          <strong>卡片标题</strong>
+          <p style="margin-top: 8px; opacity: 0.8; font-size: 13px;">深色卡片内容区域，适合代码/日志展示</p>
+        </div>
+        <input type="text" class="input" placeholder="输入框 - 聚焦时发光">
+      </div>
+
+      <!-- B. 专业商务风 -->
+      <div class="style-b">
+        <h2>💼 B. 专业商务风</h2>
+        <div class="color-palette">
+          <div class="color-swatch" style="background: #1890ff;" title="主色"></div>
+          <div class="color-swatch" style="background: #096dd9;" title="深蓝"></div>
+          <div class="color-swatch" style="background: #ffffff;" title="背景"></div>
+          <div class="color-swatch" style="background: #52c41a;" title="成功"></div>
+        </div>
+        <button class="btn">主要按钮</button>
+        <button class="btn" style="background: #fff; color: #1890ff; border: 1px solid #1890ff; margin-left: 8px;">次要按钮</button>
+        <div class="card">
+          <strong>卡片标题</strong>
+          <p style="margin-top: 8px; font-size: 13px; color: #595959;">简洁商务风格，适合企业级应用</p>
+        </div>
+        <input type="text" class="input" placeholder="输入框 - 蓝色聚焦">
+      </div>
+
+      <!-- C. 清新活力风 -->
+      <div class="style-c">
+        <h2>🌿 C. 清新活力风</h2>
+        <div class="color-palette">
+          <div class="color-swatch" style="background: #10b981;" title="主色"></div>
+          <div class="color-swatch" style="background: #14b8a6;" title="渐变"></div>
+          <div class="color-swatch" style="background: #fafafa;" title="背景"></div>
+          <div class="color-swatch" style="background: #f59e0b;" title="强调"></div>
+        </div>
+        <button class="btn">主要按钮</button>
+        <button class="btn" style="background: #fff; color: #10b981; border: 2px solid #10b981; margin-left: 8px;">次要按钮</button>
+        <div class="card">
+          <strong>卡片标题</strong>
+          <p style="margin-top: 8px; font-size: 13px; color: #6b7280;">圆润亲和风格，适合创新产品</p>
+        </div>
+        <input type="text" class="input" placeholder="输入框 - 柔和圆角">
+      </div>
+
+      <!-- D. 极简主义 -->
+      <div class="style-d">
+        <h2>⚫ D. 极简主义</h2>
+        <div class="color-palette">
+          <div class="color-swatch" style="background: #1a1a1a;" title="主色"></div>
+          <div class="color-swatch" style="background: #666666;" title="次要"></div>
+          <div class="color-swatch" style="background: #ffffff;" title="背景"></div>
+          <div class="color-swatch" style="background: #e5e5e5;" title="边框"></div>
+        </div>
+        <button class="btn">主要按钮</button>
+        <button class="btn btn-outline">次要按钮</button>
+        <div class="card">
+          <strong>卡片标题</strong>
+          <p style="margin-top: 8px; font-size: 13px; color: #666;">极致简洁，适合高端产品</p>
+        </div>
+        <input type="text" class="input" placeholder="输入框 - 仅底边框">
+      </div>
+    </div>
+
+    <!-- 组件对比 -->
+    <div class="comparison">
+      <h3>组件细节对比</h3>
+
+      <div class="component-row">
+        <span class="component-label">按钮</span>
+        <button class="btn" style="background: linear-gradient(135deg, #6366f1, #8b5cf6); color: white; border: none; padding: 10px 20px; border-radius: 8px; box-shadow: 0 0 15px rgba(99,102,241,0.4);">A 科技感</button>
+        <button class="btn" style="background: #1890ff; color: white; border: none; padding: 10px 20px; border-radius: 4px;">B 商务风</button>
+        <button class="btn" style="background: linear-gradient(135deg, #10b981, #14b8a6); color: white; border: none; padding: 12px 24px; border-radius: 14px; box-shadow: 0 4px 14px rgba(16,185,129,0.3);">C 清新风</button>
+        <button class="btn" style="background: #1a1a1a; color: white; border: none; padding: 10px 20px; border-radius: 0;">D 极简</button>
+      </div>
+
+      <div class="component-row">
+        <span class="component-label">标签</span>
+        <span class="tag tag-a">A 霓虹</span>
+        <span class="tag tag-b">B 标准</span>
+        <span class="tag tag-c">C 柔和</span>
+        <span class="tag tag-d">D 灰阶</span>
+      </div>
+
+      <div class="component-row">
+        <span class="component-label">进度条</span>
+        <div class="progress-a"><div class="fill"></div></div>
+        <div class="progress-b"><div class="fill"></div></div>
+        <div class="progress-c"><div class="fill"></div></div>
+        <div class="progress-d"><div class="fill"></div></div>
+      </div>
+    </div>
+
+    <div style="text-align: center; margin-top: 40px; padding: 20px; background: #fff; border-radius: 12px;">
+      <p style="color: #666; margin-bottom: 16px;">💡 建议：对于 ISDP 智能开发平台，推荐 <strong>A 现代科技感</strong> 或 <strong>C 清新活力风</strong></p>
+      <p style="color: #999; font-size: 13px;">可以将此 HTML 文件在浏览器中打开，直观查看各风格效果</p>
+    </div>
+  </div>
+</body>
+</html>

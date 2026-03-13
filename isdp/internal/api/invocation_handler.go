@@ -1,0 +1,134 @@
+package api
+
+import (
+	"net/http"
+
+	"github.com/anthropic/isdp/internal/model"
+	"github.com/anthropic/isdp/internal/service/agent"
+	"github.com/anthropic/isdp/internal/service/a2a"
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+)
+
+// InvocationHandler Agent调用API处理器
+type InvocationHandler struct {
+	orchestrator *agent.Orchestrator
+	mcpAuth      *a2a.MCPAuthService
+}
+
+// NewInvocationHandler 创建处理器
+func NewInvocationHandler(orchestrator *agent.Orchestrator, mcpAuth *a2a.MCPAuthService) *InvocationHandler {
+	return &InvocationHandler{
+		orchestrator: orchestrator,
+		mcpAuth:      mcpAuth,
+	}
+}
+
+// Spawn 启动Agent
+func (h *InvocationHandler) Spawn(c *gin.Context) {
+	threadID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid thread id"})
+		return
+	}
+
+	var req SpawnRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	spawnReq := &agent.SpawnRequest{
+		ThreadID: threadID,
+		Role:     req.Role,
+		Input:    req.Input,
+	}
+
+	if req.ConfigID != "" {
+		configID, err := uuid.Parse(req.ConfigID)
+		if err == nil {
+			spawnReq.ConfigID = configID
+		}
+	}
+
+	invocation, err := h.orchestrator.SpawnAgent(c.Request.Context(), spawnReq)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, invocation)
+}
+
+// Cancel 取消调用
+func (h *InvocationHandler) Cancel(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	if err := h.orchestrator.CancelAgent(c.Request.Context(), id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.Status(http.StatusOK)
+}
+
+// MCPCallback MCP回调
+func (h *InvocationHandler) MCPCallback(c *gin.Context) {
+	var req a2a.MCPCallbackRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 处理回调
+	// 实际实现中需要调用具体的处理器
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// ListByThread 列出 Thread 的 Agent 调用
+func (h *InvocationHandler) ListByThread(c *gin.Context) {
+	threadID, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid thread id"})
+		return
+	}
+
+	// 获取该 Thread 的所有 Agent 调用
+	invocations, err := h.orchestrator.GetInvocationsByThread(c.Request.Context(), threadID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if invocations == nil {
+		invocations = []model.AgentInvocation{}
+	}
+	c.JSON(http.StatusOK, invocations)
+}
+
+// SpawnRequest 启动请求
+type SpawnRequest struct {
+	ConfigID string          `json:"configId"`
+	Role     model.AgentRole `json:"role" binding:"required"`
+	Input    string          `json:"input" binding:"required"`
+}
+
+// RegisterRoutes 注册路由
+func (h *InvocationHandler) RegisterRoutes(r *gin.RouterGroup) {
+	// 注意：必须先注册具体路径，再注册通配路径，避免路由冲突
+	threads := r.Group("/threads")
+	{
+		// 先注册具体路径（带固定后缀的）
+		threads.GET("/:id/invocations", h.ListByThread)
+		threads.POST("/:id/invocations", h.Spawn)
+	}
+
+	invocations := r.Group("/invocations")
+	{
+		invocations.POST("/:id/cancel", h.Cancel)
+	}
+
+	// Thread 路由必须在最后注册，避免与 /:threadId/invocations 冲突
+	// 这部分在 thread_handler.go 中注册
+}

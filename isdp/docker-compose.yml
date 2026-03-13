@@ -1,0 +1,87 @@
+version: '3.8'
+
+services:
+  # PostgreSQL 数据库
+  postgres:
+    image: postgres:15-alpine
+    container_name: isdp-postgres
+    environment:
+      POSTGRES_USER: isdp
+      POSTGRES_PASSWORD: isdp123
+      POSTGRES_DB: isdp
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U isdp -d isdp"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis 缓存
+  redis:
+    image: redis:7-alpine
+    container_name: isdp-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ISDP 后端服务
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: isdp-api
+    ports:
+      - "8080:8080"
+    environment:
+      - DATABASE_HOST=postgres
+      - DATABASE_PORT=5432
+      - DATABASE_USER=isdp
+      - DATABASE_PASSWORD=isdp123
+      - DATABASE_NAME=isdp
+      - REDIS_ADDR=redis:6379
+      - SERVER_PORT=8080
+      - LOGGING_LEVEL=info
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # 前端服务（开发模式）
+  frontend:
+    build:
+      context: ./web
+      dockerfile: Dockerfile.dev
+    container_name: isdp-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_API_URL=http://localhost:8080
+    volumes:
+      - ./web:/app
+      - /app/node_modules
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  default:
+    name: isdp-network

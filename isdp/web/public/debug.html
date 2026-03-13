@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>API 调试</title>
+  <style>
+    body { font-family: monospace; padding: 20px; background: #1a1a2e; color: #eee; }
+    .result { background: #16213e; padding: 15px; margin: 10px 0; border-radius: 8px; }
+    .error { color: #ff6b6b; }
+    .success { color: #4ecdc4; }
+    button { background: #10b981; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; margin: 5px; }
+    button:hover { background: #059669; }
+    pre { white-space: pre-wrap; word-wrap: break-word; }
+  </style>
+</head>
+<body>
+  <h1>ISDP API 调试工具</h1>
+
+  <div>
+    <button onclick="testProjects()">测试项目列表</button>
+    <button onclick="testThread()">测试创建 Thread</button>
+    <button onclick="testMessages()">测试消息列表</button>
+    <button onclick="testInvocations()">测试 Agent 触发</button>
+    <button onclick="testAll()">完整流程测试</button>
+  </div>
+
+  <div id="output"></div>
+
+  <script>
+    const API_BASE = 'http://localhost:8080/api/v1';
+
+    function log(message, data = null, isError = false) {
+      const div = document.createElement('div');
+      div.className = 'result ' + (isError ? 'error' : 'success');
+      div.innerHTML = `<strong>${message}</strong>`;
+      if (data) {
+        div.innerHTML += `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+      }
+      document.getElementById('output').appendChild(div);
+    }
+
+    async function testProjects() {
+      document.getElementById('output').innerHTML = '';
+      try {
+        const res = await fetch(`${API_BASE}/projects`);
+        const data = await res.json();
+        log('项目列表 API:', data);
+        return data;
+      } catch (e) {
+        log('项目列表 API 失败：' + e.message, null, true);
+      }
+    }
+
+    async function testThread() {
+      try {
+        const projects = await fetch(`${API_BASE}/projects`).then(r => r.json());
+        if (!projects || projects.length === 0) {
+          log('没有项目，请先创建项目');
+          return null;
+        }
+        const projectId = projects[0].id;
+        const res = await fetch(`${API_BASE}/threads/project/${projectId}`, { method: 'POST' });
+        const data = await res.json();
+        log('创建 Thread:', data);
+        return data;
+      } catch (e) {
+        log('创建 Thread 失败：' + e.message, null, true);
+      }
+    }
+
+    async function testMessages() {
+      const threadId = prompt('输入 Thread ID:');
+      if (!threadId) return;
+      try {
+        const res = await fetch(`${API_BASE}/messages/thread/${threadId}`);
+        const data = await res.json();
+        log('消息列表:', data);
+      } catch (e) {
+        log('消息列表失败：' + e.message, null, true);
+      }
+    }
+
+    async function testInvocations() {
+      const threadId = prompt('输入 Thread ID:');
+      if (!threadId) return;
+      try {
+        const res = await fetch(`${API_BASE}/threads/${threadId}/invocations`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            role: 'requirement',
+            input: '测试消息：请回复一个简单的问候'
+          })
+        });
+        const data = await res.json();
+        log('触发 Agent:', data);
+      } catch (e) {
+        log('触发 Agent 失败：' + e.message, null, true);
+      }
+    }
+
+    async function testAll() {
+      document.getElementById('output').innerHTML = '';
+      log('=== 开始完整流程测试 ===');
+
+      log('1. 获取项目列表...');
+      const projects = await testProjects();
+      if (!projects || projects.length === 0) return;
+
+      log('2. 创建 Thread...');
+      const thread = await testThread();
+      if (!thread) return;
+
+      const threadId = thread.id;
+      log('3. Thread ID: ' + threadId);
+
+      log('4. 检查消息列表（应该为空）...');
+      try {
+        const res = await fetch(`${API_BASE}/messages/thread/${threadId}`);
+        const data = await res.json();
+        log('消息列表:', data);
+      } catch (e) {
+        log('消息列表失败：' + e.message, null, true);
+      }
+
+      log('5. 触发需求分析师 Agent...');
+      try {
+        const res = await fetch(`${API_BASE}/threads/${threadId}/invocations`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            role: 'requirement',
+            input: '用户已创建新任务，请主动询问并收集用户的需求。请用友好的语气打招呼。'
+          })
+        });
+        const data = await res.json();
+        log('Agent 触发结果:', data);
+        log('Agent ID: ' + (data?.id || 'unknown'));
+        log('状态：' + (data?.status || 'unknown'));
+      } catch (e) {
+        log('触发 Agent 失败：' + e.message, null, true);
+      }
+
+      log('6. 检查 Invocations 列表...');
+      try {
+        // 注意：这个 API 可能返回 404
+        const res = await fetch(`${API_BASE}/threads/${threadId}/invocations`);
+        log('Invocations API 状态：' + res.status);
+        if (res.status !== 404) {
+          const data = await res.json();
+          log('Invocations:', data);
+        } else {
+          log('Invocations API 未找到（需要后端实现）', null, true);
+        }
+      } catch (e) {
+        log('Invocations 失败：' + e.message, null, true);
+      }
+
+      log('=== 测试完成 ===');
+      log('请在浏览器中访问：http://localhost:3001/projects/' + thread.project_id + '/threads/' + threadId);
+    }
+  </script>
+</body>
+</html>
