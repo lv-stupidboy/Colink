@@ -32,15 +32,16 @@ const (
 
 // Thread 开发会话模型
 type Thread struct {
-	ID           uuid.UUID    `json:"id"`
-	ProjectID    uuid.UUID    `json:"project_id"`
-	Status       ThreadStatus `json:"status"`
-	CurrentPhase Phase        `json:"current_phase"`
-	CurrentAgent string       `json:"current_agent"`
-	Depth        int          `json:"depth"`
-	AbortToken   *string      `json:"abort_token,omitempty"`
-	CreatedAt    time.Time    `json:"created_at"`
-	UpdatedAt    time.Time    `json:"updated_at"`
+	ID                 uuid.UUID    `json:"id"`
+	ProjectID          uuid.UUID    `json:"project_id"`
+	Status             ThreadStatus `json:"status"`
+	CurrentPhase       Phase        `json:"current_phase"`
+	CurrentAgent       string       `json:"current_agent"`
+	Depth              int          `json:"depth"`
+	AbortToken         *string      `json:"abort_token,omitempty"`
+	WorkflowTemplateID *uuid.UUID   `json:"workflow_template_id,omitempty"` // 新增：使用的工作流模板ID
+	CreatedAt          time.Time    `json:"created_at"`
+	UpdatedAt          time.Time    `json:"updated_at"`
 }
 
 func (t *Thread) TableName() string {

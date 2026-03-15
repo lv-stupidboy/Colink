@@ -37,15 +37,16 @@ const (
 
 // Project 项目模型
 type Project struct {
-	ID        uuid.UUID       `json:"id"`
-	Name      string          `json:"name"`
-	Type      ProjectType     `json:"type"`
-	Mode      ProjectMode     `json:"mode"`
-	Status    ProjectStatus   `json:"status"`
-	GitRepo   string          `json:"git_repo,omitempty"`
-	Config    json.RawMessage `json:"config,omitempty"`
-	CreatedAt time.Time       `json:"created_at"`
-	UpdatedAt time.Time       `json:"updated_at"`
+	ID                 uuid.UUID       `json:"id"`
+	Name               string          `json:"name"`
+	Type               ProjectType     `json:"type"`
+	Mode               ProjectMode     `json:"mode"`
+	Status             ProjectStatus   `json:"status"`
+	GitRepo            string          `json:"git_repo,omitempty"`
+	Config             json.RawMessage `json:"config,omitempty"`
+	WorkflowTemplateID *uuid.UUID      `json:"workflow_template_id,omitempty"` // 新增：绑定的工作流模板ID
+	CreatedAt          time.Time       `json:"created_at"`
+	UpdatedAt          time.Time       `json:"updated_at"`
 }
 
 func (p *Project) TableName() string {
@@ -59,6 +60,16 @@ type CreateProjectRequest struct {
 	Mode            ProjectMode `json:"mode" binding:"required,oneof=new enhance"`
 	ExistingRepoURL string      `json:"existing_repo_url,omitempty"`
 	Branch          string      `json:"branch,omitempty"`
+}
+
+// UpdateProjectRequest 更新项目请求
+type UpdateProjectRequest struct {
+	Name               *string        `json:"name"`
+	Type               *ProjectType   `json:"type"`
+	Mode               *ProjectMode   `json:"mode"`
+	Status             *ProjectStatus `json:"status"`
+	GitRepo            *string        `json:"git_repo"`
+	WorkflowTemplateID *uuid.UUID     `json:"workflow_template_id"` // 可为null表示解绑
 }
 
 // Validate 验证请求
