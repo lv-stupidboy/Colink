@@ -20,6 +20,7 @@ import (
 	"github.com/anthropic/isdp/internal/service/project"
 	"github.com/anthropic/isdp/internal/service/sandbox"
 	"github.com/anthropic/isdp/internal/service/thread"
+	"github.com/anthropic/isdp/internal/service/workflow"
 	"github.com/anthropic/isdp/internal/ws"
 	"github.com/anthropic/isdp/pkg/config"
 	"github.com/gin-gonic/gin"
@@ -91,6 +92,7 @@ func main() {
 	artifactRepo := repo.NewArtifactRepository(db)
 	sandboxRepo := repo.NewSandboxRepository(db)
 	reviewRepo := repo.NewReviewRepository(artifactRepo)
+	workflowRepo := repo.NewWorkflowTemplateRepository(db)
 
 	// 初始化Services
 	projectService := project.NewService(projectRepo)
@@ -99,11 +101,17 @@ func main() {
 	configService := agent.NewConfigService(agentConfigRepo)
 	baseAgentService := agent.NewBaseAgentService(baseAgentRepo)
 	workflowEngine := agent.NewWorkflowEngine(threadRepo, messageRepo, configService)
+	workflowService := workflow.NewService(workflowRepo)
 	mcpAuthService := a2a.NewMCPAuthService(cfg.MCP.TokenTTL)
 
 	// 初始化默认基础Agent
 	if err := baseAgentService.InitDefaultAgents(context.Background()); err != nil {
 		logger.Warn("Failed to initialize default base agents", zap.Error(err))
+	}
+
+	// 初始化系统工作流模板
+	if err := workflowService.InitSystemTemplates(context.Background()); err != nil {
+		logger.Warn("Failed to initialize system workflow templates", zap.Error(err))
 	}
 
 	// 初始化适配器（使用默认Claude适配器，后续会改为从BaseAgent动态创建）
@@ -175,6 +183,10 @@ func main() {
 	// 基础Agent Handler
 	baseAgentHandler := api.NewBaseAgentHandler(baseAgentService)
 	baseAgentHandler.RegisterRoutes(v1)
+
+	// 工作流模板 Handler
+	workflowHandler := api.NewWorkflowHandler(workflowService)
+	workflowHandler.RegisterRoutes(v1)
 
 	// WebSocket
 	wsHandler := ws.NewHandler(wsHub)
@@ -334,6 +346,7 @@ CREATE TABLE IF NOT EXISTS projects (
     status TEXT DEFAULT 'draft',
     git_repo TEXT,
     config TEXT,
+    workflow_template_id TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -347,6 +360,7 @@ CREATE TABLE IF NOT EXISTS threads (
     current_agent TEXT,
     depth INTEGER DEFAULT 0,
     abort_token TEXT,
+    workflow_template_id TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -435,6 +449,20 @@ CREATE TABLE IF NOT EXISTS sandboxes (
     ended_at TIMESTAMP
 );
 
+-- 工作流模板表
+CREATE TABLE IF NOT EXISTS workflow_templates (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    agent_ids TEXT DEFAULT '[]',
+    checkpoints TEXT DEFAULT '[]',
+    estimated_time TEXT,
+    is_system INTEGER DEFAULT 0,
+    is_default INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- 创建索引
 CREATE INDEX IF NOT EXISTS idx_threads_project_id ON threads(project_id);
 CREATE INDEX IF NOT EXISTS idx_messages_thread_id ON messages(thread_id);
@@ -446,20 +474,26 @@ CREATE INDEX IF NOT EXISTS idx_artifacts_thread_id ON artifacts(thread_id);
 		return err
 	}
 
-	// 迁移：检查 agent_configs 表是否有 base_agent_id 列
-	var hasColumn bool
-	row := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('agent_configs') WHERE name='base_agent_id'`)
-	var count int
-	if err := row.Scan(&count); err == nil && count > 0 {
-		hasColumn = true
+	// 迁移：检查并添加新列
+	migrations := []struct {
+		table  string
+		column string
+		typ    string
+	}{
+		{"agent_configs", "base_agent_id", "TEXT"},
+		{"projects", "workflow_template_id", "TEXT"},
+		{"threads", "workflow_template_id", "TEXT"},
+		{"workflow_templates", "is_default", "INTEGER DEFAULT 0"},
 	}
 
-	if !hasColumn {
-		// SQLite 不支持 ALTER TABLE ADD COLUMN 带外键，直接添加列
-		_, err = db.Exec(`ALTER TABLE agent_configs ADD COLUMN base_agent_id TEXT`)
-		if err != nil {
-			// 如果列已存在，忽略错误
-			fmt.Printf("Warning: could not add base_agent_id column: %v\n", err)
+	for _, m := range migrations {
+		var count int
+		row := db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM pragma_table_info('%s') WHERE name='%s'", m.table, m.column))
+		if err := row.Scan(&count); err == nil && count == 0 {
+			_, err = db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", m.table, m.column, m.typ))
+			if err != nil {
+				fmt.Printf("Warning: could not add %s column to %s: %v\n", m.column, m.table, err)
+			}
 		}
 	}
 
