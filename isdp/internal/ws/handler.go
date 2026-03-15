@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 
@@ -31,6 +32,8 @@ func (h *Handler) HandleWebSocket(c *gin.Context) {
 	threadID := c.Query("threadId")
 	userID := c.Query("userId")
 
+	fmt.Printf("[WebSocket] Connection request - threadId: %s, userId: %s\n", threadID, userID)
+
 	if threadID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "threadId required"})
 		return
@@ -38,8 +41,11 @@ func (h *Handler) HandleWebSocket(c *gin.Context) {
 
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
+		fmt.Printf("[WebSocket] Upgrade failed: %v\n", err)
 		return
 	}
+
+	fmt.Printf("[WebSocket] Connection upgraded successfully - threadId: %s\n", threadID)
 
 	client := &Client{
 		Hub:      h.hub,

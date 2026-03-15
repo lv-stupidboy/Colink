@@ -16,24 +16,27 @@ import (
 
 // Orchestrator Agent编排器
 type Orchestrator struct {
-	invocationRepo *repo.AgentInvocationRepository
-	threadRepo     *repo.ThreadRepository
-	msgRepo        *repo.MessageRepository
-	configSvc      *ConfigService
-	tracker        *InvocationTracker
-	workflow       *WorkflowEngine
-	wsHub          *ws.Hub
-	clauseAdapter  *ClaudeAdapter
+	invocationRepo  *repo.AgentInvocationRepository
+	threadRepo      *repo.ThreadRepository
+	msgRepo         *repo.MessageRepository
+	configSvc       *ConfigService
+	baseAgentSvc    *BaseAgentService
+	tracker         *InvocationTracker
+	workflow        *WorkflowEngine
+	wsHub           *ws.Hub
+	defaultAdapter  AgentAdapter // 默认适配器，用于向后兼容
 
-	runningAgents map[uuid.UUID]*RunningAgent
-	mu            sync.RWMutex
+	runningAgents      map[uuid.UUID]*RunningAgent
+	interactiveManager *InteractiveSessionManager
+	mu                 sync.RWMutex
 }
 
 // RunningAgent 运行中的Agent
 type RunningAgent struct {
 	InvocationID uuid.UUID
 	ThreadID     uuid.UUID
-	AgentConfig  *model.AgentConfig
+	AgentConfig  *model.AgentRoleConfig
+	BaseAgent    *model.BaseAgent // 关联的基础Agent配置
 	StartedAt    time.Time
 	CancelFunc   context.CancelFunc
 }
@@ -44,22 +47,26 @@ func NewOrchestrator(
 	threadRepo *repo.ThreadRepository,
 	msgRepo *repo.MessageRepository,
 	configSvc *ConfigService,
+	baseAgentSvc *BaseAgentService,
 	tracker *InvocationTracker,
 	workflow *WorkflowEngine,
 	wsHub *ws.Hub,
-	claudeAdapter *ClaudeAdapter,
+	defaultAdapter AgentAdapter,
 ) *Orchestrator {
-	return &Orchestrator{
+	o := &Orchestrator{
 		invocationRepo: invocationRepo,
 		threadRepo:     threadRepo,
 		msgRepo:        msgRepo,
 		configSvc:      configSvc,
+		baseAgentSvc:   baseAgentSvc,
 		tracker:        tracker,
 		workflow:       workflow,
 		wsHub:          wsHub,
-		clauseAdapter:  claudeAdapter,
+		defaultAdapter: defaultAdapter,
 		runningAgents:  make(map[uuid.UUID]*RunningAgent),
 	}
+	o.interactiveManager = NewInteractiveSessionManager(wsHub)
+	return o
 }
 
 // SpawnAgent 启动Agent
@@ -70,6 +77,16 @@ func (o *Orchestrator) SpawnAgent(ctx context.Context, req *SpawnRequest) (*mode
 		config, err = o.configSvc.GetDefaultByRole(ctx, req.Role)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get agent config: %w", err)
+		}
+	}
+
+	// 获取关联的BaseAgent配置
+	var baseAgent *model.BaseAgent
+	if config.BaseAgentID != uuid.Nil && o.baseAgentSvc != nil {
+		baseAgent, err = o.baseAgentSvc.GetByID(ctx, config.BaseAgentID)
+		if err != nil {
+			// 记录警告但不阻止执行
+			baseAgent = nil
 		}
 	}
 
@@ -88,8 +105,8 @@ func (o *Orchestrator) SpawnAgent(ctx context.Context, req *SpawnRequest) (*mode
 		return nil, fmt.Errorf("failed to create invocation: %w", err)
 	}
 
-	// 创建上下文
-	agentCtx, cancel := context.WithCancel(ctx)
+	// 创建上下文 - 使用独立的context，不受HTTP请求生命周期影响
+	agentCtx, cancel := context.WithCancel(context.Background())
 
 	// 记录运行中的Agent
 	o.mu.Lock()
@@ -97,6 +114,7 @@ func (o *Orchestrator) SpawnAgent(ctx context.Context, req *SpawnRequest) (*mode
 		InvocationID: invocation.ID,
 		ThreadID:     req.ThreadID,
 		AgentConfig:  config,
+		BaseAgent:    baseAgent,
 		StartedAt:    time.Now(),
 		CancelFunc:   cancel,
 	}
@@ -106,32 +124,64 @@ func (o *Orchestrator) SpawnAgent(ctx context.Context, req *SpawnRequest) (*mode
 	o.broadcastStatus(req.ThreadID, invocation.ID, "started", config.Role)
 
 	// 异步执行Agent
-	go o.executeAgent(agentCtx, invocation, config, req)
+	go o.executeAgent(agentCtx, invocation, config, baseAgent, req)
 
 	return invocation, nil
 }
 
 // executeAgent 执行Agent
-func (o *Orchestrator) executeAgent(ctx context.Context, invocation *model.AgentInvocation, config *model.AgentConfig, req *SpawnRequest) {
+func (o *Orchestrator) executeAgent(ctx context.Context, invocation *model.AgentInvocation, config *model.AgentRoleConfig, baseAgent *model.BaseAgent, req *SpawnRequest) {
 	defer func() {
+		// 恢复可能的panic
+		if r := recover(); r != nil {
+			err := fmt.Errorf("panic in executeAgent: %v", r)
+			o.handleAgentError(ctx, invocation, err)
+		}
 		o.mu.Lock()
 		delete(o.runningAgents, invocation.ID)
 		o.mu.Unlock()
 	}()
 
+	fmt.Printf("[DEBUG] executeAgent started for invocation %s\n", invocation.ID)
+
 	// 构建上下文
 	contextLayers, err := o.buildContextLayers(ctx, req.ThreadID, config)
 	if err != nil {
-		o.handleAgentError(ctx, invocation, err)
+		fmt.Printf("[DEBUG] buildContextLayers failed: %v\n", err)
+		o.handleAgentError(ctx, invocation, fmt.Errorf("failed to build context layers: %w", err))
+		return
+	}
+	fmt.Printf("[DEBUG] Context layers built\n")
+
+	// 合并配置：AgentRoleConfig 优先，BaseAgent 作为默认值
+	mergedConfig := o.mergeConfig(config, baseAgent)
+	fmt.Printf("[DEBUG] Config merged, model: %s\n", mergedConfig.ModelName)
+
+	// 获取适配器
+	adapter, err := o.getAdapter(ctx, config, baseAgent)
+	if err != nil {
+		fmt.Printf("[DEBUG] getAdapter failed: %v\n", err)
+		o.handleAgentError(ctx, invocation, fmt.Errorf("failed to get adapter: %w", err))
+		return
+	}
+	fmt.Printf("[DEBUG] Adapter obtained: %T\n", adapter)
+
+	// 使用流式执行，实时广播输出
+	var outputBuilder strings.Builder
+	err = adapter.ExecuteWithStream(ctx, mergedConfig, contextLayers, req.Input, req.ProjectPath, func(chunk string) {
+		outputBuilder.WriteString(chunk)
+		// 实时广播输出块
+		o.broadcastOutputChunk(req.ThreadID, invocation.ID, chunk)
+	})
+
+	if err != nil {
+		fmt.Printf("[DEBUG] Adapter.ExecuteWithStream failed: %v\n", err)
+		o.handleAgentError(ctx, invocation, fmt.Errorf("adapter execution failed: %w", err))
 		return
 	}
 
-	// 调用Claude
-	output, err := o.clauseAdapter.Execute(ctx, config, contextLayers, req.Input)
-	if err != nil {
-		o.handleAgentError(ctx, invocation, err)
-		return
-	}
+	output := outputBuilder.String()
+	fmt.Printf("[DEBUG] Execution completed, output length: %d\n", len(output))
 
 	// 更新调用记录
 	invocation.Status = model.InvocationStatusCompleted
@@ -156,6 +206,59 @@ func (o *Orchestrator) executeAgent(ctx context.Context, invocation *model.Agent
 	o.checkRouting(ctx, req.ThreadID, config, output)
 }
 
+// mergeConfig 合并 AgentRoleConfig 和 BaseAgent 的配置
+func (o *Orchestrator) mergeConfig(config *model.AgentRoleConfig, baseAgent *model.BaseAgent) *model.AgentRoleConfig {
+	// 复制原始配置
+	merged := *config
+
+	if baseAgent == nil {
+		return &merged
+	}
+
+	// 如果 AgentRoleConfig 没有指定模型，使用 BaseAgent 的默认模型
+	if merged.ModelName == "" && baseAgent.DefaultModel != "" {
+		merged.ModelName = baseAgent.DefaultModel
+	}
+
+	// 如果没有指定 MaxTokens，使用 BaseAgent 的配置
+	if merged.MaxTokens == 0 && baseAgent.MaxTokens > 0 {
+		merged.MaxTokens = baseAgent.MaxTokens
+	}
+
+	return &merged
+}
+
+// getAdapter 获取适配器
+func (o *Orchestrator) getAdapter(ctx context.Context, config *model.AgentRoleConfig, baseAgent *model.BaseAgent) (AgentAdapter, error) {
+	// 如果有 BaseAgent，使用它创建适配器
+	if baseAgent != nil {
+		adapter := NewAdapter(baseAgent)
+		if adapter == nil {
+			return nil, fmt.Errorf("unsupported base agent type: %s", baseAgent.Type)
+		}
+		return adapter, nil
+	}
+
+	// 如果配置了BaseAgentID但没有传入baseAgent，尝试获取
+	if config.BaseAgentID != uuid.Nil && o.baseAgentSvc != nil {
+		ba, err := o.baseAgentSvc.GetByID(ctx, config.BaseAgentID)
+		if err == nil {
+			adapter := NewAdapter(ba)
+			if adapter != nil {
+				return adapter, nil
+			}
+		}
+		// 如果获取失败，继续尝试使用默认适配器
+	}
+
+	// 向后兼容：使用默认适配器
+	if o.defaultAdapter != nil {
+		return o.defaultAdapter, nil
+	}
+
+	return nil, errors.New("no adapter available")
+}
+
 // handleAgentError 处理Agent错误
 func (o *Orchestrator) handleAgentError(ctx context.Context, invocation *model.AgentInvocation, err error) {
 	invocation.Status = model.InvocationStatusFailed
@@ -167,7 +270,7 @@ func (o *Orchestrator) handleAgentError(ctx context.Context, invocation *model.A
 }
 
 // buildContextLayers 构建上下文层
-func (o *Orchestrator) buildContextLayers(ctx context.Context, threadID uuid.UUID, config *model.AgentConfig) (*ContextLayers, error) {
+func (o *Orchestrator) buildContextLayers(ctx context.Context, threadID uuid.UUID, config *model.AgentRoleConfig) (*ContextLayers, error) {
 	layers := &ContextLayers{}
 
 	// Layer 0: 系统提示
@@ -194,7 +297,7 @@ func (o *Orchestrator) buildContextLayers(ctx context.Context, threadID uuid.UUI
 }
 
 // checkRouting 检查路由
-func (o *Orchestrator) checkRouting(ctx context.Context, threadID uuid.UUID, config *model.AgentConfig, output string) {
+func (o *Orchestrator) checkRouting(ctx context.Context, threadID uuid.UUID, config *model.AgentRoleConfig, output string) {
 	// 解析@mention (简单的行首@检测)
 	mentions := parseMentions(output)
 
@@ -357,6 +460,21 @@ func (o *Orchestrator) broadcastStatus(threadID, invocationID uuid.UUID, status 
 	}
 }
 
+// broadcastOutputChunk 广播输出块（实时流式输出）
+func (o *Orchestrator) broadcastOutputChunk(threadID, invocationID uuid.UUID, chunk string) {
+	if o.wsHub != nil {
+		o.wsHub.BroadcastToThread(threadID.String(), ws.WSMessage{
+			Type:      "agent_output_chunk",
+			ThreadID:  threadID.String(),
+			Timestamp: time.Now().UnixMilli(),
+			Payload: map[string]interface{}{
+				"invocationId": invocationID.String(),
+				"chunk":        chunk,
+			},
+		})
+	}
+}
+
 // GetInvocationsByThread 获取 Thread 的所有 Agent 调用
 func (o *Orchestrator) GetInvocationsByThread(ctx context.Context, threadID uuid.UUID) ([]model.AgentInvocation, error) {
 	invocations, err := o.invocationRepo.FindByThreadID(ctx, threadID)
@@ -372,12 +490,65 @@ func (o *Orchestrator) GetInvocationsByThread(ctx context.Context, threadID uuid
 	return result, nil
 }
 
+// GetInvocationStatus 获取单个调用的状态
+func (o *Orchestrator) GetInvocationStatus(ctx context.Context, invocationID uuid.UUID) (*model.AgentInvocation, error) {
+	return o.invocationRepo.FindByID(ctx, invocationID)
+}
+
+// StartInteractiveSession 启动交互式会话
+func (o *Orchestrator) StartInteractiveSession(ctx context.Context, req *SpawnRequest) (*InteractiveSession, error) {
+	// 获取Agent配置
+	config, err := o.configSvc.GetByID(ctx, req.ConfigID)
+	if err != nil {
+		config, err = o.configSvc.GetDefaultByRole(ctx, req.Role)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get agent config: %w", err)
+		}
+	}
+
+	// 获取关联的BaseAgent配置
+	var baseAgent *model.BaseAgent
+	if config.BaseAgentID != uuid.Nil && o.baseAgentSvc != nil {
+		baseAgent, err = o.baseAgentSvc.GetByID(ctx, config.BaseAgentID)
+		if err != nil {
+			baseAgent = nil
+		}
+	}
+
+	// 启动交互式会话
+	session, err := o.interactiveManager.StartSession(ctx, req.ThreadID, config, baseAgent, req.ProjectPath, req.Input)
+	if err != nil {
+		return nil, err
+	}
+
+	// 广播会话启动状态
+	o.broadcastStatus(req.ThreadID, session.ID, "started", config.Role)
+
+	return session, nil
+}
+
+// SendMessageToSession 向交互式会话发送消息
+func (o *Orchestrator) SendMessageToSession(threadID uuid.UUID, message string) error {
+	return o.interactiveManager.SendMessageToSession(threadID, message)
+}
+
+// StopInteractiveSession 停止交互式会话
+func (o *Orchestrator) StopInteractiveSession(threadID uuid.UUID) error {
+	return o.interactiveManager.StopSession(threadID)
+}
+
+// GetInteractiveSession 获取交互式会话
+func (o *Orchestrator) GetInteractiveSession(threadID uuid.UUID) *InteractiveSession {
+	return o.interactiveManager.GetSession(threadID)
+}
+
 // SpawnRequest 启动请求
 type SpawnRequest struct {
-	ThreadID uuid.UUID
-	ConfigID uuid.UUID
-	Role     model.AgentRole
-	Input    string
+	ThreadID    uuid.UUID
+	ConfigID    uuid.UUID
+	Role        model.AgentRole
+	Input       string
+	ProjectPath string // 工作目录
 }
 
 // ContextLayers 上下文层

@@ -1,5 +1,5 @@
 -- ISDP Database Initialization Script for SQLite
--- Version: 1.0
+-- Version: 1.1
 
 -- 项目表
 CREATE TABLE IF NOT EXISTS projects (
@@ -39,11 +39,29 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Agent配置表
+-- 基础Agent配置表
+CREATE TABLE IF NOT EXISTS base_agents (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL,
+    api_url TEXT,
+    api_token TEXT,
+    default_model TEXT,
+    cli_path TEXT DEFAULT 'claude',
+    git_bash_path TEXT,
+    max_tokens INTEGER DEFAULT 4096,
+    timeout_minutes INTEGER DEFAULT 30,
+    is_active INTEGER DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Agent配置表（Agent角色）
 CREATE TABLE IF NOT EXISTS agent_configs (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     role TEXT NOT NULL,
+    base_agent_id TEXT REFERENCES base_agents(id),
     description TEXT,
     system_prompt TEXT,
     model_name TEXT DEFAULT 'claude-sonnet-4-6',
@@ -98,6 +116,8 @@ CREATE TABLE IF NOT EXISTS sandboxes (
 CREATE INDEX IF NOT EXISTS idx_threads_project_id ON threads(project_id);
 CREATE INDEX IF NOT EXISTS idx_messages_thread_id ON messages(thread_id);
 CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at);
+CREATE INDEX IF NOT EXISTS idx_agent_configs_base_agent_id ON agent_configs(base_agent_id);
 CREATE INDEX IF NOT EXISTS idx_agent_invocations_thread_id ON agent_invocations(thread_id);
 CREATE INDEX IF NOT EXISTS idx_artifacts_thread_id ON artifacts(thread_id);
 CREATE INDEX IF NOT EXISTS idx_sandboxes_thread_id ON sandboxes(thread_id);
+CREATE INDEX IF NOT EXISTS idx_base_agents_type ON base_agents(type);

@@ -8,7 +8,7 @@ import (
 
 // ========== Agent Config Models ==========
 
-// AgentRole Agent角色
+// AgentRole Agent角色类型
 type AgentRole string
 
 const (
@@ -18,6 +18,7 @@ const (
 	AgentRoleReviewer     AgentRole = "reviewer"
 	AgentRoleTestEngineer AgentRole = "testengineer"
 	AgentRoleDevOps       AgentRole = "devops"
+	AgentRoleCustom       AgentRole = "custom"  // 自定义角色
 )
 
 // RoutingConfig 路由配置
@@ -26,11 +27,16 @@ type RoutingConfig struct {
 	RouteOnSignal []string    `json:"route_on_signal"`
 }
 
-// AgentConfig Agent配置模型
-type AgentConfig struct {
+// AgentConfig Agent配置模型（保留兼容性，现已改名为AgentRole）
+// 建议使用AgentRole别名
+type AgentConfig = AgentRoleConfig
+
+// AgentRoleConfig Agent角色配置模型
+type AgentRoleConfig struct {
 	ID           uuid.UUID      `json:"id"`
 	Name         string         `json:"name"`
 	Role         AgentRole      `json:"role"`
+	BaseAgentID  uuid.UUID      `json:"base_agent_id,omitempty"`
 	Description  string         `json:"description"`
 	SystemPrompt string         `json:"system_prompt"`
 	ModelName    string         `json:"model_name"`
@@ -42,16 +48,17 @@ type AgentConfig struct {
 	UpdatedAt    time.Time      `json:"updated_at"`
 }
 
-func (a *AgentConfig) TableName() string {
+func (a *AgentRoleConfig) TableName() string {
 	return "agent_configs"
 }
 
 // CreateAgentRequest 创建Agent请求
 type CreateAgentRequest struct {
 	Name         string         `json:"name" binding:"required"`
-	Role         AgentRole      `json:"role" binding:"required"`
+	Role         AgentRole      `json:"role"`  // 可选，默认为 custom
+	BaseAgentID  uuid.UUID      `json:"base_agent_id"`
 	Description  string         `json:"description"`
-	SystemPrompt string         `json:"system_prompt"`
+	SystemPrompt string         `json:"system_prompt" binding:"required"`
 	ModelName    string         `json:"model_name"`
 	MaxTokens    int            `json:"max_tokens"`
 	Temperature  float64        `json:"temperature"`

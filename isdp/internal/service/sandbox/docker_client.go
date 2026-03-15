@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/docker/docker/api/types"
@@ -14,6 +16,7 @@ import (
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
+	"github.com/docker/go-connections/nat"
 )
 
 // DockerClient Docker客户端封装
@@ -32,14 +35,21 @@ func NewDockerClient() (*DockerClient, error) {
 
 // ContainerConfig 容器配置
 type ContainerConfig struct {
-	Image       string
-	Cmd         []string
-	Env         []string
-	WorkDir     string
-	MemoryLimit int64  // MB
-	CPUQuota    int64  // CPU quota
-	Timeout     time.Duration
-	Mounts      []MountConfig
+	Image        string
+	Cmd          []string
+	Env          []string
+	WorkDir      string
+	MemoryLimit  int64  // MB
+	CPUQuota     int64  // CPU quota
+	Timeout      time.Duration
+	Mounts       []MountConfig
+	PortBindings []PortBinding // 端口映射
+}
+
+// PortBinding 端口映射配置
+type PortBinding struct {
+	ContainerPort int
+	HostPort      int // 0表示自动分配
 }
 
 // MountConfig 挂载配置
@@ -51,13 +61,20 @@ type MountConfig struct {
 
 // CreateContainer 创建容器
 func (d *DockerClient) CreateContainer(ctx context.Context, name string, config *ContainerConfig) (string, error) {
-	// 拉取镜像
-	reader, err := d.client.ImagePull(ctx, config.Image, types.ImagePullOptions{})
+	// 先检查本地是否已有镜像
+	_, _, err := d.client.ImageInspectWithRaw(ctx, config.Image)
 	if err != nil {
-		return "", fmt.Errorf("failed to pull image: %w", err)
+		// 本地没有镜像，尝试拉取
+		fmt.Printf("[CreateContainer] Image %s not found locally, pulling...\n", config.Image)
+		reader, err := d.client.ImagePull(ctx, config.Image, types.ImagePullOptions{})
+		if err != nil {
+			return "", fmt.Errorf("failed to pull image: %w", err)
+		}
+		io.Copy(io.Discard, reader)
+		reader.Close()
+	} else {
+		fmt.Printf("[CreateContainer] Image %s found locally\n", config.Image)
 	}
-	io.Copy(io.Discard, reader)
-	reader.Close()
 
 	// 构建挂载
 	var mounts []mount.Mount
@@ -70,6 +87,24 @@ func (d *DockerClient) CreateContainer(ctx context.Context, name string, config 
 		})
 	}
 
+	// 构建端口映射
+	portSet := nat.PortSet{}
+	portMap := nat.PortMap{}
+	for _, pb := range config.PortBindings {
+		port := nat.Port(strconv.Itoa(pb.ContainerPort) + "/tcp")
+		portSet[port] = struct{}{}
+		if pb.HostPort > 0 {
+			portMap[port] = []nat.PortBinding{
+				{HostPort: strconv.Itoa(pb.HostPort)},
+			}
+		} else {
+			// 自动分配端口
+			portMap[port] = []nat.PortBinding{
+				{HostPort: "0"},
+			}
+		}
+	}
+
 	// 创建容器
 	containerConfig := &container.Config{
 		Image:      config.Image,
@@ -77,6 +112,7 @@ func (d *DockerClient) CreateContainer(ctx context.Context, name string, config 
 		Env:        config.Env,
 		WorkingDir: config.WorkDir,
 		Tty:        false,
+		ExposedPorts: portSet,
 	}
 
 	hostConfig := &container.HostConfig{
@@ -85,7 +121,8 @@ func (d *DockerClient) CreateContainer(ctx context.Context, name string, config 
 			Memory:    config.MemoryLimit * 1024 * 1024, // MB to bytes
 			CPUQuota:  config.CPUQuota,
 		},
-		AutoRemove: false,
+		AutoRemove:   false,
+		PortBindings: portMap,
 	}
 
 	resp, err := d.client.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, name)
@@ -233,4 +270,34 @@ func (d *DockerClient) ListContainers(ctx context.Context, all bool) ([]types.Co
 // Close 关闭客户端
 func (d *DockerClient) Close() error {
 	return d.client.Close()
+}
+
+// GetContainerPorts 获取容器端口映射
+func (d *DockerClient) GetContainerPorts(ctx context.Context, containerID string) (map[int]int, error) {
+	info, err := d.client.ContainerInspect(ctx, containerID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to inspect container: %w", err)
+	}
+
+	ports := make(map[int]int)
+	for containerPort, bindings := range info.NetworkSettings.Ports {
+		if len(bindings) > 0 {
+			containerPortNum, _ := strconv.Atoi(strings.TrimSuffix(string(containerPort), "/tcp"))
+			hostPortNum, _ := strconv.Atoi(bindings[0].HostPort)
+			ports[containerPortNum] = hostPortNum
+		}
+	}
+	return ports, nil
+}
+
+// StreamContainerLogs 获取容器日志流
+func (d *DockerClient) StreamContainerLogs(ctx context.Context, containerID string) (io.ReadCloser, error) {
+	options := container.LogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		Follow:     true,
+		Tail:       "100",
+	}
+
+	return d.client.ContainerLogs(ctx, containerID, options)
 }

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Card, Table, Tag, Space, Button, Modal, message, Drawer, Typography, Descriptions, Statistic, Row, Col, Progress, Tabs, Input, Alert, Empty } from 'antd';
+import { Card, Table, Tag, Space, Button, Modal, message, Drawer, Typography, Descriptions, Statistic, Row, Col, Tabs, Input, Alert, Empty } from 'antd';
 import {
   InboxOutlined,
   PlayCircleOutlined,
@@ -10,6 +10,7 @@ import {
   ClearOutlined,
   CloudServerOutlined,
   CodeOutlined,
+  ExpandOutlined,
 } from '@ant-design/icons';
 import api from '@/api/client';
 
@@ -20,16 +21,13 @@ const { Search } = Input;
 interface Sandbox {
   id: string;
   threadId: string;
-  name: string;
-  image: string;
-  status: 'created' | 'running' | 'stopped' | 'error';
+  projectPath: string;
+  mode: string;
+  port: number;
+  url: string;
+  status: string;
   containerId?: string;
-  port?: number;
-  cpu?: number;
-  memory?: number;
-  disk?: number;
-  createdAt: string;
-  endedAt?: string;
+  startedAt: string;
 }
 
 interface LogEntry {
@@ -62,6 +60,9 @@ const SandboxPage: React.FC = () => {
 
   useEffect(() => {
     loadSandboxes();
+    // 定时刷新，每5秒
+    const interval = setInterval(loadSandboxes, 5000);
+    return () => clearInterval(interval);
   }, []);
 
   // 自动滚动日志到底部
@@ -74,51 +75,8 @@ const SandboxPage: React.FC = () => {
   const loadSandboxes = async () => {
     setLoading(true);
     try {
-      // TODO: 调用实际 API
-      // const data = await api.sandbox.list();
-      // 模拟数据
-      setSandboxes([
-        {
-          id: '1',
-          threadId: 'thread-1',
-          name: 'dev-sandbox-1',
-          image: 'node:18-alpine',
-          status: 'running',
-          containerId: 'abc123def456',
-          port: 3000,
-          cpu: 25,
-          memory: 512,
-          disk: 256,
-          createdAt: new Date().toISOString(),
-        },
-        {
-          id: '2',
-          threadId: 'thread-2',
-          name: 'test-sandbox-1',
-          image: 'python:3.11-slim',
-          status: 'stopped',
-          containerId: 'def456ghi789',
-          port: 8000,
-          cpu: 0,
-          memory: 0,
-          disk: 0,
-          createdAt: new Date(Date.now() - 3600000).toISOString(),
-          endedAt: new Date().toISOString(),
-        },
-        {
-          id: '3',
-          threadId: 'thread-3',
-          name: 'api-sandbox-1',
-          image: 'golang:1.21-alpine',
-          status: 'running',
-          containerId: 'ghi789jkl012',
-          port: 8080,
-          cpu: 45,
-          memory: 1024,
-          disk: 512,
-          createdAt: new Date(Date.now() - 7200000).toISOString(),
-        },
-      ]);
+      const data = await api.sandbox.listServers();
+      setSandboxes(data);
     } catch (error) {
       message.error('加载沙箱列表失败');
     } finally {
@@ -126,25 +84,19 @@ const SandboxPage: React.FC = () => {
     }
   };
 
-  const loadLogs = async (_sandboxId: string) => {
+  const loadLogs = async (sandboxId: string) => {
     setLogsLoading(true);
     try {
-      // TODO: 调用实际 API
-      // const data = await api.sandbox.logs(sandboxId);
-      // 模拟日志数据
-      const mockLogs: LogEntry[] = [
-        { timestamp: new Date().toISOString(), level: 'info', message: '容器启动中...', source: 'system' },
-        { timestamp: new Date().toISOString(), level: 'info', message: '正在拉取镜像 node:18-alpine', source: 'docker' },
-        { timestamp: new Date().toISOString(), level: 'info', message: '镜像拉取完成', source: 'docker' },
-        { timestamp: new Date().toISOString(), level: 'info', message: '正在启动应用...', source: 'app' },
-        { timestamp: new Date().toISOString(), level: 'debug', message: 'Environment: NODE_ENV=development', source: 'app' },
-        { timestamp: new Date().toISOString(), level: 'info', message: 'Server listening on port 3000', source: 'app' },
-        { timestamp: new Date().toISOString(), level: 'warn', message: 'Memory usage is above 80%', source: 'monitor' },
-        { timestamp: new Date().toISOString(), level: 'info', message: 'GET /api/health - 200 OK (5ms)', source: 'http' },
-        { timestamp: new Date().toISOString(), level: 'info', message: 'POST /api/users - 201 Created (45ms)', source: 'http' },
-        { timestamp: new Date().toISOString(), level: 'error', message: 'Connection timeout to database', source: 'db' },
-      ];
-      setLogs(mockLogs);
+      const result = await api.sandbox.getLogs(sandboxId);
+      // 解析日志文本为日志条目
+      const logLines = (result.logs || '').split('\n').filter((line: string) => line.trim());
+      const logEntries: LogEntry[] = logLines.map((line: string) => ({
+        timestamp: new Date().toISOString(),
+        level: 'info' as const,
+        message: line,
+        source: selectedSandbox?.mode === 'docker' ? 'docker' : 'local',
+      }));
+      setLogs(logEntries);
     } catch (error) {
       message.error('加载日志失败');
     } finally {
@@ -152,17 +104,13 @@ const SandboxPage: React.FC = () => {
     }
   };
 
-  const handleStart = async (sandbox: Sandbox) => {
-    try {
-      await api.sandbox.run(sandbox.threadId, { image: sandbox.image, command: [] });
-      message.success('沙箱启动成功');
-      loadSandboxes();
-    } catch (error) {
-      message.error('启动沙箱失败');
+  const handleOpenPreview = (sandbox: Sandbox) => {
+    if (sandbox.url) {
+      window.open(sandbox.url, '_blank');
     }
   };
 
-  const handleStop = async (_sandboxId: string) => {
+  const handleStop = async (sandboxId: string) => {
     Modal.confirm({
       title: '确认停止？',
       content: '停止沙箱将终止所有运行中的进程',
@@ -170,9 +118,13 @@ const SandboxPage: React.FC = () => {
       okType: 'danger',
       cancelText: '取消',
       onOk: async () => {
-        // TODO: 调用停止 API
-        message.success('沙箱已停止');
-        loadSandboxes();
+        try {
+          await api.sandbox.stopServer(sandboxId);
+          message.success('沙箱已停止');
+          loadSandboxes();
+        } catch (error) {
+          message.error('停止沙箱失败');
+        }
       },
     });
   };
@@ -253,21 +205,25 @@ const SandboxPage: React.FC = () => {
 
   const columns = [
     {
-      title: '名称',
-      dataIndex: 'name',
-      key: 'name',
-      render: (name: string) => (
+      title: '项目路径',
+      dataIndex: 'projectPath',
+      key: 'projectPath',
+      render: (projectPath: string) => (
         <Space>
           <CloudServerOutlined />
-          <Text strong>{name}</Text>
+          <Text strong>{projectPath}</Text>
         </Space>
       ),
     },
     {
-      title: '镜像',
-      dataIndex: 'image',
-      key: 'image',
-      render: (image: string) => <Text code>{image}</Text>,
+      title: '模式',
+      dataIndex: 'mode',
+      key: 'mode',
+      render: (mode: string) => (
+        <Tag color={mode === 'docker' ? 'blue' : 'green'}>
+          {mode === 'docker' ? '容器' : '本地'}
+        </Tag>
+      ),
     },
     {
       title: '状态',
@@ -277,13 +233,13 @@ const SandboxPage: React.FC = () => {
         const colorMap: Record<string, string> = {
           running: 'green',
           stopped: 'default',
-          created: 'blue',
+          starting: 'blue',
           error: 'red',
         };
         const textMap: Record<string, string> = {
           running: '运行中',
           stopped: '已停止',
-          created: '已创建',
+          starting: '启动中',
           error: '错误',
         };
         return <Tag color={colorMap[status] || 'default'}>{textMap[status] || status}</Tag>;
@@ -296,21 +252,17 @@ const SandboxPage: React.FC = () => {
       render: (port?: number) => port ? `:${port}` : '-',
     },
     {
-      title: 'CPU/内存',
-      key: 'resources',
-      render: (_: unknown, record: Sandbox) =>
-        record.status === 'running' ? (
-          <Space>
-            <Text>{record.cpu}%</Text>
-            <Text type="secondary">/</Text>
-            <Text>{record.memory}MB</Text>
-          </Space>
-        ) : '-',
+      title: '预览地址',
+      dataIndex: 'url',
+      key: 'url',
+      render: (url: string) => url ? (
+        <a href={url} target="_blank" rel="noopener noreferrer">{url}</a>
+      ) : '-',
     },
     {
-      title: '创建时间',
-      dataIndex: 'createdAt',
-      key: 'createdAt',
+      title: '启动时间',
+      dataIndex: 'startedAt',
+      key: 'startedAt',
       render: (date: string) => new Date(date).toLocaleString(),
     },
     {
@@ -318,24 +270,24 @@ const SandboxPage: React.FC = () => {
       key: 'actions',
       render: (_: unknown, record: Sandbox) => (
         <Space>
-          {record.status === 'running' ? (
-            <Button
-              danger
-              size="small"
-              icon={<StopOutlined />}
-              onClick={() => handleStop(record.id)}
-            >
-              停止
-            </Button>
-          ) : (
-            <Button
-              type="primary"
-              size="small"
-              icon={<PlayCircleOutlined />}
-              onClick={() => handleStart(record)}
-            >
-              启动
-            </Button>
+          {record.status === 'running' && (
+            <>
+              <Button
+                size="small"
+                icon={<ExpandOutlined />}
+                onClick={() => handleOpenPreview(record)}
+              >
+                预览
+              </Button>
+              <Button
+                danger
+                size="small"
+                icon={<StopOutlined />}
+                onClick={() => handleStop(record.id)}
+              >
+                停止
+              </Button>
+            </>
           )}
           <Button
             size="small"
@@ -351,8 +303,8 @@ const SandboxPage: React.FC = () => {
 
   // 计算统计
   const runningCount = sandboxes.filter((s) => s.status === 'running').length;
-  const totalCpu = sandboxes.reduce((sum, s) => sum + (s.cpu || 0), 0);
-  const totalMemory = sandboxes.reduce((sum, s) => sum + (s.memory || 0), 0);
+  const dockerCount = sandboxes.filter((s) => s.mode === 'docker').length;
+  const localCount = sandboxes.filter((s) => s.mode === 'local').length;
 
   return (
     <div className="sandbox-page">
@@ -391,19 +343,18 @@ const SandboxPage: React.FC = () => {
         <Col xs={24} sm={6}>
           <Card>
             <Statistic
-              title="CPU 总使用"
-              value={totalCpu}
-              suffix="%"
+              title="容器沙箱"
+              value={dockerCount}
               valueStyle={{ color: '#1890ff' }}
+              prefix={<CloudServerOutlined />}
             />
           </Card>
         </Col>
         <Col xs={24} sm={6}>
           <Card>
             <Statistic
-              title="内存总使用"
-              value={totalMemory}
-              suffix="MB"
+              title="本地沙箱"
+              value={localCount}
               valueStyle={{ color: '#722ed1' }}
             />
           </Card>
@@ -445,73 +396,31 @@ const SandboxPage: React.FC = () => {
               key="info"
             >
               <Descriptions column={2} bordered size="small">
-                <Descriptions.Item label="名称">{selectedSandbox.name}</Descriptions.Item>
+                <Descriptions.Item label="项目路径">{selectedSandbox.projectPath}</Descriptions.Item>
                 <Descriptions.Item label="状态">
                   <Tag color={selectedSandbox.status === 'running' ? 'green' : 'default'}>
                     {selectedSandbox.status}
                   </Tag>
                 </Descriptions.Item>
-                <Descriptions.Item label="镜像" span={2}>
-                  <Text code>{selectedSandbox.image}</Text>
+                <Descriptions.Item label="运行模式">
+                  <Tag color={selectedSandbox.mode === 'docker' ? 'blue' : 'green'}>
+                    {selectedSandbox.mode === 'docker' ? '容器沙箱' : '本地沙箱'}
+                  </Tag>
+                </Descriptions.Item>
+                <Descriptions.Item label="端口">{selectedSandbox.port || '-'}</Descriptions.Item>
+                <Descriptions.Item label="预览地址" span={2}>
+                  {selectedSandbox.url ? (
+                    <a href={selectedSandbox.url} target="_blank" rel="noopener noreferrer">{selectedSandbox.url}</a>
+                  ) : '-'}
                 </Descriptions.Item>
                 <Descriptions.Item label="容器 ID" span={2}>
                   <Text code>{selectedSandbox.containerId || '-'}</Text>
                 </Descriptions.Item>
-                <Descriptions.Item label="端口">{selectedSandbox.port || '-'}</Descriptions.Item>
                 <Descriptions.Item label="Thread">{selectedSandbox.threadId}</Descriptions.Item>
-                <Descriptions.Item label="创建时间">
-                  {new Date(selectedSandbox.createdAt).toLocaleString()}
-                </Descriptions.Item>
-                <Descriptions.Item label="结束时间">
-                  {selectedSandbox.endedAt ? new Date(selectedSandbox.endedAt).toLocaleString() : '-'}
+                <Descriptions.Item label="启动时间">
+                  {new Date(selectedSandbox.startedAt).toLocaleString()}
                 </Descriptions.Item>
               </Descriptions>
-
-              {selectedSandbox.status === 'running' && (
-                <Card title="资源监控" size="small" style={{ marginTop: 16 }}>
-                  <Row gutter={16}>
-                    <Col span={8}>
-                      <Statistic
-                        title="CPU"
-                        value={selectedSandbox.cpu || 0}
-                        suffix="%"
-                        valueStyle={{ fontSize: 24 }}
-                      />
-                      <Progress
-                        percent={selectedSandbox.cpu || 0}
-                        strokeColor="#1890ff"
-                        size="small"
-                      />
-                    </Col>
-                    <Col span={8}>
-                      <Statistic
-                        title="内存"
-                        value={selectedSandbox.memory || 0}
-                        suffix="MB"
-                        valueStyle={{ fontSize: 24 }}
-                      />
-                      <Progress
-                        percent={Math.round(((selectedSandbox.memory || 0) / 2048) * 100)}
-                        strokeColor="#52c41a"
-                        size="small"
-                      />
-                    </Col>
-                    <Col span={8}>
-                      <Statistic
-                        title="磁盘"
-                        value={selectedSandbox.disk || 0}
-                        suffix="MB"
-                        valueStyle={{ fontSize: 24 }}
-                      />
-                      <Progress
-                        percent={Math.round(((selectedSandbox.disk || 0) / 1024) * 100)}
-                        strokeColor="#722ed1"
-                        size="small"
-                      />
-                    </Col>
-                  </Row>
-                </Card>
-              )}
             </TabPane>
 
             <TabPane

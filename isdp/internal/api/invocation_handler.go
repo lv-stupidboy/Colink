@@ -74,6 +74,22 @@ func (h *InvocationHandler) Cancel(c *gin.Context) {
 	c.Status(http.StatusOK)
 }
 
+// Get 获取单个调用状态
+func (h *InvocationHandler) Get(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	invocation, err := h.orchestrator.GetInvocationStatus(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "invocation not found"})
+		return
+	}
+	c.JSON(http.StatusOK, invocation)
+}
+
 // MCPCallback MCP回调
 func (h *InvocationHandler) MCPCallback(c *gin.Context) {
 	var req a2a.MCPCallbackRequest
@@ -126,6 +142,7 @@ func (h *InvocationHandler) RegisterRoutes(r *gin.RouterGroup) {
 
 	invocations := r.Group("/invocations")
 	{
+		invocations.GET("/:id", h.Get)
 		invocations.POST("/:id/cancel", h.Cancel)
 	}
 

@@ -47,7 +47,7 @@ const MainLayout: React.FC = () => {
     {
       key: '/agents',
       icon: <ThunderboltOutlined />,
-      label: 'Agent 配置',
+      label: 'Agent 角色',
     },
     {
       key: '/sandbox',
@@ -66,6 +66,7 @@ const MainLayout: React.FC = () => {
     const path = location.pathname;
     if (path.startsWith('/projects')) return '/projects';
     if (path.startsWith('/threads')) return '/projects';
+    if (path.startsWith('/settings')) return '/settings';
     return path;
   };
 

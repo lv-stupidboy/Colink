@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -23,9 +24,15 @@ import (
 	"github.com/anthropic/isdp/pkg/config"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 func main() {
+	// 设置 Windows 控制台 UTF-8 编码，解决中文乱码问题
+	os.Stdout.WriteString("\x1b[?65001h")
+	os.Stderr.WriteString("\x1b[?65001h")
+
 	// 加载配置
 	cfg, err := config.Load("configs/config.yaml")
 	if err != nil {
@@ -39,6 +46,9 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Failed to init logger: %v\n", err)
 		os.Exit(1)
 	}
+
+	// 设置会话日志记录器
+	agent.SetSessionLogger(logger)
 
 	// 连接数据库
 	db, err := repo.NewDBFromConfig(repo.DBConfig{
@@ -76,6 +86,7 @@ func main() {
 	threadRepo := repo.NewThreadRepository(db)
 	messageRepo := repo.NewMessageRepository(db)
 	agentConfigRepo := repo.NewAgentConfigRepository(db)
+	baseAgentRepo := repo.NewBaseAgentRepository(db)
 	invocationRepo := repo.NewAgentInvocationRepository(db)
 	artifactRepo := repo.NewArtifactRepository(db)
 	sandboxRepo := repo.NewSandboxRepository(db)
@@ -86,14 +97,22 @@ func main() {
 	threadService := thread.NewService(threadRepo)
 	messageService := message.NewService(messageRepo, wsHub)
 	configService := agent.NewConfigService(agentConfigRepo)
+	baseAgentService := agent.NewBaseAgentService(baseAgentRepo)
 	workflowEngine := agent.NewWorkflowEngine(threadRepo, messageRepo, configService)
 	mcpAuthService := a2a.NewMCPAuthService(cfg.MCP.TokenTTL)
+
+	// 初始化默认基础Agent
+	if err := baseAgentService.InitDefaultAgents(context.Background()); err != nil {
+		logger.Warn("Failed to initialize default base agents", zap.Error(err))
+	}
+
+	// 初始化适配器（使用默认Claude适配器，后续会改为从BaseAgent动态创建）
 	claudeAdapter := agent.NewClaudeAdapter(cfg.Claude.Path)
 	_ = agent.NewContextBuilder(threadRepo, messageRepo, artifactRepo) // TODO: wire into orchestrator
 	tracker := agent.NewInvocationTracker(invocationRepo)
 	orchestrator := agent.NewOrchestrator(
 		invocationRepo, threadRepo, messageRepo,
-		configService, tracker, workflowEngine, wsHub, claudeAdapter,
+		configService, baseAgentService, tracker, workflowEngine, wsHub, claudeAdapter,
 	)
 	_ = merge.NewGatekeeper(reviewRepo, artifactRepo, threadRepo) // TODO: wire into merge handler
 
@@ -114,6 +133,7 @@ func main() {
 	router := gin.New()
 	router.Use(gin.Recovery())
 	router.Use(corsMiddleware())
+	router.Use(requestLogger(logger))
 
 	// 健康检查
 	router.GET("/health", func(c *gin.Context) {
@@ -149,12 +169,22 @@ func main() {
 	messageHandler := api.NewMessageHandler(messageService)
 	messageHandler.RegisterRoutes(v1)
 
-	agentHandler := api.NewAgentHandler(configService)
+	agentHandler := api.NewAgentHandler(configService, baseAgentService, orchestrator, threadRepo)
 	agentHandler.RegisterRoutes(v1)
+
+	// 基础Agent Handler
+	baseAgentHandler := api.NewBaseAgentHandler(baseAgentService)
+	baseAgentHandler.RegisterRoutes(v1)
 
 	// WebSocket
 	wsHandler := ws.NewHandler(wsHub)
 	wsHandler.RegisterRoutes(v1)
+
+	// 沙箱 Handler (如果可用)
+	if sandboxService != nil {
+		sandboxHandler := api.NewSandboxHandler(sandboxService)
+		sandboxHandler.RegisterRoutes(v1)
+	}
 
 	// 启动服务器
 	srv := &http.Server{
@@ -188,25 +218,59 @@ func main() {
 }
 
 func initLogger(level, format string) (*zap.Logger, error) {
-	var cfg zap.Config
-	if format == "json" {
-		cfg = zap.NewProductionConfig()
-	} else {
-		cfg = zap.NewDevelopmentConfig()
+	// 确保日志目录存在
+	logDir := "logs"
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create log directory: %w", err)
 	}
 
+	// 配置 lumberjack 用于日志轮转
+	logFile := &lumberjack.Logger{
+		Filename:   filepath.Join(logDir, "server.log"),
+		MaxSize:    10,   // MB，单个文件最大大小
+		MaxBackups: 5,    // 保留的旧日志文件数量
+		MaxAge:     30,   // 天，保留天数
+		Compress:   true, // 压缩旧日志文件
+	}
+
+	// 解析日志级别
+	var zapLevel zapcore.Level
 	switch level {
 	case "debug":
-		cfg.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
+		zapLevel = zapcore.DebugLevel
 	case "info":
-		cfg.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
+		zapLevel = zapcore.InfoLevel
 	case "warn":
-		cfg.Level = zap.NewAtomicLevelAt(zap.WarnLevel)
+		zapLevel = zapcore.WarnLevel
 	case "error":
-		cfg.Level = zap.NewAtomicLevelAt(zap.ErrorLevel)
+		zapLevel = zapcore.ErrorLevel
+	default:
+		zapLevel = zapcore.InfoLevel
 	}
 
-	return cfg.Build()
+	// 配置编码器
+	var encoder zapcore.Encoder
+	encoderConfig := zap.NewProductionEncoderConfig()
+	encoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
+	encoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
+
+	if format == "json" {
+		encoder = zapcore.NewJSONEncoder(encoderConfig)
+	} else {
+		encoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
+		encoder = zapcore.NewConsoleEncoder(encoderConfig)
+	}
+
+	// 创建多输出：同时输出到文件和控制台
+	fileWriter := zapcore.AddSync(logFile)
+	consoleWriter := zapcore.AddSync(os.Stdout)
+
+	core := zapcore.NewTee(
+		zapcore.NewCore(encoder, fileWriter, zapLevel),
+		zapcore.NewCore(zapcore.NewConsoleEncoder(encoderConfig), consoleWriter, zapLevel),
+	)
+
+	return zap.New(core, zap.AddCaller()), nil
 }
 
 func corsMiddleware() gin.HandlerFunc {
@@ -221,6 +285,40 @@ func corsMiddleware() gin.HandlerFunc {
 		}
 
 		c.Next()
+	}
+}
+
+// requestLogger 请求日志中间件
+func requestLogger(logger *zap.Logger) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		start := time.Now()
+		path := c.Request.URL.Path
+		query := c.Request.URL.RawQuery
+
+		c.Next()
+
+		latency := time.Since(start)
+		status := c.Writer.Status()
+
+		if status >= 400 {
+			logger.Error("HTTP Request",
+				zap.String("method", c.Request.Method),
+				zap.String("path", path),
+				zap.String("query", query),
+				zap.Int("status", status),
+				zap.Duration("latency", latency),
+				zap.String("client_ip", c.ClientIP()),
+			)
+		} else {
+			logger.Info("HTTP Request",
+				zap.String("method", c.Request.Method),
+				zap.String("path", path),
+				zap.String("query", query),
+				zap.Int("status", status),
+				zap.Duration("latency", latency),
+				zap.String("client_ip", c.ClientIP()),
+			)
+		}
 	}
 }
 
@@ -265,6 +363,22 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 基础Agent配置表
+CREATE TABLE IF NOT EXISTS base_agents (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL,
+    api_url TEXT,
+    api_token TEXT,
+    default_model TEXT,
+    cli_path TEXT DEFAULT 'claude',
+    max_tokens INTEGER DEFAULT 4096,
+    timeout_minutes INTEGER DEFAULT 30,
+    is_active INTEGER DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Agent配置表
 CREATE TABLE IF NOT EXISTS agent_configs (
     id TEXT PRIMARY KEY,
@@ -276,6 +390,7 @@ CREATE TABLE IF NOT EXISTS agent_configs (
     max_tokens INTEGER DEFAULT 4096,
     temperature REAL DEFAULT 0.7,
     routing_config TEXT,
+    base_agent_id TEXT REFERENCES base_agents(id),
     is_default INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -327,5 +442,26 @@ CREATE INDEX IF NOT EXISTS idx_agent_invocations_thread_id ON agent_invocations(
 CREATE INDEX IF NOT EXISTS idx_artifacts_thread_id ON artifacts(thread_id);
 `
 	_, err := db.Exec(schema)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// 迁移：检查 agent_configs 表是否有 base_agent_id 列
+	var hasColumn bool
+	row := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('agent_configs') WHERE name='base_agent_id'`)
+	var count int
+	if err := row.Scan(&count); err == nil && count > 0 {
+		hasColumn = true
+	}
+
+	if !hasColumn {
+		// SQLite 不支持 ALTER TABLE ADD COLUMN 带外键，直接添加列
+		_, err = db.Exec(`ALTER TABLE agent_configs ADD COLUMN base_agent_id TEXT`)
+		if err != nil {
+			// 如果列已存在，忽略错误
+			fmt.Printf("Warning: could not add base_agent_id column: %v\n", err)
+		}
+	}
+
+	return nil
 }

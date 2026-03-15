@@ -4,6 +4,8 @@ import type {
   Thread,
   Message,
   AgentConfig,
+  BaseAgent,
+  BaseAgentTypeInfo,
   AgentInvocation,
   Artifact,
   MergeCheckResult
@@ -146,6 +148,28 @@ class APIClient {
       this.request(`/agents/${id}`, 'PUT', data),
     delete: (id: string): Promise<void> => this.request(`/agents/${id}`, 'DELETE'),
     getByRole: (role: string): Promise<AgentConfig[]> => this.request(`/agents/role/${role}`, 'GET'),
+    copy: (id: string): Promise<AgentConfig> => this.request(`/agents/${id}/copy`, 'POST'),
+    // 预创建调试Thread，前端先调用此方法获取threadId，建立WebSocket连接
+    createDebugThread: (projectPath?: string): Promise<{ threadId: string }> =>
+      this.request('/agents/debug/thread', 'POST', { projectPath }),
+    // 调试Agent，threadId可选（如果已预创建则传入）
+    debug: (id: string, input: string, projectPath?: string, threadId?: string): Promise<{ invocationId: string; threadId: string; output: string; sandboxUrl?: string }> =>
+      this.request(`/agents/${id}/debug`, 'POST', { input, projectPath, threadId }),
+    continueDebug: (threadId: string, message: string): Promise<{ status: string }> =>
+      this.request(`/agents/debug/${threadId}/continue`, 'POST', { message }),
+  };
+
+  // 基础Agent API
+  baseAgents = {
+    list: (): Promise<BaseAgent[]> => this.request('/base-agents', 'GET'),
+    get: (id: string): Promise<BaseAgent> => this.request(`/base-agents/${id}`, 'GET'),
+    getTypes: (): Promise<BaseAgentTypeInfo[]> => this.request('/base-agents/types', 'GET'),
+    create: (data: Partial<BaseAgent>): Promise<BaseAgent> => this.request('/base-agents', 'POST', data),
+    update: (id: string, data: Partial<BaseAgent>): Promise<BaseAgent> =>
+      this.request(`/base-agents/${id}`, 'PUT', data),
+    delete: (id: string): Promise<void> => this.request(`/base-agents/${id}`, 'DELETE'),
+    test: (id: string): Promise<{ success: boolean; message: string }> =>
+      this.request(`/base-agents/${id}/test`, 'POST'),
   };
 
   // Agent 调用 API
@@ -182,6 +206,18 @@ class APIClient {
     run: (threadId: string, data: { image?: string; command: string[] }): Promise<any> =>
       this.request(`/threads/${threadId}/sandbox/run`, 'POST', data),
     status: (runId: string): Promise<any> => this.request(`/sandbox/runs/${runId}`, 'GET'),
+    // 新增项目运行API
+    runProject: (threadId?: string, projectPath?: string, mode?: string): Promise<any> =>
+      this.request('/sandbox/run', 'POST', { threadId: threadId || undefined, projectPath, mode }),
+    getServer: (id: string): Promise<any> => this.request(`/sandbox/${id}`, 'GET'),
+    stopServer: (id: string): Promise<void> => this.request(`/sandbox/${id}/stop`, 'POST'),
+    getPreview: (threadId: string): Promise<any> => this.request(`/sandbox/preview/${threadId}`, 'GET'),
+    listServers: (): Promise<any[]> => this.request('/sandbox', 'GET'),
+    // 新增方法
+    getLogs: (id: string): Promise<{ logs: string }> =>
+      this.request(`/sandbox/${id}/logs`, 'GET'),
+    checkDocker: (): Promise<{ available: boolean }> =>
+      this.request('/sandbox/docker/status', 'GET'),
   };
 }
 

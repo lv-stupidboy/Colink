@@ -1,15 +1,18 @@
 import React from 'react';
 import { ConfigProvider, App as AntApp, theme } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import MainLayout from '@/layouts/MainLayout';
 import ProjectList from '@/pages/ProjectList';
 import ProjectDetail from '@/pages/ProjectDetail';
 import ThreadView from '@/pages/ThreadView';
-import AgentConfig from '@/pages/AgentConfig';
+import AgentRoleList from '@/pages/AgentRoleList';
+import AgentDebug from '@/pages/AgentDebug';
 import Dashboard from '@/pages/Dashboard';
 import SandboxPage from '@/pages/Sandbox';
-import SettingsPage from '@/pages/Settings';
+import SettingsLayout from '@/pages/Settings/Layout';
+import GeneralSettings from '@/pages/Settings/GeneralSettings';
+import BaseAgentSettings from '@/pages/Settings/BaseAgentSettings';
 import WorkflowPage from '@/pages/Workflow';
 
 const App: React.FC = () => {
@@ -99,10 +102,18 @@ const App: React.FC = () => {
               {/* 兼容旧路由，重定向到新路由 */}
               <Route path="threads/:threadId" element={<ThreadView />} />
 
-              <Route path="agents" element={<AgentConfig />} />
+              {/* Agent角色管理 */}
+              <Route path="agents" element={<AgentRoleList />} />
+              <Route path="agents/:agentId/debug" element={<AgentDebug />} />
               <Route path="workflow" element={<WorkflowPage />} />
               <Route path="sandbox" element={<SandboxPage />} />
-              <Route path="settings" element={<SettingsPage />} />
+
+              {/* 设置页面 - 二级菜单 */}
+              <Route path="settings" element={<SettingsLayout />}>
+                <Route index element={<Navigate to="general" replace />} />
+                <Route path="general" element={<GeneralSettings />} />
+                <Route path="base-agents" element={<BaseAgentSettings />} />
+              </Route>
             </Route>
           </Routes>
         </BrowserRouter>

@@ -14,7 +14,7 @@ import (
 // ConfigService Agent配置服务
 type ConfigService struct {
 	repo    *repo.AgentConfigRepository
-	cache   map[uuid.UUID]*model.AgentConfig
+	cache   map[uuid.UUID]*model.AgentRoleConfig
 	cacheMu sync.RWMutex
 }
 
@@ -22,12 +22,12 @@ type ConfigService struct {
 func NewConfigService(repo *repo.AgentConfigRepository) *ConfigService {
 	return &ConfigService{
 		repo:  repo,
-		cache: make(map[uuid.UUID]*model.AgentConfig),
+		cache: make(map[uuid.UUID]*model.AgentRoleConfig),
 	}
 }
 
 // GetByID 根据ID获取配置
-func (s *ConfigService) GetByID(ctx context.Context, id uuid.UUID) (*model.AgentConfig, error) {
+func (s *ConfigService) GetByID(ctx context.Context, id uuid.UUID) (*model.AgentRoleConfig, error) {
 	s.cacheMu.RLock()
 	if config, ok := s.cache[id]; ok {
 		s.cacheMu.RUnlock()
@@ -48,12 +48,12 @@ func (s *ConfigService) GetByID(ctx context.Context, id uuid.UUID) (*model.Agent
 }
 
 // GetByRole 根据角色获取配置
-func (s *ConfigService) GetByRole(ctx context.Context, role model.AgentRole) ([]*model.AgentConfig, error) {
+func (s *ConfigService) GetByRole(ctx context.Context, role model.AgentRole) ([]*model.AgentRoleConfig, error) {
 	return s.repo.FindByRole(ctx, role)
 }
 
 // GetDefaultByRole 获取角色的默认配置
-func (s *ConfigService) GetDefaultByRole(ctx context.Context, role model.AgentRole) (*model.AgentConfig, error) {
+func (s *ConfigService) GetDefaultByRole(ctx context.Context, role model.AgentRole) (*model.AgentRoleConfig, error) {
 	configs, err := s.repo.FindByRole(ctx, role)
 	if err != nil {
 		return nil, err
@@ -70,11 +70,18 @@ func (s *ConfigService) GetDefaultByRole(ctx context.Context, role model.AgentRo
 }
 
 // Create 创建配置
-func (s *ConfigService) Create(ctx context.Context, req *model.CreateAgentRequest) (*model.AgentConfig, error) {
-	config := &model.AgentConfig{
+func (s *ConfigService) Create(ctx context.Context, req *model.CreateAgentRequest) (*model.AgentRoleConfig, error) {
+	// 设置默认角色
+	role := req.Role
+	if role == "" {
+		role = model.AgentRoleCustom
+	}
+
+	config := &model.AgentRoleConfig{
 		ID:          uuid.New(),
 		Name:        req.Name,
-		Role:        req.Role,
+		Role:        role,
+		BaseAgentID: req.BaseAgentID,
 		Description: req.Description,
 		SystemPrompt: req.SystemPrompt,
 		ModelName:   req.ModelName,
@@ -89,7 +96,7 @@ func (s *ConfigService) Create(ctx context.Context, req *model.CreateAgentReques
 		config.RoutingConfig = *req.RoutingConfig
 	} else {
 		config.RoutingConfig = model.RoutingConfig{
-			CanRouteTo:    getDefaultRouting(req.Role),
+			CanRouteTo:    getDefaultRouting(role),
 			RouteOnSignal: []string{},
 		}
 	}
@@ -106,14 +113,21 @@ func (s *ConfigService) Create(ctx context.Context, req *model.CreateAgentReques
 }
 
 // Update 更新配置
-func (s *ConfigService) Update(ctx context.Context, id uuid.UUID, req *model.CreateAgentRequest) (*model.AgentConfig, error) {
+func (s *ConfigService) Update(ctx context.Context, id uuid.UUID, req *model.CreateAgentRequest) (*model.AgentRoleConfig, error) {
 	config, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
+	// 设置默认角色
+	role := req.Role
+	if role == "" {
+		role = model.AgentRoleCustom
+	}
+
 	config.Name = req.Name
-	config.Role = req.Role
+	config.Role = role
+	config.BaseAgentID = req.BaseAgentID
 	config.Description = req.Description
 	config.SystemPrompt = req.SystemPrompt
 	config.ModelName = req.ModelName
@@ -151,7 +165,7 @@ func (s *ConfigService) Delete(ctx context.Context, id uuid.UUID) error {
 }
 
 // List 列出所有配置
-func (s *ConfigService) List(ctx context.Context) ([]*model.AgentConfig, error) {
+func (s *ConfigService) List(ctx context.Context) ([]*model.AgentRoleConfig, error) {
 	return s.repo.List(ctx)
 }
 

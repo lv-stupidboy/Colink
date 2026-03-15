@@ -7,6 +7,9 @@ export type AgentRole =
   | 'testengineer'
   | 'devops';
 
+// 基础Agent类型
+export type BaseAgentType = 'claude_code' | 'open_code';
+
 // Thread状态
 export type ThreadStatus =
   | 'idle'
@@ -69,11 +72,37 @@ export interface Message {
   createdAt: string;
 }
 
-// Agent配置
+// 基础Agent配置
+export interface BaseAgent {
+  id: string;
+  name: string;
+  type: BaseAgentType;
+  apiUrl?: string;
+  apiToken?: string;
+  defaultModel: string;
+  cliPath: string;
+  gitBashPath?: string; // Windows下git-bash路径，用于Claude CLI
+  maxTokens: number;
+  timeoutMinutes: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// 基础Agent类型信息
+export interface BaseAgentTypeInfo {
+  type: BaseAgentType;
+  name: string;
+  description: string;
+}
+
+// Agent配置（现在叫Agent角色）
 export interface AgentConfig {
   id: string;
   name: string;
   role: AgentRole;
+  baseAgentId?: string;
+  baseAgent?: BaseAgent;
   description: string;
   systemPrompt: string;
   modelName: string;
