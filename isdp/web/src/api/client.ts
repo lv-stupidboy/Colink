@@ -8,7 +8,8 @@ import type {
   BaseAgentTypeInfo,
   AgentInvocation,
   Artifact,
-  MergeCheckResult
+  MergeCheckResult,
+  WorkflowTemplate,
 } from '@/types';
 import {
   transformProjects,
@@ -23,6 +24,8 @@ import {
   transformAgentInvocation,
   transformArtifacts,
   transformArtifact,
+  transformWorkflowTemplates,
+  transformWorkflowTemplate,
   camelToSnake,
 } from './transform';
 
@@ -82,6 +85,8 @@ class APIClient {
           result = Array.isArray(result) ? transformAgentInvocations(result) : transformAgentInvocation(result);
         } else if (url.includes('/artifacts')) {
           result = Array.isArray(result) ? transformArtifacts(result) : transformArtifact(result);
+        } else if (url.includes('/workflows')) {
+          result = Array.isArray(result) ? transformWorkflowTemplates(result) : transformWorkflowTemplate(result);
         } else {
           // 通用转换
           const snakeToCamel = (obj: any): any => {
@@ -218,6 +223,19 @@ class APIClient {
       this.request(`/sandbox/${id}/logs`, 'GET'),
     checkDocker: (): Promise<{ available: boolean }> =>
       this.request('/sandbox/docker/status', 'GET'),
+  };
+
+  // 工作流模板 API
+  workflows = {
+    list: (): Promise<WorkflowTemplate[]> => this.request('/workflows', 'GET'),
+    get: (id: string): Promise<WorkflowTemplate> => this.request(`/workflows/${id}`, 'GET'),
+    create: (data: Partial<WorkflowTemplate>): Promise<WorkflowTemplate> =>
+      this.request('/workflows', 'POST', data),
+    update: (id: string, data: Partial<WorkflowTemplate>): Promise<WorkflowTemplate> =>
+      this.request(`/workflows/${id}`, 'PUT', data),
+    delete: (id: string): Promise<void> => this.request(`/workflows/${id}`, 'DELETE'),
+    setDefault: (id: string): Promise<WorkflowTemplate> =>
+      this.request(`/workflows/${id}/default`, 'PUT'),
   };
 }
 

@@ -43,6 +43,8 @@ export interface Project {
   mode?: 'new' | 'enhance';
   repositoryUrl?: string;
   status: 'active' | 'archived';
+  workflowTemplateId?: string;
+  workflowTemplate?: WorkflowTemplate;
   createdAt: string;
   updatedAt: string;
 }
@@ -221,3 +223,17 @@ export const ArtifactTypeLabels: Record<string, string> = {
   config: '配置文件',
   test: '测试文件',
 };
+
+// 工作流模板
+export interface WorkflowTemplate {
+  id: string;
+  name: string;
+  description: string;
+  agentIds: string[];
+  checkpoints: string[];
+  estimatedTime: string;
+  isSystem: boolean;
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+}

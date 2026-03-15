@@ -2,6 +2,7 @@ package project
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/anthropic/isdp/internal/model"
@@ -11,12 +12,16 @@ import (
 
 // Service 项目服务
 type Service struct {
-	repo *repo.ProjectRepository
+	repo         *repo.ProjectRepository
+	workflowRepo *repo.WorkflowTemplateRepository // 新增依赖
 }
 
 // NewService 创建项目服务
-func NewService(repo *repo.ProjectRepository) *Service {
-	return &Service{repo: repo}
+func NewService(repo *repo.ProjectRepository, workflowRepo *repo.WorkflowTemplateRepository) *Service {
+	return &Service{
+		repo:         repo,
+		workflowRepo: workflowRepo,
+	}
 }
 
 // List 列出项目
@@ -50,22 +55,37 @@ func (s *Service) Create(ctx context.Context, req *model.CreateProjectRequest) (
 }
 
 // Update 更新项目
-func (s *Service) Update(ctx context.Context, id uuid.UUID, req *model.CreateProjectRequest) (*model.Project, error) {
+func (s *Service) Update(ctx context.Context, id uuid.UUID, req *model.UpdateProjectRequest) (*model.Project, error) {
 	project, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
-	if req.Name != "" {
-		project.Name = req.Name
+	// 如果设置了工作流ID，验证工作流是否存在
+	if req.WorkflowTemplateID != nil && *req.WorkflowTemplateID != uuid.Nil {
+		_, err := s.workflowRepo.FindByID(ctx, *req.WorkflowTemplateID)
+		if err != nil {
+			return nil, errors.New("指定的工作流模板不存在")
+		}
 	}
-	if req.Type != "" {
-		project.Type = req.Type
+
+	// 更新字段
+	if req.Name != nil {
+		project.Name = *req.Name
 	}
-	if req.Mode != "" {
-		project.Mode = req.Mode
+	if req.Type != nil {
+		project.Type = *req.Type
 	}
-	project.UpdatedAt = time.Now()
+	if req.Mode != nil {
+		project.Mode = *req.Mode
+	}
+	if req.Status != nil {
+		project.Status = *req.Status
+	}
+	if req.GitRepo != nil {
+		project.GitRepo = *req.GitRepo
+	}
+	project.WorkflowTemplateID = req.WorkflowTemplateID
 
 	if err := s.repo.Update(ctx, project); err != nil {
 		return nil, err

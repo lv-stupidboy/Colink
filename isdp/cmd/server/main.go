@@ -95,8 +95,8 @@ func main() {
 	workflowRepo := repo.NewWorkflowTemplateRepository(db)
 
 	// 初始化Services
-	projectService := project.NewService(projectRepo)
-	threadService := thread.NewService(threadRepo)
+	projectService := project.NewService(projectRepo, workflowRepo)
+	threadService := thread.NewService(threadRepo, projectRepo, workflowRepo)
 	messageService := message.NewService(messageRepo, wsHub)
 	configService := agent.NewConfigService(agentConfigRepo)
 	baseAgentService := agent.NewBaseAgentService(baseAgentRepo)
