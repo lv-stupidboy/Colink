@@ -36,10 +36,36 @@ type WorkflowTemplate struct {
 }
 ```
 
-### 3. 数据库迁移
+### 3. Thread 模型
 
-- `projects` 表新增 `workflow_template_id` 列（UUID，可为空，外键关联 `workflow_templates.id`）
-- `workflow_templates` 表新增 `is_default` 列（BOOLEAN，默认 false）
+`internal/model/thread.go`
+
+```go
+type Thread struct {
+    // ... 现有字段 ...
+    WorkflowTemplateID *uuid.UUID `json:"workflow_template_id,omitempty"` // 使用的工作流模板ID
+    // ... 其他字段 ...
+}
+```
+
+### 4. 数据库迁移
+
+**迁移文件位置：** `internal/migrations/`
+
+文件命名：`YYYYMMDDHHMMSS_add_workflow_binding.sql`
+
+```sql
+-- projects 表新增工作流绑定字段
+ALTER TABLE projects ADD COLUMN workflow_template_id UUID REFERENCES workflow_templates(id);
+
+-- workflow_templates 表新增默认标记
+ALTER TABLE workflow_templates ADD COLUMN is_default BOOLEAN DEFAULT FALSE;
+
+-- threads 表新增工作流关联
+ALTER TABLE threads ADD COLUMN workflow_template_id UUID REFERENCES workflow_templates(id);
+```
+
+**说明：** 使用 golang-migrate 或类似工具管理迁移，迁移文件放在 `internal/migrations/` 目录下。
 
 ## 后端 API 变更
 
@@ -105,6 +131,23 @@ type UpdateProjectRequest struct {
     Status            *ProjectStatus `json:"status"`
     RepositoryUrl     *string      `json:"repository_url"`
     WorkflowTemplateID *uuid.UUID  `json:"workflow_template_id"` // 新增，可为null表示解绑
+}
+```
+
+#### 更新项目校验
+
+更新项目的 `workflow_template_id` 时，需校验工作流是否存在：
+
+```go
+func (s *ProjectService) Update(ctx context.Context, id uuid.UUID, req *UpdateProjectRequest) (*Project, error) {
+    // 如果设置了工作流ID，验证工作流是否存在
+    if req.WorkflowTemplateID != nil {
+        _, err := s.workflowRepo.GetByID(ctx, *req.WorkflowTemplateID)
+        if err != nil {
+            return nil, errors.New("指定的工作流模板不存在")
+        }
+    }
+    // ... 执行更新
 }
 ```
 
@@ -298,16 +341,42 @@ export interface WorkflowTemplate {
 - 设置新默认时自动清除旧标记
 - 系统预设和用户自定义工作流均可设为默认
 
+**并发控制：** 使用数据库事务确保原子性：
+```go
+func (r *WorkflowRepo) SetDefault(ctx context.Context, id uuid.UUID) error {
+    tx, err := r.db.BeginTx(ctx, nil)
+    if err != nil {
+        return err
+    }
+    defer tx.Rollback()
+
+    // 1. 清除所有工作流的默认标记
+    _, err = tx.ExecContext(ctx, "UPDATE workflow_templates SET is_default = FALSE")
+    if err != nil {
+        return err
+    }
+
+    // 2. 设置指定工作流为默认
+    _, err = tx.ExecContext(ctx, "UPDATE workflow_templates SET is_default = TRUE WHERE id = $1", id)
+    if err != nil {
+        return err
+    }
+
+    return tx.Commit()
+}
+```
+
 ## 文件变更清单
 
 ### 后端
 - `internal/model/project.go` - 新增 WorkflowTemplateID 字段
 - `internal/model/workflow_template.go` - 新增 IsDefault 字段
+- `internal/model/thread.go` - 新增 WorkflowTemplateID 字段
 - `internal/repo/workflow_template.go` - 新增 GetDefault、SetDefault 方法
 - `internal/api/workflow_handler.go` - 新增 SetDefault 端点，增强 Delete 校验
 - `internal/repo/project.go` - 更新查询包含工作流信息
 - `internal/service/thread/` - 创建任务时的工作流选择逻辑
-- 数据库迁移文件
+- `internal/migrations/YYYYMMDDHHMMSS_add_workflow_binding.sql` - 数据库迁移文件
 
 ### 前端
 - `web/src/types/index.ts` - 更新类型定义
