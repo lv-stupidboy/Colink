@@ -24,10 +24,17 @@ func NewProjectRepository(db *sql.DB) *ProjectRepository {
 // Create 创建项目
 func (r *ProjectRepository) Create(ctx context.Context, project *model.Project) error {
 	query := `
-		INSERT INTO projects (id, name, type, mode, status, git_repo, config, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO projects (id, name, type, mode, status, git_repo, config, workflow_template_id, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	now := time.Now()
+
+	// 处理 nullable workflow_template_id
+	var workflowTemplateID interface{}
+	if project.WorkflowTemplateID != nil {
+		workflowTemplateID = project.WorkflowTemplateID.String()
+	}
+
 	_, err := r.db.ExecContext(ctx, query,
 		project.ID.String(),
 		project.Name,
@@ -36,6 +43,7 @@ func (r *ProjectRepository) Create(ctx context.Context, project *model.Project) 
 		project.Status,
 		project.GitRepo,
 		project.Config,
+		workflowTemplateID,
 		now,
 		now,
 	)
@@ -50,12 +58,13 @@ func (r *ProjectRepository) Create(ctx context.Context, project *model.Project) 
 // FindByID 根据ID查找项目
 func (r *ProjectRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.Project, error) {
 	query := `
-		SELECT id, name, type, mode, status, git_repo, config, created_at, updated_at
+		SELECT id, name, type, mode, status, git_repo, config, workflow_template_id, created_at, updated_at
 		FROM projects WHERE id = ?
 	`
 	project := &model.Project{}
 	var idStr string
 	var config []byte
+	var workflowTemplateID sql.NullString
 	err := r.db.QueryRowContext(ctx, query, id.String()).Scan(
 		&idStr,
 		&project.Name,
@@ -64,6 +73,7 @@ func (r *ProjectRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.
 		&project.Status,
 		&project.GitRepo,
 		&config,
+		&workflowTemplateID,
 		&project.CreatedAt,
 		&project.UpdatedAt,
 	)
@@ -74,13 +84,17 @@ func (r *ProjectRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.
 	if config != nil {
 		project.Config = config
 	}
+	if workflowTemplateID.Valid {
+		wid, _ := uuid.Parse(workflowTemplateID.String)
+		project.WorkflowTemplateID = &wid
+	}
 	return project, nil
 }
 
 // FindAll 查找所有项目
 func (r *ProjectRepository) FindAll(ctx context.Context, limit, offset int) ([]*model.Project, error) {
 	query := `
-		SELECT id, name, type, mode, status, git_repo, config, created_at, updated_at
+		SELECT id, name, type, mode, status, git_repo, config, workflow_template_id, created_at, updated_at
 		FROM projects ORDER BY created_at DESC LIMIT ? OFFSET ?
 	`
 	rows, err := r.db.QueryContext(ctx, query, limit, offset)
@@ -94,6 +108,7 @@ func (r *ProjectRepository) FindAll(ctx context.Context, limit, offset int) ([]*
 		project := &model.Project{}
 		var idStr string
 		var config []byte
+		var workflowTemplateID sql.NullString
 		err := rows.Scan(
 			&idStr,
 			&project.Name,
@@ -102,6 +117,7 @@ func (r *ProjectRepository) FindAll(ctx context.Context, limit, offset int) ([]*
 			&project.Status,
 			&project.GitRepo,
 			&config,
+			&workflowTemplateID,
 			&project.CreatedAt,
 			&project.UpdatedAt,
 		)
@@ -112,6 +128,10 @@ func (r *ProjectRepository) FindAll(ctx context.Context, limit, offset int) ([]*
 		if config != nil {
 			project.Config = config
 		}
+		if workflowTemplateID.Valid {
+			wid, _ := uuid.Parse(workflowTemplateID.String)
+			project.WorkflowTemplateID = &wid
+		}
 		projects = append(projects, project)
 	}
 	return projects, nil
@@ -121,10 +141,17 @@ func (r *ProjectRepository) FindAll(ctx context.Context, limit, offset int) ([]*
 func (r *ProjectRepository) Update(ctx context.Context, project *model.Project) error {
 	query := `
 		UPDATE projects
-		SET name = ?, type = ?, mode = ?, status = ?, git_repo = ?, config = ?, updated_at = ?
+		SET name = ?, type = ?, mode = ?, status = ?, git_repo = ?, config = ?, workflow_template_id = ?, updated_at = ?
 		WHERE id = ?
 	`
 	project.UpdatedAt = time.Now()
+
+	// 处理 nullable workflow_template_id
+	var workflowTemplateID interface{}
+	if project.WorkflowTemplateID != nil {
+		workflowTemplateID = project.WorkflowTemplateID.String()
+	}
+
 	_, err := r.db.ExecContext(ctx, query,
 		project.Name,
 		project.Type,
@@ -132,6 +159,7 @@ func (r *ProjectRepository) Update(ctx context.Context, project *model.Project) 
 		project.Status,
 		project.GitRepo,
 		project.Config,
+		workflowTemplateID,
 		project.UpdatedAt,
 		project.ID.String(),
 	)
@@ -154,7 +182,7 @@ func (r *ProjectRepository) Delete(ctx context.Context, id uuid.UUID) error {
 // GetByThreadID 根据ThreadID获取项目
 func (r *ProjectRepository) GetByThreadID(ctx context.Context, threadID uuid.UUID) (*model.Project, error) {
 	query := `
-		SELECT p.id, p.name, p.type, p.mode, p.status, p.git_repo, p.config, p.created_at, p.updated_at
+		SELECT p.id, p.name, p.type, p.mode, p.status, p.git_repo, p.config, p.workflow_template_id, p.created_at, p.updated_at
 		FROM projects p
 		JOIN threads t ON t.project_id = p.id
 		WHERE t.id = ?
@@ -162,6 +190,7 @@ func (r *ProjectRepository) GetByThreadID(ctx context.Context, threadID uuid.UUI
 	project := &model.Project{}
 	var idStr string
 	var config []byte
+	var workflowTemplateID sql.NullString
 	err := r.db.QueryRowContext(ctx, query, threadID.String()).Scan(
 		&idStr,
 		&project.Name,
@@ -170,6 +199,7 @@ func (r *ProjectRepository) GetByThreadID(ctx context.Context, threadID uuid.UUI
 		&project.Status,
 		&project.GitRepo,
 		&config,
+		&workflowTemplateID,
 		&project.CreatedAt,
 		&project.UpdatedAt,
 	)
@@ -178,5 +208,9 @@ func (r *ProjectRepository) GetByThreadID(ctx context.Context, threadID uuid.UUI
 	}
 	project.ID, _ = uuid.Parse(idStr)
 	project.Config = json.RawMessage(config)
+	if workflowTemplateID.Valid {
+		wid, _ := uuid.Parse(workflowTemplateID.String)
+		project.WorkflowTemplateID = &wid
+	}
 	return project, nil
 }
