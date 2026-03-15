@@ -23,12 +23,16 @@ func NewThreadRepository(db *sql.DB) *ThreadRepository {
 // Create 创建Thread
 func (r *ThreadRepository) Create(ctx context.Context, thread *model.Thread) error {
 	query := `
-		INSERT INTO threads (id, project_id, status, current_phase, current_agent, depth, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO threads (id, project_id, status, current_phase, current_agent, depth, workflow_template_id, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	now := time.Now()
+	var workflowTemplateID interface{}
+	if thread.WorkflowTemplateID != nil {
+		workflowTemplateID = thread.WorkflowTemplateID.String()
+	}
 	_, err := r.db.ExecContext(ctx, query,
-		thread.ID.String(), thread.ProjectID.String(), thread.Status, thread.CurrentPhase, thread.CurrentAgent, thread.Depth, now, now,
+		thread.ID.String(), thread.ProjectID.String(), thread.Status, thread.CurrentPhase, thread.CurrentAgent, thread.Depth, workflowTemplateID, now, now,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create thread: %w", err)
@@ -41,15 +45,16 @@ func (r *ThreadRepository) Create(ctx context.Context, thread *model.Thread) err
 // FindByID 根据ID查找Thread
 func (r *ThreadRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.Thread, error) {
 	query := `
-		SELECT id, project_id, status, current_phase, current_agent, depth, abort_token, created_at, updated_at
+		SELECT id, project_id, status, current_phase, current_agent, depth, workflow_template_id, abort_token, created_at, updated_at
 		FROM threads WHERE id = ?
 	`
 	thread := &model.Thread{}
 	var idStr, projectIDStr string
 	var projectID sql.NullString
+	var workflowTemplateID sql.NullString
 	err := r.db.QueryRowContext(ctx, query, id.String()).Scan(
 		&idStr, &projectID, &thread.Status, &thread.CurrentPhase, &thread.CurrentAgent,
-		&thread.Depth, &thread.AbortToken, &thread.CreatedAt, &thread.UpdatedAt,
+		&thread.Depth, &workflowTemplateID, &thread.AbortToken, &thread.CreatedAt, &thread.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find thread: %w", err)
@@ -59,13 +64,17 @@ func (r *ThreadRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.T
 		projectIDStr = projectID.String
 		thread.ProjectID, _ = uuid.Parse(projectIDStr)
 	}
+	if workflowTemplateID.Valid {
+		wid, _ := uuid.Parse(workflowTemplateID.String)
+		thread.WorkflowTemplateID = &wid
+	}
 	return thread, nil
 }
 
 // FindByProjectID 根据项目ID查找Thread列表
 func (r *ThreadRepository) FindByProjectID(ctx context.Context, projectID uuid.UUID) ([]*model.Thread, error) {
 	query := `
-		SELECT id, project_id, status, current_phase, current_agent, depth, abort_token, created_at, updated_at
+		SELECT id, project_id, status, current_phase, current_agent, depth, workflow_template_id, abort_token, created_at, updated_at
 		FROM threads WHERE project_id = ? ORDER BY created_at DESC
 	`
 	rows, err := r.db.QueryContext(ctx, query, projectID.String())
@@ -79,9 +88,10 @@ func (r *ThreadRepository) FindByProjectID(ctx context.Context, projectID uuid.U
 		thread := &model.Thread{}
 		var idStr, projIDStr string
 		var projID sql.NullString
+		var workflowTemplateID sql.NullString
 		err := rows.Scan(
 			&idStr, &projID, &thread.Status, &thread.CurrentPhase, &thread.CurrentAgent,
-			&thread.Depth, &thread.AbortToken, &thread.CreatedAt, &thread.UpdatedAt,
+			&thread.Depth, &workflowTemplateID, &thread.AbortToken, &thread.CreatedAt, &thread.UpdatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan thread: %w", err)
@@ -90,6 +100,10 @@ func (r *ThreadRepository) FindByProjectID(ctx context.Context, projectID uuid.U
 		if projID.Valid {
 			projIDStr = projID.String
 			thread.ProjectID, _ = uuid.Parse(projIDStr)
+		}
+		if workflowTemplateID.Valid {
+			wid, _ := uuid.Parse(workflowTemplateID.String)
+			thread.WorkflowTemplateID = &wid
 		}
 		threads = append(threads, thread)
 	}
