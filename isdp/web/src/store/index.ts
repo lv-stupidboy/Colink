@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
-import type { Thread, Message, AgentInvocation, AgentConfig, Phase, AgentRole } from '@/types';
+import type { Thread, Message, AgentInvocation, AgentConfig, Phase, AgentRole, Project, WorkflowTemplate } from '@/types';
 import api from '@/api/client';
 
 interface AppState {
@@ -27,6 +27,15 @@ interface AppState {
 
   // 错误信息
   error: string | null;
+
+  // 当前项目（包含workflowTemplateId）
+  currentProject: Project | null;
+
+  // 当前工作流模板（包含agentIds）
+  currentWorkflowTemplate: WorkflowTemplate | null;
+
+  // 项目上下文加载状态
+  loadingProjectContext: boolean;
 }
 
 interface AppActions {
@@ -65,6 +74,15 @@ interface AppActions {
 
   // 重置状态
   reset: () => void;
+
+  // 加载项目上下文（项目和工作流模板）
+  loadProjectContext: (projectId: string) => Promise<void>;
+
+  // 清除项目上下文
+  clearProjectContext: () => void;
+
+  // 获取过滤后的Agent列表（基于工作流模板）
+  getFilteredAgents: () => AgentConfig[];
 }
 
 const initialState: AppState = {
@@ -76,6 +94,9 @@ const initialState: AppState = {
   wsConnected: false,
   loading: false,
   error: null,
+  currentProject: null,
+  currentWorkflowTemplate: null,
+  loadingProjectContext: false,
 };
 
 export const useAppStore = create<AppState & AppActions>()(
@@ -225,6 +246,54 @@ export const useAppStore = create<AppState & AppActions>()(
 
     reset: () => {
       set(initialState);
+    },
+
+    loadProjectContext: async (projectId: string) => {
+      set({ loadingProjectContext: true });
+      try {
+        // Load project to get workflowTemplateId
+        const project = await api.projects.get(projectId);
+
+        // Load workflow template if project has one bound
+        let workflowTemplate: WorkflowTemplate | null = null;
+        if ((project as unknown as Project).workflowTemplateId) {
+          workflowTemplate = await api.workflows.get((project as unknown as Project).workflowTemplateId!);
+        }
+
+        set({
+          currentProject: project as unknown as Project,
+          currentWorkflowTemplate: workflowTemplate,
+          loadingProjectContext: false,
+        });
+      } catch (error) {
+        console.error('Failed to load project context:', error);
+        set({
+          loadingProjectContext: false,
+          currentProject: null,
+          currentWorkflowTemplate: null,
+        });
+      }
+    },
+
+    clearProjectContext: () => {
+      set({
+        currentProject: null,
+        currentWorkflowTemplate: null,
+      });
+    },
+
+    getFilteredAgents: () => {
+      const { currentWorkflowTemplate, agentConfigs } = get();
+
+      // If no workflow template or no agentIds, return all agents
+      if (!currentWorkflowTemplate || !currentWorkflowTemplate.agentIds?.length) {
+        return agentConfigs;
+      }
+
+      // Filter agents that are in the workflow's agentIds
+      return agentConfigs.filter(agent =>
+        currentWorkflowTemplate.agentIds.includes(agent.id)
+      );
     },
   }))
 );

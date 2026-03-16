@@ -75,6 +75,10 @@ const ThreadView: React.FC = () => {
     setWsConnected,
     addMessage,
     updateAgentStatus,
+    loadingProjectContext,
+    loadProjectContext,
+    clearProjectContext,
+    getFilteredAgents,
   } = useAppStore();
 
   const [inputValue, setInputValue] = useState('');
@@ -109,6 +113,16 @@ const ThreadView: React.FC = () => {
       }
     };
   }, [threadId]);
+
+  // Load project context when thread is loaded with a projectId
+  useEffect(() => {
+    if (currentThread?.projectId) {
+      loadProjectContext(currentThread.projectId);
+    }
+    return () => {
+      clearProjectContext();
+    };
+  }, [currentThread?.projectId, loadProjectContext, clearProjectContext]);
 
   useEffect(() => {
     scrollToBottom();
@@ -424,60 +438,61 @@ const ThreadView: React.FC = () => {
       const hasReview = Boolean(msg.metadata?.reviewReport);
 
       return (
-        <div key={msg.id} className="message message-agent">
-          <div className="message-avatar">
-            <Avatar
-              icon={<RobotOutlined />}
-              style={{ backgroundColor: '#1890ff' }}
-            />
-          </div>
-          <div className="message-content">
-            <div className="message-header">
-              <span className="message-role">
-                {AgentRoleLabels[msg.agentId as keyof typeof AgentRoleLabels] || msg.agentId || 'Agent'}
-              </span>
-              <span className="message-time">
-                {new Date(msg.createdAt).toLocaleString()}
-              </span>
+        <div key={msg.id} className="message-container message-container-agent">
+          <Avatar
+            className="message-avatar"
+            icon={<RobotOutlined />}
+            style={{ backgroundColor: '#1890ff' }}
+          />
+          <div className="message message-agent">
+            <div className="message-content">
+              <div className="message-header">
+                <span className="message-role">
+                  {AgentRoleLabels[msg.agentId as keyof typeof AgentRoleLabels] || msg.agentId || 'Agent'}
+                </span>
+                <span className="message-time">
+                  {new Date(msg.createdAt).toLocaleString()}
+                </span>
+              </div>
+              <div className="message-body">{msg.content}</div>
+
+              {/* 产物卡片 */}
+              {hasArtifact && (
+                <Card
+                  size="small"
+                  className="artifact-card-in-message"
+                  style={{ marginTop: 12 }}
+                  title={
+                    <Space>
+                      <FileTextOutlined />
+                      <span>产物: {String((msg.metadata?.artifact as Record<string, unknown>)?.name || '产物')}</span>
+                    </Space>
+                  }
+                >
+                  <Text type="secondary">{String((msg.metadata?.artifact as Record<string, unknown>)?.description || '点击查看详情')}</Text>
+                </Card>
+              )}
+
+              {/* 审查报告卡片 */}
+              {hasReview && (
+                <Card
+                  size="small"
+                  className="review-card-in-message"
+                  style={{ marginTop: 12 }}
+                  title={
+                    <Space>
+                      <ExclamationCircleOutlined />
+                      <span>审查报告</span>
+                    </Space>
+                  }
+                >
+                  <ReviewReport
+                    result={msg.metadata?.reviewReport as any}
+                    issues={msg.metadata?.reviewIssues as ReviewIssue[] || []}
+                  />
+                </Card>
+              )}
             </div>
-            <div className="message-body">{msg.content}</div>
-
-            {/* 产物卡片 */}
-            {hasArtifact && (
-              <Card
-                size="small"
-                className="artifact-card-in-message"
-                style={{ marginTop: 12 }}
-                title={
-                  <Space>
-                    <FileTextOutlined />
-                    <span>产物: {String((msg.metadata?.artifact as Record<string, unknown>)?.name || '产物')}</span>
-                  </Space>
-                }
-              >
-                <Text type="secondary">{String((msg.metadata?.artifact as Record<string, unknown>)?.description || '点击查看详情')}</Text>
-              </Card>
-            )}
-
-            {/* 审查报告卡片 */}
-            {hasReview && (
-              <Card
-                size="small"
-                className="review-card-in-message"
-                style={{ marginTop: 12 }}
-                title={
-                  <Space>
-                    <ExclamationCircleOutlined />
-                    <span>审查报告</span>
-                  </Space>
-                }
-              >
-                <ReviewReport
-                  result={msg.metadata?.reviewReport as any}
-                  issues={msg.metadata?.reviewIssues as ReviewIssue[] || []}
-                />
-              </Card>
-            )}
           </div>
         </div>
       );
@@ -485,21 +500,22 @@ const ThreadView: React.FC = () => {
 
     // 用户消息
     return (
-      <div key={msg.id} className="message message-user">
-        <div className="message-avatar">
-          <Avatar
-            icon={<UserOutlined />}
-            style={{ backgroundColor: '#52c41a' }}
-          />
-        </div>
-        <div className="message-content">
-          <div className="message-header">
-            <span className="message-role">用户</span>
-            <span className="message-time">
-              {new Date(msg.createdAt).toLocaleString()}
-            </span>
+      <div key={msg.id} className="message-container message-container-user">
+        <Avatar
+          className="message-avatar"
+          icon={<UserOutlined />}
+          style={{ backgroundColor: '#52c41a' }}
+        />
+        <div className="message message-user">
+          <div className="message-content">
+            <div className="message-header">
+              <span className="message-role">用户</span>
+              <span className="message-time">
+                {new Date(msg.createdAt).toLocaleString()}
+              </span>
+            </div>
+            <div className="message-body">{msg.content}</div>
           </div>
-          <div className="message-body">{msg.content}</div>
         </div>
       </div>
     );
@@ -572,6 +588,17 @@ const ThreadView: React.FC = () => {
       agent: currentThread?.currentAgent,
     };
   });
+
+  // Get agents available for @mention from workflow template
+  const mentionableAgents = getFilteredAgents();
+
+  // Create a map of agent id -> display info for @mention
+  const agentOptions = mentionableAgents.map(agent => ({
+    id: agent.id,
+    role: agent.role,
+    name: agent.name,
+    label: `${agent.name} (${AgentRoleLabels[agent.role as keyof typeof AgentRoleLabels] || agent.role})`,
+  }));
 
   return (
     <div className="thread-view">
@@ -663,32 +690,42 @@ const ThreadView: React.FC = () => {
                 zIndex: 1000,
               }}
             >
-              <List
-                size="small"
-                dataSource={Object.entries(AgentRoleLabels)
-                  .filter(([key, label]) =>
-                    !mentionFilter || label.toLowerCase().includes(mentionFilter) || key.includes(mentionFilter)
-                  )
-                }
-                renderItem={([key, label]) => (
-                  <List.Item
-                    style={{ cursor: 'pointer', padding: '8px 12px' }}
-                    onClick={() => selectMention(key as AgentRole, label)}
-                    onMouseEnter={(e) => {
-                      (e.currentTarget as HTMLElement).style.background = '#f5f5f5';
-                    }}
-                    onMouseLeave={(e) => {
-                      (e.currentTarget as HTMLElement).style.background = 'transparent';
-                    }}
-                  >
-                    <Space>
-                      <Avatar size="small" icon={<RobotOutlined />} />
-                      <span>{label}</span>
-                      <Text type="secondary" style={{ fontSize: 12 }}>@{key}</Text>
-                    </Space>
-                  </List.Item>
-                )}
-              />
+              {loadingProjectContext ? (
+                <div style={{ padding: 16, textAlign: 'center' }}>
+                  <Spin size="small" />
+                  <span style={{ marginLeft: 8 }}>加载中...</span>
+                </div>
+              ) : agentOptions.length === 0 ? (
+                <div style={{ padding: 16, textAlign: 'center', color: '#999' }}>
+                  当前工作流没有可用的 Agent
+                </div>
+              ) : (
+                <List
+                  size="small"
+                  dataSource={agentOptions.filter(opt =>
+                    !mentionFilter ||
+                    opt.label.toLowerCase().includes(mentionFilter.toLowerCase()) ||
+                    opt.role.toLowerCase().includes(mentionFilter.toLowerCase())
+                  )}
+                  renderItem={(opt) => (
+                    <List.Item
+                      style={{ cursor: 'pointer', padding: '8px 12px' }}
+                      onClick={() => selectMention(opt.role as AgentRole, opt.name)}
+                      onMouseEnter={(e) => {
+                        (e.currentTarget as HTMLElement).style.background = '#f5f5f5';
+                      }}
+                      onMouseLeave={(e) => {
+                        (e.currentTarget as HTMLElement).style.background = 'transparent';
+                      }}
+                    >
+                      <Space>
+                        <Avatar size="small" icon={<RobotOutlined />} />
+                        <span>{opt.label}</span>
+                      </Space>
+                    </List.Item>
+                  )}
+                />
+              )}
             </Card>
           )}
         </div>
