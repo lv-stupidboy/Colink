@@ -46,6 +46,8 @@ Thread → WorkflowTemplate → AgentIDs → AgentConfigs
 
 **File:** `internal/service/agent/orchestrator.go`
 
+**注意:** `a2a/mention_parser.go` 中存在同名结构体 `ParsedMention`（字段不同），需先删除旧结构体。
+
 ```go
 // ParsedMention @mention 解析结果
 type ParsedMention struct {
@@ -289,24 +291,32 @@ o.checkRouting(ctx, req.ThreadID, config, output)
 
 | 场景 | 处理方式 |
 |------|----------|
-| Thread 未绑定工作流模板 | `getAllowedAgentsFromWorkflow` 返回 nil，跳过路由 |
-| @mention 角色不在模板中 | 记录日志，跳过该路由 |
-| @mention 名称不在模板中 | 记录日志，跳过该路由 |
-| Agent 配置被删除 | `GetByID` 失败，跳过该 Agent |
-| 工作流模板 AgentIDs 为空 | 返回 nil，跳过路由 |
+| Thread 未绑定工作流模板 | `getAllowedAgentsFromWorkflow` 返回 nil，所有 @mention 被记录为"路由被拒绝"并跳过 |
+| @mention 角色不在模板中 | 记录日志"路由被拒绝：目标不在工作流模板中"，跳过该路由 |
+| @mention 名称不在模板中 | 记录日志"路由被拒绝：目标不在工作流模板中"，跳过该路由 |
+| Agent 配置被删除 | `GetByID` 失败，跳过该 Agent（不添加到允许列表） |
+| 工作流模板 AgentIDs 为空 | 返回 nil，所有 @mention 被记录为"路由被拒绝"并跳过 |
 
 ---
 
 ## Code Cleanup
 
-### 可删除的重复代码
+### 删除未使用的代码
 
 **File:** `internal/service/a2a/mention_parser.go`
 
-- `getAllowedRoutes` 函数可删除（与 `config_service.go` 中的 `getDefaultRouting` 重复）
-- `ValidateRouting` 函数可删除（新逻辑在 `checkRouting` 中实现）
+经确认，`MentionParser` 及相关函数在项目中**未被使用**，应删除以下内容：
 
-**注意:** 如果 `MentionParser` 在其他地方有使用，需评估后再删除。
+- `MentionParser` 结构体和 `NewMentionParser` 函数
+- `ParsedMention` 结构体（旧版，字段为 `{Role, Content}`）
+- `ParseMentions` 方法
+- `ParseAgentRole` 函数（与 `orchestrator.go` 中的 `parseAgentRole` 重复）
+- `ExtractRouting` 方法和 `RoutingInfo` 结构体
+- `ValidateRouting` 方法
+- `getAllowedRoutes` 函数（与 `config_service.go` 中的 `getDefaultRouting` 重复）
+- `FormatMention` 函数和 `roleToString` 函数
+
+**删除后:** `a2a/mention_parser.go` 文件可以完全删除，仅保留 `worklist.go`
 
 ---
 
