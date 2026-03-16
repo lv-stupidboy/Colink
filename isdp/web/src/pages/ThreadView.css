@@ -34,13 +34,15 @@
   width: 100%;
 }
 
+/* 用户消息 - 右边 (微信风格) */
 .message-container-user {
   flex-direction: row;
-  justify-content: flex-start;
+  justify-content: flex-end;
 }
 
+/* Agent消息 - 左边 */
 .message-container-agent {
-  flex-direction: row-reverse;
+  flex-direction: row;
   justify-content: flex-start;
 }
 
@@ -71,16 +73,18 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
+/* Agent消息 - 左边 */
 .message-agent {
   background: linear-gradient(135deg, #e6f7ff 0%, #f0f5ff 100%);
-  border-right: 4px solid #1890ff;
-  border-radius: 12px 12px 0 12px;
+  border-left: 4px solid #1890ff;
+  border-radius: 0 12px 12px 12px;
 }
 
+/* 用户消息 - 右边 (微信风格) */
 .message-user {
   background: linear-gradient(135deg, #f6ffed 0%, #f9f0ff 100%);
-  border-left: 4px solid #52c41a;
-  border-radius: 12px 12px 12px 0;
+  border-right: 4px solid #52c41a;
+  border-radius: 12px 0 12px 12px;
 }
 
 .message-system {

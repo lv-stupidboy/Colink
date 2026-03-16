@@ -498,14 +498,9 @@ const ThreadView: React.FC = () => {
       );
     }
 
-    // 用户消息
+    // 用户消息 - 微信风格：消息框在右，头像在消息框右边
     return (
       <div key={msg.id} className="message-container message-container-user">
-        <Avatar
-          className="message-avatar"
-          icon={<UserOutlined />}
-          style={{ backgroundColor: '#52c41a' }}
-        />
         <div className="message message-user">
           <div className="message-content">
             <div className="message-header">
@@ -517,6 +512,11 @@ const ThreadView: React.FC = () => {
             <div className="message-body">{msg.content}</div>
           </div>
         </div>
+        <Avatar
+          className="message-avatar"
+          icon={<UserOutlined />}
+          style={{ backgroundColor: '#52c41a' }}
+        />
       </div>
     );
   };
