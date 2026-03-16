@@ -5,7 +5,8 @@ export type AgentRole =
   | 'developer'
   | 'reviewer'
   | 'testengineer'
-  | 'devops';
+  | 'devops'
+  | 'custom';
 
 // 基础Agent类型
 export type BaseAgentType = 'claude_code' | 'open_code';
@@ -41,6 +42,7 @@ export interface Project {
   description: string;
   type?: 'service' | 'app' | 'task';
   mode?: 'new' | 'enhance';
+  localPath: string; // 本地路径（必填）
   repositoryUrl?: string;
   status: 'active' | 'archived';
   workflowTemplateId?: string;
@@ -58,6 +60,7 @@ export interface Thread {
   currentAgent?: string;
   depth: number;
   abortToken?: string;
+  workflowTemplateId?: string; // 绑定的工作流模板ID
   createdAt: string;
   updatedAt: string;
 }
@@ -199,7 +202,8 @@ export const AgentRoleLabels: Record<AgentRole, string> = {
   developer: '开发者',
   reviewer: '评审者',
   testengineer: '测试工程师',
-  devops: 'DevOps工程师',
+  devops: '运维工程师',
+  custom: '自定义',
 };
 
 // Phase对应的颜色
@@ -236,4 +240,20 @@ export interface WorkflowTemplate {
   isDefault: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+// 文件信息
+export interface FileInfo {
+  name: string;
+  path: string;
+  isDir: boolean;
+  size: number;
+  modTime: string;
+}
+
+// 文件列表响应
+export interface ListFilesResponse {
+  path: string;
+  files: FileInfo[];
+  hasMore: boolean;
 }

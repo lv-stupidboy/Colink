@@ -4,6 +4,140 @@
 
 ---
 
+## 2026-03-17 修复项目路径绑定问题
+
+### 背景
+
+进行新项目开发时，Agent 的工作目录应该是绑定的项目路径，而不是当前工程路径。
+
+### 问题
+
+1. **SpawnRequest.ProjectPath 未设置**：`invocation_handler.go` 中的 Spawn 函数没有传递项目路径
+2. **A2A 路由缺少项目路径**：`checkRouting` 和 `checkSignalRouting` 触发新 Agent 时没有传递项目路径
+3. **用户消息触发缺少项目路径**：`SpawnAgentForUserMessage` 触发 Agent 时没有传递项目路径
+
+### 目标
+
+确保所有 Agent 触发场景都正确传递绑定项目的 `LocalPath` 作为工作目录。
+
+### 修改文件
+
+| 文件 | 改动类型 | 说明 |
+|------|----------|------|
+| `internal/api/invocation_handler.go` | 修改 | 添加 projectRepo 依赖，Spawn 时获取项目路径 |
+| `internal/service/agent/orchestrator.go` | 修改 | 添加 projectRepo 依赖，多处 SpawnAgent 调用添加 ProjectPath |
+| `cmd/server/main.go` | 修改 | 传递 projectRepo 给 InvocationHandler 和 Orchestrator |
+
+### 详细改动
+
+#### 1. InvocationHandler 添加项目路径获取
+
+```go
+// NewInvocationHandler 创建处理器
+func NewInvocationHandler(orchestrator *agent.Orchestrator, mcpAuth *a2a.MCPAuthService, projectRepo *repo.ProjectRepository) *InvocationHandler
+
+// Spawn 启动Agent
+func (h *InvocationHandler) Spawn(c *gin.Context) {
+    // 获取绑定的项目路径
+    var projectPath string
+    if h.projectRepo != nil {
+        project, err := h.projectRepo.GetByThreadID(c.Request.Context(), threadID)
+        if err == nil && project != nil {
+            projectPath = project.LocalPath
+        }
+    }
+    spawnReq := &agent.SpawnRequest{
+        // ...
+        ProjectPath: projectPath,
+    }
+}
+```
+
+#### 2. Orchestrator 添加 projectRepo 依赖
+
+```go
+type Orchestrator struct {
+    // ...
+    projectRepo *repo.ProjectRepository // 新增：项目仓库
+}
+
+func NewOrchestrator(..., projectRepo *repo.ProjectRepository, ...) *Orchestrator
+```
+
+#### 3. checkRouting 添加项目路径
+
+```go
+func (o *Orchestrator) checkRouting(...) {
+    // 获取项目路径
+    var projectPath string
+    if o.projectRepo != nil {
+        project, err := o.projectRepo.GetByThreadID(ctx, threadID)
+        if err == nil && project != nil {
+            projectPath = project.LocalPath
+        }
+    }
+    o.SpawnAgent(ctx, &SpawnRequest{
+        // ...
+        ProjectPath: projectPath,
+    })
+}
+```
+
+#### 4. checkSignalRouting 添加项目路径
+
+```go
+func (o *Orchestrator) checkSignalRouting(...) {
+    // 获取项目路径
+    var projectPath string
+    if o.projectRepo != nil {
+        project, err := o.projectRepo.GetByThreadID(ctx, threadID)
+        if err == nil && project != nil {
+            projectPath = project.LocalPath
+        }
+    }
+    o.SpawnAgent(ctx, &SpawnRequest{
+        // ...
+        ProjectPath: projectPath,
+    })
+}
+```
+
+#### 5. SpawnAgentForUserMessage 添加项目路径
+
+```go
+func (o *Orchestrator) SpawnAgentForUserMessage(...) error {
+    // 获取项目路径
+    var projectPath string
+    if o.projectRepo != nil {
+        project, err := o.projectRepo.GetByThreadID(ctx, threadID)
+        if err == nil && project != nil {
+            projectPath = project.LocalPath
+        }
+    }
+    // 两处 SpawnAgent 调用都添加 ProjectPath
+}
+```
+
+### 数据流
+
+```
+Thread → ProjectID → Project → LocalPath → SpawnRequest.ProjectPath
+```
+
+### 验证方法
+
+1. 创建一个项目，设置 `local_path` 为目标开发目录
+2. 创建 Thread 绑定该项目
+3. 触发 Agent 执行
+4. 验证 Agent 的工作目录为绑定的项目路径
+
+### 影响范围
+
+- 后端：Agent 触发逻辑
+- 数据：不影响现有数据
+
+---
+
 ## 2026-03-16 A2A @mention 路由验证功能
 
 ### 背景

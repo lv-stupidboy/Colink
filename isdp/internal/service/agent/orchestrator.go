@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -12,7 +13,15 @@ import (
 	"github.com/anthropic/isdp/internal/repo"
 	"github.com/anthropic/isdp/internal/ws"
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
+
+// ParsedMention @mention 解析结果
+type ParsedMention struct {
+	Role      model.AgentRole // 角色类型（可能为空）
+	AgentName string          // Agent 实例名称（可能为空）
+	Raw       string          // 原始 mention 文本
+}
 
 // Orchestrator Agent编排器
 type Orchestrator struct {
@@ -23,6 +32,8 @@ type Orchestrator struct {
 	baseAgentSvc    *BaseAgentService
 	tracker         *InvocationTracker
 	workflow        *WorkflowEngine
+	workflowRepo    *repo.WorkflowTemplateRepository // 新增：工作流模板仓库
+	projectRepo     *repo.ProjectRepository          // 新增：项目仓库，用于获取项目路径
 	wsHub           *ws.Hub
 	defaultAdapter  AgentAdapter // 默认适配器，用于向后兼容
 
@@ -50,6 +61,8 @@ func NewOrchestrator(
 	baseAgentSvc *BaseAgentService,
 	tracker *InvocationTracker,
 	workflow *WorkflowEngine,
+	workflowRepo *repo.WorkflowTemplateRepository,
+	projectRepo *repo.ProjectRepository,
 	wsHub *ws.Hub,
 	defaultAdapter AgentAdapter,
 ) *Orchestrator {
@@ -61,6 +74,8 @@ func NewOrchestrator(
 		baseAgentSvc:   baseAgentSvc,
 		tracker:        tracker,
 		workflow:       workflow,
+		workflowRepo:   workflowRepo,
+		projectRepo:    projectRepo,
 		wsHub:          wsHub,
 		defaultAdapter: defaultAdapter,
 		runningAgents:  make(map[uuid.UUID]*RunningAgent),
@@ -72,11 +87,20 @@ func NewOrchestrator(
 // SpawnAgent 启动Agent
 func (o *Orchestrator) SpawnAgent(ctx context.Context, req *SpawnRequest) (*model.AgentInvocation, error) {
 	// 获取Agent配置
-	config, err := o.configSvc.GetByID(ctx, req.ConfigID)
-	if err != nil {
+	var config *model.AgentRoleConfig
+	var err error
+
+	// 优先使用 ConfigID
+	if req.ConfigID != uuid.Nil {
+		config, err = o.configSvc.GetByID(ctx, req.ConfigID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get agent config by id: %w", err)
+		}
+	} else {
+		// 如果没有 ConfigID，尝试通过 role 查找默认配置
 		config, err = o.configSvc.GetDefaultByRole(ctx, req.Role)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get agent config: %w", err)
+			return nil, fmt.Errorf("failed to get agent config by role: %w", err)
 		}
 	}
 
@@ -170,8 +194,8 @@ func (o *Orchestrator) executeAgent(ctx context.Context, invocation *model.Agent
 	var outputBuilder strings.Builder
 	err = adapter.ExecuteWithStream(ctx, mergedConfig, contextLayers, req.Input, req.ProjectPath, func(chunk string) {
 		outputBuilder.WriteString(chunk)
-		// 实时广播输出块
-		o.broadcastOutputChunk(req.ThreadID, invocation.ID, chunk)
+		// 实时广播输出块，包含 agentId 和 agentName
+		o.broadcastOutputChunk(req.ThreadID, invocation.ID, chunk, config.ID.String(), config.Name)
 	})
 
 	if err != nil {
@@ -189,15 +213,24 @@ func (o *Orchestrator) executeAgent(ctx context.Context, invocation *model.Agent
 	invocation.CompletedAt = timePtr(time.Now())
 	o.invocationRepo.Update(ctx, invocation)
 
-	// 保存输出消息
-	o.msgRepo.Create(ctx, &model.Message{
+	// 保存输出消息到数据库（用于持久化），但不广播（已通过流式输出实时发送）
+	metadata, _ := json.Marshal(map[string]string{
+		"agentName": config.Name,
+		"agentRole": string(config.Role),
+	})
+	msg := &model.Message{
 		ThreadID:    req.ThreadID,
 		Role:        model.MessageRoleAgent,
 		AgentID:     config.ID.String(),
 		Content:     output,
 		MessageType: model.MessageTypeText,
+		Metadata:    metadata,
 		CreatedAt:   time.Now(),
-	})
+	}
+	if err := o.msgRepo.Create(ctx, msg); err != nil {
+		fmt.Printf("[DEBUG] Failed to save agent message: %v\n", err)
+	}
+	// 注意：不调用 broadcastAgentMessage，因为内容已通过流式输出实时发送到前端
 
 	// 广播完成状态
 	o.broadcastStatus(req.ThreadID, invocation.ID, "completed", config.Role)
@@ -297,41 +330,60 @@ func (o *Orchestrator) buildContextLayers(ctx context.Context, threadID uuid.UUI
 }
 
 // checkRouting 检查路由
-func (o *Orchestrator) checkRouting(ctx context.Context, threadID uuid.UUID, config *model.AgentRoleConfig, output string) {
-	// 解析@mention (简单的行首@检测)
-	mentions := parseMentions(output)
+func (o *Orchestrator) checkRouting(ctx context.Context, threadID uuid.UUID, currentConfig *model.AgentRoleConfig, output string) {
+	mentions := o.parseMentions(output)
 
-	if len(mentions) > 0 {
-		// 有显式路由
-		for _, role := range mentions {
-			if role != "" {
-				o.SpawnAgent(ctx, &SpawnRequest{
-					ThreadID: threadID,
-					Role:     role,
-					Input:    output,
-				})
-			}
-		}
-	} else {
+	if len(mentions) == 0 {
 		// 检查信号路由
-		for _, signal := range config.RoutingConfig.RouteOnSignal {
-			if strings.Contains(output, signal) {
-				nextPhase := o.workflow.GetNextPhase(getPhaseFromSignal(signal))
-				nextRole := o.workflow.GetPhaseAgent(nextPhase)
-				o.SpawnAgent(ctx, &SpawnRequest{
-					ThreadID: threadID,
-					Role:     nextRole,
-					Input:    output,
-				})
-				break
-			}
+		o.checkSignalRouting(ctx, threadID, currentConfig, output)
+		return
+	}
+
+	// 获取工作流模板中的 Agent 列表
+	allowedAgents := o.getAllowedAgentsFromWorkflow(ctx, threadID)
+
+	// 获取项目路径
+	var projectPath string
+	if o.projectRepo != nil {
+		project, err := o.projectRepo.GetByThreadID(ctx, threadID)
+		if err == nil && project != nil {
+			projectPath = project.LocalPath
 		}
+	}
+
+	for _, mention := range mentions {
+		var targetConfig *model.AgentRoleConfig
+
+		if mention.Role != "" {
+			// 按 role 查找
+			targetConfig = o.findAgentByRole(allowedAgents, mention.Role)
+		} else {
+			// 按 name 查找
+			targetConfig = o.findAgentByName(allowedAgents, mention.AgentName)
+		}
+
+		if targetConfig == nil {
+			logInfo("路由被拒绝：目标不在工作流模板中",
+				zap.String("mention", mention.Raw),
+				zap.String("threadId", threadID.String()))
+			continue
+		}
+
+		// 使用工作流模板中指定的 Agent 实例
+		o.SpawnAgent(ctx, &SpawnRequest{
+			ThreadID:    threadID,
+			ConfigID:    targetConfig.ID,
+			Role:        targetConfig.Role,
+			Input:       output,
+			ProjectPath: projectPath,
+		})
 	}
 }
 
-// parseMentions 解析@mention (简化版)
-func parseMentions(content string) []model.AgentRole {
-	var roles []model.AgentRole
+// parseMentions 解析@mention
+// 支持: @developer (角色) 或 @前端开发 (实例名称)
+func (o *Orchestrator) parseMentions(content string) []ParsedMention {
+	var mentions []ParsedMention
 	lines := strings.Split(content, "\n")
 	count := 0
 
@@ -341,15 +393,21 @@ func parseMentions(content string) []model.AgentRole {
 			break
 		}
 		if strings.HasPrefix(line, "@") {
-			roleStr := strings.Fields(line[1:])[0]
-			role := parseAgentRole(roleStr)
-			if role != "" {
-				roles = append(roles, role)
+			mention := strings.Fields(line[1:])[0]
+			if mention != "" {
+				// 尝试解析为角色
+				role := parseAgentRole(mention)
+
+				mentions = append(mentions, ParsedMention{
+					Role:      role,
+					AgentName: mention,
+					Raw:       mention,
+				})
 				count++
 			}
 		}
 	}
-	return roles
+	return mentions
 }
 
 // parseAgentRole 解析Agent角色
@@ -369,6 +427,93 @@ func parseAgentRole(s string) model.AgentRole {
 		return model.AgentRoleDevOps
 	default:
 		return ""
+	}
+}
+
+// getAllowedAgentsFromWorkflow 从工作流模板获取允许路由的 Agent 列表
+// 数据流: Thread → WorkflowTemplate → AgentIDs → AgentConfigs
+func (o *Orchestrator) getAllowedAgentsFromWorkflow(ctx context.Context, threadID uuid.UUID) []*model.AgentRoleConfig {
+	// 1. 获取 Thread
+	thread, err := o.threadRepo.FindByID(ctx, threadID)
+	if err != nil || thread.WorkflowTemplateID == nil {
+		return nil
+	}
+
+	// 2. 获取工作流模板
+	workflow, err := o.workflowRepo.FindByID(ctx, *thread.WorkflowTemplateID)
+	if err != nil || workflow == nil {
+		return nil
+	}
+
+	// 3. 解析 AgentIDs JSON
+	var agentIDs []string
+	if len(workflow.AgentIDs) == 0 {
+		return nil
+	}
+	if err := json.Unmarshal(workflow.AgentIDs, &agentIDs); err != nil {
+		return nil
+	}
+
+	// 4. 查询每个 Agent 的配置
+	var agents []*model.AgentRoleConfig
+	for _, idStr := range agentIDs {
+		id, err := uuid.Parse(idStr)
+		if err != nil {
+			continue
+		}
+		agent, err := o.configSvc.GetByID(ctx, id)
+		if err == nil {
+			agents = append(agents, agent)
+		}
+	}
+
+	return agents
+}
+
+// findAgentByRole 在 Agent 列表中按角色查找
+func (o *Orchestrator) findAgentByRole(agents []*model.AgentRoleConfig, role model.AgentRole) *model.AgentRoleConfig {
+	for _, agent := range agents {
+		if agent.Role == role {
+			return agent
+		}
+	}
+	return nil
+}
+
+// findAgentByName 在 Agent 列表中按名称查找
+func (o *Orchestrator) findAgentByName(agents []*model.AgentRoleConfig, name string) *model.AgentRoleConfig {
+	for _, agent := range agents {
+		if agent.Name == name {
+			return agent
+		}
+	}
+	return nil
+}
+
+// checkSignalRouting 检查信号路由（原有逻辑提取）
+func (o *Orchestrator) checkSignalRouting(ctx context.Context, threadID uuid.UUID, config *model.AgentRoleConfig, output string) {
+	for _, signal := range config.RoutingConfig.RouteOnSignal {
+		if strings.Contains(output, signal) {
+			nextPhase := o.workflow.GetNextPhase(getPhaseFromSignal(signal))
+			nextRole := o.workflow.GetPhaseAgent(nextPhase)
+
+			// 获取项目路径
+			var projectPath string
+			if o.projectRepo != nil {
+				project, err := o.projectRepo.GetByThreadID(ctx, threadID)
+				if err == nil && project != nil {
+					projectPath = project.LocalPath
+				}
+			}
+
+			o.SpawnAgent(ctx, &SpawnRequest{
+				ThreadID:    threadID,
+				Role:        nextRole,
+				Input:       output,
+				ProjectPath: projectPath,
+			})
+			break
+		}
 	}
 }
 
@@ -461,7 +606,7 @@ func (o *Orchestrator) broadcastStatus(threadID, invocationID uuid.UUID, status 
 }
 
 // broadcastOutputChunk 广播输出块（实时流式输出）
-func (o *Orchestrator) broadcastOutputChunk(threadID, invocationID uuid.UUID, chunk string) {
+func (o *Orchestrator) broadcastOutputChunk(threadID, invocationID uuid.UUID, chunk string, agentID, agentName string) {
 	if o.wsHub != nil {
 		o.wsHub.BroadcastToThread(threadID.String(), ws.WSMessage{
 			Type:      "agent_output_chunk",
@@ -470,6 +615,26 @@ func (o *Orchestrator) broadcastOutputChunk(threadID, invocationID uuid.UUID, ch
 			Payload: map[string]interface{}{
 				"invocationId": invocationID.String(),
 				"chunk":        chunk,
+				"agentId":      agentID,
+				"agentName":    agentName,
+			},
+		})
+	}
+}
+
+// broadcastAgentMessage 广播Agent消息（实时显示）
+func (o *Orchestrator) broadcastAgentMessage(threadID uuid.UUID, msg *model.Message, agentName, agentRole string) {
+	if o.wsHub != nil {
+		o.wsHub.BroadcastToThread(threadID.String(), ws.WSMessage{
+			Type:      "agent_message",
+			ThreadID:  threadID.String(),
+			Timestamp: msg.CreatedAt.UnixMilli(),
+			Payload: map[string]interface{}{
+				"messageId":   msg.ID.String(),
+				"agentId":     msg.AgentID,
+				"content":     msg.Content,
+				"agentName":   agentName,
+				"agentRole":   agentRole,
 			},
 		})
 	}
@@ -498,11 +663,20 @@ func (o *Orchestrator) GetInvocationStatus(ctx context.Context, invocationID uui
 // StartInteractiveSession 启动交互式会话
 func (o *Orchestrator) StartInteractiveSession(ctx context.Context, req *SpawnRequest) (*InteractiveSession, error) {
 	// 获取Agent配置
-	config, err := o.configSvc.GetByID(ctx, req.ConfigID)
-	if err != nil {
+	var config *model.AgentRoleConfig
+	var err error
+
+	// 优先使用 ConfigID
+	if req.ConfigID != uuid.Nil {
+		config, err = o.configSvc.GetByID(ctx, req.ConfigID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get agent config by id: %w", err)
+		}
+	} else {
+		// 如果没有 ConfigID，尝试通过 role 查找默认配置
 		config, err = o.configSvc.GetDefaultByRole(ctx, req.Role)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get agent config: %w", err)
+			return nil, fmt.Errorf("failed to get agent config by role: %w", err)
 		}
 	}
 
@@ -562,3 +736,101 @@ type ContextLayers struct {
 var (
 	ErrAgentNotFound = errors.New("agent not found")
 )
+
+// SpawnAgentForUserMessage 为用户消息触发Agent响应
+// 实现message.AgentSpawner接口
+// 使用工作流模板中指定的Agent，而不是根据Phase硬编码选择
+func (o *Orchestrator) SpawnAgentForUserMessage(ctx context.Context, threadID uuid.UUID, userMessage string) error {
+	// 检查是否已有Agent在运行
+	o.mu.RLock()
+	for _, agent := range o.runningAgents {
+		if agent.ThreadID == threadID {
+			o.mu.RUnlock()
+			// 已有Agent运行，不需要再触发
+			return nil
+		}
+	}
+	o.mu.RUnlock()
+
+	// 获取Thread信息
+	thread, err := o.threadRepo.FindByID(ctx, threadID)
+	if err != nil {
+		return fmt.Errorf("failed to get thread: %w", err)
+	}
+
+	// 获取项目路径
+	var projectPath string
+	if o.projectRepo != nil {
+		project, err := o.projectRepo.GetByThreadID(ctx, threadID)
+		if err == nil && project != nil {
+			projectPath = project.LocalPath
+		}
+	}
+
+	// 获取工作流模板中的Agent列表
+	var agentIDs []string
+	if thread.WorkflowTemplateID != nil && o.workflowRepo != nil {
+		workflow, err := o.workflowRepo.FindByID(ctx, *thread.WorkflowTemplateID)
+		if err == nil && workflow != nil {
+			// 解析 agent_ids JSON
+			if len(workflow.AgentIDs) > 0 {
+				if err := json.Unmarshal(workflow.AgentIDs, &agentIDs); err != nil {
+					fmt.Printf("[WARN] Failed to parse agent_ids: %v\n", err)
+				}
+			}
+		}
+	}
+
+	// 如果工作流模板中有Agent，使用第一个Agent
+	if len(agentIDs) > 0 {
+		configID, err := uuid.Parse(agentIDs[0])
+		if err != nil {
+			return fmt.Errorf("invalid agent id in workflow template: %w", err)
+		}
+
+		// 验证Agent配置存在
+		config, err := o.configSvc.GetByID(ctx, configID)
+		if err != nil {
+			fmt.Printf("[WARN] Agent config not found: %v, falling back to default\n", err)
+			// 继续使用回退逻辑
+		} else {
+			// 使用工作流模板中指定的Agent
+			_, err = o.SpawnAgent(ctx, &SpawnRequest{
+				ThreadID:    threadID,
+				Role:        config.Role,
+				ConfigID:    config.ID,
+				Input:       userMessage,
+				ProjectPath: projectPath,
+			})
+			return err
+		}
+	}
+
+	// 回退逻辑：根据当前阶段决定触发哪个Agent
+	fmt.Printf("[DEBUG] No workflow agent found, using phase-based selection\n")
+	role := o.workflow.GetPhaseAgent(thread.CurrentPhase)
+	if role == "" {
+		role = model.AgentRoleRequirement
+	}
+
+	// 检查是否有该角色的默认配置
+	config, err := o.configSvc.GetDefaultByRole(ctx, role)
+	if err != nil {
+		// 如果没有找到配置，尝试获取任意一个可用的配置
+		configs, listErr := o.configSvc.List(ctx)
+		if listErr != nil || len(configs) == 0 {
+			return fmt.Errorf("no agent config available: %w", err)
+		}
+		config = configs[0]
+	}
+
+	// 触发Agent
+	_, err = o.SpawnAgent(ctx, &SpawnRequest{
+		ThreadID:    threadID,
+		Role:        config.Role,
+		ConfigID:    config.ID,
+		Input:       userMessage,
+		ProjectPath: projectPath,
+	})
+	return err
+}

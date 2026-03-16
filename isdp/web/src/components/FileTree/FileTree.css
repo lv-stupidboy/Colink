@@ -1,0 +1,77 @@
+.file-tree {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #fff;
+  border-right: 1px solid #f0f0f0;
+}
+
+.file-tree-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid #f0f0f0;
+  background: #fafafa;
+}
+
+.file-tree-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: #333;
+}
+
+.file-tree-content {
+  flex: 1;
+  overflow: auto;
+  padding: 8px;
+}
+
+.file-tree-content .ant-tree-node-content-wrapper {
+  display: flex;
+  align-items: center;
+}
+
+.file-tree-content .ant-tree-iconEle {
+  margin-right: 4px;
+}
+
+.file-tree-content .ant-tree-treenode {
+  padding: 2px 0;
+}
+
+.file-tree-content .ant-tree-treenode:hover {
+  background: #f5f5f5;
+}
+
+.file-tree-content .ant-tree-node-selected {
+  background: #e6f7ff !important;
+}
+
+.file-tree-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  color: #999;
+  gap: 12px;
+}
+
+/* 滚动条美化 */
+.file-tree-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.file-tree-content::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+.file-tree-content::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 3px;
+}
+
+.file-tree-content::-webkit-scrollbar-thumb:hover {
+  background: #999;
+}

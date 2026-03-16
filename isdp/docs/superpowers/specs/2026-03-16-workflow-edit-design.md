@@ -9,22 +9,36 @@
 **Tech Stack:** React, TypeScript, Ant Design, @dnd-kit/sortable
 
 **Required Imports:**
+
+Add these new imports to `D:\Tools\ASDP_gittee\isdp\isdp\web\src\pages\Workflow\index.tsx`:
+
 ```typescript
-import { useState } from 'react';
+// [NEW] @dnd-kit imports for drag-and-drop (ADD THESE)
 import { DndContext, DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Button, message, Select } from 'antd';
-import { HolderOutlined, DeleteOutlined } from '@ant-design/icons';
-import type { WorkflowTemplate, AgentConfig } from '@/types';
+
+// [NEW] Icon for drag handle (ADD THIS)
+import { HolderOutlined } from '@ant-design/icons';
+
+// [EXISTS] Already imported in the file (DO NOT RE-ADD):
+// - DeleteOutlined (line 29)
+// - Popconfirm (line 21)
+// - AgentConfig type (line 32)
+// - AgentRoleLabels (line 33)
+// - useState (line 1)
+// - Button, message, Select from antd (lines 2-22)
+// - WorkflowTemplate type (line 32)
 ```
+
+**Note:** The file already has `const { Option } = Select;` at line 37 - this will be used in the sortable agent dropdown.
 
 ---
 
 ## Overview
 
 ### Problem Statement
-Workflow templates in `web/src/pages/Workflow/index.tsx` currently support create, delete, and set-default operations, but lack edit functionality. Users cannot modify workflow name, description, agent configuration, or checkpoints after creation.
+Workflow templates in `D:\Tools\ASDP_gittee\isdp\isdp\web\src\pages\Workflow\index.tsx` currently support create, delete, and set-default operations, but lack edit functionality. Users cannot modify workflow name, description, agent configuration, or checkpoints after creation.
 
 ### Solution
 Add edit capability by reusing the existing create Modal. When user clicks edit on a workflow card, open the Modal in edit mode with pre-filled data. Allow drag-and-drop reordering of agents to control execution order.
@@ -35,7 +49,7 @@ Add edit capability by reusing the existing create Modal. When user clicks edit 
 
 ### Component Changes
 
-**Modified File:** `web/src/pages/Workflow/index.tsx`
+**Modified File:** `D:\Tools\ASDP_gittee\isdp\isdp\web\src\pages\Workflow\index.tsx`
 
 **Existing State Variables (reuse):**
 - `agents: AgentConfig[]` - Already exists, list of available agent configurations
@@ -43,7 +57,7 @@ Add edit capability by reusing the existing create Modal. When user clicks edit 
 - `createModalVisible: boolean` - Already exists, controls Modal visibility
 - `form: FormInstance` - Already exists, Ant Design form instance
 
-**New State Variables:**
+**New State Variables (add after line 57, after `const [submitting, setSubmitting] = useState(false);`):**
 ```typescript
 const [editMode, setEditMode] = useState(false);
 const [editingTemplate, setEditingTemplate] = useState<WorkflowTemplate | null>(null);
@@ -68,7 +82,7 @@ User clicks "Edit" button
   → Modal opens in edit mode
 ```
 
-**Event Handlers:**
+**Event Handlers (add after line 135, after the `handleSetDefault` function, before `renderTemplateCard`):**
 
 ```typescript
 // Called when edit button is clicked
@@ -112,14 +126,13 @@ const handleRemoveAgent = (agentId: string) => {
 
 **Form Submit Handler Toggle:**
 
-The Form's `onFinish` handler must switch based on `editMode`:
-
+**Modify line 419** in the existing file. Change:
 ```tsx
-<Form
-  form={form}
-  layout="vertical"
-  onFinish={editMode ? handleEditWorkflow : handleCreateWorkflow}
->
+<Form form={form} layout="vertical" onFinish={handleCreateWorkflow}>
+```
+to:
+```tsx
+<Form form={form} layout="vertical" onFinish={editMode ? handleEditWorkflow : handleCreateWorkflow}>
 ```
 
 ### Form Validation Strategy
@@ -143,7 +156,7 @@ const handleEditWorkflow = async (values: any) => {
 };
 ```
 
-**Note:** The existing `agentIds` Form.Item (line 439-452 in original code) should be replaced with the sortable list UI. Do not keep both.
+**Note:** The existing `agentIds` Form.Item should be replaced with the sortable list UI. Do not keep both.
 
 ### Agent Drag-and-Drop
 
@@ -163,6 +176,44 @@ const handleEditWorkflow = async (values: any) => {
 
 Location: Inside each workflow card's header area, next to "设为默认" button.
 
+**Existing code context** (from `D:\Tools\ASDP_gittee\isdp\isdp\web\src\pages\Workflow\index.tsx` lines 161-193):
+
+```tsx
+// Current header structure:
+<Space>
+  <Tag color="blue">{template.estimatedTime}</Tag>
+  {!template.isDefault && (
+    <Button
+      type="link"
+      size="small"
+      onClick={(e) => {
+        e.stopPropagation();
+        handleSetDefault(template.id);
+      }}
+    >
+      设为默认
+    </Button>
+  )}
+  {/* INSERT EDIT BUTTON HERE - see below */}
+  {!template.isSystem && (
+    <Popconfirm
+      title="确定删除此工作流？"
+      // ... delete logic
+    >
+      <Button
+        type="text"
+        danger
+        size="small"
+        icon={<DeleteOutlined />}
+        onClick={(e) => e.stopPropagation()}
+      />
+    </Popconfirm>
+  )}
+</Space>
+```
+
+**Edit button code to insert between lines 174 and 175 (between the `)}` closing the "设为默认" button conditional and the `{!template.isSystem && (` that starts the delete button conditional):**
+
 ```tsx
 <Button
   type="link"
@@ -181,10 +232,18 @@ Location: Inside each workflow card's header area, next to "设为默认" button
 
 ### Modal Title Toggle
 
+**Note:** The existing Modal in `index.tsx` (lines 408-464) already uses the correct Ant Design v5 props:
+- `open={createModalVisible}` (not `visible`)
+- `confirmLoading={submitting}` (not `loading`)
+
+Only update the `title` and `okText` props:
+
 ```tsx
 <Modal
   title={editMode ? "编辑工作流" : "自定义工作流"}
   okText={editMode ? "保存" : "创建"}
+  open={createModalVisible}  // Already correct - no change needed
+  confirmLoading={submitting}  // Already correct - no change needed
   onCancel={handleModalCancel}
   // ...
 >
@@ -202,6 +261,15 @@ const handleModalCancel = () => {
   setSelectedAgentIds([]);
   form.resetFields();
 };
+```
+
+Replace the existing inline `onCancel` handler in the Modal with this function:
+
+```tsx
+<Modal
+  onCancel={handleModalCancel}
+  // ...
+>
 ```
 
 ### Hide "基于模板" Field in Edit Mode
@@ -222,10 +290,7 @@ The existing create Modal has a "基于模板" (`basedOn`) select field. This is
 
 ### Agent Selection UI
 
-Replace the existing agent Select with a hybrid approach:
-
-1. **Add Agent Button**: Opens a dropdown/modal to select agents to add
-2. **Sortable List**: Shows currently selected agents with drag handles
+**Replace the existing agent Form.Item (lines 428-444 in `index.tsx`) with the sortable list implementation:**
 
 ```tsx
 <Form.Item label="Agent实例">
@@ -270,6 +335,8 @@ Replace the existing agent Select with a hybrid approach:
 </Form.Item>
 ```
 
+**Important:** This replaces the entire existing `<Form.Item name="agentIds" ...>` block. The new Form.Item does NOT have a `name` prop because agent validation is handled manually in the submit handler (see Form Validation Strategy section above).
+
 ### Drag-and-Drop Agent List
 
 **Visual Design:**
@@ -296,13 +363,9 @@ Replace the existing agent Select with a hybrid approach:
 
 **SortableAgentItem Component:**
 
-Create a new component inside the file (or as a separate file):
+**Insert this component inside `index.tsx` after line 38 (after `const { TextArea } = Input;` and before the `/**` comment block that starts the `WorkflowPage` component documentation on line 40). Line 39 is blank - insert between lines 38 and 40:**
 
 ```tsx
-import { useSortable } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
-import { HolderOutlined, DeleteOutlined } from '@ant-design/icons';
-
 interface SortableAgentItemProps {
   id: string;
   agent?: AgentConfig;
@@ -336,7 +399,7 @@ const SortableAgentItem: React.FC<SortableAgentItemProps> = ({ id, agent, onRemo
       </div>
       <div className="agent-info">
         <span className="agent-name">{agent?.name || id}</span>
-        <span className="agent-role">{agent?.role}</span>
+        <span className="agent-role">{agent?.role ? AgentRoleLabels[agent.role] : ''}</span>
       </div>
       <Button
         type="text"
@@ -352,12 +415,18 @@ const SortableAgentItem: React.FC<SortableAgentItemProps> = ({ id, agent, onRemo
 
 **CSS for SortableAgentItem:**
 
-Add to `web/src/pages/Workflow/index.css` (create if doesn't exist):
+**Step 1: Create the CSS file** (if it doesn't exist):
+- Path: `D:\Tools\ASDP_gittee\isdp\isdp\web\src\pages\Workflow\index.css`
+- If the file already exists, append the styles below to it
+
+**Step 2: Import the CSS in `index.tsx`** - Add as a new line after line 33 (after `import { AgentRoleLabels } from '@/types';`):
 
 ```tsx
 // Add at top of index.tsx
 import './index.css';
 ```
+
+**Step 3: Add the following CSS styles** to `D:\Tools\ASDP_gittee\isdp\isdp\web\src\pages\Workflow\index.css`:
 
 ```css
 .sortable-agent-item {
@@ -395,6 +464,21 @@ import './index.css';
   color: #666;
   font-size: 12px;
 }
+
+/* Agent selection container */
+.agent-selection-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Hint text for drag instruction */
+.hint-text {
+  font-size: 12px;
+  color: #999;
+  text-align: center;
+  padding: 4px 0;
+}
 ```
 
 ### Visual Feedback
@@ -425,7 +509,7 @@ import './index.css';
 | API update fails | Toast notification with error message from server |
 | Network timeout | "网络错误，请稍后重试" toast |
 | Validation error | Form field highlight with Ant Design's built-in validation |
-| Drag-drop fails | Graceful fallback to manual reordering via up/down buttons |
+| Drag-drop interaction fails | User can retry drag, or remove and re-add agent to reorder |
 
 ### Optimistic Updates
 
@@ -512,9 +596,14 @@ const handleEditWorkflow = async (values: any) => {
 
 ### New Dependency
 
-**Installation Command:**
+**Installation Command** (run from project root `D:\Tools\ASDP_gittee\isdp\isdp`):
 ```bash
 cd web && npm install @dnd-kit/core @dnd-kit/sortable @dnd-kit/utilities
+```
+
+**Or with absolute path:**
+```bash
+cd D:\Tools\ASDP_gittee\isdp\isdp\web && npm install @dnd-kit/core @dnd-kit/sortable @dnd-kit/utilities
 ```
 
 **package.json additions:**
@@ -526,24 +615,12 @@ cd web && npm install @dnd-kit/core @dnd-kit/sortable @dnd-kit/utilities
 
 ### Utility Functions
 
-The `arrayMove` function is needed for drag-and-drop reordering. Either use a library or implement inline:
-
-```typescript
-// Option 1: Install dnd-kit's utilities (recommended)
-import { arrayMove } from '@dnd-kit/sortable';
-
-// Option 2: Inline implementation
-const arrayMove = <T,>(array: T[], from: number, to: number): T[] => {
-  const newArray = array.slice();
-  newArray.splice(to < 0 ? newArray.length + to : to, 0, newArray.splice(from, 1)[0]);
-  return newArray;
-};
-```
+The `arrayMove` function is imported from `@dnd-kit/sortable` as shown in the Required Imports section above. No additional implementation needed.
 
 ### Existing APIs
 
 ```typescript
-// Already exists in web/src/api/client.ts
+// Already exists in D:\Tools\ASDP_gittee\isdp\isdp\web\src\api\client.ts
 api.workflows.update(id: string, data: Partial<WorkflowTemplate>): Promise<WorkflowTemplate>
 ```
 
@@ -555,10 +632,10 @@ No backend changes required.
 
 | File | Responsibility |
 |------|----------------|
-| `web/src/pages/Workflow/index.tsx` | Add edit mode state, edit button, handleEditWorkflow, drag-and-drop |
-| `web/src/pages/Workflow/index.css` | CSS for sortable agent items (create if doesn't exist) |
-| `web/src/api/client.ts` | Already has update method - no changes needed |
-| `web/package.json` | Add @dnd-kit dependencies |
+| `D:\Tools\ASDP_gittee\isdp\isdp\web\src\pages\Workflow\index.tsx` | Add edit mode state, edit button, handleEditWorkflow, drag-and-drop |
+| `D:\Tools\ASDP_gittee\isdp\isdp\web\src\pages\Workflow\index.css` | CSS for sortable agent items (create if doesn't exist) |
+| `D:\Tools\ASDP_gittee\isdp\isdp\web\src\api\client.ts` | Already has update method - no changes needed |
+| `D:\Tools\ASDP_gittee\isdp\isdp\web\package.json` | Add @dnd-kit dependencies |
 
 ---
 

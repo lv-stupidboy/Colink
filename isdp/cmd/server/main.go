@@ -120,9 +120,13 @@ func main() {
 	tracker := agent.NewInvocationTracker(invocationRepo)
 	orchestrator := agent.NewOrchestrator(
 		invocationRepo, threadRepo, messageRepo,
-		configService, baseAgentService, tracker, workflowEngine, wsHub, claudeAdapter,
+		configService, baseAgentService, tracker, workflowEngine, workflowRepo, projectRepo, wsHub, claudeAdapter,
 	)
-	_ = merge.NewGatekeeper(reviewRepo, artifactRepo, threadRepo) // TODO: wire into merge handler
+
+	// 连接Message服务和Agent编排器（用户消息触发Agent）
+	messageService.SetAgentSpawner(orchestrator)
+
+	gatekeeper := merge.NewGatekeeper(reviewRepo, artifactRepo, threadRepo)
 
 	// 初始化Docker客户端（可选）
 	var sandboxService *sandbox.SandboxService
@@ -166,9 +170,17 @@ func main() {
 	projectHandler := api.NewProjectHandler(projectService)
 	projectHandler.RegisterRoutes(v1)
 
-	// 先注册 invocationHandler（包含 /threads/:threadId/invocations）
-	invocationHandler := api.NewInvocationHandler(orchestrator, mcpAuthService)
+	// 先注册 invocationHandler（包含 /threads/:id/invocations）
+	invocationHandler := api.NewInvocationHandler(orchestrator, mcpAuthService, projectRepo)
 	invocationHandler.RegisterRoutes(v1)
+
+	// Artifact Handler（包含 /threads/:id/artifacts）
+	artifactHandler := api.NewArtifactHandler(artifactRepo)
+	artifactHandler.RegisterRoutes(v1)
+
+	// Merge Handler（包含 /threads/:id/merge/*）
+	mergeHandler := api.NewMergeHandler(gatekeeper)
+	mergeHandler.RegisterRoutes(v1)
 
 	// 再注册 threadHandler（包含 /threads/:id）
 	threadHandler := api.NewThreadHandler(threadService)
@@ -344,6 +356,7 @@ CREATE TABLE IF NOT EXISTS projects (
     type TEXT NOT NULL,
     mode TEXT NOT NULL,
     status TEXT DEFAULT 'draft',
+    local_path TEXT NOT NULL DEFAULT '',
     git_repo TEXT,
     config TEXT,
     workflow_template_id TEXT,
@@ -386,6 +399,7 @@ CREATE TABLE IF NOT EXISTS base_agents (
     api_token TEXT,
     default_model TEXT,
     cli_path TEXT DEFAULT 'claude',
+    git_bash_path TEXT,
     max_tokens INTEGER DEFAULT 4096,
     timeout_minutes INTEGER DEFAULT 30,
     is_active INTEGER DEFAULT 1,
@@ -482,8 +496,10 @@ CREATE INDEX IF NOT EXISTS idx_artifacts_thread_id ON artifacts(thread_id);
 	}{
 		{"agent_configs", "base_agent_id", "TEXT"},
 		{"projects", "workflow_template_id", "TEXT"},
+		{"projects", "local_path", "TEXT NOT NULL DEFAULT ''"},
 		{"threads", "workflow_template_id", "TEXT"},
 		{"workflow_templates", "is_default", "INTEGER DEFAULT 0"},
+		{"base_agents", "git_bash_path", "TEXT"},
 	}
 
 	for _, m := range migrations {

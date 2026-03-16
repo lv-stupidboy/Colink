@@ -32,13 +32,17 @@ import {
   ExclamationCircleOutlined,
   PaperClipOutlined,
   FileSearchOutlined,
+  StopOutlined,
+  ReloadOutlined,
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
 } from '@ant-design/icons';
 import { useAppStore } from '@/store';
-import type { Message, Artifact, ReviewIssue, MergeCheckResult, AgentRole, Phase } from '@/types';
+import type { Message, Artifact, ReviewIssue, MergeCheckResult, AgentRole } from '@/types';
 import { PhaseLabels, PhaseColors, AgentRoleLabels, ArtifactTypeLabels } from '@/types';
-import { EnhancedProgress } from '@/components/EnhancedProgress';
 import { InterventionControls } from '@/components/InterventionControls';
 import { ReviewReport } from '@/components/ReviewReport';
+import FileTree from '@/components/FileTree';
 import api from '@/api/client';
 import './ThreadView.css';
 
@@ -66,6 +70,7 @@ const ThreadView: React.FC = () => {
   const {
     currentThread,
     messages,
+    streamingMessages,
     activeAgents,
     loading,
     wsConnected,
@@ -75,14 +80,17 @@ const ThreadView: React.FC = () => {
     setWsConnected,
     addMessage,
     updateAgentStatus,
+    updateStreamingMessage,
+    finalizeStreamingMessage,
     loadingProjectContext,
     loadProjectContext,
+    loadWorkflowTemplate,
     clearProjectContext,
     getFilteredAgents,
+    loadAgentConfigs,
   } = useAppStore();
 
   const [inputValue, setInputValue] = useState('');
-  const [progressCollapsed, setProgressCollapsed] = useState(false);
   const [artifactDrawerVisible, setArtifactDrawerVisible] = useState(false);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [reviewResult, setReviewResult] = useState<MergeCheckResult | undefined>();
@@ -95,12 +103,13 @@ const ThreadView: React.FC = () => {
   } | null>(null);
   const [mentionListVisible, setMentionListVisible] = useState(false);
   const [mentionFilter, setMentionFilter] = useState('');
-
-  // 阶段顺序
-  const phaseOrder: Phase[] = ['requirement', 'design', 'development', 'review', 'test', 'merge', 'complete'];
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [fileSidebarVisible, setFileSidebarVisible] = useState(true);
 
   useEffect(() => {
     if (threadId) {
+      // 连接新的 WebSocket 前先清空旧状态
+      // 注意：loadThread 已经会清空状态，这里确保 WebSocket 切换时的隔离
       loadThread(threadId);
       connectWebSocket(threadId);
       loadArtifacts(threadId);
@@ -110,23 +119,44 @@ const ThreadView: React.FC = () => {
     return () => {
       if (wsRef.current) {
         wsRef.current.close();
+        wsRef.current = null;
       }
     };
   }, [threadId]);
 
-  // Load project context when thread is loaded with a projectId
+  // Load agent configs for @mention dropdown
   useEffect(() => {
-    if (currentThread?.projectId) {
-      loadProjectContext(currentThread.projectId);
-    }
+    loadAgentConfigs();
+  }, [loadAgentConfigs]);
+
+  // Load workflow template when thread is loaded
+  // Priority: Thread.workflowTemplateId > Project.workflowTemplateId
+  useEffect(() => {
+    const loadWorkflowContext = async () => {
+      if (currentThread?.workflowTemplateId) {
+        // Thread has workflowTemplateId directly
+        await loadWorkflowTemplate(currentThread.workflowTemplateId);
+      } else if (currentThread?.projectId) {
+        // Fallback: load from project
+        await loadProjectContext(currentThread.projectId);
+      }
+    };
+
+    loadWorkflowContext();
+
     return () => {
       clearProjectContext();
     };
-  }, [currentThread?.projectId, loadProjectContext, clearProjectContext]);
+  }, [currentThread?.workflowTemplateId, currentThread?.projectId, loadWorkflowTemplate, loadProjectContext, clearProjectContext]);
 
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // 流式消息更新时也滚动
+  useEffect(() => {
+    scrollToBottom();
+  }, [streamingMessages]);
 
   const connectWebSocket = (id: string) => {
     const wsUrl = `ws://${window.location.host}/api/v1/ws?threadId=${id}`;
@@ -148,18 +178,48 @@ const ThreadView: React.FC = () => {
     };
   };
 
-  const handleWsMessage = (data: { type: string; payload: Record<string, unknown> }) => {
+  const handleWsMessage = (data: { type: string; threadId?: string; payload: Record<string, unknown> }) => {
+    // 验证消息是否属于当前 thread，防止跨 thread 数据泄露
+    const currentThreadId = useAppStore.getState().currentThread?.id;
+    if (data.threadId && currentThreadId && data.threadId !== currentThreadId) {
+      console.warn('[WebSocket] Received message for different thread, ignoring:', data.threadId);
+      return;
+    }
+
     switch (data.type) {
+      case 'agent_output_chunk':
+        // 流式输出块：实时追加内容
+        updateStreamingMessage(
+          data.payload.invocationId as string,
+          data.payload.chunk as string,
+          data.payload.agentId as string || '',
+          data.payload.agentName as string
+        );
+        break;
       case 'agent_message':
-        addMessage({
-          id: data.payload.messageId as string,
-          threadId: threadId!,
-          role: 'agent',
-          agentId: data.payload.agentId as string,
-          content: data.payload.content as string,
-          messageType: 'text',
-          createdAt: new Date().toISOString(),
-        });
+        // Agent 完成消息（非流式场景备用）：清除流式缓存，显示最终消息
+        // 注意：流式场景下不会收到此消息，由 agent_status/completed 触发 finalizeStreamingMessage
+        const invocationId = data.payload.invocationId as string || data.payload.messageId as string;
+        // 使用 getState() 避免闭包陷阱
+        const currentStreaming = useAppStore.getState().streamingMessages;
+        if (invocationId && currentStreaming[invocationId]) {
+          finalizeStreamingMessage(invocationId);
+        } else {
+          // 直接添加消息（非流式场景）
+          addMessage({
+            id: data.payload.messageId as string,
+            threadId: threadId!,
+            role: 'agent',
+            agentId: data.payload.agentId as string,
+            content: data.payload.content as string,
+            messageType: 'text',
+            metadata: {
+              agentName: data.payload.agentName,
+              agentRole: data.payload.agentRole,
+            },
+            createdAt: new Date().toISOString(),
+          });
+        }
         break;
       case 'system_message':
         addMessage({
@@ -180,10 +240,17 @@ const ThreadView: React.FC = () => {
         if (threadId) loadArtifacts(threadId);
         break;
       case 'agent_status':
-        updateAgentStatus(
-          data.payload.invocationId as string,
-          data.payload.status as string
-        );
+        const status = data.payload.status as string;
+        const invocId = data.payload.invocationId as string;
+        updateAgentStatus(invocId, status);
+        // Agent 完成时，如果有流式消息缓存，转为正式消息
+        if (status === 'completed' || status === 'failed') {
+          // 使用 getState() 避免闭包陷阱
+          const currentStreaming = useAppStore.getState().streamingMessages;
+          if (currentStreaming[invocId]) {
+            finalizeStreamingMessage(invocId);
+          }
+        }
         break;
     }
   };
@@ -222,9 +289,10 @@ const ThreadView: React.FC = () => {
   const loadArtifacts = async (id: string) => {
     try {
       const data = await api.artifacts.list(id);
-      setArtifacts(data as unknown as Artifact[]);
+      setArtifacts((data as unknown as Artifact[]) || []);
     } catch (error) {
       console.error('Failed to load artifacts:', error);
+      setArtifacts([]);
     }
   };
 
@@ -255,35 +323,41 @@ const ThreadView: React.FC = () => {
 
     // 检查是否是 @mention 命令
     // PRD Section 2.3.1: 行首 @Agent名 触发路由
-    const mentionMatch = content.match(/^@(\w+)\s*(.*)/);
+    const mentionMatch = content.match(/^@(\S+)\s*(.*)/);
     if (mentionMatch) {
       const agentName = mentionMatch[1].toLowerCase();
       const input = mentionMatch[2] || content;
 
-      // 映射 Agent 名称到角色
-      const agentRoleMap: Record<string, AgentRole> = {
-        '需求分析师': 'requirement',
-        'requirement': 'requirement',
-        '架构师': 'architect',
-        'architect': 'architect',
-        '开发者': 'developer',
-        'developer': 'developer',
-        '审查员': 'reviewer',
-        'reviewer': 'reviewer',
-        '测试工程师': 'testengineer',
-        'testengineer': 'testengineer',
-        '运维': 'devops',
-        'devops': 'devops',
-      };
-
-      const role = agentRoleMap[agentName];
-      if (role) {
-        await spawnAgent(role, input);
-      } else {
-        message.warning(`未知的 Agent: ${agentName}`);
+      // 如果有选中的 Agent ID，直接使用 configId 启动
+      if (selectedAgentId) {
+        // 先发送用户消息（显示用户输入），skipAgentTrigger: true 避免后端重复触发
+        await sendMessage(content, true);
+        // 然后触发 Agent
+        await spawnAgent('custom', input, selectedAgentId);
+        setSelectedAgentId(null);
+        return;
       }
+
+      // 没有 selectedAgentId 时，尝试通过名称查找 Agent
+      const agentByName = agentOptions.find(opt =>
+        opt.name.toLowerCase() === agentName ||
+        opt.label.toLowerCase() === agentName
+      );
+      if (agentByName) {
+        // 先发送用户消息（显示用户输入），skipAgentTrigger: true 避免后端重复触发
+        await sendMessage(content, true);
+        // 然后触发 Agent
+        await spawnAgent('custom', input, agentByName.id);
+        setSelectedAgentId(null);
+        return;
+      }
+
+      message.warning(`未找到 Agent: ${agentName}，请从下拉列表中选择`);
+      setSelectedAgentId(null);
+      return;
     } else {
       await sendMessage(content);
+      setSelectedAgentId(null);
     }
   };
 
@@ -306,9 +380,11 @@ const ThreadView: React.FC = () => {
     if (lastAtIndex >= 0 && lastAtIndex === value.length - 1) {
       setMentionListVisible(true);
       setMentionFilter('');
+      setSelectedAgentId(null); // 清除之前选中的 Agent
     } else if (lastAtIndex >= 0 && value.indexOf(' ', lastAtIndex) === -1) {
       setMentionListVisible(true);
       setMentionFilter(value.substring(lastAtIndex + 1).toLowerCase());
+      setSelectedAgentId(null); // 清除之前选中的 Agent（用户正在输入新的 @）
     } else {
       setMentionListVisible(false);
     }
@@ -317,11 +393,12 @@ const ThreadView: React.FC = () => {
   /**
    * 选择 Agent mention
    */
-  const selectMention = (_agentRole: AgentRole, label: string) => {
+  const selectMention = (agentId: string, _agentRole: AgentRole, label: string) => {
     const lastAtIndex = inputValue.lastIndexOf('@');
     if (lastAtIndex >= 0) {
       setInputValue(inputValue.substring(0, lastAtIndex) + '@' + label + ' ');
     }
+    setSelectedAgentId(agentId);
     setMentionListVisible(false);
     inputRef.current?.focus();
   };
@@ -344,13 +421,8 @@ const ThreadView: React.FC = () => {
 
   const handleSkip = async () => {
     try {
-      const currentPhase = currentThread?.currentPhase || 'requirement';
-      const currentPhaseIndex = phaseOrder.indexOf(currentPhase);
-      if (currentPhaseIndex >= 0 && currentPhaseIndex < phaseOrder.length - 1) {
-        const nextPhase = phaseOrder[currentPhaseIndex + 1];
-        await api.threads.updateStatus(threadId!, 'running');
-        message.success(`已跳过当前阶段，进入 ${PhaseLabels[nextPhase]}`);
-      }
+      await api.threads.updateStatus(threadId!, 'running');
+      message.success('已跳过当前任务，继续执行');
     } catch (error) {
       message.error('跳过失败');
     }
@@ -359,9 +431,9 @@ const ThreadView: React.FC = () => {
   const handleRetry = async () => {
     try {
       await api.threads.updateStatus(threadId!, 'running');
-      message.success('正在重做当前阶段');
+      message.success('正在重试当前任务');
     } catch (error) {
-      message.error('重做失败');
+      message.error('重试失败');
     }
   };
 
@@ -384,6 +456,41 @@ const ThreadView: React.FC = () => {
         }
       },
     });
+  };
+
+  /**
+   * 处理终止Agent
+   */
+  const handleStopAgent = async (invocationId: string) => {
+    try {
+      await api.invocations.cancel(invocationId);
+      message.info('已终止 Agent');
+    } catch (error) {
+      message.error('终止失败');
+    }
+  };
+
+  /**
+   * 处理重试Agent
+   * 使用相同的Agent配置重新触发
+   */
+  const handleRetryAgent = async (msg: Message) => {
+    if (!currentThread) return;
+
+    // 从消息元数据获取 agentId (即 configId)
+    const agentId = msg.agentId;
+    if (!agentId) {
+      message.warning('无法重试：缺少 Agent 配置信息');
+      return;
+    }
+
+    try {
+      // 重新触发该 Agent，让它重新处理
+      await spawnAgent('custom', '请重新处理上一次的任务', agentId);
+      message.info('已重新触发 Agent');
+    } catch (error) {
+      message.error('重试失败');
+    }
   };
 
   /**
@@ -437,6 +544,13 @@ const ThreadView: React.FC = () => {
       const hasArtifact = Boolean(msg.metadata?.artifact);
       const hasReview = Boolean(msg.metadata?.reviewReport);
 
+      // 优先使用 metadata 中的 agentName，其次尝试用 agentRole 映射，最后 fallback 到 agentId
+      const agentName = (msg.metadata?.agentName as string) ||
+        AgentRoleLabels[(msg.metadata?.agentRole as keyof typeof AgentRoleLabels)] ||
+        AgentRoleLabels[msg.agentId as keyof typeof AgentRoleLabels] ||
+        msg.agentId ||
+        'Agent';
+
       return (
         <div key={msg.id} className="message-container message-container-agent">
           <Avatar
@@ -448,11 +562,23 @@ const ThreadView: React.FC = () => {
             <div className="message-content">
               <div className="message-header">
                 <span className="message-role">
-                  {AgentRoleLabels[msg.agentId as keyof typeof AgentRoleLabels] || msg.agentId || 'Agent'}
+                  {agentName}
                 </span>
-                <span className="message-time">
-                  {new Date(msg.createdAt).toLocaleString()}
-                </span>
+                <div className="message-header-right">
+                  <span className="message-time">
+                    {new Date(msg.createdAt).toLocaleString()}
+                  </span>
+                  {/* 重试按钮 */}
+                  <Tooltip title="重试">
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={<ReloadOutlined />}
+                      className="message-action-btn"
+                      onClick={() => handleRetryAgent(msg)}
+                    />
+                  </Tooltip>
+                </div>
               </div>
               <div className="message-body">{msg.content}</div>
 
@@ -559,6 +685,17 @@ const ThreadView: React.FC = () => {
     );
   };
 
+  /**
+   * 处理文件选择
+   */
+  const handleFileSelect = (path: string, isDir: boolean) => {
+    console.log('Selected file:', path, 'isDir:', isDir);
+    // TODO: 可以添加文件预览或其他操作
+    if (!isDir) {
+      message.info(`选中文件: ${path}`);
+    }
+  };
+
   if (loading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
@@ -569,25 +706,6 @@ const ThreadView: React.FC = () => {
 
   const isRunning = activeAgents.length > 0;
   const isPaused = currentThread?.status === 'paused';
-
-  // 构建进度条数据
-  const progressPhases = phaseOrder.map((phase) => {
-    const currentIndex = phaseOrder.indexOf(currentThread?.currentPhase || 'requirement');
-    const phaseIndex = phaseOrder.indexOf(phase);
-    let status: 'completed' | 'running' | 'pending' | 'needs_review' = 'pending';
-
-    if (phaseIndex < currentIndex) {
-      status = 'completed';
-    } else if (phaseIndex === currentIndex) {
-      status = currentThread?.status === 'paused' ? 'needs_review' : 'running';
-    }
-
-    return {
-      phase,
-      status,
-      agent: currentThread?.currentAgent,
-    };
-  });
 
   // Get agents available for @mention from workflow template
   const mentionableAgents = getFilteredAgents();
@@ -601,28 +719,36 @@ const ThreadView: React.FC = () => {
   }));
 
   return (
-    <div className="thread-view">
-      {/* 顶部进度条 */}
-      {currentThread && (
-        <EnhancedProgress
-          phases={progressPhases}
-          currentPhase={currentThread.currentPhase}
-          collapsed={progressCollapsed}
-          onToggleCollapse={() => setProgressCollapsed(!progressCollapsed)}
-        />
+    <div className="thread-view-wrapper">
+      {/* 左侧文件树侧边栏 */}
+      {fileSidebarVisible && projectId && (
+        <div className="file-sidebar">
+          <FileTree
+            projectId={projectId}
+            onFileSelect={handleFileSelect}
+          />
+        </div>
       )}
 
-      {/* 干预控制面板 */}
-      <div className="intervention-bar">
-        <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-          <Space>
-            <Button
-              icon={<ArrowLeftOutlined />}
-              onClick={() => navigate(`/projects/${projectId}`)}
-              size="small"
-            >
-              返回项目
-            </Button>
+      <div className="thread-view">
+        {/* 干预控制面板 */}
+        <div className="intervention-bar">
+          <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+            <Space>
+              <Tooltip title={fileSidebarVisible ? '隐藏文件树' : '显示文件树'}>
+                <Button
+                  icon={fileSidebarVisible ? <MenuFoldOutlined /> : <MenuUnfoldOutlined />}
+                  onClick={() => setFileSidebarVisible(!fileSidebarVisible)}
+                  size="small"
+                />
+              </Tooltip>
+              <Button
+                icon={<ArrowLeftOutlined />}
+                onClick={() => navigate(`/projects/${projectId}`)}
+                size="small"
+              >
+                返回项目
+              </Button>
             <Tag color={wsConnected ? 'green' : 'red'}>
               {wsConnected ? '已连接' : '未连接'}
             </Tag>
@@ -650,7 +776,7 @@ const ThreadView: React.FC = () => {
 
       {/* 消息区域 */}
       <div className="thread-messages">
-        {messages.length === 0 ? (
+        {messages.length === 0 && Object.keys(streamingMessages).length === 0 ? (
           <div style={{ textAlign: 'center', padding: '60px 20px', color: '#999' }}>
             <RobotOutlined style={{ fontSize: 48, marginBottom: 16 }} />
             <Title level={4} type="secondary">开始您的开发任务</Title>
@@ -659,7 +785,48 @@ const ThreadView: React.FC = () => {
             </Text>
           </div>
         ) : (
-          messages.map(renderMessage)
+          <>
+            {messages.map(renderMessage)}
+            {/* 流式消息渲染 */}
+            {Object.entries(streamingMessages).map(([invocationId, streamMsg]) => (
+              <div key={invocationId} className="message-container message-container-agent">
+                <Avatar
+                  className="message-avatar"
+                  icon={<RobotOutlined />}
+                  style={{ backgroundColor: '#1890ff' }}
+                />
+                <div className="message message-agent streaming">
+                  <div className="message-content">
+                    <div className="message-header">
+                      <span className="message-role">
+                        {streamMsg.agentName || 'Agent'}
+                      </span>
+                      <div className="message-header-right">
+                        <Tag color="processing" style={{ marginLeft: 8 }}>
+                          生成中...
+                        </Tag>
+                        {/* 终止按钮 */}
+                        <Tooltip title="终止">
+                          <Button
+                            type="text"
+                            size="small"
+                            danger
+                            icon={<StopOutlined />}
+                            className="message-action-btn"
+                            onClick={() => handleStopAgent(invocationId)}
+                          />
+                        </Tooltip>
+                      </div>
+                    </div>
+                    <div className="message-body">
+                      {streamMsg.content}
+                      <span className="streaming-cursor">▌</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </>
         )}
         <div ref={messagesEndRef} />
       </div>
@@ -710,7 +877,7 @@ const ThreadView: React.FC = () => {
                   renderItem={(opt) => (
                     <List.Item
                       style={{ cursor: 'pointer', padding: '8px 12px' }}
-                      onClick={() => selectMention(opt.role as AgentRole, opt.name)}
+                      onClick={() => selectMention(opt.id, opt.role as AgentRole, opt.name)}
                       onMouseEnter={(e) => {
                         (e.currentTarget as HTMLElement).style.background = '#f5f5f5';
                       }}
@@ -828,6 +995,7 @@ const ThreadView: React.FC = () => {
           确认后将进入下一阶段，如需修改请点击"需要修改"并在对话中描述您的修改要求。
         </Text>
       </Modal>
+      </div>
     </div>
   );
 };

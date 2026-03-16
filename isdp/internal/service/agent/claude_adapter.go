@@ -1,11 +1,14 @@
 package agent
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/anthropic/isdp/internal/model"
@@ -87,8 +90,13 @@ func (a *ClaudeAdapter) Execute(ctx context.Context, config *model.AgentRoleConf
 func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, config *model.AgentRoleConfig, layers *ContextLayers, input string, workDir string, onChunk func(string)) error {
 	prompt := a.buildPrompt(config, layers, input)
 
+	// 使用 stream-json 模式实现真正的流式输出
+	// 注意: --verbose 是 --output-format stream-json 必需的
 	args := []string{
-		"--print", // 使用 --print 模式，更稳定
+		"--print",
+		"--output-format", "stream-json",
+		"--include-partial-messages",
+		"--verbose",
 	}
 
 	// 只有在指定了模型名称时才添加 --model 参数
@@ -121,21 +129,151 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, config *model.Age
 	}
 	cmd.Env = env
 
-	// 获取输出和错误
-	output, err := cmd.Output()
+	// 使用管道获取stdout实现真正的流式输出
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			return fmt.Errorf("CLI error (exit %d): %s", exitErr.ExitCode(), string(exitErr.Stderr))
+		return fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stderr pipe: %w", err)
+	}
+
+	// 启动命令
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start command: %w", err)
+	}
+
+	// 使用WaitGroup等待goroutine完成
+	var wg sync.WaitGroup
+	var stderrOutput strings.Builder
+	var streamErr error
+
+	// 读取stderr
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		scanner := bufio.NewScanner(stderr)
+		for scanner.Scan() {
+			stderrOutput.WriteString(scanner.Text())
+			stderrOutput.WriteString("\n")
+		}
+	}()
+
+	// 读取stdout并解析 stream-json 格式
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		scanner := bufio.NewScanner(stdout)
+		// 设置更大的缓冲区，因为单行可能很长
+		scanner.Buffer(make([]byte, 1024*1024), 10*1024*1024)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if line == "" {
+				continue
+			}
+			// 解析 stream-json 格式
+			chunk, err := parseStreamJSONLine(line, onChunk)
+			if err != nil {
+				// 如果解析失败，直接发送原始内容
+				if onChunk != nil {
+					onChunk(line)
+				}
+			}
+			_ = chunk // chunk 已在 parseStreamJSONLine 中通过 onChunk 发送
+		}
+		if err := scanner.Err(); err != nil {
+			streamErr = err
+		}
+	}()
+
+	// 等待所有输出读取完成
+	wg.Wait()
+
+	// 等待命令完成
+	if err := cmd.Wait(); err != nil {
+		if stderrOutput.Len() > 0 {
+			return fmt.Errorf("CLI error: %s", stderrOutput.String())
 		}
 		return fmt.Errorf("CLI execution failed: %w", err)
 	}
 
-	// 将整个输出作为一个块发送
-	if onChunk != nil {
-		onChunk(string(output))
+	if streamErr != nil {
+		return fmt.Errorf("stream read error: %w", streamErr)
 	}
 
 	return nil
+}
+
+// parseStreamJSONLine 解析 stream-json 格式的单行输出
+// stream-json 格式每行是一个 JSON 对象
+// 实际格式示例: {"type":"stream_event","event":{"delta":{"type":"text_delta","text":"Hello!"},"type":"content_block_delta","index":1}}
+func parseStreamJSONLine(line string, onChunk func(string)) (string, error) {
+	// 定义完整的消息结构
+	var msg struct {
+		Type    string `json:"type"`
+		Event   struct {
+			Type  string `json:"type"`
+			Delta struct {
+				Type     string `json:"type"`
+				Text     string `json:"text"`
+				Thinking string `json:"thinking"`
+			} `json:"delta"`
+			ContentBlock struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content_block"`
+		} `json:"event"`
+		// 用于 result 类型
+		Result   string `json:"result"`
+		SubType  string `json:"subtype"`
+	}
+
+	if err := json.Unmarshal([]byte(line), &msg); err != nil {
+		return "", err
+	}
+
+	var text string
+
+	switch msg.Type {
+	case "stream_event":
+		// 流式事件，检查事件类型
+		switch msg.Event.Type {
+		case "content_block_delta":
+			// 文本增量
+			if msg.Event.Delta.Type == "text_delta" {
+				text = msg.Event.Delta.Text
+			} else if msg.Event.Delta.Type == "thinking_delta" {
+				// 思考过程，可以选择性输出或忽略
+				// 暂时也输出，方便调试
+				text = msg.Event.Delta.Thinking
+			}
+		case "content_block_start":
+			// 内容块开始，通常没有文本
+		case "content_block_stop":
+			// 内容块结束
+		case "message_start", "message_stop", "message_delta":
+			// 消息级别事件，通常没有文本
+		}
+	case "result":
+		// 最终结果
+		text = msg.Result
+	case "assistant":
+		// 完整的助手消息，通常包含完整内容
+		// 这种情况一般是流式结束后才会出现
+	case "system":
+		// 系统初始化消息，忽略
+	default:
+		// 其他类型，尝试提取文本
+	}
+
+	// 如果有文本且不是空的，调用回调
+	if text != "" && onChunk != nil {
+		onChunk(text)
+	}
+
+	return text, nil
 }
 
 // buildPrompt 构建提示词

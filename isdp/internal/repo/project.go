@@ -24,8 +24,8 @@ func NewProjectRepository(db *sql.DB) *ProjectRepository {
 // Create 创建项目
 func (r *ProjectRepository) Create(ctx context.Context, project *model.Project) error {
 	query := `
-		INSERT INTO projects (id, name, type, mode, status, git_repo, config, workflow_template_id, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO projects (id, name, type, mode, status, local_path, git_repo, config, workflow_template_id, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	now := time.Now()
 
@@ -41,6 +41,7 @@ func (r *ProjectRepository) Create(ctx context.Context, project *model.Project) 
 		project.Type,
 		project.Mode,
 		project.Status,
+		project.LocalPath,
 		project.GitRepo,
 		project.Config,
 		workflowTemplateID,
@@ -58,7 +59,7 @@ func (r *ProjectRepository) Create(ctx context.Context, project *model.Project) 
 // FindByID 根据ID查找项目
 func (r *ProjectRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.Project, error) {
 	query := `
-		SELECT id, name, type, mode, status, git_repo, config, workflow_template_id, created_at, updated_at
+		SELECT id, name, type, mode, status, local_path, git_repo, config, workflow_template_id, created_at, updated_at
 		FROM projects WHERE id = ?
 	`
 	project := &model.Project{}
@@ -71,6 +72,7 @@ func (r *ProjectRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.
 		&project.Type,
 		&project.Mode,
 		&project.Status,
+		&project.LocalPath,
 		&project.GitRepo,
 		&config,
 		&workflowTemplateID,
@@ -94,7 +96,7 @@ func (r *ProjectRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.
 // FindAll 查找所有项目
 func (r *ProjectRepository) FindAll(ctx context.Context, limit, offset int) ([]*model.Project, error) {
 	query := `
-		SELECT id, name, type, mode, status, git_repo, config, workflow_template_id, created_at, updated_at
+		SELECT id, name, type, mode, status, local_path, git_repo, config, workflow_template_id, created_at, updated_at
 		FROM projects ORDER BY created_at DESC LIMIT ? OFFSET ?
 	`
 	rows, err := r.db.QueryContext(ctx, query, limit, offset)
@@ -115,6 +117,7 @@ func (r *ProjectRepository) FindAll(ctx context.Context, limit, offset int) ([]*
 			&project.Type,
 			&project.Mode,
 			&project.Status,
+			&project.LocalPath,
 			&project.GitRepo,
 			&config,
 			&workflowTemplateID,
@@ -141,7 +144,7 @@ func (r *ProjectRepository) FindAll(ctx context.Context, limit, offset int) ([]*
 func (r *ProjectRepository) Update(ctx context.Context, project *model.Project) error {
 	query := `
 		UPDATE projects
-		SET name = ?, type = ?, mode = ?, status = ?, git_repo = ?, config = ?, workflow_template_id = ?, updated_at = ?
+		SET name = ?, type = ?, mode = ?, status = ?, local_path = ?, git_repo = ?, config = ?, workflow_template_id = ?, updated_at = ?
 		WHERE id = ?
 	`
 	project.UpdatedAt = time.Now()
@@ -157,6 +160,7 @@ func (r *ProjectRepository) Update(ctx context.Context, project *model.Project) 
 		project.Type,
 		project.Mode,
 		project.Status,
+		project.LocalPath,
 		project.GitRepo,
 		project.Config,
 		workflowTemplateID,
@@ -182,7 +186,7 @@ func (r *ProjectRepository) Delete(ctx context.Context, id uuid.UUID) error {
 // GetByThreadID 根据ThreadID获取项目
 func (r *ProjectRepository) GetByThreadID(ctx context.Context, threadID uuid.UUID) (*model.Project, error) {
 	query := `
-		SELECT p.id, p.name, p.type, p.mode, p.status, p.git_repo, p.config, p.workflow_template_id, p.created_at, p.updated_at
+		SELECT p.id, p.name, p.type, p.mode, p.status, p.local_path, p.git_repo, p.config, p.workflow_template_id, p.created_at, p.updated_at
 		FROM projects p
 		JOIN threads t ON t.project_id = p.id
 		WHERE t.id = ?
@@ -197,6 +201,7 @@ func (r *ProjectRepository) GetByThreadID(ctx context.Context, threadID uuid.UUI
 		&project.Type,
 		&project.Mode,
 		&project.Status,
+		&project.LocalPath,
 		&project.GitRepo,
 		&config,
 		&workflowTemplateID,

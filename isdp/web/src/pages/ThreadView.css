@@ -1,8 +1,24 @@
+.thread-view-wrapper {
+  display: flex;
+  height: calc(100vh - 112px);
+  background: #f5f5f5;
+}
+
+.file-sidebar {
+  width: 280px;
+  min-width: 280px;
+  height: 100%;
+  border-right: 1px solid #e8e8e8;
+  background: #fff;
+  flex-shrink: 0;
+}
+
 .thread-view {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 112px);
-  background: #f5f5f5;
+  flex: 1;
+  height: 100%;
+  min-width: 0;
 }
 
 /* 干预控制条 */
@@ -111,6 +127,37 @@
   margin-bottom: 8px;
   padding-bottom: 8px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.message-header-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.message-action-btn {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  padding: 2px 6px;
+  margin-left: 4px;
+}
+
+.message:hover .message-action-btn {
+  opacity: 1;
+}
+
+.message-action-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+/* 流式消息的终止按钮始终可见 */
+.message.streaming .message-action-btn {
+  opacity: 1;
+}
+
+/* 流式消息样式 - 保持颜色一致 */
+.message.streaming {
+  /* 不改变颜色，只添加终止按钮可见性 */
 }
 
 .message-role {
@@ -284,6 +331,14 @@
 
 /* 响应式设计 */
 @media (max-width: 768px) {
+  .thread-view-wrapper {
+    height: calc(100vh - 64px);
+  }
+
+  .file-sidebar {
+    display: none;
+  }
+
   .thread-view {
     height: calc(100vh - 64px);
   }
@@ -308,5 +363,22 @@
 
   .message-avatar {
     margin: 0 8px;
+  }
+}
+
+/* 流式消息光标动画 */
+.streaming-cursor {
+  display: inline-block;
+  color: #1890ff;
+  animation: blink 1s infinite;
+  font-weight: bold;
+}
+
+@keyframes blink {
+  0%, 50% {
+    opacity: 1;
+  }
+  51%, 100% {
+    opacity: 0;
   }
 }

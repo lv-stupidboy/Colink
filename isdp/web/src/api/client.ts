@@ -10,6 +10,7 @@ import type {
   Artifact,
   MergeCheckResult,
   WorkflowTemplate,
+  ListFilesResponse,
 } from '@/types';
 import {
   transformProjects,
@@ -51,7 +52,9 @@ class APIClient {
         }
         // 转换请求数据
         if (config.data && typeof config.data === 'object') {
+          const originalData = config.data;
           config.data = camelToSnake(config.data);
+          console.log('[DEBUG] Request interceptor - original:', originalData, 'transformed:', config.data);
         }
         return config;
       },
@@ -108,6 +111,9 @@ class APIClient {
 
       return result as T;
     } catch (error: any) {
+      console.error('[DEBUG] API error:', error);
+      console.error('[DEBUG] Error response:', error.response?.data);
+      console.error('[DEBUG] Error status:', error.response?.status);
       if (error.response?.status === 401) {
         localStorage.removeItem('token');
         window.location.href = '/login';
@@ -123,6 +129,10 @@ class APIClient {
     create: (data: Partial<Project>): Promise<Project> => this.request('/projects', 'POST', data),
     update: (id: string, data: Partial<Project>): Promise<Project> => this.request(`/projects/${id}`, 'PUT', data),
     delete: (id: string): Promise<void> => this.request(`/projects/${id}`, 'DELETE'),
+    listFiles: (id: string, path?: string): Promise<ListFilesResponse> => {
+      const url = path ? `/projects/${id}/files?path=${encodeURIComponent(path)}` : `/projects/${id}/files`;
+      return this.request(url, 'GET');
+    },
   };
 
   // Thread API
@@ -140,8 +150,8 @@ class APIClient {
   messages = {
     list: (threadId: string, limit = 50): Promise<Message[]> =>
       this.request(`/messages/thread/${threadId}`, 'GET', undefined, { params: { limit } }),
-    create: (threadId: string, content: string): Promise<Message> =>
-      this.request(`/messages/thread/${threadId}`, 'POST', { content }),
+    create: (threadId: string, content: string, skipAgentTrigger?: boolean): Promise<Message> =>
+      this.request(`/messages/thread/${threadId}`, 'POST', { content, skipAgentTrigger }),
   };
 
   // Agent 配置 API
@@ -182,8 +192,11 @@ class APIClient {
     list: (threadId: string): Promise<AgentInvocation[]> =>
       this.request(`/threads/${threadId}/invocations`, 'GET'),
     get: (id: string): Promise<AgentInvocation> => this.request(`/invocations/${id}`, 'GET'),
-    spawn: (threadId: string, role: string, input: string, configId?: string): Promise<AgentInvocation> =>
-      this.request(`/threads/${threadId}/invocations`, 'POST', { role, input, configId }),
+    spawn: (threadId: string, role: string, input: string, configId?: string): Promise<AgentInvocation> => {
+      const payload = { role, input, configId };
+      console.log('[DEBUG] spawn request payload:', payload);
+      return this.request(`/threads/${threadId}/invocations`, 'POST', payload);
+    },
     cancel: (id: string): Promise<void> => this.request(`/invocations/${id}/cancel`, 'POST'),
   };
 
