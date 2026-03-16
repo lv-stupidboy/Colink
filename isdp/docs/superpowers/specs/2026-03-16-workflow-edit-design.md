@@ -37,6 +37,12 @@ Add edit capability by reusing the existing create Modal. When user clicks edit 
 
 **Modified File:** `web/src/pages/Workflow/index.tsx`
 
+**Existing State Variables (reuse):**
+- `agents: AgentConfig[]` - Already exists, list of available agent configurations
+- `workflowTemplates: WorkflowTemplate[]` - Already exists, list of workflow templates
+- `createModalVisible: boolean` - Already exists, controls Modal visibility
+- `form: FormInstance` - Already exists, Ant Design form instance
+
 **New State Variables:**
 ```typescript
 const [editMode, setEditMode] = useState(false);
@@ -103,6 +109,41 @@ const handleRemoveAgent = (agentId: string) => {
 |------|-------------|---------------|----------------|
 | Create | "自定义工作流" | "创建" | `handleCreateWorkflow` |
 | Edit | "编辑工作流" | "保存" | `handleEditWorkflow` |
+
+**Form Submit Handler Toggle:**
+
+The Form's `onFinish` handler must switch based on `editMode`:
+
+```tsx
+<Form
+  form={form}
+  layout="vertical"
+  onFinish={editMode ? handleEditWorkflow : handleCreateWorkflow}
+>
+```
+
+### Form Validation Strategy
+
+The agent selection uses a custom state (`selectedAgentIds`) outside of Ant Design's Form system. This is intentional because:
+1. Drag-and-drop reordering requires array state management
+2. The sortable list UI is more intuitive than a multi-select dropdown
+
+**Validation Approach:**
+- Name, description, checkpoints: Use Ant Design Form validation (rules in Form.Item)
+- Agent selection: Custom validation in submit handler
+
+```tsx
+const handleEditWorkflow = async (values: any) => {
+  // Custom validation for agents
+  if (selectedAgentIds.length === 0) {
+    message.error('请选择至少一个Agent实例');
+    return;
+  }
+  // ... rest of handler
+};
+```
+
+**Note:** The existing `agentIds` Form.Item (line 439-452 in original code) should be replaced with the sortable list UI. Do not keep both.
 
 ### Agent Drag-and-Drop
 
@@ -176,6 +217,8 @@ The existing create Modal has a "基于模板" (`basedOn`) select field. This is
   </Form.Item>
 )}
 ```
+
+**Note:** The `basedOn` field behavior in create mode (pre-populating fields when a template is selected) is **out of scope** for this implementation. It's preserved as-is from existing code.
 
 ### Agent Selection UI
 
@@ -308,6 +351,14 @@ const SortableAgentItem: React.FC<SortableAgentItemProps> = ({ id, agent, onRemo
 ```
 
 **CSS for SortableAgentItem:**
+
+Add to `web/src/pages/Workflow/index.css` (create if doesn't exist):
+
+```tsx
+// Add at top of index.tsx
+import './index.css';
+```
+
 ```css
 .sortable-agent-item {
   display: flex;
@@ -461,6 +512,12 @@ const handleEditWorkflow = async (values: any) => {
 
 ### New Dependency
 
+**Installation Command:**
+```bash
+cd web && npm install @dnd-kit/core @dnd-kit/sortable @dnd-kit/utilities
+```
+
+**package.json additions:**
 ```json
 "@dnd-kit/core": "^6.0.0",
 "@dnd-kit/sortable": "^7.0.0",
@@ -499,6 +556,7 @@ No backend changes required.
 | File | Responsibility |
 |------|----------------|
 | `web/src/pages/Workflow/index.tsx` | Add edit mode state, edit button, handleEditWorkflow, drag-and-drop |
+| `web/src/pages/Workflow/index.css` | CSS for sortable agent items (create if doesn't exist) |
 | `web/src/api/client.ts` | Already has update method - no changes needed |
 | `web/package.json` | Add @dnd-kit dependencies |
 
