@@ -7,6 +7,10 @@ server
 main
 build/
 
+# Database files
+*.db
+data/
+
 # Log files
 *.log
 logs/
