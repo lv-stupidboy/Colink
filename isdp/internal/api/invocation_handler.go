@@ -1,9 +1,11 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/anthropic/isdp/internal/model"
+	"github.com/anthropic/isdp/internal/repo"
 	"github.com/anthropic/isdp/internal/service/agent"
 	"github.com/anthropic/isdp/internal/service/a2a"
 	"github.com/gin-gonic/gin"
@@ -14,13 +16,15 @@ import (
 type InvocationHandler struct {
 	orchestrator *agent.Orchestrator
 	mcpAuth      *a2a.MCPAuthService
+	projectRepo  *repo.ProjectRepository
 }
 
 // NewInvocationHandler 创建处理器
-func NewInvocationHandler(orchestrator *agent.Orchestrator, mcpAuth *a2a.MCPAuthService) *InvocationHandler {
+func NewInvocationHandler(orchestrator *agent.Orchestrator, mcpAuth *a2a.MCPAuthService, projectRepo *repo.ProjectRepository) *InvocationHandler {
 	return &InvocationHandler{
 		orchestrator: orchestrator,
 		mcpAuth:      mcpAuth,
+		projectRepo:  projectRepo,
 	}
 }
 
@@ -38,21 +42,39 @@ func (h *InvocationHandler) Spawn(c *gin.Context) {
 		return
 	}
 
+	// 获取绑定的项目路径
+	var projectPath string
+	if h.projectRepo != nil {
+		project, err := h.projectRepo.GetByThreadID(c.Request.Context(), threadID)
+		if err == nil && project != nil {
+			projectPath = project.LocalPath
+		}
+	}
+
+	// Debug logging
+	fmt.Printf("[DEBUG] Spawn request: threadID=%s, role=%s, configID=%s, input=%s, projectPath=%s\n",
+		threadID, req.Role, req.ConfigID, req.Input, projectPath)
+
 	spawnReq := &agent.SpawnRequest{
-		ThreadID: threadID,
-		Role:     req.Role,
-		Input:    req.Input,
+		ThreadID:    threadID,
+		Role:        req.Role,
+		Input:       req.Input,
+		ProjectPath: projectPath,
 	}
 
 	if req.ConfigID != "" {
 		configID, err := uuid.Parse(req.ConfigID)
-		if err == nil {
-			spawnReq.ConfigID = configID
+		if err != nil {
+			fmt.Printf("[DEBUG] Failed to parse configID: %v\n", err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid config_id"})
+			return
 		}
+		spawnReq.ConfigID = configID
 	}
 
 	invocation, err := h.orchestrator.SpawnAgent(c.Request.Context(), spawnReq)
 	if err != nil {
+		fmt.Printf("[DEBUG] SpawnAgent failed: %v\n", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -125,7 +147,7 @@ func (h *InvocationHandler) ListByThread(c *gin.Context) {
 
 // SpawnRequest 启动请求
 type SpawnRequest struct {
-	ConfigID string          `json:"configId"`
+	ConfigID string          `json:"config_id"`
 	Role     model.AgentRole `json:"role" binding:"required"`
 	Input    string          `json:"input" binding:"required"`
 }

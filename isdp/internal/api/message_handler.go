@@ -46,7 +46,8 @@ func (h *MessageHandler) Create(c *gin.Context) {
 	}
 
 	var req struct {
-		Content string `json:"content" binding:"required"`
+		Content          string `json:"content" binding:"required"`
+		SkipAgentTrigger bool   `json:"skip_agent_trigger"` // 前端已处理Agent触发时设为true，避免重复触发
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -59,7 +60,7 @@ func (h *MessageHandler) Create(c *gin.Context) {
 		userID = "anonymous"
 	}
 
-	msg, err := h.service.Create(c.Request.Context(), threadID, model.MessageRoleUser, userID, req.Content)
+	msg, err := h.service.Create(c.Request.Context(), threadID, model.MessageRoleUser, userID, req.Content, req.SkipAgentTrigger)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

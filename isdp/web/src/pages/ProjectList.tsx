@@ -56,9 +56,11 @@ const ProjectList: React.FC = () => {
       ),
     },
     {
-      title: '描述',
-      dataIndex: 'description',
-      key: 'description',
+      title: '本地路径',
+      dataIndex: 'local_path',
+      key: 'local_path',
+      ellipsis: true,
+      render: (path?: string) => path || '-',
     },
     {
       title: '类型',
@@ -145,6 +147,9 @@ const ProjectList: React.FC = () => {
         <Form form={form} layout="vertical" onFinish={handleCreate}>
           <Form.Item name="name" label="项目名称" rules={[{ required: true, message: '请输入项目名称' }]}>
             <Input placeholder="请输入项目名称" />
+          </Form.Item>
+          <Form.Item name="local_path" label="本地路径" rules={[{ required: true, message: '请输入本地路径' }]}>
+            <Input placeholder="D:\Projects\my-project" />
           </Form.Item>
           <Form.Item name="description" label="项目描述">
             <TextArea placeholder="请输入项目描述" rows={3} />

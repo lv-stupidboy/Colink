@@ -110,7 +110,7 @@ func (m *InteractiveSessionManager) StartSession(
 		AgentConfig: config,
 		BaseAgent:   baseAgent,
 		WorkDir:     workDir,
-		SessionID:   uuid.New().String(),
+		SessionID:   "", // 首次启动时由 start() 方法生成，用于区分新会话和恢复会话
 		wsHub:       m.wsHub,
 	}
 
@@ -179,6 +179,22 @@ func (s *InteractiveSession) start(ctx context.Context, initialInput string) err
 
 	if s.AgentConfig.ModelName != "" {
 		args = append(args, "--model", s.AgentConfig.ModelName)
+	}
+
+	// 会话恢复逻辑：
+	// - 首次启动：使用 --session-id 指定会话ID，CLI 会创建并保存会话
+	// - 后续消息：使用 --resume 恢复之前的会话，保持上下文
+	if s.SessionID == "" {
+		// 首次启动，生成新的 session ID
+		s.SessionID = uuid.New().String()
+		args = append(args, "--session-id", s.SessionID)
+		logInfo("Starting new session with session-id",
+			zap.String("sessionId", s.SessionID))
+	} else {
+		// 后续消息，恢复已有会话
+		args = append(args, "--resume", s.SessionID)
+		logInfo("Resuming existing session",
+			zap.String("sessionId", s.SessionID))
 	}
 
 	prompt := s.buildPrompt(initialInput)
@@ -261,11 +277,14 @@ func (s *InteractiveSession) SendMessage(message string) error {
 	// 停止当前进程（如果正在运行）
 	if s.running && s.cmd != nil && s.cmd.Process != nil {
 		s.cmd.Process.Kill()
+		logInfo("Killed running Claude process before sending new message",
+			zap.String("threadId", s.ThreadID.String()),
+			zap.String("sessionId", s.SessionID))
 	}
 
-	logInfo("SendMessage: starting new Claude process",
+	logInfo("SendMessage: resuming session with --resume",
 		zap.String("threadId", s.ThreadID.String()),
-		zap.Bool("wasRunning", s.running))
+		zap.String("sessionId", s.SessionID))
 
 	// 启动新进程（start 方法内部会创建新的 context）
 	if err := s.start(s.ctx, message); err != nil {

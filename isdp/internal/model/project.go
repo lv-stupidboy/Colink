@@ -37,15 +37,17 @@ const (
 
 // Project 项目模型
 type Project struct {
-	ID        uuid.UUID       `json:"id"`
-	Name      string          `json:"name"`
-	Type      ProjectType     `json:"type"`
-	Mode      ProjectMode     `json:"mode"`
-	Status    ProjectStatus   `json:"status"`
-	GitRepo   string          `json:"git_repo,omitempty"`
-	Config    json.RawMessage `json:"config,omitempty"`
-	CreatedAt time.Time       `json:"created_at"`
-	UpdatedAt time.Time       `json:"updated_at"`
+	ID                 uuid.UUID       `json:"id"`
+	Name               string          `json:"name"`
+	Type               ProjectType     `json:"type"`
+	Mode               ProjectMode     `json:"mode"`
+	Status             ProjectStatus   `json:"status"`
+	LocalPath          string          `json:"local_path"`                       // 本地路径（必填）
+	GitRepo            string          `json:"git_repo,omitempty"`
+	Config             json.RawMessage `json:"config,omitempty"`
+	WorkflowTemplateID *uuid.UUID      `json:"workflow_template_id,omitempty"` // 新增：绑定的工作流模板ID
+	CreatedAt          time.Time       `json:"created_at"`
+	UpdatedAt          time.Time       `json:"updated_at"`
 }
 
 func (p *Project) TableName() string {
@@ -57,14 +59,29 @@ type CreateProjectRequest struct {
 	Name            string      `json:"name" binding:"required"`
 	Type            ProjectType `json:"type" binding:"required,oneof=service app task"`
 	Mode            ProjectMode `json:"mode" binding:"required,oneof=new enhance"`
+	LocalPath       string      `json:"local_path" binding:"required"` // 本地路径（必填）
 	ExistingRepoURL string      `json:"existing_repo_url,omitempty"`
 	Branch          string      `json:"branch,omitempty"`
+}
+
+// UpdateProjectRequest 更新项目请求
+type UpdateProjectRequest struct {
+	Name               *string        `json:"name"`
+	Type               *ProjectType   `json:"type"`
+	Mode               *ProjectMode   `json:"mode"`
+	Status             *ProjectStatus `json:"status"`
+	LocalPath          *string        `json:"local_path"`
+	GitRepo            *string        `json:"git_repo"`
+	WorkflowTemplateID *uuid.UUID     `json:"workflow_template_id"` // 可为null表示解绑
 }
 
 // Validate 验证请求
 func (r *CreateProjectRequest) Validate() error {
 	if r.Name == "" {
 		return &ValidationError{Field: "name", Message: "name is required"}
+	}
+	if r.LocalPath == "" {
+		return &ValidationError{Field: "local_path", Message: "local_path is required"}
 	}
 	if r.Mode == ProjectModeEnhance && r.ExistingRepoURL == "" {
 		return &ValidationError{Field: "existing_repo_url", Message: "enhance mode requires existing_repo_url"}
@@ -80,4 +97,20 @@ type ValidationError struct {
 
 func (e *ValidationError) Error() string {
 	return e.Field + ": " + e.Message
+}
+
+// FileInfo 文件信息
+type FileInfo struct {
+	Name    string `json:"name"`
+	Path    string `json:"path"`
+	IsDir   bool   `json:"is_dir"`
+	Size    int64  `json:"size"`
+	ModTime string `json:"mod_time"`
+}
+
+// ListFilesResponse 文件列表响应
+type ListFilesResponse struct {
+	Path    string     `json:"path"`
+	Files   []FileInfo `json:"files"`
+	HasMore bool       `json:"has_more"`
 }

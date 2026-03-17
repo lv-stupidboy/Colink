@@ -8,7 +8,9 @@ import type {
   BaseAgentTypeInfo,
   AgentInvocation,
   Artifact,
-  MergeCheckResult
+  MergeCheckResult,
+  WorkflowTemplate,
+  ListFilesResponse,
 } from '@/types';
 import {
   transformProjects,
@@ -23,6 +25,8 @@ import {
   transformAgentInvocation,
   transformArtifacts,
   transformArtifact,
+  transformWorkflowTemplates,
+  transformWorkflowTemplate,
   camelToSnake,
 } from './transform';
 
@@ -48,7 +52,9 @@ class APIClient {
         }
         // 转换请求数据
         if (config.data && typeof config.data === 'object') {
+          const originalData = config.data;
           config.data = camelToSnake(config.data);
+          console.log('[DEBUG] Request interceptor - original:', originalData, 'transformed:', config.data);
         }
         return config;
       },
@@ -82,6 +88,8 @@ class APIClient {
           result = Array.isArray(result) ? transformAgentInvocations(result) : transformAgentInvocation(result);
         } else if (url.includes('/artifacts')) {
           result = Array.isArray(result) ? transformArtifacts(result) : transformArtifact(result);
+        } else if (url.includes('/workflows')) {
+          result = Array.isArray(result) ? transformWorkflowTemplates(result) : transformWorkflowTemplate(result);
         } else {
           // 通用转换
           const snakeToCamel = (obj: any): any => {
@@ -103,6 +111,9 @@ class APIClient {
 
       return result as T;
     } catch (error: any) {
+      console.error('[DEBUG] API error:', error);
+      console.error('[DEBUG] Error response:', error.response?.data);
+      console.error('[DEBUG] Error status:', error.response?.status);
       if (error.response?.status === 401) {
         localStorage.removeItem('token');
         window.location.href = '/login';
@@ -118,6 +129,10 @@ class APIClient {
     create: (data: Partial<Project>): Promise<Project> => this.request('/projects', 'POST', data),
     update: (id: string, data: Partial<Project>): Promise<Project> => this.request(`/projects/${id}`, 'PUT', data),
     delete: (id: string): Promise<void> => this.request(`/projects/${id}`, 'DELETE'),
+    listFiles: (id: string, path?: string): Promise<ListFilesResponse> => {
+      const url = path ? `/projects/${id}/files?path=${encodeURIComponent(path)}` : `/projects/${id}/files`;
+      return this.request(url, 'GET');
+    },
   };
 
   // Thread API
@@ -135,8 +150,8 @@ class APIClient {
   messages = {
     list: (threadId: string, limit = 50): Promise<Message[]> =>
       this.request(`/messages/thread/${threadId}`, 'GET', undefined, { params: { limit } }),
-    create: (threadId: string, content: string): Promise<Message> =>
-      this.request(`/messages/thread/${threadId}`, 'POST', { content }),
+    create: (threadId: string, content: string, skipAgentTrigger?: boolean): Promise<Message> =>
+      this.request(`/messages/thread/${threadId}`, 'POST', { content, skipAgentTrigger }),
   };
 
   // Agent 配置 API
@@ -177,8 +192,11 @@ class APIClient {
     list: (threadId: string): Promise<AgentInvocation[]> =>
       this.request(`/threads/${threadId}/invocations`, 'GET'),
     get: (id: string): Promise<AgentInvocation> => this.request(`/invocations/${id}`, 'GET'),
-    spawn: (threadId: string, role: string, input: string, configId?: string): Promise<AgentInvocation> =>
-      this.request(`/threads/${threadId}/invocations`, 'POST', { role, input, configId }),
+    spawn: (threadId: string, role: string, input: string, configId?: string): Promise<AgentInvocation> => {
+      const payload = { role, input, configId };
+      console.log('[DEBUG] spawn request payload:', payload);
+      return this.request(`/threads/${threadId}/invocations`, 'POST', payload);
+    },
     cancel: (id: string): Promise<void> => this.request(`/invocations/${id}/cancel`, 'POST'),
   };
 
@@ -218,6 +236,19 @@ class APIClient {
       this.request(`/sandbox/${id}/logs`, 'GET'),
     checkDocker: (): Promise<{ available: boolean }> =>
       this.request('/sandbox/docker/status', 'GET'),
+  };
+
+  // 工作流模板 API
+  workflows = {
+    list: (): Promise<WorkflowTemplate[]> => this.request('/workflows', 'GET'),
+    get: (id: string): Promise<WorkflowTemplate> => this.request(`/workflows/${id}`, 'GET'),
+    create: (data: Partial<WorkflowTemplate>): Promise<WorkflowTemplate> =>
+      this.request('/workflows', 'POST', data),
+    update: (id: string, data: Partial<WorkflowTemplate>): Promise<WorkflowTemplate> =>
+      this.request(`/workflows/${id}`, 'PUT', data),
+    delete: (id: string): Promise<void> => this.request(`/workflows/${id}`, 'DELETE'),
+    setDefault: (id: string): Promise<WorkflowTemplate> =>
+      this.request(`/workflows/${id}/default`, 'PUT'),
   };
 }
 

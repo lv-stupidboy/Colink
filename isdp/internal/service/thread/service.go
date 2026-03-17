@@ -2,6 +2,7 @@ package thread
 
 import (
 	"context"
+	"errors"
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
@@ -10,21 +11,54 @@ import (
 
 // Service Thread服务
 type Service struct {
-	repo *repo.ThreadRepository
+	repo         *repo.ThreadRepository
+	projectRepo  *repo.ProjectRepository         // 新增依赖
+	workflowRepo *repo.WorkflowTemplateRepository // 新增依赖
 }
 
 // NewService 创建Thread服务
-func NewService(repo *repo.ThreadRepository) *Service {
-	return &Service{repo: repo}
+func NewService(repo *repo.ThreadRepository, projectRepo *repo.ProjectRepository, workflowRepo *repo.WorkflowTemplateRepository) *Service {
+	return &Service{
+		repo:         repo,
+		projectRepo:  projectRepo,
+		workflowRepo: workflowRepo,
+	}
 }
 
 // Create 创建Thread
 func (s *Service) Create(ctx context.Context, projectID uuid.UUID) (*model.Thread, error) {
+	// 1. 获取项目信息
+	project, err := s.projectRepo.FindByID(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	var workflowID *uuid.UUID
+
+	// 2. 检查项目是否绑定了工作流
+	if project.WorkflowTemplateID != nil {
+		// 验证工作流是否存在
+		_, err := s.workflowRepo.FindByID(ctx, *project.WorkflowTemplateID)
+		if err != nil {
+			return nil, errors.New("项目绑定的工作流不存在，请重新配置")
+		}
+		workflowID = project.WorkflowTemplateID
+	} else {
+		// 3. 查询默认工作流
+		defaultWorkflow, err := s.workflowRepo.GetDefault(ctx)
+		if err != nil {
+			return nil, errors.New("请先在项目设置中绑定工作流，或设置系统默认工作流")
+		}
+		workflowID = &defaultWorkflow.ID
+	}
+
+	// 4. 创建 Thread 并关联工作流
 	thread := &model.Thread{
-		ID:           uuid.New(),
-		ProjectID:    projectID,
-		Status:       model.ThreadStatusIdle,
-		CurrentPhase: model.PhaseRequirement,
+		ID:                 uuid.New(),
+		ProjectID:          projectID,
+		Status:             model.ThreadStatusIdle,
+		CurrentPhase:       model.PhaseRequirement,
+		WorkflowTemplateID: workflowID,
 	}
 
 	if err := s.repo.Create(ctx, thread); err != nil {

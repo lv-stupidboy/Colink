@@ -47,25 +47,25 @@ const (
 
 // CheckResult 检查结果
 type CheckResult struct {
-	Decision    MergeDecision
-	Summary     string
-	P1Issues    int
-	P2Issues    int
-	P3Issues    int
-	ResolvedP1  int
-	ResolvedP2  int
-	Unresolved  []Issue
-	Recommendations []string
+	Decision       MergeDecision `json:"decision"`
+	Summary        string        `json:"summary"`
+	P1Issues       int           `json:"p1Issues"`
+	P2Issues       int           `json:"p2Issues"`
+	P3Issues       int           `json:"p3Issues"`
+	ResolvedP1     int           `json:"resolvedP1"`
+	ResolvedP2     int           `json:"resolvedP2"`
+	Unresolved      []Issue      `json:"unresolved"`
+	Recommendations []string     `json:"recommendations"`
 }
 
 // Issue 问题
 type Issue struct {
-	ID          string
-	Grade       ReviewGrade
-	Description string
-	File        string
-	Line        int
-	Status      string
+	ID          string      `json:"id"`
+	Grade       ReviewGrade `json:"grade"`
+	Description string      `json:"description"`
+	File        string      `json:"file"`
+	Line        int         `json:"line"`
+	Status      string      `json:"status"`
 }
 
 // CheckMerge 检查是否可以合并

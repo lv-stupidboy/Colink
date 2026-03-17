@@ -125,3 +125,50 @@ export function transformArtifacts(data: any[]): any[] {
   }
   return data.map(transformArtifact);
 }
+
+// 转换 WorkflowTemplate 数据
+export function transformWorkflowTemplate(data: any): any {
+  if (!data) return data;
+  const result = snakeToCamel(data);
+
+  // 确保 agentIds 和 checkpoints 是数组
+  if (result.agentIds == null) {
+    result.agentIds = [];
+  } else if (typeof result.agentIds === 'string') {
+    try {
+      result.agentIds = JSON.parse(result.agentIds);
+    } catch {
+      result.agentIds = [];
+    }
+  }
+
+  if (result.checkpoints == null) {
+    result.checkpoints = [];
+  } else if (typeof result.checkpoints === 'string') {
+    try {
+      result.checkpoints = JSON.parse(result.checkpoints);
+    } catch {
+      result.checkpoints = [];
+    }
+  }
+
+  // 确保 isSystem 是布尔值
+  if (typeof result.isSystem === 'number') {
+    result.isSystem = result.isSystem === 1;
+  }
+
+  // 确保 isDefault 是布尔值
+  if (typeof result.isDefault === 'number') {
+    result.isDefault = result.isDefault === 1;
+  }
+
+  return result;
+}
+
+// 转换 WorkflowTemplate 列表
+export function transformWorkflowTemplates(data: any[]): any[] {
+  if (!data || !Array.isArray(data)) {
+    return [];
+  }
+  return data.map(transformWorkflowTemplate);
+}

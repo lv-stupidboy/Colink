@@ -69,7 +69,7 @@ func (h *ProjectHandler) Update(c *gin.Context) {
 		return
 	}
 
-	var req model.CreateProjectRequest
+	var req model.UpdateProjectRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -98,12 +98,31 @@ func (h *ProjectHandler) Delete(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+// ListFiles 列出项目文件
+func (h *ProjectHandler) ListFiles(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	subPath := c.Query("path")
+	result, err := h.service.ListFiles(c.Request.Context(), id, subPath)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
 // RegisterRoutes 注册路由
 func (h *ProjectHandler) RegisterRoutes(r *gin.RouterGroup) {
 	projects := r.Group("/projects")
 	{
 		projects.GET("", h.List)
 		projects.POST("", h.Create)
+		// Note: /:id/files must be registered BEFORE /:id to ensure proper matching
+		projects.GET("/:id/files", h.ListFiles)
 		projects.GET("/:id", h.Get)
 		projects.PUT("/:id", h.Update)
 		projects.DELETE("/:id", h.Delete)

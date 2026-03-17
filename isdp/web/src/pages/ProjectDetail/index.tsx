@@ -18,6 +18,7 @@ import {
   Empty,
   Progress,
   Tooltip,
+  Divider,
 } from 'antd';
 import {
   ArrowLeftOutlined,
@@ -29,7 +30,7 @@ import {
   PlayCircleOutlined,
 } from '@ant-design/icons';
 import api from '@/api/client';
-import type { Project, Thread } from '@/types';
+import type { Project, Thread, WorkflowTemplate } from '@/types';
 import { PhaseLabels, PhaseColors, ThreadStatus } from '@/types';
 
 const { Text } = Typography;
@@ -58,12 +59,31 @@ const ProjectDetail: React.FC = () => {
   const [createThreadModalVisible, setCreateThreadModalVisible] = useState(false);
   const [form] = Form.useForm();
   const [threadForm] = Form.useForm();
+  const [workflowTemplates, setWorkflowTemplates] = useState<WorkflowTemplate[]>([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
 
   useEffect(() => {
     if (projectId) {
       loadProjectData();
     }
   }, [projectId]);
+
+  // 获取工作流模板列表
+  const fetchWorkflowTemplates = async () => {
+    setLoadingTemplates(true);
+    try {
+      const templates = await api.workflows.list();
+      setWorkflowTemplates(templates as unknown as WorkflowTemplate[]);
+    } catch (error) {
+      console.error('Failed to fetch workflow templates:', error);
+    } finally {
+      setLoadingTemplates(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchWorkflowTemplates();
+  }, []);
 
   const loadProjectData = async () => {
     setLoading(true);
@@ -388,9 +408,64 @@ const ProjectDetail: React.FC = () => {
                 <Descriptions.Item label="开发模式">
                   {projectModeConfig[project.mode || 'new']?.label || project.mode}
                 </Descriptions.Item>
+                <Descriptions.Item label="绑定工作流" span={2}>
+                  <Space direction="vertical" style={{ width: '100%' }}>
+                    <Select
+                      style={{ width: 300 }}
+                      placeholder="选择工作流模板"
+                      value={project.workflowTemplateId || undefined}
+                      loading={loadingTemplates}
+                      allowClear
+                      onChange={async (value) => {
+                        try {
+                          await api.projects.update(projectId!, { workflowTemplateId: value });
+                          message.success('工作流绑定已更新');
+                          loadProjectData();
+                        } catch (error) {
+                          message.error('更新失败');
+                        }
+                      }}
+                    >
+                      {workflowTemplates.map((t) => (
+                        <Option key={t.id} value={t.id}>
+                          {t.name} {t.isDefault ? '(默认)' : ''} {t.isSystem ? '[系统]' : ''}
+                        </Option>
+                      ))}
+                    </Select>
+                    {project.workflowTemplateId ? (
+                      <Space direction="vertical" size="small">
+                        <Text type="secondary">当前绑定：</Text>
+                        {(() => {
+                          const boundTemplate = workflowTemplates.find(t => t.id === project.workflowTemplateId);
+                          if (!boundTemplate) return <Text type="warning">工作流不存在</Text>;
+                          return (
+                            <>
+                              <Text strong>{boundTemplate.name}</Text>
+                              <div>
+                                <Text type="secondary">检查点：</Text>
+                                {boundTemplate.checkpoints?.map((cp) => (
+                                  <Tag key={cp} color="orange" style={{ marginBottom: 4 }}>{cp}</Tag>
+                                ))}
+                              </div>
+                            </>
+                          );
+                        })()}
+                      </Space>
+                    ) : (
+                      <Text type="secondary">
+                        未绑定工作流，将使用系统默认工作流
+                        {workflowTemplates.find(t => t.isDefault) && (
+                          <>：{workflowTemplates.find(t => t.isDefault)?.name}</>
+                        )}
+                      </Text>
+                    )}
+                  </Space>
+                </Descriptions.Item>
               </Descriptions>
 
-              <div style={{ marginTop: 24 }}>
+              <Divider />
+
+              <div style={{ marginTop: 16 }}>
                 <Button type="primary" icon={<EditOutlined />} onClick={() => {
                   form.setFieldsValue(project);
                   setEditModalVisible(true);
@@ -434,6 +509,15 @@ const ProjectDetail: React.FC = () => {
           <Form.Item name="repositoryUrl" label="仓库地址">
             <Input placeholder="https://github.com/user/repo" />
           </Form.Item>
+          <Form.Item name="workflowTemplateId" label="绑定工作流">
+            <Select placeholder="选择工作流模板" allowClear loading={loadingTemplates}>
+              {workflowTemplates.map((t) => (
+                <Option key={t.id} value={t.id}>
+                  {t.name} {t.isDefault ? '(默认)' : ''} {t.isSystem ? '[系统]' : ''}
+                </Option>
+              ))}
+            </Select>
+          </Form.Item>
           <Form.Item name="status" label="状态">
             <Select>
               <Option value="active">活跃</Option>
@@ -458,7 +542,28 @@ const ProjectDetail: React.FC = () => {
           <Form.Item name="name" label="任务名称（可选）">
             <Input placeholder="为任务起个名字" />
           </Form.Item>
-          <Text type="secondary">
+          <Divider style={{ margin: '12px 0' }} />
+          <div>
+            <Text strong>使用工作流：</Text>
+            <div style={{ marginTop: 8 }}>
+              {project.workflowTemplateId ? (
+                <>
+                  <Tag color="blue">
+                    {workflowTemplates.find(t => t.id === project.workflowTemplateId)?.name || '未知工作流'}
+                  </Tag>
+                  <Text type="secondary" style={{ marginLeft: 8 }}>（来自项目绑定）</Text>
+                </>
+              ) : (
+                <>
+                  <Tag color="gold">
+                    {workflowTemplates.find(t => t.isDefault)?.name || '系统默认'}
+                  </Tag>
+                  <Text type="secondary" style={{ marginLeft: 8 }}>（系统默认工作流）</Text>
+                </>
+              )}
+            </div>
+          </div>
+          <Text type="secondary" style={{ display: 'block', marginTop: 16 }}>
             创建后将进入开发工作台，您可以描述您的需求并启动 AI 开发流程。
           </Text>
         </Form>
