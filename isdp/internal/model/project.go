@@ -43,7 +43,7 @@ type Project struct {
 	Mode               ProjectMode     `json:"mode"`
 	Status             ProjectStatus   `json:"status"`
 	LocalPath          string          `json:"local_path"`                       // 本地路径（必填）
-	GitRepo            string          `json:"git_repo,omitempty"`
+	GitRepo            *string         `json:"git_repo,omitempty"`
 	Config             json.RawMessage `json:"config,omitempty"`
 	WorkflowTemplateID *uuid.UUID      `json:"workflow_template_id,omitempty"` // 新增：绑定的工作流模板ID
 	CreatedAt          time.Time       `json:"created_at"`

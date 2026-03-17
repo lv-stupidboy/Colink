@@ -216,6 +216,23 @@ func main() {
 		Handler: router,
 	}
 
+	// 启动定期日志维护任务
+	go func() {
+		ticker := time.NewTicker(24 * time.Hour) // 每24小时检查一次
+		defer ticker.Stop()
+
+		// 立即执行一次日志维护
+		performLogMaintenance(logger)
+
+		for {
+			select {
+			case <-ticker.C:
+				// 定期执行日志维护
+				performLogMaintenance(logger)
+			}
+		}
+	}()
+
 	// 优雅关闭
 	go func() {
 		logger.Info("Starting server", zap.Int("port", cfg.Server.Port))
@@ -514,4 +531,51 @@ CREATE INDEX IF NOT EXISTS idx_artifacts_thread_id ON artifacts(thread_id);
 	}
 
 	return nil
+}
+
+// performLogMaintenance 执行日志维护任务
+func performLogMaintenance(logger *zap.Logger) {
+	logDir := "logs"
+
+	// 检查日志目录是否存在
+	if _, err := os.Stat(logDir); os.IsNotExist(err) {
+		return
+	}
+
+	// 获取日志目录中的所有文件
+	files, err := os.ReadDir(logDir)
+	if err != nil {
+		logger.Error("Failed to read log directory", zap.Error(err))
+		return
+	}
+
+	cleanedCount := 0
+	totalSize := int64(0)
+
+	for _, file := range files {
+		if file.IsDir() {
+			continue
+		}
+
+		info, err := file.Info()
+		if err != nil {
+			continue
+		}
+
+		// 计算文件大小
+		totalSize += info.Size()
+
+		// 删除超过30天的日志文件
+		if time.Since(info.ModTime()).Hours() > 720 { // 30天 = 30 * 24小时
+			filePath := filepath.Join(logDir, file.Name())
+			if err := os.Remove(filePath); err == nil {
+				logger.Info("Deleted old log file", zap.String("file", filePath))
+				cleanedCount++
+			}
+		}
+	}
+
+	logger.Info("Log maintenance completed",
+		zap.Int("files_cleaned", cleanedCount),
+		zap.Int64("total_size_bytes", totalSize))
 }

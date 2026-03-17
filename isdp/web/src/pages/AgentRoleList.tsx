@@ -194,7 +194,7 @@ const AgentRoleList: React.FC = () => {
 
           <Form.Item name="baseAgentId" label="基础Agent">
             <Select placeholder="选择基础Agent" allowClear>
-              {baseAgents.filter(a => a.isActive).map(agent => (
+              {baseAgents.map(agent => (
                 <Select.Option key={agent.id} value={agent.id}>
                   {agent.name} ({agent.type === 'claude_code' ? 'Claude Code' : 'OpenCode'})
                 </Select.Option>

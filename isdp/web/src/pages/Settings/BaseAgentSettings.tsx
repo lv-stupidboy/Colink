@@ -49,7 +49,6 @@ const BaseAgentSettings: React.FC = () => {
       cliPath: 'claude',
       maxTokens: 4096,
       timeoutMinutes: 30,
-      isActive: true,
     });
     setModalVisible(true);
   };
@@ -135,7 +134,6 @@ const BaseAgentSettings: React.FC = () => {
         <Space>
           <RobotOutlined />
           <span>{name}</span>
-          {record.isActive && <Tag color="success">启用</Tag>}
         </Space>
       ),
     },
@@ -281,10 +279,6 @@ const BaseAgentSettings: React.FC = () => {
 
           <Form.Item name="timeoutMinutes" label="超时时间(分钟)">
             <InputNumber min={1} max={120} style={{ width: '100%' }} />
-          </Form.Item>
-
-          <Form.Item name="isActive" label="启用" valuePropName="checked">
-            <Switch checkedChildren="启用" unCheckedChildren="禁用" />
           </Form.Item>
         </Form>
       </Modal>

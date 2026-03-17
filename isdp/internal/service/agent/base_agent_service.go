@@ -107,7 +107,6 @@ func (s *BaseAgentService) Create(ctx context.Context, req *model.CreateBaseAgen
 		GitBashPath:   req.GitBashPath,
 		MaxTokens:     maxTokens,
 		TimeoutMinutes: timeoutMinutes,
-		IsActive:      req.IsActive,
 		CreatedAt:     time.Now(),
 		UpdatedAt:     time.Now(),
 	}
@@ -254,7 +253,6 @@ func (s *BaseAgentService) InitDefaultAgents(ctx context.Context) error {
 		CliPath:       "claude",
 		MaxTokens:     4096,
 		TimeoutMinutes: 30,
-		IsActive:      true,
 		CreatedAt:     time.Now(),
 		UpdatedAt:     time.Now(),
 	}

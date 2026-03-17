@@ -29,6 +29,12 @@ func (r *ProjectRepository) Create(ctx context.Context, project *model.Project) 
 	`
 	now := time.Now()
 
+	// 处理 nullable git_repo
+	var gitRepo interface{}
+	if project.GitRepo != nil {
+		gitRepo = *project.GitRepo
+	}
+
 	// 处理 nullable workflow_template_id
 	var workflowTemplateID interface{}
 	if project.WorkflowTemplateID != nil {
@@ -42,7 +48,7 @@ func (r *ProjectRepository) Create(ctx context.Context, project *model.Project) 
 		project.Mode,
 		project.Status,
 		project.LocalPath,
-		project.GitRepo,
+		gitRepo,
 		project.Config,
 		workflowTemplateID,
 		now,
@@ -64,6 +70,7 @@ func (r *ProjectRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.
 	`
 	project := &model.Project{}
 	var idStr string
+	var gitRepo sql.NullString
 	var config []byte
 	var workflowTemplateID sql.NullString
 	err := r.db.QueryRowContext(ctx, query, id.String()).Scan(
@@ -73,7 +80,7 @@ func (r *ProjectRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.
 		&project.Mode,
 		&project.Status,
 		&project.LocalPath,
-		&project.GitRepo,
+		&gitRepo,
 		&config,
 		&workflowTemplateID,
 		&project.CreatedAt,
@@ -82,6 +89,12 @@ func (r *ProjectRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.
 	if err != nil {
 		return nil, fmt.Errorf("failed to find project: %w", err)
 	}
+
+	// 处理可能为NULL的字段
+	if gitRepo.Valid {
+		project.GitRepo = &gitRepo.String
+	}
+
 	project.ID, _ = uuid.Parse(idStr)
 	if config != nil {
 		project.Config = config
@@ -109,6 +122,7 @@ func (r *ProjectRepository) FindAll(ctx context.Context, limit, offset int) ([]*
 	for rows.Next() {
 		project := &model.Project{}
 		var idStr string
+		var gitRepo sql.NullString
 		var config []byte
 		var workflowTemplateID sql.NullString
 		err := rows.Scan(
@@ -118,7 +132,7 @@ func (r *ProjectRepository) FindAll(ctx context.Context, limit, offset int) ([]*
 			&project.Mode,
 			&project.Status,
 			&project.LocalPath,
-			&project.GitRepo,
+			&gitRepo,
 			&config,
 			&workflowTemplateID,
 			&project.CreatedAt,
@@ -128,6 +142,12 @@ func (r *ProjectRepository) FindAll(ctx context.Context, limit, offset int) ([]*
 			return nil, fmt.Errorf("failed to scan project: %w", err)
 		}
 		project.ID, _ = uuid.Parse(idStr)
+
+		// 处理可能为NULL的字段
+		if gitRepo.Valid {
+			project.GitRepo = &gitRepo.String
+		}
+
 		if config != nil {
 			project.Config = config
 		}
@@ -149,6 +169,12 @@ func (r *ProjectRepository) Update(ctx context.Context, project *model.Project) 
 	`
 	project.UpdatedAt = time.Now()
 
+	// 处理 nullable git_repo
+	var gitRepo interface{}
+	if project.GitRepo != nil {
+		gitRepo = *project.GitRepo
+	}
+
 	// 处理 nullable workflow_template_id
 	var workflowTemplateID interface{}
 	if project.WorkflowTemplateID != nil {
@@ -161,7 +187,7 @@ func (r *ProjectRepository) Update(ctx context.Context, project *model.Project) 
 		project.Mode,
 		project.Status,
 		project.LocalPath,
-		project.GitRepo,
+		gitRepo,
 		project.Config,
 		workflowTemplateID,
 		project.UpdatedAt,
@@ -193,6 +219,7 @@ func (r *ProjectRepository) GetByThreadID(ctx context.Context, threadID uuid.UUI
 	`
 	project := &model.Project{}
 	var idStr string
+	var gitRepo sql.NullString
 	var config []byte
 	var workflowTemplateID sql.NullString
 	err := r.db.QueryRowContext(ctx, query, threadID.String()).Scan(
@@ -202,7 +229,7 @@ func (r *ProjectRepository) GetByThreadID(ctx context.Context, threadID uuid.UUI
 		&project.Mode,
 		&project.Status,
 		&project.LocalPath,
-		&project.GitRepo,
+		&gitRepo,
 		&config,
 		&workflowTemplateID,
 		&project.CreatedAt,
@@ -212,6 +239,12 @@ func (r *ProjectRepository) GetByThreadID(ctx context.Context, threadID uuid.UUI
 		return nil, fmt.Errorf("failed to find project by thread: %w", err)
 	}
 	project.ID, _ = uuid.Parse(idStr)
+
+	// 处理可能为NULL的字段
+	if gitRepo.Valid {
+		project.GitRepo = &gitRepo.String
+	}
+
 	project.Config = json.RawMessage(config)
 	if workflowTemplateID.Valid {
 		wid, _ := uuid.Parse(workflowTemplateID.String)

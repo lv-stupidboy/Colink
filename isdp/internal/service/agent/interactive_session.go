@@ -102,7 +102,12 @@ func (m *InteractiveSessionManager) StartSession(
 		zap.String("threadId", threadID.String()),
 		zap.String("configName", config.Name),
 		zap.String("workDir", workDir),
-		zap.String("initialInput", initialInput[:min(100, len(initialInput))]))
+		zap.String("initialInput", func(a, b int) string {
+			if a < b {
+				return initialInput[:a]
+			}
+			return initialInput[:b]
+		}(100, len(initialInput))))
 
 	session := &InteractiveSession{
 		ID:          uuid.New(),
@@ -309,16 +314,28 @@ func (s *InteractiveSession) readOutput() {
 		}
 
 		// 记录原始输出到日志
-		logDebug("Claude CLI raw output",
-			zap.String("threadId", s.ThreadID.String()),
-			zap.String("raw", line[:min(500, len(line))]))
+		func() {
+			endIdx := 500
+			if endIdx > len(line) {
+				endIdx = len(line)
+			}
+			logDebug("Claude CLI raw output",
+				zap.String("threadId", s.ThreadID.String()),
+				zap.String("raw", line[:endIdx]))
+		}()
 
 		// 解析并提取文本内容
 		text := s.extractTextFromJSON(line)
 		if text != "" {
-			logDebug("Claude CLI text extracted",
-				zap.String("threadId", s.ThreadID.String()),
-				zap.String("text", text[:min(200, len(text))]))
+			func() {
+				endIdx := 200
+				if endIdx > len(text) {
+					endIdx = len(text)
+				}
+				logDebug("Claude CLI text extracted",
+					zap.String("threadId", s.ThreadID.String()),
+					zap.String("text", text[:endIdx]))
+			}()
 			s.broadcastChunk(text)
 		}
 	}
@@ -326,9 +343,6 @@ func (s *InteractiveSession) readOutput() {
 	if err := scanner.Err(); err != nil {
 		logError("Scanner error", zap.Error(err))
 	}
-
-	logInfo("---------- Claude CLI Output End ----------",
-		zap.String("threadId", s.ThreadID.String()))
 
 	// 进程结束
 	s.mu.Lock()
@@ -413,12 +427,6 @@ func (s *InteractiveSession) extractTextFromJSON(line string) string {
 	return "" // 无法提取，忽略
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
 
 // broadcastChunk 广播输出块
 func (s *InteractiveSession) broadcastChunk(chunk string) {

@@ -43,6 +43,27 @@ func NewOpenCodeAdapter(baseAgent *model.BaseAgent) *OpenCodeAdapter {
 	}
 }
 
+// StartSession 启动会话 - 在OpenCodeAdapter中暂不直接实现会话管理
+// 会话管理由SessionManager统一处理
+func (a *OpenCodeAdapter) StartSession(ctx context.Context, sessionID string, config *model.AgentRoleConfig, baseAgent *model.BaseAgent, workDir string) error {
+	return fmt.Errorf("session management is handled by SessionManager, not directly by OpenCodeAdapter")
+}
+
+// ResumeSession 恢复会话 - 在OpenCodeAdapter中暂不直接实现会话管理
+func (a *OpenCodeAdapter) ResumeSession(ctx context.Context, sessionID string, input string) error {
+	return fmt.Errorf("session management is handled by SessionManager, not directly by OpenCodeAdapter")
+}
+
+// StopSession 停止会话 - 在OpenCodeAdapter中暂不直接实现会话管理
+func (a *OpenCodeAdapter) StopSession(ctx context.Context, sessionID string) error {
+	return fmt.Errorf("session management is handled by SessionManager, not directly by OpenCodeAdapter")
+}
+
+// GetSessionStatus 获取会话状态 - 在OpenCodeAdapter中暂不直接实现会话管理
+func (a *OpenCodeAdapter) GetSessionStatus(sessionID string) SessionStatus {
+	return SessionStatusFailed
+}
+
 // Execute 执行OpenCode CLI
 func (a *OpenCodeAdapter) Execute(ctx context.Context, config *model.AgentRoleConfig, layers *ContextLayers, input string, workDir string) (string, error) {
 	// 构建提示词

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"time"
 
 	"github.com/anthropic/isdp/internal/model"
 )
@@ -15,6 +16,27 @@ type AgentAdapter interface {
 	// CheckHealth 检查健康状态
 	CheckHealth(ctx context.Context) error
 }
+
+// SessionExecutor 会话执行器接口，扩展了AgentAdapter的会话管理能力
+type SessionExecutor interface {
+	AgentAdapter
+	StartSession(ctx context.Context, sessionID string, config *model.AgentRoleConfig, baseAgent *model.BaseAgent, workDir string) error
+	ResumeSession(ctx context.Context, sessionID string, input string) error
+	StopSession(ctx context.Context, sessionID string) error
+	GetSessionStatus(sessionID string) SessionStatus
+}
+
+// SessionStatus 会话状态
+type SessionStatus string
+
+const (
+	SessionStatusIdle      SessionStatus = "idle"
+	SessionStatusRunning   SessionStatus = "running"
+	SessionStatusPaused    SessionStatus = "paused"
+	SessionStatusCompleted SessionStatus = "completed"
+	SessionStatusFailed    SessionStatus = "failed"
+	SessionStatusStopped   SessionStatus = "stopped"
+)
 
 // NewAdapter 根据基础Agent类型创建适配器
 func NewAdapter(baseAgent *model.BaseAgent) AgentAdapter {
@@ -30,4 +52,15 @@ func NewAdapter(baseAgent *model.BaseAgent) AgentAdapter {
 	default:
 		return nil
 	}
+}
+
+func timePtr(t time.Time) *time.Time {
+	return &t
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

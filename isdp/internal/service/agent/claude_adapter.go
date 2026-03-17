@@ -58,6 +58,27 @@ func NewClaudeAdapterFromBaseAgent(baseAgent *model.BaseAgent) *ClaudeAdapter {
 	}
 }
 
+// StartSession 启动会话 - 在ClaudeAdapter中暂不直接实现会话管理
+// 会话管理由SessionManager统一处理
+func (a *ClaudeAdapter) StartSession(ctx context.Context, sessionID string, config *model.AgentRoleConfig, baseAgent *model.BaseAgent, workDir string) error {
+	return fmt.Errorf("session management is handled by SessionManager, not directly by ClaudeAdapter")
+}
+
+// ResumeSession 恢复会话 - 在ClaudeAdapter中暂不直接实现会话管理
+func (a *ClaudeAdapter) ResumeSession(ctx context.Context, sessionID string, input string) error {
+	return fmt.Errorf("session management is handled by SessionManager, not directly by ClaudeAdapter")
+}
+
+// StopSession 停止会话 - 在ClaudeAdapter中暂不直接实现会话管理
+func (a *ClaudeAdapter) StopSession(ctx context.Context, sessionID string) error {
+	return fmt.Errorf("session management is handled by SessionManager, not directly by ClaudeAdapter")
+}
+
+// GetSessionStatus 获取会话状态 - 在ClaudeAdapter中暂不直接实现会话管理
+func (a *ClaudeAdapter) GetSessionStatus(sessionID string) SessionStatus {
+	return SessionStatusFailed
+}
+
 // Execute 执行Claude CLI
 func (a *ClaudeAdapter) Execute(ctx context.Context, config *model.AgentRoleConfig, layers *ContextLayers, input string, workDir string) (string, error) {
 	// 构建提示词

@@ -46,7 +46,7 @@ func (s *Service) Create(ctx context.Context, req *model.CreateProjectRequest) (
 		Mode:      req.Mode,
 		Status:    model.ProjectStatusDraft,
 		LocalPath: req.LocalPath,
-		GitRepo:   req.ExistingRepoURL,
+		GitRepo:   &req.ExistingRepoURL,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
@@ -90,7 +90,7 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, req *model.UpdatePro
 		project.LocalPath = *req.LocalPath
 	}
 	if req.GitRepo != nil {
-		project.GitRepo = *req.GitRepo
+		project.GitRepo = req.GitRepo
 	}
 	project.WorkflowTemplateID = req.WorkflowTemplateID
 

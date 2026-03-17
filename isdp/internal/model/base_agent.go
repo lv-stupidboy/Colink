@@ -28,7 +28,6 @@ type BaseAgent struct {
 	GitBashPath   string        `json:"git_bash_path,omitempty"` // Windows下git-bash路径，用于Claude CLI
 	MaxTokens     int           `json:"max_tokens"`
 	TimeoutMinutes int          `json:"timeout_minutes"`
-	IsActive      bool          `json:"is_active"`
 	CreatedAt     time.Time     `json:"created_at"`
 	UpdatedAt     time.Time     `json:"updated_at"`
 }
@@ -48,7 +47,6 @@ type CreateBaseAgentRequest struct {
 	GitBashPath   string        `json:"git_bash_path"`
 	MaxTokens     int           `json:"max_tokens"`
 	TimeoutMinutes int          `json:"timeout_minutes"`
-	IsActive      bool          `json:"is_active"`
 }
 
 // UpdateBaseAgentRequest 更新基础Agent请求
@@ -62,7 +60,6 @@ type UpdateBaseAgentRequest struct {
 	GitBashPath   string        `json:"git_bash_path"`
 	MaxTokens     int           `json:"max_tokens"`
 	TimeoutMinutes int          `json:"timeout_minutes"`
-	IsActive      bool          `json:"is_active"`
 }
 
 // BaseAgentTypeInfo 基础Agent类型信息
