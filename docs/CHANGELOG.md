@@ -4,6 +4,130 @@
 
 ---
 
+## 2026-03-18 Agent调试功能重构与状态管理优化
+
+### 背景
+
+Agent调试功能需要进行重构，将调试模式与工作流模式分离，并优化状态管理和线程安全。同时清理了冗余代码，统一了日志管理。
+
+### 目标
+
+1. 实现调试模式与工作流模式的独立状态管理
+2. 增强调试线程管理的线程安全性
+3. 重构WebSocket连接，简化接口并添加自动重连
+4. 清理冗余代码，统一日志工具
+
+### 核心变更
+
+#### 后端改动
+
+##### Orchestrator 调试功能增强
+- 新增 `SpawnDebugAgent` 方法 - 调试模式启动Agent
+- 新增 `ContinueDebugAgent` 方法 - 继续调试会话
+- 新增 `SetDebugThreadManager` 方法 - 注入调试线程管理器
+
+##### DebugThreadManager 线程安全增强
+- 新增状态常量：`DebugThreadStatusIdle`, `DebugThreadStatusRunning`, `DebugThreadStatusCompleted`, `DebugThreadStatusError`
+- 新增 `CompareAndSwapStatus` 方法 - 原子状态比较交换
+- 新增 `TryStartExecution` 方法 - 原子启动执行
+- 新增 `GetProjectPath` 方法 - 获取工作目录
+- 新增 `ProjectPath` 字段 - 存储工作目录路径
+- 使用 `sync.Once` 保护 `Stop()` 方法，防止多次调用 panic
+- `GetMessages` 返回副本，避免外部修改影响内部状态
+
+##### 日志工具统一
+- 新增 `internal/service/agent/logger.go` - 统一的日志辅助函数
+- 提供 `logInfo`, `logError`, `logDebug`, `logWarn` 等函数
+
+#### 前端改动
+
+##### 新增调试状态管理
+- 新增 `web/src/store/debugThread.ts` - 调试模式专用 Zustand store
+- 独立管理：threadId, status, messages, streamingContent, sandboxServer 等
+- 与工作流模式状态完全隔离
+
+##### WebSocket Hook 重构
+- 简化接口签名：`useWebSocket(threadId, options)`
+- 添加自动重连机制（默认 3 秒间隔）
+- 添加 `onConnect`, `onDisconnect` 回调
+- 新增 `disconnect` 方法用于主动断开
+
+##### ThreadView 页面重构
+- 支持调试模式和工作流模式分离
+- 根据 URL 中的 `agentId` 参数判断模式
+- 调试模式使用本地 WebSocket 状态
+- 工作流模式使用全局 store 状态
+- 新增沙箱侧边栏支持
+- 新增 `ThreadView.css` 样式文件
+
+##### 类型定义扩展
+- 新增 `WSMessage`, `WSMessageDebug`, `WSMessageType` 类型
+- 新增 `AgentOutputChunk`, `AgentMessage`, `SystemMessage` 类型
+- 新增 `SandboxServer`, `SandboxReady` 类型
+
+#### 删除的文件
+
+| 文件 | 说明 |
+|------|------|
+| `internal/service/agent/session_manager.go` | 会话管理器，功能已整合到其他模块 |
+| `internal/service/agent/interactive_session.go` | 交互式会话，功能已整合到其他模块 |
+| `internal/service/agent/execution_context.go` | 部分代码删除，剩余整合到 execution_service |
+| `cmd/test/test_opencode.go` | 测试文件移除 |
+| `isdp/docs/*` | 设计文档移动到项目根目录 `docs/` |
+
+### 修改文件统计
+
+| 类型 | 数量 |
+|------|------|
+| 新增文件 | 4 |
+| 修改文件 | 30+ |
+| 删除文件 | 10+ |
+
+### 提交记录
+
+```
+aa33c50 chore: allow debugThread.ts in gitignore
+dabcce1 feat(web): add debug thread Zustand store
+fb11f5d feat(web): add useWebSocket hook for real-time updates
+6ef13df feat(web): add TypeScript types for debug functionality
+ef5e40b feat(server): initialize DebugThreadManager in main
+1f9bb10 refactor(api): inject DebugThreadManager into AgentHandler
+90d8d5b fix: improve debug thread safety and preserve ProjectPath
+5abbf26 feat(agent): add SpawnDebugAgent and ContinueDebugAgent to Orchestrator
+6dfb6da fix: improve thread safety in GetMessages and add status constants
+2fae2d2 fix: add sync.Once protection to Stop() to prevent panic on multiple calls
+```
+
+### 数据流
+
+```
+调试模式启动:
+  前端 → api.agents.debug() → 后端 AgentHandler → DebugThreadManager.CreateThread()
+      → Orchestrator.SpawnDebugAgent() → adapter.ExecuteWithStream()
+      → WebSocket 广播流式输出 → 前端 debugThread store 更新
+
+调试模式继续:
+  前端 → api.agents.continueDebug() → Orchestrator.ContinueDebugAgent()
+      → 获取最后 Agent 配置 → SpawnDebugAgent()
+```
+
+### 验证方法
+
+1. 启动后端服务：`go run ./cmd/server`
+2. 启动前端服务：`cd web && npm run dev`
+3. 打开 Agent 调试页面
+4. 选择一个 Agent 配置进行调试
+5. 验证流式输出正常显示
+6. 继续对话，验证上下文保持正确
+
+### 影响范围
+
+- 后端：Orchestrator, DebugThreadManager, AgentHandler
+- 前端：ThreadView, useWebSocket, debugThread store
+- 删除：session_manager, interactive_session 等冗余模块
+
+---
+
 ## 2026-03-17 Agent执行功能重构与团队协作增强
 
 ### 背景

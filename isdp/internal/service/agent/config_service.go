@@ -78,18 +78,17 @@ func (s *ConfigService) Create(ctx context.Context, req *model.CreateAgentReques
 	}
 
 	config := &model.AgentRoleConfig{
-		ID:          uuid.New(),
-		Name:        req.Name,
-		Role:        role,
-		BaseAgentID: req.BaseAgentID,
-		Description: req.Description,
+		ID:           uuid.New(),
+		Name:         req.Name,
+		Role:         role,
+		BaseAgentID:  req.BaseAgentID,
+		Description:  req.Description,
 		SystemPrompt: req.SystemPrompt,
-		ModelName:   req.ModelName,
-		MaxTokens:   req.MaxTokens,
-		Temperature: req.Temperature,
-		IsDefault:   req.IsDefault,
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+		MaxTokens:    req.MaxTokens,
+		Temperature:  req.Temperature,
+		IsDefault:    req.IsDefault,
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
 	}
 
 	if req.RoutingConfig != nil {
@@ -130,7 +129,6 @@ func (s *ConfigService) Update(ctx context.Context, id uuid.UUID, req *model.Cre
 	config.BaseAgentID = req.BaseAgentID
 	config.Description = req.Description
 	config.SystemPrompt = req.SystemPrompt
-	config.ModelName = req.ModelName
 	config.MaxTokens = req.MaxTokens
 	config.Temperature = req.Temperature
 	config.IsDefault = req.IsDefault

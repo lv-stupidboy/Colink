@@ -7,7 +7,6 @@ import ProjectList from '@/pages/ProjectList';
 import ProjectDetail from '@/pages/ProjectDetail';
 import ThreadView from '@/pages/ThreadView';
 import AgentRoleList from '@/pages/AgentRoleList';
-import AgentDebug from '@/pages/AgentDebug';
 import Dashboard from '@/pages/Dashboard';
 import SandboxPage from '@/pages/Sandbox';
 import SettingsLayout from '@/pages/Settings/Layout';
@@ -104,7 +103,9 @@ const App: React.FC = () => {
 
               {/* Agent角色管理 */}
               <Route path="agents" element={<AgentRoleList />} />
-              <Route path="agents/:agentId/debug" element={<AgentDebug />} />
+              <Route path="agents/:agentId/debug" element={<ThreadView />} />
+              {/* 调试模式路由 - 直接使用 ThreadView */}
+              <Route path="debug/:agentId" element={<ThreadView />} />
               <Route path="workflow" element={<WorkflowPage />} />
               <Route path="sandbox" element={<SandboxPage />} />
 

@@ -9,7 +9,6 @@ import {
   message,
   Avatar,
   Tooltip,
-  Drawer,
   Modal,
   Card,
   Typography,
@@ -30,18 +29,21 @@ import {
   FileOutlined,
   CheckCircleOutlined,
   ExclamationCircleOutlined,
-  PaperClipOutlined,
   FileSearchOutlined,
   StopOutlined,
   ReloadOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
+  DesktopOutlined,
+  UnorderedListOutlined,
 } from '@ant-design/icons';
 import { useAppStore } from '@/store';
-import type { Message, Artifact, ReviewIssue, MergeCheckResult, AgentRole } from '@/types';
+import { useDebugThreadStore } from '@/store/debugThread';
+import type { Message, Artifact, ReviewIssue, MergeCheckResult, AgentRole, AgentConfig } from '@/types';
 import { PhaseLabels, PhaseColors, AgentRoleLabels, ArtifactTypeLabels } from '@/types';
 import { InterventionControls } from '@/components/InterventionControls';
 import { ReviewReport } from '@/components/ReviewReport';
+import { SandboxPanel } from '@/components/thread';
 import FileTree from '@/components/FileTree';
 import api from '@/api/client';
 import './ThreadView.css';
@@ -61,19 +63,25 @@ const { Panel } = Collapse;
  * - 底部控制栏
  */
 const ThreadView: React.FC = () => {
-  const { threadId, projectId } = useParams<{ threadId: string; projectId: string }>();
+  const { threadId, projectId, agentId } = useParams<{ threadId: string; projectId: string; agentId: string }>();
   const navigate = useNavigate();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const inputRef = useRef<any>(null);
+  const threadIdRef = useRef<string | null>(null);
+  const wsConnectedRef = useRef(false);
 
+  // 判断是否为调试模式
+  const isDebugMode = Boolean(agentId);
+
+  // 工作流模式的 store
   const {
     currentThread,
-    messages,
-    streamingMessages,
+    messages: workflowMessages,
+    streamingMessages: workflowStreamingMessages,
     activeAgents,
-    loading,
-    wsConnected,
+    loading: workflowLoading,
+    wsConnected: workflowWsConnected,
     loadThread,
     sendMessage,
     spawnAgent,
@@ -88,10 +96,61 @@ const ThreadView: React.FC = () => {
     clearProjectContext,
     getFilteredAgents,
     loadAgentConfigs,
+    // 调试模式状态
+    debugAgentConfig,
+    debugProjectPath,
+    sandboxServer,
+    sandboxLoading,
+    dockerAvailable,
+    // 调试模式 actions
+    setDebugMode,
+    setDebugAgentConfig,
+    setDebugProjectPath,
+    // 沙箱 actions
+    setSandboxServer,
+    setSandboxLoading,
+    setDockerAvailable,
+    // 当前项目
+    currentProject,
   } = useAppStore();
 
+  // 调试模式的独立 store
+  const {
+    threadId: debugThreadId,
+    messages: debugMessages,
+    streamingContent: debugStreamingContent,
+    status: debugStatus,
+    sandboxServer: debugSandboxServer,
+    sandboxLoading: debugSandboxLoading,
+    setThreadId: setDebugThreadId,
+    addMessage: addDebugMessage,
+    appendStreamChunk: appendDebugStreamChunk,
+    clearStreamContent: clearDebugStreamContent,
+    setStatus: setDebugStatus,
+    clearAll: clearDebugAll,
+    setSandboxServer: setDebugSandboxServer,
+    setSandboxLoading: setDebugSandboxLoading,
+  } = useDebugThreadStore();
+
+  // 调试模式的本地 WebSocket 连接状态（避免使用全局状态导致重新渲染）
+  // 必须在使用之前定义
+  const [debugWsConnected, setDebugWsConnected] = useState(false);
+
+  // 根据模式选择使用哪个状态
+  const messages = isDebugMode ? debugMessages : workflowMessages;
+  const streamingMessages = isDebugMode
+    ? (debugStreamingContent ? { 'debug': { content: debugStreamingContent, agentId: agentId || '', agentName: debugAgentConfig?.name } } : {})
+    : workflowStreamingMessages;
+  // 调试模式下，不使用全屏 loading，只在消息区显示加载状态
+  // 因为 debugStatus === 'running' 只是表示 Agent 正在执行，不应该阻止用户交互
+  const loading = isDebugMode ? false : workflowLoading;
+  // 调试模式使用本地状态，工作流模式使用全局状态
+  const wsConnected = isDebugMode ? debugWsConnected : workflowWsConnected;
+  // 沙箱状态根据模式选择
+  const currentSandboxServer = isDebugMode ? debugSandboxServer : sandboxServer;
+  const currentSandboxLoading = isDebugMode ? debugSandboxLoading : sandboxLoading;
+
   const [inputValue, setInputValue] = useState('');
-  const [artifactDrawerVisible, setArtifactDrawerVisible] = useState(false);
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [reviewResult, setReviewResult] = useState<MergeCheckResult | undefined>();
   const [reviewIssues, setReviewIssues] = useState<ReviewIssue[]>([]);
@@ -105,11 +164,104 @@ const ThreadView: React.FC = () => {
   const [mentionFilter, setMentionFilter] = useState('');
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [fileSidebarVisible, setFileSidebarVisible] = useState(true);
+  const [sandboxSidebarVisible, setSandboxSidebarVisible] = useState(false);
+  const [artifactsSidebarVisible, setArtifactsSidebarVisible] = useState(false);
 
+  // 调试模式的 WebSocket 连接
+  const connectDebugWebSocket = (id: string) => {
+    const wsUrl = `ws://${window.location.host}/api/v1/ws?threadId=${id}`;
+    wsRef.current = new WebSocket(wsUrl);
+
+    wsRef.current.onopen = () => {
+      wsConnectedRef.current = true;
+      setDebugWsConnected(true);
+      console.log('[Debug] WebSocket connected');
+    };
+
+    wsRef.current.onclose = () => {
+      wsConnectedRef.current = false;
+      setDebugWsConnected(false);
+      console.log('[Debug] WebSocket disconnected');
+    };
+
+    wsRef.current.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      handleDebugWsMessage(data);
+    };
+  };
+
+  // 调试模式的 WebSocket 消息处理
+  const handleDebugWsMessage = (data: { type: string; payload: Record<string, unknown> }) => {
+    console.log('[Debug] WS message:', data.type);
+
+    switch (data.type) {
+      case 'agent_output_chunk':
+        const chunk = data.payload.chunk as string;
+        if (chunk) {
+          appendDebugStreamChunk(chunk);
+        }
+        break;
+
+      case 'agent_message':
+        clearDebugStreamContent();
+        const agentMsg: Message = {
+          id: (data.payload.messageId as string) || Date.now().toString(),
+          threadId: debugThreadId || '',
+          role: 'agent',
+          agentId: data.payload.agentId as string,
+          content: data.payload.content as string,
+          messageType: 'text',
+          createdAt: new Date().toISOString(),
+        };
+        addDebugMessage(agentMsg);
+        setDebugStatus('idle');
+        break;
+
+      case 'system_message':
+        const sysMsg: Message = {
+          id: Date.now().toString(),
+          threadId: debugThreadId || '',
+          role: 'system',
+          content: data.payload.content as string,
+          messageType: 'text',
+          createdAt: new Date().toISOString(),
+        };
+        addDebugMessage(sysMsg);
+        break;
+
+      case 'agent_status':
+        const status = data.payload.status as string;
+        setDebugStatus(status === 'running' ? 'running' : status === 'completed' ? 'completed' : status === 'failed' ? 'error' : 'idle');
+        if (status === 'completed' || status === 'failed' || status === 'cancelled') {
+          clearDebugStreamContent();
+        }
+        break;
+
+      case 'sandbox_ready':
+        const sandboxUrl = data.payload.url as string;
+        const sandboxId = data.payload.id as string;
+        const sandboxPort = data.payload.port as number;
+        const sandboxProjectPath = data.payload.projectPath as string;
+        const sandboxMode = data.payload.mode as string;
+        if (sandboxUrl) {
+          setDebugSandboxServer({
+            id: sandboxId || '',
+            threadId: debugThreadId || '',
+            projectPath: sandboxProjectPath || '',
+            mode: sandboxMode || 'local',
+            port: sandboxPort || 0,
+            url: sandboxUrl,
+            status: 'running',
+          });
+          message.success('沙箱已启动');
+        }
+        break;
+    }
+  };
+
+  // 工作流模式 - 加载 thread 和 WebSocket
   useEffect(() => {
-    if (threadId) {
-      // 连接新的 WebSocket 前先清空旧状态
-      // 注意：loadThread 已经会清空状态，这里确保 WebSocket 切换时的隔离
+    if (!isDebugMode && threadId) {
       loadThread(threadId);
       connectWebSocket(threadId);
       loadArtifacts(threadId);
@@ -122,23 +274,77 @@ const ThreadView: React.FC = () => {
         wsRef.current = null;
       }
     };
-  }, [threadId]);
+  }, [threadId, isDebugMode]);
 
-  // Load agent configs for @mention dropdown
+  // 调试模式 - 初始化（每次进入都重新开始）
   useEffect(() => {
-    loadAgentConfigs();
-  }, [loadAgentConfigs]);
+    if (isDebugMode && agentId) {
+      // 每次进入调试页面都清空之前的消息，开始新会话
+      clearDebugAll();
+      setDebugMode(true, agentId);
+      // 重置 WebSocket 状态
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      wsConnectedRef.current = false;
+      setDebugWsConnected(false);
+      // 加载 Agent 配置
+      api.agents.get(agentId).then((config: AgentConfig) => {
+        setDebugAgentConfig(config);
+      }).catch(err => {
+        message.error('加载 Agent 配置失败');
+        console.error(err);
+      });
+      // 检查 Docker 可用性
+      api.sandbox.checkDocker().then(res => {
+        setDockerAvailable(res.available);
+      }).catch(() => {
+        setDockerAvailable(false);
+      });
+    } else {
+      setDebugMode(false);
+      setDebugAgentConfig(null);
+    }
 
-  // Load workflow template when thread is loaded
-  // Priority: Thread.workflowTemplateId > Project.workflowTemplateId
+    return () => {
+      // 组件卸载时清理 WebSocket
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      wsConnectedRef.current = false;
+    };
+  }, [isDebugMode, agentId]);
+
+  // 调试模式 - 当 debugThreadId 变化时连接 WebSocket
   useEffect(() => {
+    if (isDebugMode && debugThreadId && !wsConnectedRef.current) {
+      connectDebugWebSocket(debugThreadId);
+      threadIdRef.current = debugThreadId;
+    }
+  }, [isDebugMode, debugThreadId]);
+
+  // Load agent configs for @mention dropdown (仅工作流模式)
+  useEffect(() => {
+    if (!isDebugMode) {
+      loadAgentConfigs();
+    }
+  }, [loadAgentConfigs, isDebugMode]);
+
+  // Load workflow template when thread is loaded (仅工作流模式)
+  useEffect(() => {
+    if (isDebugMode) return;
+
     const loadWorkflowContext = async () => {
+      // 加载工作流模板（用于获取可用 Agent 列表）
       if (currentThread?.workflowTemplateId) {
-        // Thread has workflowTemplateId directly
         await loadWorkflowTemplate(currentThread.workflowTemplateId);
-      } else if (currentThread?.projectId) {
-        // Fallback: load from project
-        await loadProjectContext(currentThread.projectId);
+      }
+      // 加载项目上下文（获取 localPath）- 优先用路由参数中的 projectId
+      const projectToLoad = projectId || currentThread?.projectId;
+      if (projectToLoad) {
+        await loadProjectContext(projectToLoad);
       }
     };
 
@@ -147,7 +353,7 @@ const ThreadView: React.FC = () => {
     return () => {
       clearProjectContext();
     };
-  }, [currentThread?.workflowTemplateId, currentThread?.projectId, loadWorkflowTemplate, loadProjectContext, clearProjectContext]);
+  }, [currentThread?.workflowTemplateId, currentThread?.projectId, projectId, loadWorkflowTemplate, loadProjectContext, clearProjectContext, isDebugMode]);
 
   useEffect(() => {
     scrollToBottom();
@@ -252,6 +458,26 @@ const ThreadView: React.FC = () => {
           }
         }
         break;
+      case 'sandbox_ready':
+        // 沙箱就绪，更新沙箱 URL
+        const sandboxUrl = data.payload.url as string;
+        const sandboxId = data.payload.id as string;
+        const sandboxPort = data.payload.port as number;
+        const sandboxProjectPath = data.payload.projectPath as string;
+        const sandboxMode = data.payload.mode as string;
+        if (sandboxUrl) {
+          setSandboxServer({
+            id: sandboxId || '',
+            threadId: threadIdRef.current || '',
+            projectPath: sandboxProjectPath || '',
+            mode: sandboxMode || 'local',
+            port: sandboxPort || 0,
+            url: sandboxUrl,
+            status: 'running',
+          });
+          message.success('沙箱已启动');
+        }
+        break;
     }
   };
 
@@ -312,7 +538,8 @@ const ThreadView: React.FC = () => {
 
   /**
    * 处理发送消息
-   * PRD: 支持 @mention 触发特定 Agent
+   * 调试模式：直接发送给当前 Agent
+   * 工作流模式：支持 @mention 触发特定 Agent
    */
   const handleSend = async () => {
     if (!inputValue.trim()) return;
@@ -321,32 +548,31 @@ const ThreadView: React.FC = () => {
     setInputValue('');
     setMentionListVisible(false);
 
-    // 检查是否是 @mention 命令
-    // PRD Section 2.3.1: 行首 @Agent名 触发路由
+    // 调试模式
+    if (isDebugMode) {
+      await handleDebugSend(content);
+      return;
+    }
+
+    // 工作流模式 - 检查是否是 @mention 命令
     const mentionMatch = content.match(/^@(\S+)\s*(.*)/);
     if (mentionMatch) {
       const agentName = mentionMatch[1].toLowerCase();
       const input = mentionMatch[2] || content;
 
-      // 如果有选中的 Agent ID，直接使用 configId 启动
       if (selectedAgentId) {
-        // 先发送用户消息（显示用户输入），skipAgentTrigger: true 避免后端重复触发
         await sendMessage(content, true);
-        // 然后触发 Agent
         await spawnAgent('custom', input, selectedAgentId);
         setSelectedAgentId(null);
         return;
       }
 
-      // 没有 selectedAgentId 时，尝试通过名称查找 Agent
       const agentByName = agentOptions.find(opt =>
         opt.name.toLowerCase() === agentName ||
         opt.label.toLowerCase() === agentName
       );
       if (agentByName) {
-        // 先发送用户消息（显示用户输入），skipAgentTrigger: true 避免后端重复触发
         await sendMessage(content, true);
-        // 然后触发 Agent
         await spawnAgent('custom', input, agentByName.id);
         setSelectedAgentId(null);
         return;
@@ -358,6 +584,72 @@ const ThreadView: React.FC = () => {
     } else {
       await sendMessage(content);
       setSelectedAgentId(null);
+    }
+  };
+
+  /**
+   * 调试模式发送消息
+   */
+  const handleDebugSend = async (content: string) => {
+    if (!debugAgentConfig) {
+      message.error('Agent 配置未加载');
+      return;
+    }
+
+    // 添加用户消息
+    const userMsg: Message = {
+      id: Date.now().toString(),
+      threadId: debugThreadId || '',
+      role: 'user',
+      content,
+      messageType: 'text',
+      createdAt: new Date().toISOString(),
+    };
+    addDebugMessage(userMsg);
+    setDebugStatus('running');
+
+    try {
+      if (debugThreadId && wsConnectedRef.current) {
+        // 已有会话，继续发送
+        await api.agents.continueDebug(debugThreadId, content);
+      } else {
+        // 新会话：创建 thread -> 连接 WebSocket -> 调用 debug
+        const threadResult = await api.agents.createDebugThread(debugProjectPath || undefined);
+        const newThreadId = threadResult.threadId;
+        console.log('[Debug] Created thread:', newThreadId);
+
+        setDebugThreadId(newThreadId);
+
+        // 等待 WebSocket 连接
+        await new Promise<void>((resolve, reject) => {
+          const startTime = Date.now();
+          const check = () => {
+            if (wsConnectedRef.current) {
+              resolve();
+            } else if (Date.now() - startTime > 5000) {
+              reject(new Error('WebSocket connection timeout'));
+            } else {
+              setTimeout(check, 100);
+            }
+          };
+          check();
+        });
+
+        // 调用 debug API
+        await api.agents.debug(debugAgentConfig.id, content, debugProjectPath || undefined, newThreadId);
+      }
+    } catch (error: any) {
+      setDebugStatus('error');
+      const errorMsg: Message = {
+        id: Date.now().toString(),
+        threadId: debugThreadId || '',
+        role: 'system',
+        content: `错误: ${error.message || '请求失败'}`,
+        messageType: 'text',
+        createdAt: new Date().toISOString(),
+      };
+      addDebugMessage(errorMsg);
+      console.error('[Debug] Error:', error);
     }
   };
 
@@ -514,6 +806,83 @@ const ThreadView: React.FC = () => {
   const handleCheckpointReject = () => {
     setCheckpointModalVisible(false);
     message.info('已拒绝，可以进行修改');
+  };
+
+  /**
+   * 获取工作目录
+   * 调试模式：用户输入
+   * 工作流模式：从项目上下文获取
+   */
+  const getProjectPath = () => {
+    if (isDebugMode) {
+      return debugProjectPath;
+    } else {
+      return currentProject?.localPath || '';
+    }
+  };
+
+  /**
+   * 运行沙箱
+   */
+  const handleRunSandbox = async (mode: 'local' | 'docker') => {
+    const projectPath = getProjectPath();
+
+    if (!projectPath.trim()) {
+      message.warning('请先设置工作目录');
+      return;
+    }
+
+    if (mode === 'docker' && !dockerAvailable) {
+      message.warning('Docker不可用，请确保Docker已启动');
+      return;
+    }
+
+    // 根据模式设置加载状态
+    if (isDebugMode) {
+      setDebugSandboxLoading(true);
+    } else {
+      setSandboxLoading(true);
+    }
+
+    try {
+      const server = await api.sandbox.runProject(threadId || debugThreadId || undefined, projectPath, mode);
+      // 根据模式设置沙箱服务器状态
+      if (isDebugMode) {
+        setDebugSandboxServer(server);
+      } else {
+        setSandboxServer(server);
+      }
+      message.success(`项目已在${mode === 'docker' ? '容器' : '本地'}沙箱中启动`);
+    } catch (error: any) {
+      message.error(`启动失败: ${error.message || '未知错误'}`);
+    } finally {
+      // 根据模式重置加载状态
+      if (isDebugMode) {
+        setDebugSandboxLoading(false);
+      } else {
+        setSandboxLoading(false);
+      }
+    }
+  };
+
+  /**
+   * 停止沙箱
+   */
+  const handleStopSandbox = async () => {
+    if (!currentSandboxServer) return;
+
+    try {
+      await api.sandbox.stopServer(currentSandboxServer.id);
+      // 根据模式清除沙箱服务器状态
+      if (isDebugMode) {
+        setDebugSandboxServer(null);
+      } else {
+        setSandboxServer(null);
+      }
+      message.success('已停止');
+    } catch (error: any) {
+      message.error('停止失败');
+    }
   };
 
   /**
@@ -704,11 +1073,15 @@ const ThreadView: React.FC = () => {
     );
   }
 
-  const isRunning = activeAgents.length > 0;
-  const isPaused = currentThread?.status === 'paused';
+  const isRunning = isDebugMode ? debugStatus === 'running' : activeAgents.length > 0;
+  const isPaused = !isDebugMode && currentThread?.status === 'paused';
 
-  // Get agents available for @mention from workflow template
-  const mentionableAgents = getFilteredAgents();
+  // Get agents available for @mention
+  // 调试模式：只显示当前调试的 Agent
+  // 工作流模式：从工作流模板获取
+  const mentionableAgents = isDebugMode
+    ? (debugAgentConfig ? [debugAgentConfig] : [])
+    : getFilteredAgents();
 
   // Create a map of agent id -> display info for @mention
   const agentOptions = mentionableAgents.map(agent => ({
@@ -718,15 +1091,44 @@ const ThreadView: React.FC = () => {
     label: `${agent.name} (${AgentRoleLabels[agent.role as keyof typeof AgentRoleLabels] || agent.role})`,
   }));
 
+  // 获取工作目录
+  const displayProjectPath = isDebugMode ? debugProjectPath : (currentProject?.localPath || '');
+
   return (
     <div className="thread-view-wrapper">
-      {/* 左侧文件树侧边栏 */}
-      {fileSidebarVisible && projectId && (
+      {/* 左侧文件树侧边栏 - 调试模式和工作流模式都显示 */}
+      {fileSidebarVisible && (isDebugMode || projectId) && (
         <div className="file-sidebar">
-          <FileTree
-            projectId={projectId}
-            onFileSelect={handleFileSelect}
-          />
+          {/* 工作目录显示/输入 */}
+          <div className="file-sidebar-path">
+            <span className="path-label">目录：</span>
+            {isDebugMode ? (
+              <Input
+                placeholder="输入工作目录"
+                value={debugProjectPath}
+                onChange={e => setDebugProjectPath(e.target.value)}
+                size="small"
+                style={{ flex: 1, minWidth: 0 }}
+              />
+            ) : (
+              <span className="path-value" title={displayProjectPath}>
+                {displayProjectPath || '未设置'}
+              </span>
+            )}
+          </div>
+          <div className="file-tree-wrapper">
+            {displayProjectPath ? (
+              <FileTree
+                projectId={projectId || 'debug'}
+                projectPath={displayProjectPath}
+                onFileSelect={handleFileSelect}
+              />
+            ) : (
+              <div style={{ padding: 20, color: '#999', textAlign: 'center' }}>
+                {isDebugMode ? '请输入工作目录' : '项目目录未设置'}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -744,15 +1146,18 @@ const ThreadView: React.FC = () => {
               </Tooltip>
               <Button
                 icon={<ArrowLeftOutlined />}
-                onClick={() => navigate(`/projects/${projectId}`)}
+                onClick={() => isDebugMode ? navigate('/agents') : navigate(`/projects/${projectId}`)}
                 size="small"
               >
-                返回项目
+                {isDebugMode ? '返回 Agent 列表' : '返回项目'}
               </Button>
             <Tag color={wsConnected ? 'green' : 'red'}>
               {wsConnected ? '已连接' : '未连接'}
             </Tag>
-            {currentThread && (
+            {isDebugMode && debugAgentConfig && (
+              <Tag color="purple">调试: {debugAgentConfig.name}</Tag>
+            )}
+            {currentThread && !isDebugMode && (
               <Tag color={PhaseColors[currentThread.currentPhase]}>
                 {PhaseLabels[currentThread.currentPhase]}
               </Tag>
@@ -761,16 +1166,55 @@ const ThreadView: React.FC = () => {
               <Badge status="processing" text={`${activeAgents.length} 个 Agent 运行中`} />
             )}
           </Space>
-          <InterventionControls
-            onPause={handlePause}
-            onResume={handleResume}
-            onSkip={handleSkip}
-            onRetry={handleRetry}
-            onStop={handleStop}
-            onShowArtifacts={() => setArtifactDrawerVisible(true)}
-            isPaused={isPaused}
-            isRunning={isRunning}
-          />
+          <Space>
+            <InterventionControls
+              onPause={handlePause}
+              onResume={handleResume}
+              onSkip={handleSkip}
+              onRetry={handleRetry}
+              onStop={handleStop}
+              isPaused={isPaused}
+              isRunning={isRunning}
+            />
+            {/* 产物按钮 */}
+            <Tooltip title={artifactsSidebarVisible ? '隐藏产物' : '查看产物列表'}>
+              <Button
+                icon={<UnorderedListOutlined />}
+                onClick={() => {
+                  const willShow = !artifactsSidebarVisible;
+                  setArtifactsSidebarVisible(willShow);
+                  // 打开产物时关闭沙箱
+                  if (willShow) {
+                    setSandboxSidebarVisible(false);
+                  }
+                }}
+                size="small"
+                type={artifactsSidebarVisible ? 'primary' : 'default'}
+              >
+                产物
+              </Button>
+            </Tooltip>
+            {/* 沙箱按钮 */}
+            <Tooltip title={sandboxSidebarVisible ? '隐藏沙箱' : '打开沙箱预览'}>
+              <Button
+                icon={<DesktopOutlined />}
+                onClick={() => {
+                  const willShow = !sandboxSidebarVisible;
+                  setSandboxSidebarVisible(willShow);
+                  // 打开沙箱时关闭产物
+                  if (willShow) {
+                    setArtifactsSidebarVisible(false);
+                    // 收起左侧目录树，给对话框更大空间
+                    setFileSidebarVisible(false);
+                  }
+                }}
+                size="small"
+                type={currentSandboxServer ? 'primary' : sandboxSidebarVisible ? 'default' : 'default'}
+              >
+                沙箱
+              </Button>
+            </Tooltip>
+          </Space>
         </Space>
       </div>
 
@@ -900,9 +1344,6 @@ const ThreadView: React.FC = () => {
           <Button type="primary" icon={<SendOutlined />} onClick={handleSend}>
             发送
           </Button>
-          <Button icon={<PaperClipOutlined />} onClick={() => setArtifactDrawerVisible(true)}>
-            产物
-          </Button>
         </Space>
       </div>
 
@@ -919,55 +1360,6 @@ const ThreadView: React.FC = () => {
           ))}
         </div>
       )}
-
-      {/* 产物抽屉 */}
-      <Drawer
-        title={
-          <Space>
-            <FileTextOutlined />
-            <span>工作产物</span>
-            <Badge count={artifacts.length} />
-          </Space>
-        }
-        placement="right"
-        width={400}
-        open={artifactDrawerVisible}
-        onClose={() => setArtifactDrawerVisible(false)}
-      >
-        {artifacts.length > 0 ? (
-          <List
-            dataSource={artifacts}
-            renderItem={renderArtifactItem}
-            split
-          />
-        ) : (
-          <Empty description="暂无产物" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-        )}
-
-        <Divider />
-
-        {/* 审查报告 */}
-        {reviewResult && (
-          <Collapse defaultActiveKey={['review']}>
-            <Panel
-              header={
-                <Space>
-                  <ExclamationCircleOutlined />
-                  <span>审查状态</span>
-                  {reviewResult.decision === 'allow' ? (
-                    <Tag color="green">可以放行</Tag>
-                  ) : (
-                    <Tag color="red">{reviewResult.p1Issues + reviewResult.p2Issues} 个问题</Tag>
-                  )}
-                </Space>
-              }
-              key="review"
-            >
-              <ReviewReport result={reviewResult} issues={reviewIssues} />
-            </Panel>
-          </Collapse>
-        )}
-      </Drawer>
 
       {/* 检查点确认弹窗 */}
       <Modal
@@ -996,6 +1388,78 @@ const ThreadView: React.FC = () => {
         </Text>
       </Modal>
       </div>
+
+      {/* 产物侧边栏 */}
+      {artifactsSidebarVisible && (
+        <div className="artifacts-sidebar">
+          <div className="artifacts-sidebar-header">
+            <span>产物列表</span>
+            <Button
+              type="text"
+              size="small"
+              onClick={() => setArtifactsSidebarVisible(false)}
+            >
+              ✕
+            </Button>
+          </div>
+          <div className="artifacts-sidebar-content">
+            {artifacts.length > 0 ? (
+              <List
+                dataSource={artifacts}
+                renderItem={renderArtifactItem}
+                split
+                style={{ padding: '12px 16px' }}
+              />
+            ) : (
+              <Empty
+                description="暂无产物"
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                style={{ padding: '40px 16px' }}
+              />
+            )}
+
+            <Divider style={{ margin: '12px 16px' }} />
+
+            {/* 审查报告 */}
+            {reviewResult && (
+              <div style={{ padding: '0 16px 16px' }}>
+                <Collapse defaultActiveKey={['review']}>
+                  <Panel
+                    header={
+                      <Space>
+                        <ExclamationCircleOutlined />
+                        <span>审查状态</span>
+                        {reviewResult.decision === 'allow' ? (
+                          <Tag color="green">可以放行</Tag>
+                        ) : (
+                          <Tag color="red">{reviewResult.p1Issues + reviewResult.p2Issues} 个问题</Tag>
+                        )}
+                      </Space>
+                    }
+                    key="review"
+                  >
+                    <ReviewReport result={reviewResult} issues={reviewIssues} />
+                  </Panel>
+                </Collapse>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 沙箱侧边栏 */}
+      {sandboxSidebarVisible && (
+        <SandboxPanel
+          onClose={() => setSandboxSidebarVisible(false)}
+          isDebugMode={isDebugMode}
+          hasProjectPath={Boolean(getProjectPath())}
+          sandboxServer={currentSandboxServer}
+          sandboxLoading={currentSandboxLoading}
+          dockerAvailable={dockerAvailable}
+          onRunSandbox={handleRunSandbox}
+          onStopSandbox={handleStopSandbox}
+        />
+      )}
     </div>
   );
 };

@@ -133,6 +133,13 @@ class APIClient {
       const url = path ? `/projects/${id}/files?path=${encodeURIComponent(path)}` : `/projects/${id}/files`;
       return this.request(url, 'GET');
     },
+    // 根据路径浏览文件（调试模式，不需要项目ID）
+    browseFiles: (basePath: string, path?: string): Promise<ListFilesResponse> => {
+      const url = path
+        ? `/files/browse?basePath=${encodeURIComponent(basePath)}&path=${encodeURIComponent(path)}`
+        : `/files/browse?basePath=${encodeURIComponent(basePath)}`;
+      return this.request(url, 'GET');
+    },
   };
 
   // Thread API

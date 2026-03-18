@@ -5,7 +5,6 @@ package config
 
 import (
 	"os"
-	"path/filepath"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"

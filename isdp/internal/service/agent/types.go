@@ -23,18 +23,16 @@ type Chunk struct {
 
 // ExecutionRequest 统一的执行请求
 type ExecutionRequest struct {
-	Config     *model.AgentRoleConfig
-	BaseAgent  *model.BaseAgent
-	Context    *ContextLayers
-	Input      string
-	WorkDir    string
-	SessionKey string // 用于会话恢复（空表示新会话）
+	Config    *model.AgentRoleConfig
+	BaseAgent *model.BaseAgent
+	Context   *ContextLayers
+	Input     string
+	WorkDir   string
 }
 
 // ExecutionResult 执行结果
 type ExecutionResult struct {
-	Output     string
-	SessionKey string // 返回的会话标识（用于后续恢复）
+	Output string
 }
 
 // SessionExecutor 会话执行器接口，扩展了AgentAdapter的会话管理能力

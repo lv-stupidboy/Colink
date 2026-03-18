@@ -30,8 +30,8 @@ type ExecutionService struct {
 	wsHub            *ws.Hub
 	defaultAdapter   AgentAdapter
 
-	runningAgents map[uuid.UUID]*RunningAgent
-	mu            sync.RWMutex
+	runningAgents  map[uuid.UUID]*RunningAgent
+	mu             sync.RWMutex
 }
 
 // NewExecutionService 创建统一执行服务
@@ -157,7 +157,7 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 
 	// 使用流式执行，实时广播输出
 	var outputBuilder strings.Builder
-	result, err := adapter.ExecuteWithStream(ctx, execReq, func(chunk Chunk) {
+	_, err = adapter.ExecuteWithStream(ctx, execReq, func(chunk Chunk) {
 		outputBuilder.WriteString(chunk.Content)
 		// 实时广播输出块
 		es.broadcastChunk(req.ThreadID, invocation.ID, chunk, config.ID.String(), config.Name)
@@ -170,7 +170,7 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 	}
 
 	output := outputBuilder.String()
-	logInfo("Execution completed", zap.Int("outputLength", len(output)), zap.String("sessionKey", result.SessionKey))
+	logInfo("Execution completed", zap.Int("outputLength", len(output)))
 
 	// 更新调用记录
 	invocation.Status = model.InvocationStatusCompleted

@@ -4,7 +4,6 @@ import {
   PauseCircleOutlined,
   PlayCircleOutlined,
   RedoOutlined,
-  UnorderedListOutlined,
   StopOutlined,
   StepForwardOutlined,
 } from '@ant-design/icons';
@@ -14,7 +13,6 @@ interface InterventionControlsProps {
   onResume?: () => void;
   onSkip?: () => void;
   onRetry?: () => void;
-  onShowArtifacts?: () => void;
   onStop?: () => void;
   isPaused?: boolean;
   isRunning?: boolean;
@@ -23,14 +21,14 @@ interface InterventionControlsProps {
 
 /**
  * 干预操作控制面板
- * 提供暂停、跳过、重做、产物查看等操作
+ * 提供暂停、跳过、重做、终止等操作
+ * 产物按钮已移至 ThreadView 中单独放置
  */
 export const InterventionControls: React.FC<InterventionControlsProps> = ({
   onPause,
   onResume,
   onSkip,
   onRetry,
-  onShowArtifacts,
   onStop,
   isPaused = false,
   isRunning = false,
@@ -69,17 +67,6 @@ export const InterventionControls: React.FC<InterventionControlsProps> = ({
             size="small"
           >
             重做
-          </Button>
-        </Tooltip>
-
-        <Tooltip title="查看产物列表">
-          <Button
-            icon={<UnorderedListOutlined />}
-            onClick={onShowArtifacts}
-            disabled={disabled}
-            size="small"
-          >
-            产物
           </Button>
         </Tooltip>
 

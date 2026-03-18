@@ -343,7 +343,7 @@ func (r *LocalProcessRunner) GetStartCommand(projectPath string) (string, []stri
 		return "npm", []string{"run", "dev"}, port
 
 	case "node":
-		port := 8080
+		port := 3000
 		// 检查是否有 start 脚本
 		pkgJson, err := os.ReadFile(filepath.Join(fullPath, "package.json"))
 		if err == nil && strings.Contains(string(pkgJson), "\"start\"") {
@@ -370,10 +370,10 @@ func (r *LocalProcessRunner) GetStartCommand(projectPath string) (string, []stri
 		return "python", []string{"app.py"}, 5000
 
 	case "go":
-		return "go", []string{"run", "."}, 8080
+		return "go", []string{"run", "."}, 3001
 
 	case "static":
-		return "python", []string{"-m", "http.server", "8080"}, 8080
+		return "python", []string{"-m", "http.server", "3002"}, 3002
 
 	default:
 		return "", nil, 0

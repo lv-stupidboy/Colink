@@ -32,12 +32,11 @@ type OpenCodeAdapter struct {
 
 // openCodeSession OpenCode会话
 type openCodeSession struct {
-	id         string
-	sessionKey string // 从CLI输出提取的sessionID
-	cmd        *exec.Cmd        // Reserved for future process management
-	ctx        context.Context  // Reserved for future process management
-	cancel     context.CancelFunc // Reserved for future process management
-	status     SessionStatus
+	id      string
+	cmd     *exec.Cmd        // Reserved for future process management
+	ctx     context.Context  // Reserved for future process management
+	cancel  context.CancelFunc // Reserved for future process management
+	status  SessionStatus
 }
 
 // NewOpenCodeAdapter 创建OpenCode适配器
@@ -88,37 +87,19 @@ func (a *OpenCodeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionR
 
 	// OpenCode CLI 参数:
 	// - 使用 --format json 获取结构化输出
-	// - 使用 --session 恢复之前的会话，保持上下文
+	// - 使用 --continue 让 CLI 自动恢复上次会话
 	// - 消息作为位置参数传递
 	args := []string{
 		"run",
 		"--model", modelName,
 		"--format", "json",
-	}
-
-	// 会话恢复逻辑：
-	// - 首次启动：不传 --session，让 OpenCode 自己创建会话，然后从输出中提取 sessionID
-	// - 后续消息：只使用 --session 恢复之前的会话，保持对话上下文
-	sessionKey := req.SessionKey
-	if sessionKey != "" {
-		args = append(args, "--session", sessionKey)
-		logInfo("OpenCode: Resuming session with --session", zap.String("sessionKey", sessionKey))
-	} else {
-		logInfo("OpenCode: Starting new session - will extract sessionKey from output")
-	}
-
-	// 构建完整命令字符串（用于日志）
-	fullCommand := fmt.Sprintf("%s %s", a.cliPath, strings.Join(args, " "))
-	if req.WorkDir != "" {
-		fullCommand = fmt.Sprintf("cd %s && %s", req.WorkDir, fullCommand)
+		"--continue", // 统一使用 --continue 让 CLI 自动恢复上次会话
 	}
 
 	// 记录完整命令到日志文件
-	logInfo("OpenCode CLI Full Command",
-		zap.String("command", fullCommand),
+	logInfo("OpenCode: Starting with --continue",
 		zap.String("cliPath", a.cliPath),
-		zap.String("workDir", req.WorkDir),
-		zap.String("sessionKey", sessionKey))
+		zap.String("workDir", req.WorkDir))
 
 	cmd := exec.CommandContext(ctx, a.cliPath, args...)
 
@@ -167,8 +148,6 @@ func (a *OpenCodeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionR
 		}
 	}()
 
-	// 用于保存提取的 sessionKey
-	extractedSessionKey := sessionKey
 	var totalLines int // 用于统计总行数
 
 	// 读取 stdout 并解析 JSON 格式 - 使用 WaitGroup 确保goroutine完成
@@ -191,14 +170,6 @@ func (a *OpenCodeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionR
 				linePreview = linePreview[:500] + "..."
 			}
 			logDebug("OpenCode stdout line", zap.Int("lineNum", lineCount), zap.String("line", linePreview))
-
-			// 提取 sessionKey（首次启动时）
-			if extractedSessionKey == "" {
-				extractedSessionKey = a.extractSessionIDFromJSON(line)
-				if extractedSessionKey != "" {
-					logInfo("OpenCode: Extracted sessionKey from output", zap.String("sessionKey", extractedSessionKey))
-				}
-			}
 
 			// 解析 JSON 格式输出
 			text := a.extractTextFromJSON(line)
@@ -235,10 +206,9 @@ func (a *OpenCodeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionR
 	}
 
 	logInfo("OpenCode process completed",
-		zap.Int("totalLines", totalLines),
-		zap.String("sessionKey", extractedSessionKey))
+		zap.Int("totalLines", totalLines))
 
-	return &ExecutionResult{SessionKey: extractedSessionKey}, nil
+	return &ExecutionResult{}, nil
 }
 
 // StartSession 启动交互式会话
@@ -252,13 +222,12 @@ func (a *OpenCodeAdapter) StartSession(ctx context.Context, sessionID string, re
 	}
 
 	// 首次启动使用 ExecuteWithStream
-	result, err := a.ExecuteWithStream(ctx, req, nil)
+	_, err := a.ExecuteWithStream(ctx, req, nil)
 	if err != nil {
 		session.status = SessionStatusFailed
 		return err
 	}
 
-	session.sessionKey = result.SessionKey
 	a.sessions[sessionID] = session
 
 	return nil
@@ -267,7 +236,7 @@ func (a *OpenCodeAdapter) StartSession(ctx context.Context, sessionID string, re
 // ResumeSession 恢复会话
 func (a *OpenCodeAdapter) ResumeSession(ctx context.Context, sessionID string, input string, onChunk func(Chunk)) error {
 	a.mu.RLock()
-	session, exists := a.sessions[sessionID]
+	_, exists := a.sessions[sessionID]
 	a.mu.RUnlock()
 
 	if !exists {
@@ -275,9 +244,8 @@ func (a *OpenCodeAdapter) ResumeSession(ctx context.Context, sessionID string, i
 	}
 
 	req := &ExecutionRequest{
-		SessionKey: session.sessionKey,
-		Input:      input,
-		BaseAgent:  a.baseAgent,
+		Input:     input,
+		BaseAgent: a.baseAgent,
 	}
 
 	_, err := a.ExecuteWithStream(ctx, req, onChunk)
@@ -321,16 +289,9 @@ func (a *OpenCodeAdapter) GetSessionStatus(sessionID string) SessionStatus {
 }
 
 // buildPromptFromRequest 从ExecutionRequest构建提示词
-// OpenCode 使用 --session 时会自己管理会话上下文
-// 首次调用：只传系统提示 + 用户输入
-// 后续调用：只传用户输入
+// OpenCode 使用 --continue 时会自己管理会话上下文
+// 所以每次调用都传系统提示 + 用户输入
 func (a *OpenCodeAdapter) buildPromptFromRequest(req *ExecutionRequest) string {
-	// 如果是恢复会话，只返回用户输入
-	if req.SessionKey != "" {
-		return req.Input
-	}
-
-	// 首次调用：系统提示 + 用户输入
 	var sb strings.Builder
 
 	// Layer 0: 系统提示
@@ -411,38 +372,6 @@ func (a *OpenCodeAdapter) extractTextFromJSON(line string) string {
 	}
 
 	return ""
-}
-
-// extractSessionIDFromJSON 从 OpenCode JSON 输出中提取 sessionID
-func (a *OpenCodeAdapter) extractSessionIDFromJSON(line string) string {
-	var data struct {
-		SessionID string `json:"sessionID"`
-	}
-
-	err := json.Unmarshal([]byte(line), &data)
-	result := ""
-
-	linePreview := func() string {
-		if len(line) > 200 {
-			return line[:200]
-		}
-		return line
-	}()
-
-	if err != nil {
-		logDebug("extractSessionIDFromJSON: JSON parse error",
-			zap.Error(err),
-			zap.String("linePreview", linePreview))
-	} else if data.SessionID != "" {
-		result = data.SessionID
-		logInfo("extractSessionIDFromJSON: SUCCESS - extracted sessionID",
-			zap.String("sessionID", result))
-	} else {
-		logDebug("extractSessionIDFromJSON: JSON parsed but sessionID field is empty",
-			zap.String("linePreview", linePreview))
-	}
-
-	return result
 }
 
 // CheckHealth 检查CLI健康状态

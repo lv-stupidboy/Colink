@@ -236,6 +236,10 @@ func (h *AgentHandler) Debug(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "debug thread not found"})
 			return
 		}
+		// 如果传递了新的 ProjectPath，更新线程的工作目录
+		if req.ProjectPath != "" {
+			h.debugThreadMgr.SetProjectPath(debugThreadID, req.ProjectPath)
+		}
 	} else {
 		thread := h.debugThreadMgr.CreateThread(req.ProjectPath)
 		debugThreadID = thread.ID

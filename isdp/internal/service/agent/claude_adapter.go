@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/anthropic/isdp/internal/model"
-	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 
@@ -33,12 +32,11 @@ type ClaudeAdapter struct {
 
 // claudeSession Claude会话
 type claudeSession struct {
-	id         string
-	sessionKey string // CLI的session-id
-	cmd        *exec.Cmd
-	ctx        context.Context
-	cancel     context.CancelFunc
-	status     SessionStatus
+	id     string
+	cmd    *exec.Cmd
+	ctx    context.Context
+	cancel context.CancelFunc
+	status SessionStatus
 }
 
 // NewClaudeAdapter 创建Claude适配器
@@ -83,23 +81,14 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionReq
 		"--output-format", "stream-json",
 		"--verbose",
 		"--permission-mode", "auto",
+		"--continue", // 统一使用 --continue 让 CLI 自动恢复上次会话
 	}
 
 	if req.BaseAgent != nil && req.BaseAgent.DefaultModel != "" {
 		args = append(args, "--model", req.BaseAgent.DefaultModel)
 	}
 
-	// 会话恢复逻辑
-	sessionKey := req.SessionKey
-	if sessionKey != "" {
-		args = append(args, "--resume", sessionKey)
-		logInfo("Claude: Resuming session", zap.String("sessionKey", sessionKey))
-	} else {
-		// 新会话，生成 sessionKey
-		sessionKey = uuid.New().String()
-		args = append(args, "--session-id", sessionKey)
-		logInfo("Claude: Starting new session", zap.String("sessionKey", sessionKey))
-	}
+	logInfo("Claude: Starting with --continue", zap.String("workDir", req.WorkDir))
 
 	cmd := exec.CommandContext(ctx, a.cliPath, args...)
 	cmd.Stdin = strings.NewReader(prompt)
@@ -164,7 +153,7 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionReq
 		return nil, fmt.Errorf("CLI execution failed: %w", err)
 	}
 
-	return &ExecutionResult{SessionKey: sessionKey}, nil
+	return &ExecutionResult{}, nil
 }
 
 // StartSession 启动交互式会话
@@ -178,13 +167,12 @@ func (a *ClaudeAdapter) StartSession(ctx context.Context, sessionID string, req 
 	}
 
 	// 首次启动使用 ExecuteWithStream
-	result, err := a.ExecuteWithStream(ctx, req, nil)
+	_, err := a.ExecuteWithStream(ctx, req, nil)
 	if err != nil {
 		session.status = SessionStatusFailed
 		return err
 	}
 
-	session.sessionKey = result.SessionKey
 	a.sessions[sessionID] = session
 
 	return nil
@@ -193,7 +181,7 @@ func (a *ClaudeAdapter) StartSession(ctx context.Context, sessionID string, req 
 // ResumeSession 恢复会话
 func (a *ClaudeAdapter) ResumeSession(ctx context.Context, sessionID string, input string, onChunk func(Chunk)) error {
 	a.mu.RLock()
-	session, exists := a.sessions[sessionID]
+	_, exists := a.sessions[sessionID]
 	a.mu.RUnlock()
 
 	if !exists {
@@ -201,9 +189,8 @@ func (a *ClaudeAdapter) ResumeSession(ctx context.Context, sessionID string, inp
 	}
 
 	req := &ExecutionRequest{
-		SessionKey: session.sessionKey,
-		Input:      input,
-		BaseAgent:  a.baseAgent,
+		Input:     input,
+		BaseAgent: a.baseAgent,
 	}
 
 	_, err := a.ExecuteWithStream(ctx, req, onChunk)

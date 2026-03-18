@@ -57,11 +57,14 @@ func TestNewAdapter_OpenCode(t *testing.T) {
 }
 
 func TestClaudeAdapter_BuildPrompt(t *testing.T) {
-	adapter := NewClaudeAdapter("claude")
-
-	config := &model.AgentRoleConfig{
-		SystemPrompt: "You are a helpful assistant.",
+	baseAgent := &model.BaseAgent{
+		ID:           uuid.New(),
+		Name:         "Test Claude",
+		Type:         model.BaseAgentTypeClaudeCode,
+		DefaultModel: "claude-sonnet-4-6",
+		CliPath:      "claude",
 	}
+	adapter := NewClaudeAdapter(baseAgent)
 
 	layers := &ContextLayers{
 		Layer0: "System prompt here",
@@ -70,7 +73,12 @@ func TestClaudeAdapter_BuildPrompt(t *testing.T) {
 		Layer3: "Environment info",
 	}
 
-	prompt := adapter.buildPrompt(config, layers, "Hello, world!")
+	req := &ExecutionRequest{
+		Context: layers,
+		Input:   "Hello, world!",
+	}
+
+	prompt := adapter.buildPromptFromRequest(req)
 
 	if prompt == "" {
 		t.Error("Expected non-empty prompt")
@@ -103,10 +111,6 @@ func TestOpenCodeAdapter_BuildPrompt(t *testing.T) {
 	}
 	adapter := NewOpenCodeAdapter(baseAgent)
 
-	config := &model.AgentRoleConfig{
-		SystemPrompt: "You are a helpful assistant.",
-	}
-
 	layers := &ContextLayers{
 		Layer0: "System prompt",
 		Layer1: "History",
@@ -114,7 +118,12 @@ func TestOpenCodeAdapter_BuildPrompt(t *testing.T) {
 		Layer3: "Env",
 	}
 
-	prompt := adapter.buildPrompt(config, layers, "Test input")
+	req := &ExecutionRequest{
+		Context: layers,
+		Input:   "Test input",
+	}
+
+	prompt := adapter.buildPromptFromRequest(req)
 
 	if prompt == "" {
 		t.Error("Expected non-empty prompt")

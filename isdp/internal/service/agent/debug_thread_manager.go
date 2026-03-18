@@ -197,6 +197,19 @@ func (m *DebugThreadManager) GetProjectPath(threadID uuid.UUID) string {
 	return ""
 }
 
+// SetProjectPath 设置线程的工作目录
+func (m *DebugThreadManager) SetProjectPath(threadID uuid.UUID, projectPath string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if thread, ok := m.threads[threadID]; ok {
+		// 只有当新路径不为空且与当前不同时才更新
+		if projectPath != "" && thread.ProjectPath != projectPath {
+			thread.ProjectPath = projectPath
+		}
+	}
+}
+
 // DeleteThread 删除调试线程（清理资源）
 func (m *DebugThreadManager) DeleteThread(id uuid.UUID) {
 	m.mu.Lock()

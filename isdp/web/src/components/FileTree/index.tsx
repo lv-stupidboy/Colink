@@ -26,18 +26,25 @@ import './FileTree.css';
 
 interface FileTreeProps {
   projectId: string;
+  projectPath?: string; // 调试模式下使用
   onFileSelect?: (path: string, isDir: boolean) => void;
   style?: React.CSSProperties;
 }
 
 /**
  * FileTree component - displays project file structure
+ * 支持两种模式：
+ * - 工作流模式：projectId 为实际项目ID，使用项目API加载文件
+ * - 调试模式：projectId 为 'debug'，需要传入 projectPath，使用路径API加载文件
  */
-const FileTree: React.FC<FileTreeProps> = ({ projectId, onFileSelect, style }) => {
+const FileTree: React.FC<FileTreeProps> = ({ projectId, projectPath, onFileSelect, style }) => {
   const [loading, setLoading] = useState(false);
   const [treeData, setTreeData] = useState<DataNode[]>([]);
   const [expandedKeys, setExpandedKeys] = useState<React.Key[]>([]);
   const [loadedKeys, setLoadedKeys] = useState<Set<string>>(new Set());
+
+  // 是否为调试模式
+  const isDebugMode = projectId === 'debug';
 
   // Get file icon based on extension
   const getFileIcon = (name: string, isDir: boolean): React.ReactNode => {
@@ -95,35 +102,51 @@ const FileTree: React.FC<FileTreeProps> = ({ projectId, onFileSelect, style }) =
   // Load files from API
   const loadFiles = useCallback(async (path: string = ''): Promise<FileInfo[]> => {
     try {
-      const response = await api.projects.listFiles(projectId, path);
-      return (response as ListFilesResponse).files || [];
+      let response: ListFilesResponse;
+      if (isDebugMode) {
+        // 调试模式：使用路径API
+        if (!projectPath) {
+          message.warning('请先设置工作目录');
+          return [];
+        }
+        response = await api.projects.browseFiles(projectPath, path);
+      } else {
+        // 工作流模式：使用项目API
+        response = await api.projects.listFiles(projectId, path);
+      }
+      return response.files || [];
     } catch (error) {
       console.error('Failed to load files:', error);
       message.error('加载文件列表失败');
       return [];
     }
-  }, [projectId]);
+  }, [projectId, projectPath, isDebugMode]);
 
   // Load root directory
   const loadRootDirectory = useCallback(async () => {
+    // 调试模式下，没有 projectPath 时直接返回
+    if (isDebugMode && !projectPath) {
+      setTreeData([]);
+      return;
+    }
     setLoading(true);
     try {
       const files = await loadFiles('');
       const nodes = files.map(convertToDataNode);
       setTreeData(nodes);
-      // Auto-expand first level if there are directories
+      // Auto-expand all directories by default
       const dirKeys = files.filter(f => f.isDir).map(f => f.path);
-      if (dirKeys.length > 0 && dirKeys.length <= 5) {
-        setExpandedKeys(dirKeys);
-      }
+      setExpandedKeys(dirKeys);
     } finally {
       setLoading(false);
     }
-  }, [loadFiles]);
+  }, [loadFiles, isDebugMode, projectPath]);
 
-  // Initial load
+  // Initial load - 依赖 projectPath 变化时重新加载
   useEffect(() => {
     loadRootDirectory();
+    // 重置已加载的keys
+    setLoadedKeys(new Set());
   }, [loadRootDirectory]);
 
   // Handle tree node expansion - load children on demand
@@ -205,7 +228,7 @@ const FileTree: React.FC<FileTreeProps> = ({ projectId, onFileSelect, style }) =
       {treeData.length === 0 ? (
         <Empty
           image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description="暂无文件"
+          description={isDebugMode && !projectPath ? '请先设置工作目录' : '暂无文件'}
           style={{ padding: '20px 0' }}
         />
       ) : (

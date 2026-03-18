@@ -680,6 +680,12 @@ func (o *Orchestrator) ContinueDebugAgent(ctx context.Context, threadID uuid.UUI
 		return fmt.Errorf("no previous agent context found")
 	}
 
+	// 获取Agent配置以获取Role
+	config, err := o.configSvc.GetByID(ctx, lastConfigID)
+	if err != nil {
+		return fmt.Errorf("agent config not found: %w", err)
+	}
+
 	// 获取存储的项目路径
 	projectPath := o.debugThreadMgr.GetProjectPath(threadID)
 
@@ -687,10 +693,11 @@ func (o *Orchestrator) ContinueDebugAgent(ctx context.Context, threadID uuid.UUI
 	req := &SpawnRequest{
 		ThreadID:    threadID,
 		ConfigID:    lastConfigID,
+		Role:        config.Role,
 		Input:       message,
 		ProjectPath: projectPath,
 	}
 
-	_, err := o.SpawnDebugAgent(ctx, req)
+	_, err = o.SpawnDebugAgent(ctx, req)
 	return err
 }

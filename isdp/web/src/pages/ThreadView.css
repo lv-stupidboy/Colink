@@ -11,6 +11,104 @@
   border-right: 1px solid #e8e8e8;
   background: #fff;
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 文件树上方的工作目录显示 */
+.file-sidebar-path {
+  padding: 8px 12px;
+  background: #fafafa;
+  border-bottom: 1px solid #f0f0f0;
+  font-size: 12px;
+  color: #666;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.file-sidebar-path .path-label {
+  color: #999;
+  flex-shrink: 0;
+}
+
+.file-sidebar-path .path-value {
+  color: #333;
+  word-break: break-all;
+  flex: 1;
+  min-width: 0;
+}
+
+.file-sidebar .file-tree-wrapper {
+  flex: 1;
+  overflow: hidden;
+}
+
+/* 右侧边栏 - 沙箱/产物 */
+.right-sidebar {
+  width: 50%;
+  min-width: 400px;
+  max-width: 800px;
+  height: 100%;
+  border-left: 1px solid #e8e8e8;
+  background: #fff;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 产物侧边栏 - 固定宽度 350px */
+.artifacts-sidebar {
+  width: 350px;
+  min-width: 300px;
+  max-width: 450px;
+  height: 100%;
+  border-left: 1px solid #e8e8e8;
+  background: #fff;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.artifacts-sidebar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid #f0f0f0;
+  background: #fafafa;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.artifacts-sidebar-content {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.right-sidebar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid #f0f0f0;
+  background: #fafafa;
+  flex-shrink: 0;
+}
+
+.right-sidebar-tabs {
+  display: flex;
+  gap: 8px;
+}
+
+.right-sidebar-content {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .thread-view {

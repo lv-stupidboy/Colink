@@ -39,7 +39,6 @@ type AgentRoleConfig struct {
 	BaseAgentID  uuid.UUID      `json:"base_agent_id,omitempty"`
 	Description  string         `json:"description"`
 	SystemPrompt string         `json:"system_prompt"`
-	ModelName    string         `json:"model_name"`
 	MaxTokens    int            `json:"max_tokens"`
 	Temperature  float64        `json:"temperature"`
 	RoutingConfig RoutingConfig `json:"routing_config"`
@@ -59,7 +58,6 @@ type CreateAgentRequest struct {
 	BaseAgentID  uuid.UUID      `json:"base_agent_id"`
 	Description  string         `json:"description"`
 	SystemPrompt string         `json:"system_prompt" binding:"required"`
-	ModelName    string         `json:"model_name"`
 	MaxTokens    int            `json:"max_tokens"`
 	Temperature  float64        `json:"temperature"`
 	RoutingConfig *RoutingConfig `json:"routing_config"`

@@ -115,6 +115,23 @@ func (h *ProjectHandler) ListFiles(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
+// ListFilesByPath 根据路径列出文件（用于调试模式）
+func (h *ProjectHandler) ListFilesByPath(c *gin.Context) {
+	basePath := c.Query("basePath")
+	if basePath == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "basePath is required"})
+		return
+	}
+
+	subPath := c.Query("path")
+	result, err := h.service.ListFilesByPath(c.Request.Context(), basePath, subPath)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
 // RegisterRoutes 注册路由
 func (h *ProjectHandler) RegisterRoutes(r *gin.RouterGroup) {
 	projects := r.Group("/projects")
@@ -127,4 +144,6 @@ func (h *ProjectHandler) RegisterRoutes(r *gin.RouterGroup) {
 		projects.PUT("/:id", h.Update)
 		projects.DELETE("/:id", h.Delete)
 	}
+	// 文件浏览 API（调试模式）
+	r.GET("/files/browse", h.ListFilesByPath)
 }

@@ -188,3 +188,64 @@ func sortFiles(files []model.FileInfo) {
 		}
 	}
 }
+
+// ListFilesByPath 根据路径列出文件（用于调试模式，不需要项目ID）
+func (s *Service) ListFilesByPath(ctx context.Context, basePath string, subPath string) (*model.ListFilesResponse, error) {
+	if basePath == "" {
+		return nil, errors.New("基础路径不能为空")
+	}
+
+	// 安全检查：防止路径遍历攻击
+	subPath = filepath.Clean("/" + subPath)
+	fullPath := filepath.Join(basePath, subPath)
+
+	// 确保完整路径在基础路径内
+	if !strings.HasPrefix(fullPath, basePath) {
+		return nil, errors.New("无效的路径")
+	}
+
+	// 读取目录
+	entries, err := os.ReadDir(fullPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, errors.New("路径不存在")
+		}
+		return nil, err
+	}
+
+	// 构建文件列表
+	var files []model.FileInfo
+	for _, entry := range entries {
+		// 跳过隐藏文件
+		if strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+
+		relPath := filepath.Join(subPath, entry.Name())
+		if subPath == "" || subPath == "/" || subPath == "\\" {
+			relPath = entry.Name()
+		}
+
+		files = append(files, model.FileInfo{
+			Name:    entry.Name(),
+			Path:    relPath,
+			IsDir:   entry.IsDir(),
+			Size:    info.Size(),
+			ModTime: info.ModTime().Format(time.RFC3339),
+		})
+	}
+
+	// 排序：目录在前，然后按名称排序
+	sortFiles(files)
+
+	return &model.ListFilesResponse{
+		Path:    subPath,
+		Files:   files,
+		HasMore: false,
+	}, nil
+}

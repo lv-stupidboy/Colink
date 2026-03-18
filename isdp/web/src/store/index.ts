@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
-import type { Thread, Message, AgentInvocation, AgentConfig, Phase, AgentRole, Project, WorkflowTemplate } from '@/types';
+import type { Thread, Message, AgentInvocation, AgentConfig, Phase, AgentRole, Project, WorkflowTemplate, SandboxServer } from '@/types';
 import api from '@/api/client';
 
 interface AppState {
@@ -39,6 +39,18 @@ interface AppState {
 
   // 项目上下文加载状态
   loadingProjectContext: boolean;
+
+  // 调试模式状态
+  isDebugMode: boolean;
+  debugAgentId: string | null;
+  debugAgentConfig: AgentConfig | null;
+  debugProjectPath: string;
+
+  // 沙箱状态
+  sandboxServer: SandboxServer | null;
+  sandboxLoading: boolean;
+  dockerAvailable: boolean;
+  sandboxDrawerVisible: boolean;
 }
 
 interface AppActions {
@@ -95,6 +107,17 @@ interface AppActions {
 
   // 完成流式消息（转为正式消息）
   finalizeStreamingMessage: (invocationId: string) => void;
+
+  // 调试模式 actions
+  setDebugMode: (isDebug: boolean, agentId?: string) => void;
+  setDebugAgentConfig: (config: AgentConfig | null) => void;
+  setDebugProjectPath: (path: string) => void;
+
+  // 沙箱 actions
+  setSandboxServer: (server: SandboxServer | null) => void;
+  setSandboxLoading: (loading: boolean) => void;
+  setDockerAvailable: (available: boolean) => void;
+  setSandboxDrawerVisible: (visible: boolean) => void;
 }
 
 const initialState: AppState = {
@@ -110,6 +133,16 @@ const initialState: AppState = {
   currentProject: null,
   currentWorkflowTemplate: null,
   loadingProjectContext: false,
+  // 调试模式状态
+  isDebugMode: false,
+  debugAgentId: null,
+  debugAgentConfig: null,
+  debugProjectPath: '',
+  // 沙箱状态
+  sandboxServer: null,
+  sandboxLoading: false,
+  dockerAvailable: false,
+  sandboxDrawerVisible: false,
 };
 
 export const useAppStore = create<AppState & AppActions>()(
@@ -355,6 +388,41 @@ export const useAppStore = create<AppState & AppActions>()(
           messages: [...state.messages, finalMessage],
         };
       });
+    },
+
+    // 调试模式 actions
+    setDebugMode: (isDebug, agentId) => {
+      set({
+        isDebugMode: isDebug,
+        debugAgentId: agentId || null,
+        debugAgentConfig: null,
+        debugProjectPath: '', // 每次进入调试模式时清空工作目录
+      });
+    },
+
+    setDebugAgentConfig: (config) => {
+      set({ debugAgentConfig: config });
+    },
+
+    setDebugProjectPath: (path) => {
+      set({ debugProjectPath: path });
+    },
+
+    // 沙箱 actions
+    setSandboxServer: (server) => {
+      set({ sandboxServer: server });
+    },
+
+    setSandboxLoading: (loading) => {
+      set({ sandboxLoading: loading });
+    },
+
+    setDockerAvailable: (available) => {
+      set({ dockerAvailable: available });
+    },
+
+    setSandboxDrawerVisible: (visible) => {
+      set({ sandboxDrawerVisible: visible });
     },
   }))
 );

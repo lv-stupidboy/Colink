@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Button, Card, Modal, Form, Input, Select, InputNumber, Switch, message, Space, Tag, Typography } from 'antd';
+import { Table, Button, Card, Modal, Form, Input, Select, InputNumber, message, Space, Tag, Typography } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, ApiOutlined, RobotOutlined } from '@ant-design/icons';
 import api from '@/api/client';
 import type { BaseAgent, BaseAgentType, BaseAgentTypeInfo } from '@/types';
@@ -130,7 +130,7 @@ const BaseAgentSettings: React.FC = () => {
       title: '名称',
       dataIndex: 'name',
       key: 'name',
-      render: (name: string, record: BaseAgent) => (
+      render: (name: string, _record: BaseAgent) => (
         <Space>
           <RobotOutlined />
           <span>{name}</span>

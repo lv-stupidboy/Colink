@@ -63,8 +63,7 @@ const AgentDebugModal: React.FC<AgentDebugModalProps> = ({ open, agent, onClose 
   }, [currentInvocationId]);
 
   // WebSocket 连接
-  const { connected: wsConnected } = useWebSocket({
-    threadId: debugThreadId,
+  const { connected: wsConnected } = useWebSocket(debugThreadId, {
     onMessage: handleWSMessage,
   });
 

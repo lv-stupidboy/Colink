@@ -302,3 +302,15 @@ export interface WSMessageDebug {
   threadId?: string;
   timestamp: number; // Unix timestamp from backend (int64)
 }
+
+// 沙箱服务器信息
+export interface SandboxServer {
+  id: string;
+  threadId: string;
+  projectPath: string;
+  mode: string;
+  port: number;
+  url: string;
+  status: string;
+  containerId?: string;
+}

@@ -1,5 +1,5 @@
 // isdp/web/src/hooks/useWebSocket.ts
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { WSMessage } from '@/types';
 
 interface UseWebSocketOptions {
@@ -14,7 +14,8 @@ export function useWebSocket(
   options: UseWebSocketOptions = {}
 ) {
   const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const [connected, setConnected] = useState(false);
   const { onMessage, onConnect, onDisconnect, reconnectInterval = 3000 } = options;
 
   const connect = useCallback(() => {
@@ -26,6 +27,7 @@ export function useWebSocket(
 
     ws.onopen = () => {
       console.log('WebSocket connected');
+      setConnected(true);
       onConnect?.();
     };
 
@@ -40,6 +42,7 @@ export function useWebSocket(
 
     ws.onclose = () => {
       console.log('WebSocket disconnected');
+      setConnected(false);
       onDisconnect?.();
       // 自动重连
       reconnectTimeoutRef.current = setTimeout(connect, reconnectInterval);
@@ -55,6 +58,7 @@ export function useWebSocket(
       clearTimeout(reconnectTimeoutRef.current);
     }
     wsRef.current?.close();
+    setConnected(false);
   }, []);
 
   const send = useCallback((data: object) => {
@@ -68,5 +72,5 @@ export function useWebSocket(
     return () => disconnect();
   }, [connect, disconnect]);
 
-  return { send, disconnect, reconnect: connect };
+  return { send, disconnect, reconnect: connect, connected };
 }
