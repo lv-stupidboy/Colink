@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"context"
+
 	"github.com/anthropic/isdp/internal/model"
 )
 
@@ -33,4 +35,12 @@ type ExecutionRequest struct {
 type ExecutionResult struct {
 	Output     string
 	SessionKey string // 返回的会话标识（用于后续恢复）
+}
+
+// SessionExecutor 会话执行器接口，扩展了AgentAdapter的会话管理能力
+type SessionExecutor interface {
+	StartSession(ctx context.Context, sessionID string, req *ExecutionRequest) error
+	ResumeSession(ctx context.Context, sessionID string, input string, onChunk func(Chunk)) error
+	StopSession(sessionID string) error
+	GetSessionStatus(sessionID string) SessionStatus
 }
