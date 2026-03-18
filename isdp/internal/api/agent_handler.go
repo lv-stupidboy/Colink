@@ -2,7 +2,6 @@ package api
 
 import (
 	"net/http"
-	"time"
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
@@ -13,19 +12,27 @@ import (
 
 // AgentHandler Agent配置API处理器
 type AgentHandler struct {
-	configSvc    *agent.ConfigService
-	baseAgentSvc *agent.BaseAgentService
-	orchestrator *agent.Orchestrator
-	threadRepo   *repo.ThreadRepository
+	configSvc      *agent.ConfigService
+	baseAgentSvc   *agent.BaseAgentService
+	orchestrator   *agent.Orchestrator
+	threadRepo     *repo.ThreadRepository
+	debugThreadMgr *agent.DebugThreadManager // 调试线程管理器
 }
 
 // NewAgentHandler 创建处理器
-func NewAgentHandler(configSvc *agent.ConfigService, baseAgentSvc *agent.BaseAgentService, orchestrator *agent.Orchestrator, threadRepo *repo.ThreadRepository) *AgentHandler {
+func NewAgentHandler(
+	configSvc *agent.ConfigService,
+	baseAgentSvc *agent.BaseAgentService,
+	orchestrator *agent.Orchestrator,
+	threadRepo *repo.ThreadRepository,
+	debugThreadMgr *agent.DebugThreadManager, // 新增
+) *AgentHandler {
 	return &AgentHandler{
-		configSvc:    configSvc,
-		baseAgentSvc: baseAgentSvc,
-		orchestrator: orchestrator,
-		threadRepo:   threadRepo,
+		configSvc:      configSvc,
+		baseAgentSvc:   baseAgentSvc,
+		orchestrator:   orchestrator,
+		threadRepo:     threadRepo,
+		debugThreadMgr: debugThreadMgr,
 	}
 }
 
@@ -141,7 +148,6 @@ func (h *AgentHandler) Copy(c *gin.Context) {
 		BaseAgentID:  original.BaseAgentID,
 		Description:  original.Description,
 		SystemPrompt: original.SystemPrompt,
-		ModelName:    original.ModelName,
 		MaxTokens:    original.MaxTokens,
 		Temperature:  original.Temperature,
 		RoutingConfig: &original.RoutingConfig,
@@ -182,36 +188,17 @@ type CreateDebugThreadResponse struct {
 	ThreadID string `json:"threadId"`
 }
 
-// CreateDebugThread 预创建调试Thread - 前端先调用此接口获取threadId，建立WebSocket连接后再调用Debug
+// CreateDebugThread 预创建调试Thread - 完全内存操作
 func (h *AgentHandler) CreateDebugThread(c *gin.Context) {
 	var req CreateDebugThreadRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		// 允许空body
-		req.ProjectPath = ""
+	projectPath := ""
+	if err := c.ShouldBindJSON(&req); err == nil {
+		projectPath = req.ProjectPath
 	}
 
-	// 创建一个临时的调试Thread
-	debugThreadID := uuid.New()
-
-	// 尝试获取或创建调试项目
-	if h.threadRepo != nil {
-		debugProjectID := uuid.MustParse("6b7bc6f8-bbc8-42bc-ae9e-5bab22a98931")
-
-		debugThread := &model.Thread{
-			ID:        debugThreadID,
-			ProjectID: debugProjectID,
-			Status:    "debug",
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
-		}
-		if err := h.threadRepo.Create(c.Request.Context(), debugThread); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create debug thread"})
-			return
-		}
-	}
-
+	thread := h.debugThreadMgr.CreateThread(projectPath)
 	c.JSON(http.StatusOK, &CreateDebugThreadResponse{
-		ThreadID: debugThreadID.String(),
+		ThreadID: thread.ID.String(),
 	})
 }
 
@@ -236,7 +223,7 @@ func (h *AgentHandler) Debug(c *gin.Context) {
 		return
 	}
 
-	// 确定threadId：如果前端传入了threadId则使用，否则创建新的
+	// 解析或创建调试线程
 	var debugThreadID uuid.UUID
 	if req.ThreadID != "" {
 		debugThreadID, err = uuid.Parse(req.ThreadID)
@@ -244,28 +231,18 @@ func (h *AgentHandler) Debug(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid threadId"})
 			return
 		}
-	} else {
-		// 创建新的调试Thread
-		debugThreadID = uuid.New()
-		if h.threadRepo != nil {
-			debugProjectID := uuid.MustParse("6b7bc6f8-bbc8-42bc-ae9e-5bab22a98931")
-
-			debugThread := &model.Thread{
-				ID:        debugThreadID,
-				ProjectID: debugProjectID,
-				Status:    "debug",
-				CreatedAt: time.Now(),
-				UpdatedAt: time.Now(),
-			}
-			if err := h.threadRepo.Create(c.Request.Context(), debugThread); err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create debug thread"})
-				return
-			}
+		// 验证线程存在
+		if h.debugThreadMgr.GetThread(debugThreadID) == nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "debug thread not found"})
+			return
 		}
+	} else {
+		thread := h.debugThreadMgr.CreateThread(req.ProjectPath)
+		debugThreadID = thread.ID
 	}
 
-	// 启动交互式会话
-	session, err := h.orchestrator.StartInteractiveSession(c.Request.Context(), &agent.SpawnRequest{
+	// 启动Agent执行
+	invocation, err := h.orchestrator.SpawnDebugAgent(c.Request.Context(), &agent.SpawnRequest{
 		ThreadID:    debugThreadID,
 		ConfigID:    config.ID,
 		Role:        config.Role,
@@ -278,15 +255,10 @@ func (h *AgentHandler) Debug(c *gin.Context) {
 		return
 	}
 
-	// 返回会话ID，前端可以通过 WebSocket 接收实时输出
-	response := &DebugResponse{
-		InvocationID: session.ID.String(),
-		ThreadID:     debugThreadID.String(), // 返回 threadId 用于 WebSocket 订阅
-		Output:       "",
-		SandboxURL:   "",
-	}
-
-	c.JSON(http.StatusOK, response)
+	c.JSON(http.StatusOK, &DebugResponse{
+		InvocationID: invocation.ID.String(),
+		ThreadID:     debugThreadID.String(),
+	})
 }
 
 // ContinueDebugRequest 继续调试请求
@@ -302,14 +274,19 @@ func (h *AgentHandler) ContinueDebug(c *gin.Context) {
 		return
 	}
 
+	// 验证是调试线程
+	if h.debugThreadMgr.GetThread(threadID) == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "debug thread not found"})
+		return
+	}
+
 	var req ContinueDebugRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// 向会话发送消息
-	if err := h.orchestrator.SendMessageToSession(threadID, req.Message); err != nil {
+	if err := h.orchestrator.ContinueDebugAgent(c.Request.Context(), threadID, req.Message); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
