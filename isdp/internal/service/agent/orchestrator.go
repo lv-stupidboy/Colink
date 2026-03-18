@@ -37,6 +37,7 @@ type Orchestrator struct {
 	wsHub            *ws.Hub
 	defaultAdapter   AgentAdapter     // 默认适配器，用于向后兼容
 	executionService *ExecutionService // 统一执行服务
+	debugThreadMgr   *DebugThreadManager // 调试线程管理器
 
 	runningAgents      map[uuid.UUID]*RunningAgent
 	mu                 sync.RWMutex
@@ -516,4 +517,177 @@ var (
 func (o *Orchestrator) SpawnAgentForUserMessage(ctx context.Context, threadID uuid.UUID, userMessage string) error {
 	// 委托给执行服务
 	return o.executionService.SpawnAgentForUserMessage(ctx, threadID, userMessage)
+}
+
+// SetDebugThreadManager 设置调试线程管理器
+func (o *Orchestrator) SetDebugThreadManager(mgr *DebugThreadManager) {
+	o.debugThreadMgr = mgr
+}
+
+// SpawnDebugAgent 调试模式启动Agent
+func (o *Orchestrator) SpawnDebugAgent(ctx context.Context, req *SpawnRequest) (*model.AgentInvocation, error) {
+	if o.debugThreadMgr == nil {
+		return nil, fmt.Errorf("debug thread manager not initialized")
+	}
+
+	// 验证调试线程存在
+	debugThread := o.debugThreadMgr.GetThread(req.ThreadID)
+	if debugThread == nil {
+		return nil, fmt.Errorf("debug thread not found: %s", req.ThreadID)
+	}
+
+	// 获取Agent配置
+	config, err := o.configSvc.GetByID(ctx, req.ConfigID)
+	if err != nil {
+		return nil, fmt.Errorf("agent config not found: %w", err)
+	}
+
+	// 获取基础Agent
+	baseAgent, err := o.baseAgentSvc.GetByID(ctx, config.BaseAgentID)
+	if err != nil {
+		return nil, fmt.Errorf("base agent not found: %w", err)
+	}
+
+	// 创建适配器
+	adapter := NewAdapter(baseAgent)
+	if adapter == nil {
+		return nil, fmt.Errorf("unsupported agent type: %s", baseAgent.Type)
+	}
+
+	// 更新调试线程状态
+	o.debugThreadMgr.SetStatus(req.ThreadID, DebugThreadStatusRunning)
+
+	// 添加用户消息到内存
+	userMsg := &model.Message{
+		ID:        uuid.New(),
+		ThreadID:  req.ThreadID,
+		Role:      model.MessageRoleUser,
+		Content:   req.Input,
+		CreatedAt: time.Now(),
+	}
+	o.debugThreadMgr.AddMessage(req.ThreadID, userMsg)
+
+	// 创建调用记录（内存中，不写数据库）
+	invocation := &model.AgentInvocation{
+		ID:            uuid.New(),
+		ThreadID:      req.ThreadID,
+		AgentConfigID: req.ConfigID,
+		Role:          req.Role,
+		Status:        model.InvocationStatusRunning,
+		Input:         req.Input,
+		StartedAt:     timePtr(time.Now()),
+	}
+
+	// 启动goroutine执行Agent
+	go o.executeDebugAgent(req.ThreadID, invocation, adapter, config, baseAgent, req)
+
+	return invocation, nil
+}
+
+// executeDebugAgent 执行调试Agent（异步）
+func (o *Orchestrator) executeDebugAgent(
+	threadID uuid.UUID,
+	invocation *model.AgentInvocation,
+	adapter AgentAdapter,
+	config *model.AgentRoleConfig,
+	baseAgent *model.BaseAgent,
+	req *SpawnRequest,
+) {
+	ctx := context.Background()
+	invocationID := invocation.ID.String()
+
+	// 构建执行上下文
+	execReq := &ExecutionRequest{
+		Input:     req.Input,
+		WorkDir:   req.ProjectPath,
+		Config:    config,
+		BaseAgent: baseAgent,
+		Context: &ContextLayers{
+			Layer0: config.SystemPrompt,
+		},
+	}
+
+	// 创建输出收集器
+	var outputBuilder strings.Builder
+	agentID := config.ID.String()
+	agentName := config.Name
+	agentRole := string(config.Role)
+
+	// 执行Agent并收集输出
+	result, err := adapter.ExecuteWithStream(ctx, execReq, func(chunk Chunk) {
+		outputBuilder.WriteString(chunk.Content)
+		// 广播流式输出
+		o.debugThreadMgr.BroadcastChunk(threadID.String(), invocationID, agentID, agentName, chunk.Content)
+	})
+
+	if err != nil {
+		o.debugThreadMgr.SetStatus(threadID, DebugThreadStatusError)
+		o.debugThreadMgr.BroadcastError(threadID.String(), fmt.Sprintf("Agent执行失败: %v", err))
+		return
+	}
+
+	// 使用 result.Output 如果有内容
+	output := result.Output
+	if output == "" {
+		output = outputBuilder.String()
+	}
+
+	// 添加Agent消息到内存
+	agentMsg := &model.Message{
+		ID:        uuid.New(),
+		ThreadID:  threadID,
+		Role:      model.MessageRoleAgent,
+		AgentID:   config.ID.String(),
+		Content:   output,
+		CreatedAt: time.Now(),
+	}
+	o.debugThreadMgr.AddMessage(threadID, agentMsg)
+
+	// 广播完整消息
+	o.debugThreadMgr.BroadcastMessage(threadID.String(), agentMsg.ID.String(), agentID, agentName, agentRole, agentMsg.Content)
+
+	// 更新线程状态
+	o.debugThreadMgr.SetStatus(threadID, DebugThreadStatusIdle)
+}
+
+// ContinueDebugAgent 继续调试会话
+func (o *Orchestrator) ContinueDebugAgent(ctx context.Context, threadID uuid.UUID, message string) error {
+	if o.debugThreadMgr == nil {
+		return fmt.Errorf("debug thread manager not initialized")
+	}
+
+	// 验证调试线程存在
+	debugThread := o.debugThreadMgr.GetThread(threadID)
+	if debugThread == nil {
+		return fmt.Errorf("debug thread not found: %s", threadID)
+	}
+
+	// 检查线程状态
+	if debugThread.Status == DebugThreadStatusRunning {
+		return fmt.Errorf("agent is still running, please wait")
+	}
+
+	// 获取最后一条Agent消息确定配置
+	var lastConfigID uuid.UUID
+	for i := len(debugThread.Messages) - 1; i >= 0; i-- {
+		if debugThread.Messages[i].Role == model.MessageRoleAgent && debugThread.Messages[i].AgentID != "" {
+			lastConfigID, _ = uuid.Parse(debugThread.Messages[i].AgentID)
+			break
+		}
+	}
+
+	if lastConfigID == uuid.Nil {
+		return fmt.Errorf("no previous agent context found")
+	}
+
+	// 使用相同的配置继续执行
+	req := &SpawnRequest{
+		ThreadID:    threadID,
+		ConfigID:    lastConfigID,
+		Input:       message,
+		ProjectPath: "",
+	}
+
+	_, err := o.SpawnDebugAgent(ctx, req)
+	return err
 }
