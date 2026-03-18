@@ -176,7 +176,9 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 	invocation.Status = model.InvocationStatusCompleted
 	invocation.Output = output
 	invocation.CompletedAt = timePtr(time.Now())
-	es.invocationRepo.Update(ctx, invocation)
+	if err := es.invocationRepo.Update(ctx, invocation); err != nil {
+		logError("Failed to update invocation", zap.Error(err))
+	}
 
 	// 保存输出消息到数据库
 	es.saveAgentMessage(ctx, req.ThreadID, config, output)
@@ -620,32 +622,6 @@ func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, thread
 		}
 	}
 
-	// 如果工作流模板中有Agent，使用第一个Agent
-	if len(agentIDs) > 0 {
-		configID, err := uuid.Parse(agentIDs[0])
-		if err != nil {
-			return fmt.Errorf("invalid agent id in workflow template: %w", err)
-		}
-
-		// 验证Agent配置存在
-		config, err := es.configSvc.GetByID(ctx, configID)
-		if err != nil {
-			logError("Agent config not found, falling back to default", zap.Error(err))
-			// 继续使用回退逻辑
-		} else {
-			// 使用工作流模板中指定的Agent
-			_, err = es.SpawnAgent(ctx, &SpawnRequest{
-				ThreadID:    threadID,
-				Role:        config.Role,
-				ConfigID:    config.ID,
-				Input:       userMessage,
-				ProjectPath: projectPath,
-			})
-			return err
-		}
-	}
-
-	// 回退到原来的实现，以便能看到命令参数报错
 	// 如果工作流模板中有Agent，使用第一个Agent
 	if len(agentIDs) > 0 {
 		configID, err := uuid.Parse(agentIDs[0])
