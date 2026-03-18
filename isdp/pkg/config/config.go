@@ -26,9 +26,63 @@ type ServerConfig struct {
 	Mode string `mapstructure:"mode"`
 }
 
+// DBType 数据库类型
+type DBType string
+
+const (
+	DBTypeSQLite DBType = "sqlite"
+	DBTypeMySQL  DBType = "mysql"
+)
+
+// MySQLConfig MySQL数据库配置
+type MySQLConfig struct {
+	Host            string `mapstructure:"host"`
+	Port            int    `mapstructure:"port"`
+	Database        string `mapstructure:"database"`
+	Username        string `mapstructure:"username"`
+	Password        string `mapstructure:"password"`
+	Schema          string `mapstructure:"schema"`
+	Charset         string `mapstructure:"charset"`
+	MaxOpenConns    int    `mapstructure:"max_open_conns"`
+	MaxIdleConns    int    `mapstructure:"max_idle_conns"`
+	ConnMaxLifetime int    `mapstructure:"conn_max_lifetime"`
+}
+
+// ApplyDefaults 设置MySQL配置默认值
+func (c *MySQLConfig) ApplyDefaults() {
+	if c.Port == 0 {
+		c.Port = 3306
+	}
+	if c.Charset == "" {
+		c.Charset = "utf8mb4"
+	}
+	if c.MaxOpenConns == 0 {
+		c.MaxOpenConns = 10
+	}
+	if c.MaxIdleConns == 0 {
+		c.MaxIdleConns = 5
+	}
+	if c.ConnMaxLifetime == 0 {
+		c.ConnMaxLifetime = 300
+	}
+}
+
 // DatabaseConfig 数据库配置
 type DatabaseConfig struct {
-	Path string `mapstructure:"path"` // SQLite 数据库文件路径
+	Type  DBType      `mapstructure:"type"`  // 数据库类型: sqlite | mysql
+	Path  string      `mapstructure:"path"`  // SQLite 数据库文件路径
+	MySQL MySQLConfig `mapstructure:"mysql"` // MySQL 配置
+}
+
+// ApplyDefaults 设置数据库配置默认值
+func (c *DatabaseConfig) ApplyDefaults() {
+	if c.Type == "" {
+		c.Type = DBTypeSQLite
+	}
+	if c.Path == "" {
+		c.Path = "./data/isdp.db"
+	}
+	c.MySQL.ApplyDefaults()
 }
 
 // RedisConfig Redis配置
