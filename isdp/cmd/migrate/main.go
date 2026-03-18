@@ -6,11 +6,25 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/anthropic/isdp/internal/repo"
 	"github.com/anthropic/isdp/pkg/config"
 )
+
+// validTables 定义允许迁移的表名白名单，防止 SQL 注入
+var validTables = map[string]bool{
+	"projects":            true,
+	"base_agents":         true,
+	"agent_configs":       true,
+	"threads":             true,
+	"messages":            true,
+	"agent_invocations":   true,
+	"artifacts":           true,
+	"sandboxes":           true,
+	"workflow_templates":  true,
+}
 
 func main() {
 	// 设置 Windows 控制台 UTF-8 编码
@@ -113,6 +127,11 @@ func MigrateDataCmd(sourcePath, schema string) error {
 }
 
 func migrateTable(ctx context.Context, src, dst *sql.DB, table string) (int, error) {
+	// 白名单验证表名，防止 SQL 注入
+	if !validTables[table] {
+		return 0, fmt.Errorf("invalid table name: %s (not in whitelist)", table)
+	}
+
 	// 检查源表是否存在
 	var tableExists bool
 	err := src.QueryRowContext(ctx,
@@ -125,6 +144,17 @@ func migrateTable(ctx context.Context, src, dst *sql.DB, table string) (int, err
 		fmt.Printf("  %s: skipped (table not found)\n", table)
 		return 0, nil
 	}
+
+	// 开始事务
+	tx, err := dst.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("begin transaction: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
 
 	// 读取源数据
 	rows, err := src.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s", table))
@@ -159,12 +189,23 @@ func migrateTable(ctx context.Context, src, dst *sql.DB, table string) (int, err
 			placeholders[i] = "?"
 		}
 
+		// 使用 strings.Builder 构建列名列表
+		var colBuilder strings.Builder
+		for i, col := range columns {
+			if i > 0 {
+				colBuilder.WriteString(", ")
+			}
+			colBuilder.WriteString("`")
+			colBuilder.WriteString(col)
+			colBuilder.WriteString("`")
+		}
+
 		insertSQL := fmt.Sprintf("INSERT INTO `%s` (%s) VALUES (%s)",
 			table,
-			joinColumnNames(columns),
-			joinStrings(placeholders, ", "))
+			colBuilder.String(),
+			strings.Join(placeholders, ", "))
 
-		if _, err := dst.ExecContext(ctx, insertSQL, values...); err != nil {
+		if _, err := tx.ExecContext(ctx, insertSQL, values...); err != nil {
 			// 忽略主键冲突错误
 			if !isDuplicateKeyError(err) {
 				return count, fmt.Errorf("insert row: %w", err)
@@ -173,29 +214,16 @@ func migrateTable(ctx context.Context, src, dst *sql.DB, table string) (int, err
 		count++
 	}
 
-	return count, rows.Err()
-}
-
-func joinColumnNames(columns []string) string {
-	result := ""
-	for i, col := range columns {
-		if i > 0 {
-			result += ", "
-		}
-		result += fmt.Sprintf("`%s`", col)
+	if err = rows.Err(); err != nil {
+		return count, fmt.Errorf("rows error: %w", err)
 	}
-	return result
-}
 
-func joinStrings(strs []string, sep string) string {
-	result := ""
-	for i, s := range strs {
-		if i > 0 {
-			result += sep
-		}
-		result += s
+	// 提交事务
+	if err = tx.Commit(); err != nil {
+		return count, fmt.Errorf("commit transaction: %w", err)
 	}
-	return result
+
+	return count, nil
 }
 
 func isDuplicateKeyError(err error) bool {
@@ -205,19 +233,6 @@ func isDuplicateKeyError(err error) bool {
 	// MySQL duplicate key error code is 1062
 	// 错误信息通常包含 "Duplicate entry"
 	errMsg := err.Error()
-	return len(errMsg) > 0 && (contains(errMsg, "Duplicate entry") ||
-		contains(errMsg, "1062"))
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && findSubstring(s, substr))
-}
-
-func findSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+	return strings.Contains(errMsg, "Duplicate entry") ||
+		strings.Contains(errMsg, "1062")
 }

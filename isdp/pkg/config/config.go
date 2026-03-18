@@ -148,6 +148,9 @@ func Load(configPath string) (*Config, error) {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
+	// 应用默认值（确保零值字段有合理的默认值）
+	cfg.Database.ApplyDefaults()
+
 	return &cfg, nil
 }
 

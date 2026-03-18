@@ -52,18 +52,19 @@ func main() {
 	agent.SetSessionLogger(logger)
 
 	// 连接数据库
-	db, err := repo.NewDBFromConfig(repo.DBConfig{
-		Path: cfg.Database.Path,
-	})
+	db, dialect, err := repo.NewDB(cfg.Database)
 	if err != nil {
 		logger.Fatal("Failed to connect to database", zap.Error(err))
 	}
 	defer db.Close()
 
-	// 初始化数据库表结构
-	if err := initDatabase(db); err != nil {
-		logger.Fatal("Failed to initialize database", zap.Error(err))
+	// 初始化数据库表结构（仅SQLite需要，MySQL使用独立的初始化脚本）
+	if cfg.Database.Type == config.DBTypeSQLite {
+		if err := initDatabase(db); err != nil {
+			logger.Fatal("Failed to initialize database", zap.Error(err))
+		}
 	}
+	_ = dialect // 方言对象保留供后续使用
 
 	// 连接Redis（可选）
 	var redisClient repo.RedisClient
