@@ -10,6 +10,14 @@ import (
 	"github.com/google/uuid"
 )
 
+// DebugThread 状态常量
+const (
+	DebugThreadStatusIdle      = "idle"
+	DebugThreadStatusRunning   = "running"
+	DebugThreadStatusCompleted = "completed"
+	DebugThreadStatusError     = "error"
+)
+
 // DebugThread 内存中的调试线程
 type DebugThread struct {
 	ID        uuid.UUID
@@ -95,7 +103,7 @@ func (m *DebugThreadManager) CreateThread() *DebugThread {
 
 	thread := &DebugThread{
 		ID:        uuid.New(),
-		Status:    "idle",
+		Status:    DebugThreadStatusIdle,
 		CreatedAt: time.Now(),
 		Messages:  make([]*model.Message, 0),
 	}
@@ -126,7 +134,10 @@ func (m *DebugThreadManager) GetMessages(threadID uuid.UUID) []*model.Message {
 	defer m.mu.RUnlock()
 
 	if thread, ok := m.threads[threadID]; ok {
-		return thread.Messages
+		// 返回副本，避免外部修改影响内部状态
+		msgs := make([]*model.Message, len(thread.Messages))
+		copy(msgs, thread.Messages)
+		return msgs
 	}
 	return nil
 }
