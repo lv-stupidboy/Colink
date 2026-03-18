@@ -274,7 +274,9 @@ func (es *ExecutionService) handleAgentError(ctx context.Context, invocation *mo
 	invocation.Status = model.InvocationStatusFailed
 	invocation.Output = err.Error()
 	invocation.CompletedAt = timePtr(time.Now())
-	es.invocationRepo.Update(ctx, invocation)
+	if updateErr := es.invocationRepo.Update(ctx, invocation); updateErr != nil {
+		logError("Failed to update invocation on error", zap.Error(updateErr))
+	}
 
 	es.broadcastStatus(invocation.ThreadID, invocation.ID, "failed", invocation.Role)
 }
