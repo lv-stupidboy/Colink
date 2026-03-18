@@ -29,8 +29,6 @@ type ExecutionService struct {
 	projectRepo      *repo.ProjectRepository
 	wsHub            *ws.Hub
 	defaultAdapter   AgentAdapter
-	sessionManager   *SessionManager
-	executionContext ExecutionContext
 
 	runningAgents map[uuid.UUID]*RunningAgent
 	mu            sync.RWMutex
@@ -49,7 +47,6 @@ func NewExecutionService(
 	projectRepo *repo.ProjectRepository,
 	wsHub *ws.Hub,
 	defaultAdapter AgentAdapter,
-	executionContext ExecutionContext,
 ) *ExecutionService {
 	es := &ExecutionService{
 		invocationRepo:   invocationRepo,
@@ -63,56 +60,18 @@ func NewExecutionService(
 		projectRepo:      projectRepo,
 		wsHub:            wsHub,
 		defaultAdapter:   defaultAdapter,
-		executionContext: executionContext,
 		runningAgents:    make(map[uuid.UUID]*RunningAgent),
 	}
 
-	// 创建统一的会话管理器
-	es.sessionManager = NewSessionManager(wsHub, es)
 	return es
 }
 
-// SpawnAgent 启动Agent（保持向后兼容的API）
+// SpawnAgent 启动Agent（统一执行入口）
 func (es *ExecutionService) SpawnAgent(ctx context.Context, req *SpawnRequest) (*model.AgentInvocation, error) {
-	// 根据执行上下文选择适当的执行逻辑
-	switch es.executionContext {
-	case ExecutionContextWorkflow:
-		return es.spawnWorkflowAgent(ctx, req)
-	case ExecutionContextDebug, ExecutionContextInteractive:
-		return es.spawnInteractiveAgent(ctx, req)
-	default:
-		return es.spawnWorkflowAgent(ctx, req)
-	}
-}
-
-// spawnWorkflowAgent 启动工作流场景的Agent
-func (es *ExecutionService) spawnWorkflowAgent(ctx context.Context, req *SpawnRequest) (*model.AgentInvocation, error) {
-	// 获取Agent配置
-	var config *model.AgentRoleConfig
-	var err error
-
-	// 优先使用 ConfigID
-	if req.ConfigID != uuid.Nil {
-		config, err = es.configSvc.GetByID(ctx, req.ConfigID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get agent config by id: %w", err)
-		}
-	} else {
-		// 如果没有 ConfigID，尝试通过 role 查找默认配置
-		config, err = es.configSvc.GetDefaultByRole(ctx, req.Role)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get agent config by role: %w", err)
-		}
-	}
-
-	// 获取关联的BaseAgent配置
-	var baseAgent *model.BaseAgent
-	if config.BaseAgentID != uuid.Nil && es.baseAgentSvc != nil {
-		baseAgent, err = es.baseAgentSvc.GetByID(ctx, config.BaseAgentID)
-		if err != nil {
-			// 记录警告但不阻止执行
-			baseAgent = nil
-		}
+	// 解析配置和BaseAgent
+	config, baseAgent, err := es.resolveConfigAndBaseAgent(ctx, req)
+	if err != nil {
+		return nil, err
 	}
 
 	// 创建调用记录
@@ -149,17 +108,17 @@ func (es *ExecutionService) spawnWorkflowAgent(ctx context.Context, req *SpawnRe
 	es.broadcastStatus(req.ThreadID, invocation.ID, "started", config.Role)
 
 	// 异步执行Agent
-	go es.executeWorkflowAgent(agentCtx, invocation, config, baseAgent, req)
+	go es.executeAgent(agentCtx, invocation, config, baseAgent, req)
 
 	return invocation, nil
 }
 
-// executeWorkflowAgent 执行工作流场景的Agent
-func (es *ExecutionService) executeWorkflowAgent(ctx context.Context, invocation *model.AgentInvocation, config *model.AgentRoleConfig, baseAgent *model.BaseAgent, req *SpawnRequest) {
+// executeAgent 执行Agent（统一执行路径）
+func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.AgentInvocation, config *model.AgentRoleConfig, baseAgent *model.BaseAgent, req *SpawnRequest) {
 	defer func() {
 		// 恢复可能的panic
 		if r := recover(); r != nil {
-			err := fmt.Errorf("panic in executeWorkflowAgent: %v", r)
+			err := fmt.Errorf("panic in executeAgent: %v", r)
 			es.handleAgentError(ctx, invocation, err)
 		}
 		es.mu.Lock()
@@ -167,46 +126,51 @@ func (es *ExecutionService) executeWorkflowAgent(ctx context.Context, invocation
 		es.mu.Unlock()
 	}()
 
-	fmt.Printf("[DEBUG] executeWorkflowAgent started for invocation %s\n", invocation.ID)
+	logInfo("executeAgent started", zap.String("invocationID", invocation.ID.String()))
 
 	// 构建上下文
 	contextLayers, err := es.buildContextLayers(ctx, req.ThreadID, config)
 	if err != nil {
-		fmt.Printf("[DEBUG] buildContextLayers failed: %v\n", err)
+		logError("buildContextLayers failed", zap.Error(err))
 		es.handleAgentError(ctx, invocation, fmt.Errorf("failed to build context layers: %w", err))
 		return
 	}
-	fmt.Printf("[DEBUG] Context layers built\n")
-
-	// 合并配置：AgentRoleConfig 优先，BaseAgent 作为默认值
-	mergedConfig := es.mergeConfig(config, baseAgent)
-	fmt.Printf("[DEBUG] Config merged, model: %s\n", mergedConfig.ModelName)
+	logDebug("Context layers built")
 
 	// 获取适配器
 	adapter, err := es.getAdapter(ctx, config, baseAgent)
 	if err != nil {
-		fmt.Printf("[DEBUG] getAdapter failed: %v\n", err)
+		logError("getAdapter failed", zap.Error(err))
 		es.handleAgentError(ctx, invocation, fmt.Errorf("failed to get adapter: %w", err))
 		return
 	}
-	fmt.Printf("[DEBUG] Adapter obtained: %T\n", adapter)
+	logDebug("Adapter obtained", zap.String("adapterType", fmt.Sprintf("%T", adapter)))
+
+	// 构建ExecutionRequest
+	execReq := &ExecutionRequest{
+		Config:    config,
+		BaseAgent: baseAgent,
+		Context:   contextLayers,
+		Input:     req.Input,
+		WorkDir:   req.ProjectPath,
+	}
 
 	// 使用流式执行，实时广播输出
 	var outputBuilder strings.Builder
-	err = adapter.ExecuteWithStream(ctx, mergedConfig, contextLayers, req.Input, req.ProjectPath, func(chunk string) {
-		outputBuilder.WriteString(chunk)
-		// 实时广播输出块，包含 agentId 和 agentName
-		es.broadcastOutputChunk(req.ThreadID, invocation.ID, chunk, config.ID.String(), config.Name)
+	result, err := adapter.ExecuteWithStream(ctx, execReq, func(chunk Chunk) {
+		outputBuilder.WriteString(chunk.Content)
+		// 实时广播输出块
+		es.broadcastChunk(req.ThreadID, invocation.ID, chunk, config.ID.String(), config.Name)
 	})
 
 	if err != nil {
-		fmt.Printf("[DEBUG] Adapter.ExecuteWithStream failed: %v\n", err)
+		logError("Adapter.ExecuteWithStream failed", zap.Error(err))
 		es.handleAgentError(ctx, invocation, fmt.Errorf("adapter execution failed: %w", err))
 		return
 	}
 
 	output := outputBuilder.String()
-	fmt.Printf("[DEBUG] Execution completed, output length: %d\n", len(output))
+	logInfo("Execution completed", zap.Int("outputLength", len(output)), zap.String("sessionKey", result.SessionKey))
 
 	// 更新调用记录
 	invocation.Status = model.InvocationStatusCompleted
@@ -214,23 +178,8 @@ func (es *ExecutionService) executeWorkflowAgent(ctx context.Context, invocation
 	invocation.CompletedAt = timePtr(time.Now())
 	es.invocationRepo.Update(ctx, invocation)
 
-	// 保存输出消息到数据库（用于持久化），但不广播（已通过流式输出实时发送）
-	metadata, _ := json.Marshal(map[string]string{
-		"agentName": config.Name,
-		"agentRole": string(config.Role),
-	})
-	msg := &model.Message{
-		ThreadID:    req.ThreadID,
-		Role:        model.MessageRoleAgent,
-		AgentID:     config.ID.String(),
-		Content:     output,
-		MessageType: model.MessageTypeText,
-		Metadata:    metadata,
-		CreatedAt:   time.Now(),
-	}
-	if err := es.msgRepo.Create(ctx, msg); err != nil {
-		fmt.Printf("[DEBUG] Failed to save agent message: %v\n", err)
-	}
+	// 保存输出消息到数据库
+	es.saveAgentMessage(ctx, req.ThreadID, config, output)
 
 	// 广播完成状态
 	es.broadcastStatus(req.ThreadID, invocation.ID, "completed", config.Role)
@@ -239,81 +188,52 @@ func (es *ExecutionService) executeWorkflowAgent(ctx context.Context, invocation
 	es.checkRouting(ctx, req.ThreadID, config, output)
 }
 
-// spawnInteractiveAgent 启动交互式场景的Agent
-func (es *ExecutionService) spawnInteractiveAgent(ctx context.Context, req *SpawnRequest) (*model.AgentInvocation, error) {
-	// 获取Agent配置
+// resolveConfigAndBaseAgent 解析配置和BaseAgent
+func (es *ExecutionService) resolveConfigAndBaseAgent(ctx context.Context, req *SpawnRequest) (*model.AgentRoleConfig, *model.BaseAgent, error) {
 	var config *model.AgentRoleConfig
 	var err error
 
-	// 优先使用 ConfigID
 	if req.ConfigID != uuid.Nil {
 		config, err = es.configSvc.GetByID(ctx, req.ConfigID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get agent config by id: %w", err)
+			return nil, nil, fmt.Errorf("failed to get agent config: %w", err)
 		}
 	} else {
-		// 如果没有 ConfigID，尝试通过 role 查找默认配置
 		config, err = es.configSvc.GetDefaultByRole(ctx, req.Role)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get agent config by role: %w", err)
+			return nil, nil, fmt.Errorf("failed to get default agent config: %w", err)
 		}
 	}
 
-	// 获取关联的BaseAgent配置
 	var baseAgent *model.BaseAgent
 	if config.BaseAgentID != uuid.Nil && es.baseAgentSvc != nil {
 		baseAgent, err = es.baseAgentSvc.GetByID(ctx, config.BaseAgentID)
 		if err != nil {
-			baseAgent = nil
+			baseAgent = nil // 不阻止执行
 		}
 	}
 
-	// 创建调用记录
-	invocation := &model.AgentInvocation{
-		ID:            uuid.New(),
-		ThreadID:      req.ThreadID,
-		AgentConfigID: config.ID,
-		Role:          config.Role,
-		Status:        model.InvocationStatusPending,
-		Input:         req.Input,
-		CreatedAt:     time.Now(),
+	return config, baseAgent, nil
+}
+
+// saveAgentMessage 保存Agent消息
+func (es *ExecutionService) saveAgentMessage(ctx context.Context, threadID uuid.UUID, config *model.AgentRoleConfig, output string) {
+	metadata, _ := json.Marshal(map[string]string{
+		"agentName": config.Name,
+		"agentRole": string(config.Role),
+	})
+	msg := &model.Message{
+		ThreadID:    threadID,
+		Role:        model.MessageRoleAgent,
+		AgentID:     config.ID.String(),
+		Content:     output,
+		MessageType: model.MessageTypeText,
+		Metadata:    metadata,
+		CreatedAt:   time.Now(),
 	}
-
-	if err := es.invocationRepo.Create(ctx, invocation); err != nil {
-		return nil, fmt.Errorf("failed to create invocation: %w", err)
+	if err := es.msgRepo.Create(ctx, msg); err != nil {
+		logError("Failed to save agent message", zap.Error(err))
 	}
-
-	// 启动交互式会话
-	sessionID := req.ThreadID.String()
-	err = es.sessionManager.StartSession(ctx, sessionID, config, baseAgent, req.ProjectPath, req.Input)
-	if err != nil {
-		return nil, fmt.Errorf("failed to start interactive session: %w", err)
-	}
-
-	// 广播会话启动状态
-	es.broadcastStatus(req.ThreadID, invocation.ID, "started", config.Role)
-
-	return invocation, nil
-}
-
-// StartSession 启动会话
-func (es *ExecutionService) StartSession(ctx context.Context, sessionID string, config *model.AgentRoleConfig, baseAgent *model.BaseAgent, workDir string) error {
-	return es.sessionManager.StartSession(ctx, sessionID, config, baseAgent, workDir, "")
-}
-
-// ResumeSession 恢复会话
-func (es *ExecutionService) ResumeSession(ctx context.Context, sessionID string, input string) error {
-	return es.sessionManager.ResumeSession(ctx, sessionID, input)
-}
-
-// StopSession 停止会话
-func (es *ExecutionService) StopSession(ctx context.Context, sessionID string) error {
-	return es.sessionManager.StopSession(ctx, sessionID)
-}
-
-// GetSessionStatus 获取会话状态
-func (es *ExecutionService) GetSessionStatus(sessionID string) SessionStatus {
-	return es.sessionManager.GetSessionStatus(sessionID)
 }
 
 // mergeConfig 合并 AgentRoleConfig 和 BaseAgent 的配置
@@ -325,10 +245,7 @@ func (es *ExecutionService) mergeConfig(config *model.AgentRoleConfig, baseAgent
 		return &merged
 	}
 
-	// 如果 AgentRoleConfig 没有指定模型，使用 BaseAgent 的默认模型
-	if merged.ModelName == "" && baseAgent.DefaultModel != "" {
-		merged.ModelName = baseAgent.DefaultModel
-	}
+	// 注意：模型名称现在从 BaseAgent.DefaultModel 获取，不再存储在 AgentRoleConfig 中
 
 	// 如果没有指定 MaxTokens，使用 BaseAgent 的配置
 	if merged.MaxTokens == 0 && baseAgent.MaxTokens > 0 {
@@ -640,8 +557,8 @@ func (es *ExecutionService) broadcastStatus(threadID, invocationID uuid.UUID, st
 	}
 }
 
-// broadcastOutputChunk 广播输出块（实时流式输出）
-func (es *ExecutionService) broadcastOutputChunk(threadID, invocationID uuid.UUID, chunk string, agentID, agentName string) {
+// broadcastChunk 广播输出块（实时流式输出）
+func (es *ExecutionService) broadcastChunk(threadID, invocationID uuid.UUID, chunk Chunk, agentID, agentName string) {
 	if es.wsHub != nil {
 		es.wsHub.BroadcastToThread(threadID.String(), ws.WSMessage{
 			Type:      "agent_output_chunk",
@@ -649,7 +566,8 @@ func (es *ExecutionService) broadcastOutputChunk(threadID, invocationID uuid.UUI
 			Timestamp: time.Now().UnixMilli(),
 			Payload: map[string]interface{}{
 				"invocationId": invocationID.String(),
-				"chunk":        chunk,
+				"chunk":        chunk.Content,
+				"chunkType":    string(chunk.Type),
 				"agentId":      agentID,
 				"agentName":    agentName,
 			},
@@ -715,7 +633,7 @@ func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, thread
 			// 解析 agent_ids JSON
 			if len(workflow.AgentIDs) > 0 {
 				if err := json.Unmarshal(workflow.AgentIDs, &agentIDs); err != nil {
-					fmt.Printf("[WARN] Failed to parse agent_ids: %v\n", err)
+					logError("Failed to parse agent_ids", zap.Error(err))
 				}
 			}
 		}
@@ -731,7 +649,33 @@ func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, thread
 		// 验证Agent配置存在
 		config, err := es.configSvc.GetByID(ctx, configID)
 		if err != nil {
-			fmt.Printf("[WARN] Agent config not found: %v, falling back to default\n", err)
+			logError("Agent config not found, falling back to default", zap.Error(err))
+			// 继续使用回退逻辑
+		} else {
+			// 使用工作流模板中指定的Agent
+			_, err = es.SpawnAgent(ctx, &SpawnRequest{
+				ThreadID:    threadID,
+				Role:        config.Role,
+				ConfigID:    config.ID,
+				Input:       userMessage,
+				ProjectPath: projectPath,
+			})
+			return err
+		}
+	}
+
+	// 回退到原来的实现，以便能看到命令参数报错
+	// 如果工作流模板中有Agent，使用第一个Agent
+	if len(agentIDs) > 0 {
+		configID, err := uuid.Parse(agentIDs[0])
+		if err != nil {
+			return fmt.Errorf("invalid agent id in workflow template: %w", err)
+		}
+
+		// 验证Agent配置存在
+		config, err := es.configSvc.GetByID(ctx, configID)
+		if err != nil {
+			logError("Agent config not found, falling back to default", zap.Error(err))
 			// 继续使用回退逻辑
 		} else {
 			// 使用工作流模板中指定的Agent
@@ -747,7 +691,7 @@ func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, thread
 	}
 
 	// 回退逻辑：根据当前阶段决定触发哪个Agent
-	fmt.Printf("[DEBUG] No workflow agent found, using phase-based selection\n")
+	logDebug("No workflow agent found, using phase-based selection")
 	role := es.workflow.GetPhaseAgent(thread.CurrentPhase)
 	if role == "" {
 		role = model.AgentRoleRequirement
@@ -773,4 +717,9 @@ func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, thread
 		ProjectPath: projectPath,
 	})
 	return err
+}
+
+// timePtr 返回时间的指针
+func timePtr(t time.Time) *time.Time {
+	return &t
 }

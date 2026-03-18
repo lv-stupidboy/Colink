@@ -95,7 +95,6 @@ func NewOrchestrator(
 		projectRepo,
 		wsHub,
 		defaultAdapter,
-		ExecutionContextWorkflow, // 工作流上下文
 	)
 
 	o.interactiveManager = NewInteractiveSessionManager(wsHub)
@@ -154,10 +153,7 @@ func (o *Orchestrator) mergeConfig(config *model.AgentRoleConfig, baseAgent *mod
 		return &merged
 	}
 
-	// 如果 AgentRoleConfig 没有指定模型，使用 BaseAgent 的默认模型
-	if merged.ModelName == "" && baseAgent.DefaultModel != "" {
-		merged.ModelName = baseAgent.DefaultModel
-	}
+	// 注意：模型名称现在从 BaseAgent.DefaultModel 获取，不再存储在 AgentRoleConfig 中
 
 	// 如果没有指定 MaxTokens，使用 BaseAgent 的配置
 	if merged.MaxTokens == 0 && baseAgent.MaxTokens > 0 {
@@ -175,16 +171,28 @@ func (o *Orchestrator) getAdapter(ctx context.Context, config *model.AgentRoleCo
 
 // checkRouting 检查路由
 func (o *Orchestrator) checkRouting(ctx context.Context, threadID uuid.UUID, currentConfig *model.AgentRoleConfig, output string) {
+	fmt.Printf("[DEBUG] Checking routing for thread: %s\n", threadID.String()) // 调试日志
+	fmt.Printf("[DEBUG] Current config: %s (Role: %s)\n", currentConfig.Name, currentConfig.Role) // 调试日志
+
 	mentions := o.parseMentions(output)
 
 	if len(mentions) == 0 {
+		fmt.Printf("[DEBUG] No mentions found, checking signal routing\n") // 调试日志
 		// 检查信号路由
 		o.checkSignalRouting(ctx, threadID, currentConfig, output)
 		return
 	}
 
+	fmt.Printf("[DEBUG] Found %d mentions, getting allowed agents from workflow\n", len(mentions)) // 调试日志
+
 	// 获取工作流模板中的 Agent 列表
 	allowedAgents := o.getAllowedAgentsFromWorkflow(ctx, threadID)
+	fmt.Printf("[DEBUG] Retrieved %d allowed agents from workflow\n", len(allowedAgents)) // 调试日志
+
+	// 打印所有允许的Agent名称和类型，用于调试
+	for i, agent := range allowedAgents {
+		fmt.Printf("[DEBUG] Allowed agent[%d]: %s (Role: %s)\n", i, agent.Name, agent.Role)
+	}
 
 	// 获取项目路径
 	var projectPath string
@@ -196,22 +204,29 @@ func (o *Orchestrator) checkRouting(ctx context.Context, threadID uuid.UUID, cur
 	}
 
 	for _, mention := range mentions {
+		fmt.Printf("[DEBUG] Processing mention: %s (Role: %s)\n", mention.AgentName, mention.Role) // 调试日志
+
 		var targetConfig *model.AgentRoleConfig
 
 		if mention.Role != "" {
 			// 按 role 查找
+			fmt.Printf("[DEBUG] Looking for role: %s\n", mention.Role) // 调试日志
 			targetConfig = o.findAgentByRole(allowedAgents, mention.Role)
 		} else {
 			// 按 name 查找
+			fmt.Printf("[DEBUG] Looking for name: %s\n", mention.AgentName) // 调试日志
 			targetConfig = o.findAgentByName(allowedAgents, mention.AgentName)
 		}
 
 		if targetConfig == nil {
+			fmt.Printf("[DEBUG] Target config not found for mention: %s\n", mention.Raw) // 调试日志
 			logInfo("路由被拒绝：目标不在工作流模板中",
 				zap.String("mention", mention.Raw),
 				zap.String("threadId", threadID.String()))
 			continue
 		}
+
+		fmt.Printf("[DEBUG] Found target config: %s (ID: %s)\n", targetConfig.Name, targetConfig.ID) // 调试日志
 
 		// 使用工作流模板中指定的 Agent 实例
 		o.SpawnAgent(ctx, &SpawnRequest{
@@ -227,6 +242,8 @@ func (o *Orchestrator) checkRouting(ctx context.Context, threadID uuid.UUID, cur
 // parseMentions 解析@mention
 // 支持: @developer (角色) 或 @前端开发 (实例名称)
 func (o *Orchestrator) parseMentions(content string) []ParsedMention {
+	fmt.Printf("[DEBUG] Parsing mentions in content: %s\n", content) // 调试日志
+
 	var mentions []ParsedMention
 	lines := strings.Split(content, "\n")
 	count := 0
@@ -239,6 +256,8 @@ func (o *Orchestrator) parseMentions(content string) []ParsedMention {
 		if strings.HasPrefix(line, "@") {
 			mention := strings.Fields(line[1:])[0]
 			if mention != "" {
+				fmt.Printf("[DEBUG] Found mention: %s\n", mention) // 调试日志
+
 				// 尝试解析为角色
 				role := parseAgentRole(mention)
 
@@ -251,6 +270,8 @@ func (o *Orchestrator) parseMentions(content string) []ParsedMention {
 			}
 		}
 	}
+
+	fmt.Printf("[DEBUG] Total mentions found: %d\n", len(mentions)) // 调试日志
 	return mentions
 }
 
