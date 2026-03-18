@@ -8,18 +8,33 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/anthropic/isdp/internal/model"
+	"go.uber.org/zap"
 )
 
 // OpenCodeAdapter OpenCode CLI适配器
 type OpenCodeAdapter struct {
-	cliPath    string
-	apiURL     string
-	apiToken   string
-	maxRetries int
-	timeout    time.Duration
+	cliPath     string
+	apiURL      string
+	apiToken    string
+	gitBashPath string // Windows下git-bash路径
+	maxRetries  int
+	timeout     time.Duration
+	baseAgent   *model.BaseAgent
+
+	// Session management
+	sessions map[string]*openCodeSession
+	mu       sync.RWMutex
+}
+
+// openCodeSession OpenCode会话
+type openCodeSession struct {
+	id         string
+	sessionKey string // 从CLI输出提取的sessionID
+	status     SessionStatus
 }
 
 // NewOpenCodeAdapter 创建OpenCode适配器
@@ -35,199 +50,378 @@ func NewOpenCodeAdapter(baseAgent *model.BaseAgent) *OpenCodeAdapter {
 	}
 
 	return &OpenCodeAdapter{
-		cliPath:    cliPath,
-		apiURL:     baseAgent.ApiURL,
-		apiToken:   baseAgent.ApiToken,
-		maxRetries: 3,
-		timeout:    timeout,
+		cliPath:     cliPath,
+		apiURL:      baseAgent.ApiURL,
+		apiToken:    baseAgent.ApiToken,
+		gitBashPath: baseAgent.GitBashPath,
+		maxRetries:  3,
+		timeout:     timeout,
+		baseAgent:   baseAgent,
+		sessions:    make(map[string]*openCodeSession),
 	}
 }
 
-// StartSession 启动会话 - 在OpenCodeAdapter中暂不直接实现会话管理
-// 会话管理由SessionManager统一处理
-func (a *OpenCodeAdapter) StartSession(ctx context.Context, sessionID string, config *model.AgentRoleConfig, baseAgent *model.BaseAgent, workDir string) error {
-	return fmt.Errorf("session management is handled by SessionManager, not directly by OpenCodeAdapter")
-}
-
-// ResumeSession 恢复会话 - 在OpenCodeAdapter中暂不直接实现会话管理
-func (a *OpenCodeAdapter) ResumeSession(ctx context.Context, sessionID string, input string) error {
-	return fmt.Errorf("session management is handled by SessionManager, not directly by OpenCodeAdapter")
-}
-
-// StopSession 停止会话 - 在OpenCodeAdapter中暂不直接实现会话管理
-func (a *OpenCodeAdapter) StopSession(ctx context.Context, sessionID string) error {
-	return fmt.Errorf("session management is handled by SessionManager, not directly by OpenCodeAdapter")
-}
-
-// GetSessionStatus 获取会话状态 - 在OpenCodeAdapter中暂不直接实现会话管理
-func (a *OpenCodeAdapter) GetSessionStatus(sessionID string) SessionStatus {
-	return SessionStatusFailed
-}
-
-// Execute 执行OpenCode CLI
-func (a *OpenCodeAdapter) Execute(ctx context.Context, config *model.AgentRoleConfig, layers *ContextLayers, input string, workDir string) (string, error) {
-	// 构建提示词
-	prompt := a.buildPrompt(config, layers, input)
-
-	// 准备命令参数
-	modelName := config.ModelName
-	if modelName == "" {
-		modelName = "gpt-4"
-	}
-
-	args := []string{
-		"run",
-		"--model", modelName,
-		"--non-interactive",
-	}
-
-	if config.MaxTokens > 0 {
-		args = append(args, "--max-tokens", fmt.Sprintf("%d", config.MaxTokens))
-	}
-
-	// 执行CLI
-	output, err := a.runCLI(ctx, args, prompt, workDir)
+// Execute 执行单次任务（无会话上下文）
+func (a *OpenCodeAdapter) Execute(ctx context.Context, req *ExecutionRequest) (*ExecutionResult, error) {
+	result, err := a.ExecuteWithStream(ctx, req, nil)
 	if err != nil {
-		return "", fmt.Errorf("opencode CLI execution failed: %w", err)
+		return nil, err
 	}
-
-	return output, nil
+	return result, nil
 }
 
 // ExecuteWithStream 流式执行
-func (a *OpenCodeAdapter) ExecuteWithStream(ctx context.Context, config *model.AgentRoleConfig, layers *ContextLayers, input string, workDir string, onChunk func(string)) error {
-	prompt := a.buildPrompt(config, layers, input)
+func (a *OpenCodeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionRequest, onChunk func(Chunk)) (*ExecutionResult, error) {
+	prompt := a.buildPromptFromRequest(req)
 
-	modelName := config.ModelName
+	// 从 BaseAgent 获取模型名称 - 必须指定
+	modelName := ""
+	if req.BaseAgent != nil && req.BaseAgent.DefaultModel != "" {
+		modelName = req.BaseAgent.DefaultModel
+	}
 	if modelName == "" {
-		modelName = "gpt-4"
+		return nil, fmt.Errorf("model name is required for OpenCode adapter, please configure it in BaseAgent")
 	}
 
+	// OpenCode CLI 参数:
+	// - 使用 --format json 获取结构化输出
+	// - 使用 --session 恢复之前的会话，保持上下文
+	// - 消息作为位置参数传递
 	args := []string{
 		"run",
 		"--model", modelName,
-		"--stream",
-		"--non-interactive",
+		"--format", "json",
 	}
 
-	if config.MaxTokens > 0 {
-		args = append(args, "--max-tokens", fmt.Sprintf("%d", config.MaxTokens))
+	// 会话恢复逻辑：
+	// - 首次启动：不传 --session，让 OpenCode 自己创建会话，然后从输出中提取 sessionID
+	// - 后续消息：只使用 --session 恢复之前的会话，保持对话上下文
+	sessionKey := req.SessionKey
+	if sessionKey != "" {
+		args = append(args, "--session", sessionKey)
+		logInfo("OpenCode: Resuming session with --session", zap.String("sessionKey", sessionKey))
+	} else {
+		logInfo("OpenCode: Starting new session - will extract sessionKey from output")
 	}
+
+	// 构建完整命令字符串（用于日志）
+	fullCommand := fmt.Sprintf("%s %s", a.cliPath, strings.Join(args, " "))
+	if req.WorkDir != "" {
+		fullCommand = fmt.Sprintf("cd %s && %s", req.WorkDir, fullCommand)
+	}
+
+	// 记录完整命令到日志文件
+	logInfo("OpenCode CLI Full Command",
+		zap.String("command", fullCommand),
+		zap.String("cliPath", a.cliPath),
+		zap.String("workDir", req.WorkDir),
+		zap.String("sessionKey", sessionKey))
 
 	cmd := exec.CommandContext(ctx, a.cliPath, args...)
+
+	// 通过 Stdin 传递 prompt，避免命令行参数丢失换行符的问题
 	cmd.Stdin = strings.NewReader(prompt)
 
 	// 设置工作目录
-	if workDir != "" {
-		cmd.Dir = workDir
+	if req.WorkDir != "" {
+		cmd.Dir = req.WorkDir
 	}
 
+	// 设置环境变量
+	env := a.buildEnv()
+	cmd.Env = env
+
+	// 获取 stdout 和 stderr 管道
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create stderr pipe: %w", err)
 	}
 
 	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start command: %w", err)
+	}
+
+	logInfo("OpenCode process started", zap.Int("pid", cmd.Process.Pid))
+
+	// 读取 stderr
+	var stderrOutput strings.Builder
+	stderrDone := make(chan struct{})
+	go func() {
+		defer close(stderrDone)
+		scanner := bufio.NewScanner(stderr)
+		for scanner.Scan() {
+			line := scanner.Text()
+			stderrOutput.WriteString(line)
+			stderrOutput.WriteString("\n")
+			logDebug("OpenCode stderr", zap.String("line", line))
+		}
+	}()
+
+	// 用于保存提取的 sessionKey
+	extractedSessionKey := sessionKey
+
+	// 读取 stdout 并解析 JSON 格式
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 1024*1024), 10*1024*1024)
+	lineCount := 0
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+		lineCount++
+
+		// 记录原始输出
+		linePreview := line
+		if len(linePreview) > 500 {
+			linePreview = linePreview[:500] + "..."
+		}
+		logDebug("OpenCode stdout line", zap.Int("lineNum", lineCount), zap.String("line", linePreview))
+
+		// 提取 sessionKey（首次启动时）
+		if extractedSessionKey == "" {
+			extractedSessionKey = a.extractSessionIDFromJSON(line)
+			if extractedSessionKey != "" {
+				logInfo("OpenCode: Extracted sessionKey from output", zap.String("sessionKey", extractedSessionKey))
+			}
+		}
+
+		// 解析 JSON 格式输出
+		text := a.extractTextFromJSON(line)
+		if text != "" {
+			textPreview := text
+			if len(textPreview) > 200 {
+				textPreview = textPreview[:200] + "..."
+			}
+			logDebug("OpenCode extracted text", zap.String("text", textPreview))
+			if onChunk != nil {
+				onChunk(Chunk{Type: ChunkTypeText, Content: text})
+			}
+		} else {
+			logDebug("OpenCode: no text extracted from line")
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		logError("OpenCode scanner error", zap.Error(err))
+		return nil, fmt.Errorf("scanner error: %w", err)
+	}
+
+	// 等待命令完成
+	if err := cmd.Wait(); err != nil {
+		<-stderrDone
+		if stderrOutput.Len() > 0 {
+			logError("OpenCode CLI error", zap.String("stderr", stderrOutput.String()))
+			return nil, fmt.Errorf("CLI error: %s", stderrOutput.String())
+		}
+		return nil, fmt.Errorf("CLI execution failed: %w", err)
+	}
+
+	logInfo("OpenCode process completed",
+		zap.Int("totalLines", lineCount),
+		zap.String("sessionKey", extractedSessionKey))
+
+	return &ExecutionResult{SessionKey: extractedSessionKey}, nil
+}
+
+// StartSession 启动交互式会话
+func (a *OpenCodeAdapter) StartSession(ctx context.Context, sessionID string, req *ExecutionRequest) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	session := &openCodeSession{
+		id:     sessionID,
+		status: SessionStatusRunning,
+	}
+
+	// 首次启动使用 ExecuteWithStream
+	result, err := a.ExecuteWithStream(ctx, req, nil)
+	if err != nil {
+		session.status = SessionStatusFailed
 		return err
 	}
 
-	scanner := bufio.NewScanner(stdout)
-	for scanner.Scan() {
-		line := scanner.Text()
-		var chunk OpenCodeStreamChunk
-		if err := json.Unmarshal([]byte(line), &chunk); err != nil {
-			// 如果不是JSON，直接作为文本处理
-			onChunk(line + "\n")
-			continue
-		}
-		if chunk.Content != "" {
-			onChunk(chunk.Content)
-		}
-	}
+	session.sessionKey = result.SessionKey
+	a.sessions[sessionID] = session
 
-	return cmd.Wait()
+	return nil
 }
 
-// buildPrompt 构建提示词
-func (a *OpenCodeAdapter) buildPrompt(config *model.AgentRoleConfig, layers *ContextLayers, input string) string {
+// ResumeSession 恢复会话
+func (a *OpenCodeAdapter) ResumeSession(ctx context.Context, sessionID string, input string, onChunk func(Chunk)) error {
+	a.mu.RLock()
+	session, exists := a.sessions[sessionID]
+	a.mu.RUnlock()
+
+	if !exists {
+		return fmt.Errorf("session not found: %s", sessionID)
+	}
+
+	req := &ExecutionRequest{
+		SessionKey: session.sessionKey,
+		Input:      input,
+		BaseAgent:  a.baseAgent,
+	}
+
+	_, err := a.ExecuteWithStream(ctx, req, onChunk)
+	return err
+}
+
+// StopSession 停止会话
+func (a *OpenCodeAdapter) StopSession(sessionID string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	session, exists := a.sessions[sessionID]
+	if !exists {
+		return nil
+	}
+
+	session.status = SessionStatusStopped
+	delete(a.sessions, sessionID)
+	return nil
+}
+
+// GetSessionStatus 获取会话状态
+func (a *OpenCodeAdapter) GetSessionStatus(sessionID string) SessionStatus {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	session, exists := a.sessions[sessionID]
+	if !exists {
+		return SessionStatusStopped
+	}
+	return session.status
+}
+
+// buildPromptFromRequest 从ExecutionRequest构建提示词
+// OpenCode 使用 --session 时会自己管理会话上下文
+// 首次调用：只传系统提示 + 用户输入
+// 后续调用：只传用户输入
+func (a *OpenCodeAdapter) buildPromptFromRequest(req *ExecutionRequest) string {
+	// 如果是恢复会话，只返回用户输入
+	if req.SessionKey != "" {
+		return req.Input
+	}
+
+	// 首次调用：系统提示 + 用户输入
 	var sb strings.Builder
 
 	// Layer 0: 系统提示
-	sb.WriteString("<system>\n")
-	sb.WriteString(layers.Layer0)
-	sb.WriteString("\n</system>\n\n")
-
-	// Layer 1: Thread历史
-	if layers.Layer1 != "" {
-		sb.WriteString("<conversation>\n")
-		sb.WriteString(layers.Layer1)
-		sb.WriteString("\n</conversation>\n\n")
-	}
-
-	// Layer 2: 工作产物
-	if layers.Layer2 != "" {
-		sb.WriteString("<artifacts>\n")
-		sb.WriteString(layers.Layer2)
-		sb.WriteString("\n</artifacts>\n\n")
-	}
-
-	// Layer 3: 环境信息
-	if layers.Layer3 != "" {
-		sb.WriteString("<environment>\n")
-		sb.WriteString(layers.Layer3)
-		sb.WriteString("\n</environment>\n\n")
+	if req.Context != nil && req.Context.Layer0 != "" {
+		sb.WriteString(req.Context.Layer0)
+		sb.WriteString("\n\n")
 	}
 
 	// 用户输入
-	sb.WriteString("<user>\n")
-	sb.WriteString(input)
-	sb.WriteString("\n</user>\n")
+	sb.WriteString(req.Input)
 
 	return sb.String()
 }
 
-// runCLI 运行CLI
-func (a *OpenCodeAdapter) runCLI(ctx context.Context, args []string, input string, workDir string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, a.timeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, a.cliPath, args...)
-	cmd.Stdin = strings.NewReader(input)
-
-	// 设置工作目录
-	if workDir != "" {
-		cmd.Dir = workDir
-	}
-
-	// 设置环境变量
+// buildEnv 构建环境变量
+func (a *OpenCodeAdapter) buildEnv() []string {
 	env := os.Environ()
-
-	// 如果配置了API URL和Token，添加到环境变量
 	if a.apiURL != "" {
 		env = append(env, fmt.Sprintf("OPENCODE_API_URL=%s", a.apiURL))
 	}
 	if a.apiToken != "" {
 		env = append(env, fmt.Sprintf("OPENCODE_API_KEY=%s", a.apiToken))
 	}
-
-	cmd.Env = env
-
-	output, err := cmd.Output()
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			return "", fmt.Errorf("CLI error (exit %d): %s", exitErr.ExitCode(), string(exitErr.Stderr))
-		}
-		return "", err
+	if a.gitBashPath != "" {
+		env = append(env, fmt.Sprintf("OPENCODE_GIT_BASH_PATH=%s", a.gitBashPath))
 	}
-
-	return string(output), nil
+	return env
 }
 
-// OpenCodeStreamChunk OpenCode流式响应块
-type OpenCodeStreamChunk struct {
-	Type    string `json:"type"`
-	Content string `json:"content"`
-	Done    bool   `json:"done"`
+// OpenCodeJSONChunk OpenCode JSON 响应块
+type OpenCodeJSONChunk struct {
+	Type    string        `json:"type"`
+	Content string        `json:"content"`
+	Delta   string        `json:"delta"`
+	Text    string        `json:"text"`
+	Done    bool          `json:"done"`
+	Error   string        `json:"error"`
+	Part    *OpenCodePart `json:"part"`
+}
+
+// OpenCodePart OpenCode part 结构
+type OpenCodePart struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+// extractTextFromJSON 从 OpenCode JSON 输出中提取文本内容
+func (a *OpenCodeAdapter) extractTextFromJSON(line string) string {
+	var chunk OpenCodeJSONChunk
+	if err := json.Unmarshal([]byte(line), &chunk); err != nil {
+		// 非 JSON，直接返回原文
+		return line
+	}
+
+	// 处理错误
+	if chunk.Error != "" {
+		return fmt.Sprintf("ERROR: %s", chunk.Error)
+	}
+
+	// OpenCode 实际格式：文本在 part.text 中
+	if chunk.Part != nil && chunk.Part.Text != "" {
+		return chunk.Part.Text
+	}
+
+	// 优先返回 delta（增量文本）
+	if chunk.Delta != "" {
+		return chunk.Delta
+	}
+
+	// 其次返回 content
+	if chunk.Content != "" {
+		return chunk.Content
+	}
+
+	// 最后返回 text
+	if chunk.Text != "" {
+		return chunk.Text
+	}
+
+	return ""
+}
+
+// extractSessionIDFromJSON 从 OpenCode JSON 输出中提取 sessionID
+func (a *OpenCodeAdapter) extractSessionIDFromJSON(line string) string {
+	var data struct {
+		SessionID string `json:"sessionID"`
+	}
+
+	err := json.Unmarshal([]byte(line), &data)
+	result := ""
+
+	linePreview := func() string {
+		if len(line) > 200 {
+			return line[:200]
+		}
+		return line
+	}()
+
+	if err != nil {
+		logDebug("extractSessionIDFromJSON: JSON parse error",
+			zap.Error(err),
+			zap.String("linePreview", linePreview))
+	} else if data.SessionID != "" {
+		result = data.SessionID
+		logInfo("extractSessionIDFromJSON: SUCCESS - extracted sessionID",
+			zap.String("sessionID", result))
+	} else {
+		logDebug("extractSessionIDFromJSON: JSON parsed but sessionID field is empty",
+			zap.String("linePreview", linePreview))
+	}
+
+	return result
 }
 
 // CheckHealth 检查CLI健康状态
@@ -244,8 +438,7 @@ func (a *OpenCodeAdapter) GetAvailableModels(ctx context.Context) ([]string, err
 	cmd := exec.CommandContext(ctx, a.cliPath, "models", "--list")
 	output, err := cmd.Output()
 	if err != nil {
-		// 如果命令不存在，返回默认模型列表
-		return []string{"gpt-4", "gpt-4-turbo", "gpt-3.5-turbo", "claude-3-opus", "claude-3-sonnet"}, nil
+		return nil, fmt.Errorf("failed to get available models: %w", err)
 	}
 
 	var models []string
