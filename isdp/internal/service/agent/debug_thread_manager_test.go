@@ -24,7 +24,7 @@ func TestNewDebugThreadManager(t *testing.T) {
 
 func TestDebugThreadManager_CreateThread(t *testing.T) {
 	mgr := NewDebugThreadManager(nil)
-	thread := mgr.CreateThread()
+	thread := mgr.CreateThread("")
 
 	if thread == nil {
 		t.Error("Expected non-nil thread")
@@ -38,6 +38,9 @@ func TestDebugThreadManager_CreateThread(t *testing.T) {
 	if len(thread.Messages) != 0 {
 		t.Error("Expected empty messages slice")
 	}
+	if thread.ProjectPath != "" {
+		t.Errorf("Expected empty project path, got %s", thread.ProjectPath)
+	}
 
 	// Verify thread is stored
 	retrieved := mgr.GetThread(thread.ID)
@@ -48,7 +51,7 @@ func TestDebugThreadManager_CreateThread(t *testing.T) {
 
 func TestDebugThreadManager_AddMessage(t *testing.T) {
 	mgr := NewDebugThreadManager(nil)
-	thread := mgr.CreateThread()
+	thread := mgr.CreateThread("")
 
 	msg := &model.Message{
 		ID:      uuid.New(),
@@ -68,7 +71,7 @@ func TestDebugThreadManager_AddMessage(t *testing.T) {
 
 func TestDebugThreadManager_SetStatus(t *testing.T) {
 	mgr := NewDebugThreadManager(nil)
-	thread := mgr.CreateThread()
+	thread := mgr.CreateThread("")
 
 	mgr.SetStatus(thread.ID, "running")
 	if thread.Status != "running" {
@@ -78,7 +81,7 @@ func TestDebugThreadManager_SetStatus(t *testing.T) {
 
 func TestDebugThreadManager_DeleteThread(t *testing.T) {
 	mgr := NewDebugThreadManager(nil)
-	thread := mgr.CreateThread()
+	thread := mgr.CreateThread("")
 
 	mgr.DeleteThread(thread.ID)
 	if mgr.GetThread(thread.ID) != nil {
@@ -93,7 +96,7 @@ func TestDebugThreadManager_ConcurrentAccess(t *testing.T) {
 	done := make(chan bool)
 	for i := 0; i < 100; i++ {
 		go func() {
-			thread := mgr.CreateThread()
+			thread := mgr.CreateThread("")
 			if thread == nil {
 				t.Error("Failed to create thread concurrently")
 			}
@@ -104,5 +107,66 @@ func TestDebugThreadManager_ConcurrentAccess(t *testing.T) {
 	// Wait for all goroutines
 	for i := 0; i < 100; i++ {
 		<-done
+	}
+}
+
+func TestDebugThreadManager_TryStartExecution(t *testing.T) {
+	mgr := NewDebugThreadManager(nil)
+	thread := mgr.CreateThread("")
+
+	// Should succeed from idle state
+	if !mgr.TryStartExecution(thread.ID) {
+		t.Error("Expected TryStartExecution to succeed from idle state")
+	}
+	if thread.Status != DebugThreadStatusRunning {
+		t.Errorf("Expected status 'running', got %s", thread.Status)
+	}
+
+	// Should fail from running state
+	if mgr.TryStartExecution(thread.ID) {
+		t.Error("Expected TryStartExecution to fail from running state")
+	}
+
+	// Set to completed and try again
+	mgr.SetStatus(thread.ID, DebugThreadStatusCompleted)
+	if !mgr.TryStartExecution(thread.ID) {
+		t.Error("Expected TryStartExecution to succeed from completed state")
+	}
+	if thread.Status != DebugThreadStatusRunning {
+		t.Errorf("Expected status 'running', got %s", thread.Status)
+	}
+}
+
+func TestDebugThreadManager_CompareAndSwapStatus(t *testing.T) {
+	mgr := NewDebugThreadManager(nil)
+	thread := mgr.CreateThread("")
+
+	// Should succeed when status matches
+	if !mgr.CompareAndSwapStatus(thread.ID, DebugThreadStatusIdle, DebugThreadStatusRunning) {
+		t.Error("Expected CompareAndSwapStatus to succeed")
+	}
+	if thread.Status != DebugThreadStatusRunning {
+		t.Errorf("Expected status 'running', got %s", thread.Status)
+	}
+
+	// Should fail when status doesn't match
+	if mgr.CompareAndSwapStatus(thread.ID, DebugThreadStatusIdle, DebugThreadStatusRunning) {
+		t.Error("Expected CompareAndSwapStatus to fail when status doesn't match")
+	}
+}
+
+func TestDebugThreadManager_GetProjectPath(t *testing.T) {
+	mgr := NewDebugThreadManager(nil)
+	thread := mgr.CreateThread("/path/to/project")
+
+	path := mgr.GetProjectPath(thread.ID)
+	if path != "/path/to/project" {
+		t.Errorf("Expected '/path/to/project', got %s", path)
+	}
+
+	// Test non-existent thread
+	path = mgr.GetProjectPath(uuid.New())
+	if path != "" {
+		t.Errorf("Expected empty path for non-existent thread, got %s", path)
 	}
 }

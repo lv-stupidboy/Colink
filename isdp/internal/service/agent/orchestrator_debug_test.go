@@ -39,7 +39,7 @@ func TestOrchestrator_ContinueDebugAgent_ThreadNotFound(t *testing.T) {
 
 func TestOrchestrator_ContinueDebugAgent_ThreadRunning(t *testing.T) {
 	mgr := NewDebugThreadManager(nil)
-	thread := mgr.CreateThread()
+	thread := mgr.CreateThread("")
 	mgr.SetStatus(thread.ID, DebugThreadStatusRunning)
 
 	o := &Orchestrator{debugThreadMgr: mgr}
@@ -63,7 +63,7 @@ func TestOrchestrator_SetDebugThreadManager(t *testing.T) {
 
 func TestOrchestrator_ContinueDebugAgent_NoPreviousAgentContext(t *testing.T) {
 	mgr := NewDebugThreadManager(nil)
-	thread := mgr.CreateThread()
+	thread := mgr.CreateThread("")
 
 	o := &Orchestrator{debugThreadMgr: mgr}
 

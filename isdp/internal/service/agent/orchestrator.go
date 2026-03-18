@@ -536,26 +536,31 @@ func (o *Orchestrator) SpawnDebugAgent(ctx context.Context, req *SpawnRequest) (
 		return nil, fmt.Errorf("debug thread not found: %s", req.ThreadID)
 	}
 
+	// 原子地将状态从 idle 或 completed 转换为 running
+	if !o.debugThreadMgr.TryStartExecution(req.ThreadID) {
+		return nil, fmt.Errorf("agent is busy, current status: %s", debugThread.Status)
+	}
+
 	// 获取Agent配置
 	config, err := o.configSvc.GetByID(ctx, req.ConfigID)
 	if err != nil {
+		o.debugThreadMgr.SetStatus(req.ThreadID, DebugThreadStatusIdle)
 		return nil, fmt.Errorf("agent config not found: %w", err)
 	}
 
 	// 获取基础Agent
 	baseAgent, err := o.baseAgentSvc.GetByID(ctx, config.BaseAgentID)
 	if err != nil {
+		o.debugThreadMgr.SetStatus(req.ThreadID, DebugThreadStatusIdle)
 		return nil, fmt.Errorf("base agent not found: %w", err)
 	}
 
 	// 创建适配器
 	adapter := NewAdapter(baseAgent)
 	if adapter == nil {
+		o.debugThreadMgr.SetStatus(req.ThreadID, DebugThreadStatusIdle)
 		return nil, fmt.Errorf("unsupported agent type: %s", baseAgent.Type)
 	}
-
-	// 更新调试线程状态
-	o.debugThreadMgr.SetStatus(req.ThreadID, DebugThreadStatusRunning)
 
 	// 添加用户消息到内存
 	userMsg := &model.Message{
@@ -646,8 +651,8 @@ func (o *Orchestrator) executeDebugAgent(
 	// 广播完整消息
 	o.debugThreadMgr.BroadcastMessage(threadID.String(), agentMsg.ID.String(), agentID, agentName, agentRole, agentMsg.Content)
 
-	// 更新线程状态
-	o.debugThreadMgr.SetStatus(threadID, DebugThreadStatusIdle)
+	// 更新线程状态为完成
+	o.debugThreadMgr.SetStatus(threadID, DebugThreadStatusCompleted)
 }
 
 // ContinueDebugAgent 继续调试会话
@@ -660,11 +665,6 @@ func (o *Orchestrator) ContinueDebugAgent(ctx context.Context, threadID uuid.UUI
 	debugThread := o.debugThreadMgr.GetThread(threadID)
 	if debugThread == nil {
 		return fmt.Errorf("debug thread not found: %s", threadID)
-	}
-
-	// 检查线程状态
-	if debugThread.Status == DebugThreadStatusRunning {
-		return fmt.Errorf("agent is still running, please wait")
 	}
 
 	// 获取最后一条Agent消息确定配置
@@ -680,12 +680,15 @@ func (o *Orchestrator) ContinueDebugAgent(ctx context.Context, threadID uuid.UUI
 		return fmt.Errorf("no previous agent context found")
 	}
 
+	// 获取存储的项目路径
+	projectPath := o.debugThreadMgr.GetProjectPath(threadID)
+
 	// 使用相同的配置继续执行
 	req := &SpawnRequest{
 		ThreadID:    threadID,
 		ConfigID:    lastConfigID,
 		Input:       message,
-		ProjectPath: "",
+		ProjectPath: projectPath,
 	}
 
 	_, err := o.SpawnDebugAgent(ctx, req)

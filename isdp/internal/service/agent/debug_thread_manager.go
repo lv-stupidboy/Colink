@@ -20,10 +20,11 @@ const (
 
 // DebugThread 内存中的调试线程
 type DebugThread struct {
-	ID        uuid.UUID
-	Status    string // idle, running, completed, error
-	CreatedAt time.Time
-	Messages  []*model.Message
+	ID          uuid.UUID
+	Status      string // idle, running, completed, error
+	CreatedAt   time.Time
+	Messages    []*model.Message
+	ProjectPath string // 工作目录路径
 }
 
 // DebugThreadManager 调试线程管理器
@@ -97,15 +98,16 @@ func (m *DebugThreadManager) Stop() {
 }
 
 // CreateThread 创建调试线程
-func (m *DebugThreadManager) CreateThread() *DebugThread {
+func (m *DebugThreadManager) CreateThread(projectPath string) *DebugThread {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	thread := &DebugThread{
-		ID:        uuid.New(),
-		Status:    DebugThreadStatusIdle,
-		CreatedAt: time.Now(),
-		Messages:  make([]*model.Message, 0),
+		ID:          uuid.New(),
+		Status:      DebugThreadStatusIdle,
+		CreatedAt:   time.Now(),
+		Messages:    make([]*model.Message, 0),
+		ProjectPath: projectPath,
 	}
 	m.threads[thread.ID] = thread
 	return thread
@@ -150,6 +152,49 @@ func (m *DebugThreadManager) SetStatus(threadID uuid.UUID, status string) {
 	if thread, ok := m.threads[threadID]; ok {
 		thread.Status = status
 	}
+}
+
+// CompareAndSwapStatus 原子地比较并交换状态
+// 只有当当前状态等于 expected 时，才设置为 newStatus
+// 返回是否成功交换
+func (m *DebugThreadManager) CompareAndSwapStatus(threadID uuid.UUID, expected, newStatus string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if thread, ok := m.threads[threadID]; ok {
+		if thread.Status == expected {
+			thread.Status = newStatus
+			return true
+		}
+	}
+	return false
+}
+
+// TryStartExecution 尝试启动执行
+// 原子地将状态从 idle 或 completed 转换为 running
+// 返回是否成功转换
+func (m *DebugThreadManager) TryStartExecution(threadID uuid.UUID) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if thread, ok := m.threads[threadID]; ok {
+		if thread.Status == DebugThreadStatusIdle || thread.Status == DebugThreadStatusCompleted {
+			thread.Status = DebugThreadStatusRunning
+			return true
+		}
+	}
+	return false
+}
+
+// GetProjectPath 获取线程的工作目录
+func (m *DebugThreadManager) GetProjectPath(threadID uuid.UUID) string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if thread, ok := m.threads[threadID]; ok {
+		return thread.ProjectPath
+	}
+	return ""
 }
 
 // DeleteThread 删除调试线程（清理资源）
