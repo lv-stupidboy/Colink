@@ -236,25 +236,6 @@ func (es *ExecutionService) saveAgentMessage(ctx context.Context, threadID uuid.
 	}
 }
 
-// mergeConfig 合并 AgentRoleConfig 和 BaseAgent 的配置
-func (es *ExecutionService) mergeConfig(config *model.AgentRoleConfig, baseAgent *model.BaseAgent) *model.AgentRoleConfig {
-	// 复制原始配置
-	merged := *config
-
-	if baseAgent == nil {
-		return &merged
-	}
-
-	// 注意：模型名称现在从 BaseAgent.DefaultModel 获取，不再存储在 AgentRoleConfig 中
-
-	// 如果没有指定 MaxTokens，使用 BaseAgent 的配置
-	if merged.MaxTokens == 0 && baseAgent.MaxTokens > 0 {
-		merged.MaxTokens = baseAgent.MaxTokens
-	}
-
-	return &merged
-}
-
 // getAdapter 获取适配器
 func (es *ExecutionService) getAdapter(ctx context.Context, config *model.AgentRoleConfig, baseAgent *model.BaseAgent) (AgentAdapter, error) {
 	// 如果有 BaseAgent，使用它创建适配器
