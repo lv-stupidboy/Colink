@@ -34,6 +34,9 @@ type OpenCodeAdapter struct {
 type openCodeSession struct {
 	id         string
 	sessionKey string // 从CLI输出提取的sessionID
+	cmd        *exec.Cmd        // Reserved for future process management
+	ctx        context.Context  // Reserved for future process management
+	cancel     context.CancelFunc // Reserved for future process management
 	status     SessionStatus
 }
 
@@ -148,11 +151,13 @@ func (a *OpenCodeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionR
 
 	logInfo("OpenCode process started", zap.Int("pid", cmd.Process.Pid))
 
-	// 读取 stderr
+	var wg sync.WaitGroup
 	var stderrOutput strings.Builder
-	stderrDone := make(chan struct{})
+
+	// 读取 stderr - 使用 WaitGroup 确保goroutine完成
+	wg.Add(1)
 	go func() {
-		defer close(stderrDone)
+		defer wg.Done()
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
 			line := scanner.Text()
@@ -164,57 +169,64 @@ func (a *OpenCodeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionR
 
 	// 用于保存提取的 sessionKey
 	extractedSessionKey := sessionKey
+	var totalLines int // 用于统计总行数
 
-	// 读取 stdout 并解析 JSON 格式
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 1024*1024), 10*1024*1024)
-	lineCount := 0
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" {
-			continue
-		}
-		lineCount++
+	// 读取 stdout 并解析 JSON 格式 - 使用 WaitGroup 确保goroutine完成
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		scanner := bufio.NewScanner(stdout)
+		scanner.Buffer(make([]byte, 1024*1024), 10*1024*1024)
+		lineCount := 0
+		for scanner.Scan() {
+			line := scanner.Text()
+			if line == "" {
+				continue
+			}
+			lineCount++
 
-		// 记录原始输出
-		linePreview := line
-		if len(linePreview) > 500 {
-			linePreview = linePreview[:500] + "..."
-		}
-		logDebug("OpenCode stdout line", zap.Int("lineNum", lineCount), zap.String("line", linePreview))
+			// 记录原始输出
+			linePreview := line
+			if len(linePreview) > 500 {
+				linePreview = linePreview[:500] + "..."
+			}
+			logDebug("OpenCode stdout line", zap.Int("lineNum", lineCount), zap.String("line", linePreview))
 
-		// 提取 sessionKey（首次启动时）
-		if extractedSessionKey == "" {
-			extractedSessionKey = a.extractSessionIDFromJSON(line)
-			if extractedSessionKey != "" {
-				logInfo("OpenCode: Extracted sessionKey from output", zap.String("sessionKey", extractedSessionKey))
+			// 提取 sessionKey（首次启动时）
+			if extractedSessionKey == "" {
+				extractedSessionKey = a.extractSessionIDFromJSON(line)
+				if extractedSessionKey != "" {
+					logInfo("OpenCode: Extracted sessionKey from output", zap.String("sessionKey", extractedSessionKey))
+				}
+			}
+
+			// 解析 JSON 格式输出
+			text := a.extractTextFromJSON(line)
+			if text != "" {
+				textPreview := text
+				if len(textPreview) > 200 {
+					textPreview = textPreview[:200] + "..."
+				}
+				logDebug("OpenCode extracted text", zap.String("text", textPreview))
+				if onChunk != nil {
+					onChunk(Chunk{Type: ChunkTypeText, Content: text})
+				}
+			} else {
+				logDebug("OpenCode: no text extracted from line")
 			}
 		}
 
-		// 解析 JSON 格式输出
-		text := a.extractTextFromJSON(line)
-		if text != "" {
-			textPreview := text
-			if len(textPreview) > 200 {
-				textPreview = textPreview[:200] + "..."
-			}
-			logDebug("OpenCode extracted text", zap.String("text", textPreview))
-			if onChunk != nil {
-				onChunk(Chunk{Type: ChunkTypeText, Content: text})
-			}
-		} else {
-			logDebug("OpenCode: no text extracted from line")
+		if err := scanner.Err(); err != nil {
+			logError("OpenCode stdout scanner error", zap.Error(err))
 		}
-	}
+		totalLines = lineCount
+	}()
 
-	if err := scanner.Err(); err != nil {
-		logError("OpenCode scanner error", zap.Error(err))
-		return nil, fmt.Errorf("scanner error: %w", err)
-	}
+	// 等待所有 goroutine 完成
+	wg.Wait()
 
-	// 等待命令完成
+	// 在 wg.Wait() 之后调用 cmd.Wait() 清理进程资源
 	if err := cmd.Wait(); err != nil {
-		<-stderrDone
 		if stderrOutput.Len() > 0 {
 			logError("OpenCode CLI error", zap.String("stderr", stderrOutput.String()))
 			return nil, fmt.Errorf("CLI error: %s", stderrOutput.String())
@@ -223,7 +235,7 @@ func (a *OpenCodeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionR
 	}
 
 	logInfo("OpenCode process completed",
-		zap.Int("totalLines", lineCount),
+		zap.Int("totalLines", totalLines),
 		zap.String("sessionKey", extractedSessionKey))
 
 	return &ExecutionResult{SessionKey: extractedSessionKey}, nil
@@ -283,6 +295,15 @@ func (a *OpenCodeAdapter) StopSession(sessionID string) error {
 	}
 
 	session.status = SessionStatusStopped
+
+	// 进程管理 - 与 ClaudeAdapter 保持一致
+	if session.cancel != nil {
+		session.cancel()
+	}
+	if session.cmd != nil && session.cmd.Process != nil {
+		session.cmd.Process.Kill()
+	}
+
 	delete(a.sessions, sessionID)
 	return nil
 }
