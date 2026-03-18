@@ -2,28 +2,32 @@ package agent
 
 import (
 	"context"
-	"time"
 
 	"github.com/anthropic/isdp/internal/model"
 )
 
-// AgentAdapter Agent适配器接口
+// AgentAdapter Agent适配器接口 - 统一的执行和会话管理接口
 type AgentAdapter interface {
-	// Execute 执行Agent
-	Execute(ctx context.Context, config *model.AgentRoleConfig, layers *ContextLayers, input string, workDir string) (string, error)
-	// ExecuteWithStream 流式执行Agent
-	ExecuteWithStream(ctx context.Context, config *model.AgentRoleConfig, layers *ContextLayers, input string, workDir string, onChunk func(string)) error
-	// CheckHealth 检查健康状态
-	CheckHealth(ctx context.Context) error
-}
+	// Execute 执行单次任务（无会话上下文）
+	Execute(ctx context.Context, req *ExecutionRequest) (*ExecutionResult, error)
 
-// SessionExecutor 会话执行器接口，扩展了AgentAdapter的会话管理能力
-type SessionExecutor interface {
-	AgentAdapter
-	StartSession(ctx context.Context, sessionID string, config *model.AgentRoleConfig, baseAgent *model.BaseAgent, workDir string) error
-	ResumeSession(ctx context.Context, sessionID string, input string) error
-	StopSession(ctx context.Context, sessionID string) error
+	// ExecuteWithStream 流式执行，实时回调输出
+	ExecuteWithStream(ctx context.Context, req *ExecutionRequest, onChunk func(Chunk)) (*ExecutionResult, error)
+
+	// StartSession 启动交互式会话
+	StartSession(ctx context.Context, sessionID string, req *ExecutionRequest) error
+
+	// ResumeSession 恢复会话，发送新消息
+	ResumeSession(ctx context.Context, sessionID string, input string, onChunk func(Chunk)) error
+
+	// StopSession 停止会话
+	StopSession(sessionID string) error
+
+	// GetSessionStatus 获取会话状态
 	GetSessionStatus(sessionID string) SessionStatus
+
+	// CheckHealth 检查CLI健康状态
+	CheckHealth(ctx context.Context) error
 }
 
 // SessionStatus 会话状态
@@ -46,16 +50,12 @@ func NewAdapter(baseAgent *model.BaseAgent) AgentAdapter {
 
 	switch baseAgent.Type {
 	case model.BaseAgentTypeClaudeCode:
-		return NewClaudeAdapterFromBaseAgent(baseAgent)
+		return NewClaudeAdapter(baseAgent)
 	case model.BaseAgentTypeOpenCode:
 		return NewOpenCodeAdapter(baseAgent)
 	default:
 		return nil
 	}
-}
-
-func timePtr(t time.Time) *time.Time {
-	return &t
 }
 
 func min(a, b int) int {
