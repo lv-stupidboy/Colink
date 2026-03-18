@@ -82,6 +82,10 @@ func main() {
 	wsHub := ws.NewHub()
 	go wsHub.Run()
 
+	// 初始化调试线程管理器
+	debugThreadMgr := agent.NewDebugThreadManager(wsHub)
+	defer debugThreadMgr.Stop() // 优雅关闭调试线程管理器
+
 	// 初始化Repositories
 	projectRepo := repo.NewProjectRepository(db)
 	threadRepo := repo.NewThreadRepository(db)
@@ -114,14 +118,19 @@ func main() {
 		logger.Warn("Failed to initialize system workflow templates", zap.Error(err))
 	}
 
-	// 初始化适配器（使用默认Claude适配器，后续会改为从BaseAgent动态创建）
-	claudeAdapter := agent.NewClaudeAdapter(cfg.Claude.Path)
+	// 初始化适配器
+	// 默认适配器设为 nil，在执行时根据 AgentRoleConfig.BaseAgentID 动态创建适配器
+	// 这样可以支持多种类型的 Agent（Claude、OpenCode 等）
+	var defaultAdapter agent.AgentAdapter = nil
 	_ = agent.NewContextBuilder(threadRepo, messageRepo, artifactRepo) // TODO: wire into orchestrator
 	tracker := agent.NewInvocationTracker(invocationRepo)
 	orchestrator := agent.NewOrchestrator(
 		invocationRepo, threadRepo, messageRepo,
-		configService, baseAgentService, tracker, workflowEngine, workflowRepo, projectRepo, wsHub, claudeAdapter,
+		configService, baseAgentService, tracker, workflowEngine, workflowRepo, projectRepo, wsHub, defaultAdapter,
 	)
+
+	// 在Orchestrator中设置调试管理器
+	orchestrator.SetDebugThreadManager(debugThreadMgr)
 
 	// 连接Message服务和Agent编排器（用户消息触发Agent）
 	messageService.SetAgentSpawner(orchestrator)
@@ -189,7 +198,7 @@ func main() {
 	messageHandler := api.NewMessageHandler(messageService)
 	messageHandler.RegisterRoutes(v1)
 
-	agentHandler := api.NewAgentHandler(configService, baseAgentService, orchestrator, threadRepo)
+	agentHandler := api.NewAgentHandler(configService, baseAgentService, orchestrator, threadRepo, debugThreadMgr)
 	agentHandler.RegisterRoutes(v1)
 
 	// 基础Agent Handler
@@ -431,7 +440,6 @@ CREATE TABLE IF NOT EXISTS agent_configs (
     role TEXT NOT NULL,
     description TEXT,
     system_prompt TEXT,
-    model_name TEXT DEFAULT 'claude-sonnet-4-6',
     max_tokens INTEGER DEFAULT 4096,
     temperature REAL DEFAULT 0.7,
     routing_config TEXT,
@@ -527,6 +535,43 @@ CREATE INDEX IF NOT EXISTS idx_artifacts_thread_id ON artifacts(thread_id);
 			if err != nil {
 				fmt.Printf("Warning: could not add %s column to %s: %v\n", m.column, m.table, err)
 			}
+		}
+	}
+
+	// 迁移：移除 agent_configs 表的 model_name 字段（如果存在）
+	// SQLite 不支持直接 DROP COLUMN，需要检查是否需要迁移
+	var modelNameExists int
+	row := db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('agent_configs') WHERE name='model_name'")
+	if err := row.Scan(&modelNameExists); err == nil && modelNameExists > 0 {
+		// 需要迁移：重建表移除 model_name 字段
+		fmt.Println("Migrating agent_configs table: removing model_name column...")
+		migrateSQL := `
+		CREATE TABLE IF NOT EXISTS agent_configs_new (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			role TEXT NOT NULL,
+			description TEXT,
+			system_prompt TEXT,
+			max_tokens INTEGER DEFAULT 4096,
+			temperature REAL DEFAULT 0.7,
+			routing_config TEXT,
+			base_agent_id TEXT REFERENCES base_agents(id),
+			is_default INTEGER DEFAULT 0,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		);
+		INSERT INTO agent_configs_new (id, name, role, description, system_prompt, max_tokens, temperature, routing_config, base_agent_id, is_default, created_at, updated_at)
+		SELECT id, name, role, description, system_prompt, max_tokens, temperature, routing_config, base_agent_id, is_default, created_at, updated_at
+		FROM agent_configs;
+		DROP TABLE agent_configs;
+		ALTER TABLE agent_configs_new RENAME TO agent_configs;
+		CREATE INDEX IF NOT EXISTS idx_agent_configs_base_agent_id ON agent_configs(base_agent_id);
+		`
+		_, err = db.Exec(migrateSQL)
+		if err != nil {
+			fmt.Printf("Warning: could not migrate agent_configs table: %v\n", err)
+		} else {
+			fmt.Println("Successfully migrated agent_configs table")
 		}
 	}
 
