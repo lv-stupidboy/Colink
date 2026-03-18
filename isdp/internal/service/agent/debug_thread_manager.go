@@ -26,6 +26,7 @@ type DebugThreadManager struct {
 	maxAge          time.Duration // 线程最大存活时间
 	cleanupInterval time.Duration // 清理间隔
 	stopCleanup     chan struct{} // 停止清理信号
+	stopOnce        sync.Once     // 确保 Stop() 只执行一次
 }
 
 // NewDebugThreadManager 创建调试线程管理器
@@ -82,7 +83,9 @@ func (m *DebugThreadManager) cleanupExpiredThreads() {
 
 // Stop 停止清理协程（用于优雅关闭）
 func (m *DebugThreadManager) Stop() {
-	close(m.stopCleanup)
+	m.stopOnce.Do(func() {
+		close(m.stopCleanup)
+	})
 }
 
 // CreateThread 创建调试线程
