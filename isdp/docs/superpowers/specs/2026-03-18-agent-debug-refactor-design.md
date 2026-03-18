@@ -104,17 +104,68 @@ type DebugThread struct {
 
 // DebugThreadManager 调试线程管理器
 type DebugThreadManager struct {
-    threads map[uuid.UUID]*DebugThread
-    mu      sync.RWMutex
-    wsHub   *ws.Hub
+    threads         map[uuid.UUID]*DebugThread
+    mu              sync.RWMutex
+    wsHub           *ws.Hub
+    maxAge          time.Duration // 线程最大存活时间
+    cleanupInterval time.Duration // 清理间隔
+    stopCleanup     chan struct{} // 停止清理信号
 }
 
 // NewDebugThreadManager 创建调试线程管理器
 func NewDebugThreadManager(wsHub *ws.Hub) *DebugThreadManager {
-    return &DebugThreadManager{
-        threads: make(map[uuid.UUID]*DebugThread),
-        wsHub:   wsHub,
+    m := &DebugThreadManager{
+        threads:         make(map[uuid.UUID]*DebugThread),
+        wsHub:           wsHub,
+        maxAge:          2 * time.Hour,        // 默认2小时过期
+        cleanupInterval: 30 * time.Minute,     // 每30分钟清理一次
+        stopCleanup:     make(chan struct{}),
     }
+    go m.startCleanupRoutine()
+    return m
+}
+
+// startCleanupRoutine 定期清理过期线程
+func (m *DebugThreadManager) startCleanupRoutine() {
+    ticker := time.NewTicker(m.cleanupInterval)
+    defer ticker.Stop()
+
+    for {
+        select {
+        case <-ticker.C:
+            m.cleanupExpiredThreads()
+        case <-m.stopCleanup:
+            return
+        }
+    }
+}
+
+// cleanupExpiredThreads 清理过期线程
+func (m *DebugThreadManager) cleanupExpiredThreads() {
+    m.mu.Lock()
+    defer m.mu.Unlock()
+
+    now := time.Now()
+    for id, thread := range m.threads {
+        if now.Sub(thread.CreatedAt) > m.maxAge {
+            // 广播线程关闭消息
+            m.wsHub.BroadcastToThread(id.String(), ws.WSMessage{
+                Type: "thread_expired",
+                Payload: map[string]interface{}{
+                    "threadId": id.String(),
+                    "message":  "调试会话已过期，请重新开始",
+                },
+                ThreadID:  id.String(),
+                Timestamp: now.Unix(),
+            })
+            delete(m.threads, id)
+        }
+    }
+}
+
+// Stop 停止清理协程（用于优雅关闭）
+func (m *DebugThreadManager) Stop() {
+    close(m.stopCleanup)
 }
 
 // CreateThread 创建调试线程
@@ -175,6 +226,58 @@ func (m *DebugThreadManager) DeleteThread(id uuid.UUID) {
     m.mu.Lock()
     defer m.mu.Unlock()
     delete(m.threads, id)
+}
+
+// Broadcast 向线程广播消息（WebSocket集成）
+func (m *DebugThreadManager) Broadcast(threadID uuid.UUID, msgType string, payload interface{}) {
+    if m.wsHub == nil {
+        return
+    }
+
+    msg := ws.WSMessage{
+        Type:      msgType,
+        Payload:   payload.(map[string]interface{}),
+        ThreadID:  threadID.String(),
+        Timestamp: time.Now().Unix(),
+    }
+
+    m.wsHub.BroadcastToThread(threadID.String(), msg)
+}
+
+// BroadcastChunk 广播流式输出块
+func (m *DebugThreadManager) BroadcastChunk(threadID, invocationID, agentID, agentName, chunk string) {
+    m.Broadcast(threadID, "agent_output_chunk", map[string]interface{}{
+        "chunk":       chunk,
+        "invocationId": invocationID,
+        "agentId":     agentID,
+        "agentName":   agentName,
+    })
+}
+
+// BroadcastMessage 广播完整消息
+func (m *DebugThreadManager) BroadcastMessage(threadID, messageID, agentID, agentName, agentRole, content string) {
+    m.Broadcast(threadID, "agent_message", map[string]interface{}{
+        "messageId":  messageID,
+        "agentId":    agentID,
+        "agentName":  agentName,
+        "agentRole":  agentRole,
+        "content":    content,
+    })
+}
+
+// BroadcastSandboxReady 广播沙箱就绪
+func (m *DebugThreadManager) BroadcastSandboxReady(threadID, sandboxURL string) {
+    m.Broadcast(threadID, "sandbox_ready", map[string]interface{}{
+        "url": sandboxURL,
+    })
+}
+
+// BroadcastError 广播错误消息
+func (m *DebugThreadManager) BroadcastError(threadID, errorMsg string) {
+    m.Broadcast(threadID, "system_message", map[string]interface{}{
+        "content": errorMsg,
+        "level":   "error",
+    })
 }
 ```
 
@@ -314,24 +417,184 @@ func (h *AgentHandler) ContinueDebug(c *gin.Context) {
 
 **文件:** `internal/service/agent/orchestrator.go`
 
-添加调试专用方法和字段：
+添加调试专用方法和字段（需要import "fmt", "strings", "time"）：
 
 ```go
+import (
+    "context"
+    "fmt"
+    "strings"
+    "time"
+    // ... 其他现有imports
+)
+
 type Orchestrator struct {
     // ... 现有字段
     debugThreadMgr *DebugThreadManager  // 新增
 }
 
+// SetDebugThreadManager 设置调试线程管理器
+func (o *Orchestrator) SetDebugThreadManager(mgr *DebugThreadManager) {
+    o.debugThreadMgr = mgr
+}
+
 // SpawnDebugAgent 调试模式启动Agent
 func (o *Orchestrator) SpawnDebugAgent(ctx context.Context, req *SpawnRequest) (*model.AgentInvocation, error) {
-    // 类似SpawnAgent，但消息存储到内存而非数据库
-    // 广播使用相同的wsHub
+    if o.debugThreadMgr == nil {
+        return nil, fmt.Errorf("debug thread manager not initialized")
+    }
+
+    // 验证调试线程存在
+    debugThread := o.debugThreadMgr.GetThread(req.ThreadID)
+    if debugThread == nil {
+        return nil, fmt.Errorf("debug thread not found: %s", req.ThreadID)
+    }
+
+    // 获取Agent配置
+    config, err := o.configService.GetByID(ctx, req.ConfigID)
+    if err != nil {
+        return nil, fmt.Errorf("agent config not found: %w", err)
+    }
+
+    // 获取基础Agent
+    baseAgent, err := o.baseAgentService.GetByID(ctx, config.BaseAgentID)
+    if err != nil {
+        return nil, fmt.Errorf("base agent not found: %w", err)
+    }
+
+    // 创建适配器
+    adapter := NewAdapter(baseAgent)
+    if adapter == nil {
+        return nil, fmt.Errorf("unsupported agent type: %s", baseAgent.Type)
+    }
+
+    // 更新调试线程状态
+    o.debugThreadMgr.SetStatus(req.ThreadID, "running")
+
+    // 添加用户消息到内存
+    userMsg := &model.Message{
+        ID:        uuid.New(),
+        ThreadID:  req.ThreadID,
+        Role:      "user",
+        Content:   req.Input,
+        CreatedAt: time.Now(),
+    }
+    o.debugThreadMgr.AddMessage(req.ThreadID, userMsg)
+
+    // 创建调用记录（内存中，不写数据库）
+    invocation := &model.AgentInvocation{
+        ID:        uuid.New(),
+        ThreadID:  req.ThreadID,
+        ConfigID:  req.ConfigID,
+        Role:      req.Role,
+        Status:    "running",
+        Input:     req.Input,
+        StartedAt: time.Now(),
+    }
+
+    // 启动goroutine执行Agent
+    go o.executeDebugAgent(req.ThreadID, invocation, adapter, config, req)
+
+    return invocation, nil
+}
+
+// executeDebugAgent 执行调试Agent（异步）
+func (o *Orchestrator) executeDebugAgent(
+    threadID uuid.UUID,
+    invocation *model.AgentInvocation,
+    adapter AgentAdapter,
+    config *model.AgentRoleConfig,
+    req *SpawnRequest,
+) {
+    ctx := context.Background()
+    invocationID := invocation.ID.String()
+
+    // 构建执行上下文
+    execReq := &ExecutionRequest{
+        Input:       req.Input,
+        ProjectPath: req.ProjectPath,
+        Context: &ContextLayers{
+            Layer0: config.SystemPrompt,
+        },
+    }
+
+    // 创建输出收集器
+    var outputBuilder strings.Builder
+    agentID := config.ID.String()
+    agentName := config.Name
+    agentRole := string(config.Role)
+
+    // 执行Agent并收集输出
+    err := adapter.Execute(ctx, execReq, func(chunk string) {
+        outputBuilder.WriteString(chunk)
+        // 广播流式输出
+        o.debugThreadMgr.BroadcastChunk(threadID, invocationID, agentID, agentName, chunk)
+    })
+
+    if err != nil {
+        o.debugThreadMgr.SetStatus(threadID, "error")
+        o.debugThreadMgr.BroadcastError(threadID, fmt.Sprintf("Agent执行失败: %v", err))
+        return
+    }
+
+    // 添加Agent消息到内存
+    agentMsg := &model.Message{
+        ID:        uuid.New(),
+        ThreadID:  threadID,
+        Role:      "agent",
+        AgentID:   &config.ID,
+        Content:   outputBuilder.String(),
+        CreatedAt: time.Now(),
+    }
+    o.debugThreadMgr.AddMessage(threadID, agentMsg)
+
+    // 广播完整消息
+    o.debugThreadMgr.BroadcastMessage(threadID, agentMsg.ID.String(), agentID, agentName, agentRole, agentMsg.Content)
+
+    // 更新线程状态
+    o.debugThreadMgr.SetStatus(threadID, "idle")
 }
 
 // ContinueDebugAgent 继续调试会话
 func (o *Orchestrator) ContinueDebugAgent(ctx context.Context, threadID uuid.UUID, message string) error {
-    // 添加用户消息到内存
-    // 触发Agent响应
+    if o.debugThreadMgr == nil {
+        return fmt.Errorf("debug thread manager not initialized")
+    }
+
+    // 验证调试线程存在
+    debugThread := o.debugThreadMgr.GetThread(threadID)
+    if debugThread == nil {
+        return fmt.Errorf("debug thread not found: %s", threadID)
+    }
+
+    // 检查线程状态
+    if debugThread.Status == "running" {
+        return fmt.Errorf("agent is still running, please wait")
+    }
+
+    // 获取最后一条Agent消息确定配置
+    var lastConfigID uuid.UUID
+    for i := len(debugThread.Messages) - 1; i >= 0; i-- {
+        if debugThread.Messages[i].Role == "agent" && debugThread.Messages[i].AgentID != nil {
+            lastConfigID = *debugThread.Messages[i].AgentID
+            break
+        }
+    }
+
+    if lastConfigID == uuid.Nil {
+        return fmt.Errorf("no previous agent context found")
+    }
+
+    // 使用相同的配置继续执行
+    req := &SpawnRequest{
+        ThreadID:    threadID,
+        ConfigID:    lastConfigID,
+        Input:       message,
+        ProjectPath: "", // 继续对话时不需要项目路径
+    }
+
+    _, err := o.SpawnDebugAgent(ctx, req)
+    return err
 }
 ```
 
@@ -345,11 +608,173 @@ debugThreadMgr := agent.NewDebugThreadManager(wsHub)
 
 // 更新AgentHandler初始化
 agentHandler := api.NewAgentHandler(configService, baseAgentService, orchestrator, threadRepo, debugThreadMgr)
+
+// 在Orchestrator中设置调试管理器
+orchestrator.SetDebugThreadManager(debugThreadMgr)
+
+// 优雅关闭时停止清理协程
+defer debugThreadMgr.Stop()
+```
+
+### 5. ws.Hub广播方法（已存在，无需修改）
+
+**文件:** `internal/ws/hub.go`
+
+ws.Hub已有`BroadcastToThread`方法，直接使用即可：
+
+```go
+// BroadcastToThread 向指定Thread广播消息
+func (h *Hub) BroadcastToThread(threadID string, message WSMessage) {
+    // 已实现
+}
 ```
 
 ---
 
 ## 前端实现
+
+### 0. 类型定义
+
+**文件:** `src/types/index.ts`（新增/更新）
+
+```ts
+// 消息类型
+export interface Message {
+  id: string;
+  threadId?: string;
+  role: 'user' | 'agent' | 'system';
+  agentId?: string;
+  content: string;
+  createdAt: Date;
+  metadata?: Record<string, unknown>;
+}
+
+// Agent配置类型
+export interface AgentConfig {
+  id: string;
+  name: string;
+  role: string;
+  description?: string;
+  systemPrompt?: string;
+  baseAgentId?: string;
+  maxTokens: number;
+  temperature: number;
+  isDefault: boolean;
+}
+
+// WebSocket消息类型
+export interface WSMessage {
+  type: 'agent_output_chunk' | 'agent_message' | 'system_message' | 'sandbox_ready' | 'thread_expired';
+  payload: Record<string, unknown>;
+  threadId?: string;
+  timestamp: string;
+}
+
+// Agent输出块
+export interface AgentOutputChunk {
+  chunk: string;
+  invocationId: string;
+  agentId: string;
+  agentName: string;
+}
+
+// Agent完整消息
+export interface AgentMessage {
+  messageId: string;
+  agentId: string;
+  agentName: string;
+  agentRole: string;
+  content: string;
+}
+
+// 系统消息
+export interface SystemMessage {
+  content: string;
+  level?: 'info' | 'warning' | 'error';
+}
+
+// 沙箱就绪消息
+export interface SandboxReady {
+  url: string;
+}
+```
+
+**文件:** `src/hooks/useWebSocket.ts`（新增）
+
+```ts
+import { useEffect, useRef, useCallback } from 'react';
+import { WSMessage } from '@/types';
+
+interface UseWebSocketOptions {
+  onMessage?: (data: WSMessage) => void;
+  onConnect?: () => void;
+  onDisconnect?: () => void;
+  reconnectInterval?: number;
+}
+
+export function useWebSocket(
+  threadId: string | null,
+  options: UseWebSocketOptions = {}
+) {
+  const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
+  const { onMessage, onConnect, onDisconnect, reconnectInterval = 3000 } = options;
+
+  const connect = useCallback(() => {
+    if (!threadId) return;
+
+    const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/v1/ws?threadId=${threadId}`;
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      console.log('WebSocket connected');
+      onConnect?.();
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data: WSMessage = JSON.parse(event.data);
+        onMessage?.(data);
+      } catch (e) {
+        console.error('Failed to parse WebSocket message:', e);
+      }
+    };
+
+    ws.onclose = () => {
+      console.log('WebSocket disconnected');
+      onDisconnect?.();
+      // 自动重连
+      reconnectTimeoutRef.current = setTimeout(connect, reconnectInterval);
+    };
+
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+    };
+  }, [threadId, onMessage, onConnect, onDisconnect, reconnectInterval]);
+
+  useEffect(() => {
+    connect();
+    return () => {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+      wsRef.current?.close();
+    };
+  }, [connect]);
+
+  const sendMessage = useCallback((data: unknown) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify(data));
+    }
+  }, []);
+
+  return {
+    sendMessage,
+    connected: wsRef.current?.readyState === WebSocket.OPEN,
+  };
+}
+```
 
 ### 1. 共享UI组件
 
@@ -791,6 +1216,58 @@ case 'sandbox_ready':
 
 ## API接口
 
+### 请求/响应结构
+
+**创建调试线程请求：**
+```json
+// POST /api/v1/agents/debug/thread
+// Request Body (可选)
+{
+  "projectPath": "/optional/path/to/project"
+}
+// Response
+{
+  "threadId": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+**启动调试请求：**
+```json
+// POST /api/v1/agents/:id/debug
+// Request Body
+{
+  "input": "帮我实现一个冒泡排序",
+  "threadId": "550e8400-e29b-41d4-a716-446655440000",  // 可选，不传则自动创建
+  "projectPath": "/path/to/project"  // 可选
+}
+// Response
+{
+  "invocationId": "660e8400-e29b-41d4-a716-446655440000",
+  "threadId": "550e8400-e29b-41d4-a716-446655440000"
+}
+// Error Response
+{
+  "error": "config not found"  // 或其他错误信息
+}
+```
+
+**继续调试请求：**
+```json
+// POST /api/v1/agents/debug/:threadId/continue
+// Request Body
+{
+  "message": "请优化一下这个算法"
+}
+// Response
+{
+  "status": "sent"
+}
+// Error Response
+{
+  "error": "debug thread not found"
+}
+```
+
 ### 新增/修改接口
 
 | 方法 | 路径 | 说明 |
@@ -826,8 +1303,105 @@ case 'sandbox_ready':
 |------|------|---------|
 | `agent_output_chunk` | 流式输出块 | `{ chunk, invocationId, agentId, agentName }` |
 | `agent_message` | 完整Agent消息 | `{ messageId, agentId, content, agentName, agentRole }` |
-| `system_message` | 系统消息 | `{ content }` |
+| `system_message` | 系统消息 | `{ content, level? }` |
 | `sandbox_ready` | 沙箱就绪 | `{ url }` |
+| `thread_expired` | 线程过期 | `{ threadId, message }` |
+
+---
+
+## 错误处理
+
+### 后端错误处理
+
+1. **Agent配置不存在**
+   - HTTP 404: `{"error": "config not found"}`
+   - 在`Debug`方法中检查`configSvc.GetByID`返回
+
+2. **调试线程不存在**
+   - HTTP 404: `{"error": "debug thread not found"}`
+   - 验证`debugThreadMgr.GetThread`返回非空
+
+3. **Agent仍在运行**
+   - HTTP 400: `{"error": "agent is still running, please wait"}`
+   - 在`ContinueDebugAgent`中检查线程状态
+
+4. **Agent执行失败**
+   - 广播`system_message`，level为error
+   - 更新线程状态为`error`
+
+5. **线程过期**
+   - 广播`thread_expired`消息
+   - 自动清理内存
+
+### 前端错误处理
+
+```tsx
+// 在WebSocket消息处理中
+case 'thread_expired':
+  clearAll();
+  showToast('调试会话已过期，请重新开始');
+  break;
+
+case 'system_message':
+  if (data.payload.level === 'error') {
+    showErrorToast(data.payload.content);
+    setStatus('error');
+  } else {
+    addMessage({
+      id: Date.now().toString(),
+      role: 'system',
+      content: data.payload.content,
+      createdAt: new Date(),
+    });
+  }
+  break;
+```
+
+---
+
+## 沙箱URL生成与传递
+
+### URL生成时机
+
+沙箱URL由后端在以下情况生成：
+1. Agent执行需要预览环境时（如Web项目）
+2. 项目配置了沙箱容器
+
+### 传递流程
+
+```
+1. Agent执行开始
+   ↓
+2. 后端检测到需要沙箱
+   ↓
+3. 调用 sandboxService.CreateContainer()
+   ↓
+4. 获取容器URL (e.g., http://localhost:3001)
+   ↓
+5. 广播 sandbox_ready 消息
+   {
+     type: "sandbox_ready",
+     payload: { url: "http://localhost:3001" }
+   }
+   ↓
+6. 前端接收并更新 sandboxUrl 状态
+   ↓
+7. 用户点击"沙箱预览"按钮查看
+```
+
+### 后端代码示例
+
+```go
+// 在 executeDebugAgent 中，如果需要沙箱
+if needsSandbox(req.ProjectPath) {
+    sandboxURL, err := o.sandboxService.CreateForDebug(threadID, req.ProjectPath)
+    if err != nil {
+        logError("Failed to create sandbox", zap.Error(err))
+    } else {
+        o.debugThreadMgr.BroadcastSandboxReady(threadID, sandboxURL)
+    }
+}
+```
 
 ---
 
@@ -842,6 +1416,8 @@ case 'sandbox_ready':
 - `cmd/server/main.go` - 初始化DebugThreadManager
 
 ### 前端新增文件
+- `src/types/index.ts` - 类型定义（或更新现有类型文件）
+- `src/hooks/useWebSocket.ts` - WebSocket hook
 - `src/components/thread/MessageCard.tsx`
 - `src/components/thread/MessageCard.css`
 - `src/components/thread/MessageInput.tsx`
