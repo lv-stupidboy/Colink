@@ -39,7 +39,6 @@ type Orchestrator struct {
 	executionService *ExecutionService // 统一执行服务
 
 	runningAgents      map[uuid.UUID]*RunningAgent
-	interactiveManager *InteractiveSessionManager
 	mu                 sync.RWMutex
 }
 
@@ -97,7 +96,6 @@ func NewOrchestrator(
 		defaultAdapter,
 	)
 
-	o.interactiveManager = NewInteractiveSessionManager(wsHub)
 	return o
 }
 
@@ -490,62 +488,6 @@ func (o *Orchestrator) GetInvocationsByThread(ctx context.Context, threadID uuid
 // GetInvocationStatus 获取单个调用的状态
 func (o *Orchestrator) GetInvocationStatus(ctx context.Context, invocationID uuid.UUID) (*model.AgentInvocation, error) {
 	return o.executionService.GetInvocationStatus(ctx, invocationID)
-}
-
-// StartInteractiveSession 启动交互式会话
-func (o *Orchestrator) StartInteractiveSession(ctx context.Context, req *SpawnRequest) (*InteractiveSession, error) {
-	// 获取Agent配置
-	var config *model.AgentRoleConfig
-	var err error
-
-	// 优先使用 ConfigID
-	if req.ConfigID != uuid.Nil {
-		config, err = o.configSvc.GetByID(ctx, req.ConfigID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get agent config by id: %w", err)
-		}
-	} else {
-		// 如果没有 ConfigID，尝试通过 role 查找默认配置
-		config, err = o.configSvc.GetDefaultByRole(ctx, req.Role)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get agent config by role: %w", err)
-		}
-	}
-
-	// 获取关联的BaseAgent配置
-	var baseAgent *model.BaseAgent
-	if config.BaseAgentID != uuid.Nil && o.baseAgentSvc != nil {
-		baseAgent, err = o.baseAgentSvc.GetByID(ctx, config.BaseAgentID)
-		if err != nil {
-			baseAgent = nil
-		}
-	}
-
-	// 启动交互式会话
-	session, err := o.interactiveManager.StartSession(ctx, req.ThreadID, config, baseAgent, req.ProjectPath, req.Input)
-	if err != nil {
-		return nil, err
-	}
-
-	// 广播会话启动状态
-	o.broadcastStatus(req.ThreadID, session.ID, "started", config.Role)
-
-	return session, nil
-}
-
-// SendMessageToSession 向交互式会话发送消息
-func (o *Orchestrator) SendMessageToSession(threadID uuid.UUID, message string) error {
-	return o.interactiveManager.SendMessageToSession(threadID, message)
-}
-
-// StopInteractiveSession 停止交互式会话
-func (o *Orchestrator) StopInteractiveSession(threadID uuid.UUID) error {
-	return o.interactiveManager.StopSession(threadID)
-}
-
-// GetInteractiveSession 获取交互式会话
-func (o *Orchestrator) GetInteractiveSession(threadID uuid.UUID) *InteractiveSession {
-	return o.interactiveManager.GetSession(threadID)
 }
 
 // SpawnRequest 启动请求
