@@ -11,8 +11,9 @@ MYSQL_USER="${MYSQL_USER:-root}"
 MYSQL_PASS="${MYSQL_PASS:-}"
 MYSQL_DB="${MYSQL_DB:-isdp_dev}"
 
-# MySQL连接命令
-MYSQL_CMD="mysql -h $MYSQL_HOST -P $MYSQL_PORT -u $MYSQL_USER -p$MYSQL_PASS $MYSQL_DB"
+# Use MYSQL_PWD for password (more secure than -p flag)
+export MYSQL_PWD="$MYSQL_PASS"
+MYSQL_CMD="mysql -h $MYSQL_HOST -P $MYSQL_PORT -u $MYSQL_USER $MYSQL_DB"
 
 # 脚本目录
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
