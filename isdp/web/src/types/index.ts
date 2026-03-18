@@ -256,3 +256,49 @@ export interface ListFilesResponse {
   files: FileInfo[];
   hasMore: boolean;
 }
+
+// ========== Debug功能相关类型 ==========
+
+// WebSocket消息类型（用于debug功能）
+export type WSMessageType =
+  | 'agent_output_chunk'
+  | 'agent_message'
+  | 'system_message'
+  | 'sandbox_ready'
+  | 'thread_expired';
+
+// Agent输出块
+export interface AgentOutputChunk {
+  chunk: string;
+  invocationId: string;
+  agentId: string;
+  agentName: string;
+}
+
+// Agent完整消息
+export interface AgentMessage {
+  messageId: string;
+  agentId: string;
+  agentName: string;
+  agentRole: string;
+  content: string;
+}
+
+// 系统消息
+export interface SystemMessage {
+  content: string;
+  level?: 'info' | 'warning' | 'error';
+}
+
+// 沙箱就绪消息
+export interface SandboxReady {
+  url: string;
+}
+
+// Debug用的WebSocket消息（扩展版）
+export interface WSMessageDebug {
+  type: WSMessageType;
+  payload: Record<string, unknown>;
+  threadId?: string;
+  timestamp: number; // Unix timestamp from backend (int64)
+}
