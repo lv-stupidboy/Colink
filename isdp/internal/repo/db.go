@@ -12,7 +12,9 @@ import (
 
 // DBConfig 数据库配置
 type DBConfig struct {
-	Path string // SQLite 数据库文件路径
+	Type   DBType       // 数据库类型
+	Path   string       // SQLite 数据库文件路径
+	MySQL  MySQLConfig  // MySQL 配置
 }
 
 // NewDB 创建数据库连接
