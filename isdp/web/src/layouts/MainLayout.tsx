@@ -9,6 +9,8 @@ import {
   SettingOutlined,
   ApartmentOutlined,
 } from '@ant-design/icons';
+import ThemeSwitcher from '@/components/ThemeSwitcher';
+import Logo from '@/components/Logo';
 
 const { Header, Sider, Content } = Layout;
 const { Title } = Typography;
@@ -72,13 +74,15 @@ const MainLayout: React.FC = () => {
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
-      <Sider width={220} theme="light">
-        <div style={{ padding: '16px', borderBottom: '1px solid #f0f0f0' }}>
-          <Title level={4} style={{ margin: 0 }}>
-            ISDP
-          </Title>
-          <div style={{ fontSize: 12, color: '#999' }}>智能软件开发平台</div>
-        </div>
+      <Sider
+        width={220}
+        theme="light"
+        style={{
+          background: 'var(--bg-sidebar)',
+          borderRight: '1px solid var(--border-color)',
+        }}
+      >
+        <Logo />
         <Menu
           mode="inline"
           selectedKeys={[getSelectedKey()]}
@@ -87,12 +91,30 @@ const MainLayout: React.FC = () => {
         />
       </Sider>
       <Layout>
-        <Header style={{ background: '#fff', padding: '0 24px' }}>
-          <Title level={4} style={{ margin: '16px 0' }}>
+        <Header
+          style={{
+            background: 'var(--bg-container)',
+            padding: '0 24px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            borderBottom: '1px solid var(--border-color)',
+          }}
+        >
+          <Title level={4} style={{ margin: 0, color: 'var(--text-primary)' }}>
             智能软件开发平台
           </Title>
+          <ThemeSwitcher />
         </Header>
-        <Content style={{ margin: 16, background: '#fff', borderRadius: 8, padding: 24 }}>
+        <Content
+          style={{
+            margin: 16,
+            background: 'var(--bg-container)',
+            borderRadius: 8,
+            padding: 24,
+            boxShadow: 'var(--shadow-sm)',
+          }}
+        >
           <Outlet />
         </Content>
       </Layout>

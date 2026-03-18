@@ -1,0 +1,349 @@
+/**
+ * Logo 组件样式
+ * 使用 CSS 变量实现主题切换
+ */
+
+.logo-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  background: linear-gradient(135deg, var(--color-primary-light) 0%, var(--bg-sidebar) 100%);
+  border-bottom: 1px solid var(--border-color);
+  position: relative;
+  overflow: hidden;
+}
+
+/* 背景装饰光晕 */
+.logo-container::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(
+    circle at 30% 30%,
+    var(--color-primary-opacity-10) 0%,
+    transparent 50%
+  );
+  pointer-events: none;
+}
+
+/* 图标容器 */
+.logo-icon-wrapper {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px var(--color-primary-opacity-30);
+  position: relative;
+  z-index: 1;
+  transition: all 0.3s ease;
+  animation: logoFloat 3s ease-in-out infinite;
+}
+
+/* 火箭图标 */
+.logo-icon {
+  font-size: 20px;
+  color: #ffffff;
+  transition: transform 0.3s ease;
+  position: relative;
+  z-index: 2;
+}
+
+/* 文字区域 */
+.logo-text {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  z-index: 1;
+}
+
+/* 主标题 */
+.logo-title {
+  font-size: 20px;
+  font-weight: 700;
+  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: 0.5px;
+  line-height: 1.2;
+}
+
+/* 副标题 */
+.logo-subtitle {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+  letter-spacing: 0.3px;
+}
+
+/* ============================================
+   火焰效果
+   ============================================ */
+
+.logo-flame {
+  position: absolute;
+  bottom: -2px;
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.logo-container:hover .logo-flame {
+  opacity: 1;
+}
+
+.flame-inner {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 8px;
+  height: 12px;
+  background: linear-gradient(to top, #fbbf24 0%, #f59e0b 50%, #ef4444 100%);
+  border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+  animation: flameFlicker 0.15s ease-in-out infinite alternate;
+}
+
+.flame-outer {
+  position: absolute;
+  bottom: -2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 12px;
+  height: 16px;
+  background: linear-gradient(to top, #fcd34d 0%, #fbbf24 40%, #f59e0b 100%);
+  border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+  opacity: 0.6;
+  animation: flameFlicker 0.12s ease-in-out infinite alternate-reverse;
+}
+
+@keyframes flameFlicker {
+  0% {
+    transform: translateX(-50%) scaleY(1) scaleX(1);
+  }
+  100% {
+    transform: translateX(-50%) scaleY(1.1) scaleX(0.9);
+  }
+}
+
+/* ============================================
+   烟雾粒子效果
+   ============================================ */
+
+.logo-smoke {
+  position: absolute;
+  bottom: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.smoke-particle {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  background: radial-gradient(circle, rgba(200, 200, 200, 0.8) 0%, transparent 70%);
+  border-radius: 50%;
+  opacity: 0;
+}
+
+.logo-container:hover .smoke-particle {
+  animation: smokeRise 0.8s ease-out forwards;
+}
+
+.smoke-1 {
+  left: -6px;
+  animation-delay: 0.3s !important;
+}
+
+.smoke-2 {
+  left: 0;
+  animation-delay: 0.4s !important;
+}
+
+.smoke-3 {
+  left: 6px;
+  animation-delay: 0.5s !important;
+}
+
+@keyframes smokeRise {
+  0% {
+    opacity: 0;
+    transform: translateY(0) scale(0.5);
+  }
+  30% {
+    opacity: 0.7;
+    transform: translateY(8px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(20px) scale(1.5);
+  }
+}
+
+/* ============================================
+   火箭起飞动效
+   ============================================ */
+
+/* 起飞准备 - 抖动 */
+@keyframes rocketPrepare {
+  0%, 100% { transform: translateX(0); }
+  10% { transform: translateX(-1.5px); }
+  20% { transform: translateX(1.5px); }
+  30% { transform: translateX(-1px); }
+  40% { transform: translateX(1px); }
+  50% { transform: translateX(-0.5px); }
+  60% { transform: translateX(0.5px); }
+  70% { transform: translateX(-0.3px); }
+  80% { transform: translateX(0.3px); }
+  90% { transform: translateX(0); }
+}
+
+/* 起飞升空 */
+@keyframes rocketLaunch {
+  0% {
+    transform: translateY(0);
+  }
+  30% {
+    transform: translateY(-8px);
+  }
+  60% {
+    transform: translateY(-16px);
+  }
+  100% {
+    transform: translateY(-25px);
+  }
+}
+
+/* 悬停触发起飞 */
+.logo-container:hover .logo-icon-wrapper {
+  animation: rocketPrepare 0.5s ease-in-out forwards;
+  box-shadow: 0 8px 25px var(--color-primary-opacity-50),
+              0 0 30px var(--color-primary-opacity-30);
+}
+
+/* 延迟后开始起飞 */
+.logo-container:hover .logo-icon {
+  animation: rocketLaunch 0.6s ease-out 0.5s forwards;
+}
+
+/* ============================================
+   尺寸变体
+   ============================================ */
+
+.logo-small {
+  padding: 10px 16px;
+  gap: 10px;
+}
+
+.logo-small .logo-icon-wrapper {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+}
+
+.logo-small .logo-icon {
+  font-size: 16px;
+}
+
+.logo-small .logo-title {
+  font-size: 16px;
+}
+
+.logo-small .logo-subtitle {
+  font-size: 10px;
+}
+
+.logo-small .flame-inner {
+  width: 6px;
+  height: 10px;
+}
+
+.logo-small .flame-outer {
+  width: 10px;
+  height: 13px;
+}
+
+.logo-large {
+  padding: 20px 24px;
+  gap: 16px;
+}
+
+.logo-large .logo-icon-wrapper {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+}
+
+.logo-large .logo-icon {
+  font-size: 24px;
+}
+
+.logo-large .logo-title {
+  font-size: 24px;
+}
+
+.logo-large .logo-subtitle {
+  font-size: 14px;
+}
+
+.logo-large .flame-inner {
+  width: 10px;
+  height: 14px;
+}
+
+.logo-large .flame-outer {
+  width: 14px;
+  height: 18px;
+}
+
+/* ============================================
+   深色主题适配
+   ============================================ */
+
+[data-theme='dark'] .logo-container {
+  background: linear-gradient(135deg, var(--bg-sidebar) 0%, var(--bg-container) 100%);
+}
+
+[data-theme='dark'] .logo-icon-wrapper {
+  box-shadow: 0 4px 16px var(--color-primary-opacity-40),
+              0 0 20px var(--color-primary-opacity-20);
+}
+
+[data-theme='dark'] .logo-title {
+  background: linear-gradient(135deg, var(--color-primary-hover) 0%, var(--color-primary) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+[data-theme='dark'] .logo-container:hover .logo-icon-wrapper {
+  box-shadow: 0 8px 30px var(--color-primary-opacity-50),
+              0 0 40px var(--color-primary-opacity-30);
+}
+
+[data-theme='dark'] .smoke-particle {
+  background: radial-gradient(circle, rgba(150, 150, 150, 0.6) 0%, transparent 70%);
+}
+
+/* ============================================
+   浮动动画（非悬停状态）
+   ============================================ */
+
+@keyframes logoFloat {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}

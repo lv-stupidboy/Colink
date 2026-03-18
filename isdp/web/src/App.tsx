@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo, useEffect } from 'react';
 import { ConfigProvider, App as AntApp, theme } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
@@ -13,79 +13,101 @@ import SettingsLayout from '@/pages/Settings/Layout';
 import GeneralSettings from '@/pages/Settings/GeneralSettings';
 import BaseAgentSettings from '@/pages/Settings/BaseAgentSettings';
 import WorkflowPage from '@/pages/Workflow';
+import { useThemeStore } from '@/store/themeStore';
+import '@/themes/themeVariables.css';
 
 const App: React.FC = () => {
-  return (
-    <ConfigProvider
-      locale={zhCN}
-      theme={{
-        algorithm: theme.defaultAlgorithm,
-        token: {
-          // C 清新活力风配色 - 翡翠绿主题
-          colorPrimary: '#10b981',
-          colorSuccess: '#10b981',
-          colorWarning: '#f59e0b',
-          colorError: '#ef4444',
-          colorInfo: '#14b8a6',
-          colorLink: '#10b981',
-          colorLinkHover: '#059669',
-          colorLinkActive: '#047857',
+  const { themeConfig, setTheme } = useThemeStore();
+  const { colors, isDark } = themeConfig;
+
+  // 初始化主题
+  useEffect(() => {
+    const stored = localStorage.getItem('isdp-theme-storage');
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (parsed.state?.currentTheme) {
+          setTheme(parsed.state.currentTheme);
+        }
+      } catch {
+        // 忽略解析错误
+      }
+    }
+  }, [setTheme]);
+
+  // 动态生成 Ant Design token 配置
+  const antdTheme = useMemo(() => {
+    const baseToken = {
+      colorPrimary: colors.primary,
+      colorSuccess: colors.primary,
+      colorWarning: '#f59e0b',
+      colorError: '#ef4444',
+      colorInfo: '#14b8a6',
+      colorLink: colors.primary,
+      colorLinkHover: colors.primaryHover,
+      colorLinkActive: colors.primaryActive,
+      borderRadius: 12,
+      fontSize: 14,
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial',
+      controlOutline: `var(--color-primary-opacity-28)`,
+      colorPrimaryBorder: colors.primaryHover,
+      colorPrimaryBg: colors.primaryBg,
+      colorPrimaryBgHover: colors.primaryBgHover,
+    };
+
+    return {
+      algorithm: isDark ? theme.darkAlgorithm : theme.defaultAlgorithm,
+      token: baseToken,
+      components: {
+        Button: {
           borderRadius: 12,
-          fontSize: 14,
-          fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial',
-          // 科技感细节 - 轻微发光效果
-          controlOutline: 'rgba(16, 185, 129, 0.28)',
-          colorPrimaryBorder: '#059669',
-          colorPrimaryBg: '#d1fae5',
-          colorPrimaryBgHover: '#a7f3d0',
+          fontWeight: 600,
+          colorPrimary: '#fff',
+          colorPrimaryBg: colors.primary,
+          colorPrimaryBgHover: colors.primaryHover,
+          primaryShadow: `0 4px 14px var(--color-primary-opacity-35)`,
         },
-        components: {
-          Button: {
-            borderRadius: 12,
-            fontWeight: 600,
-            colorPrimary: '#fff',
-            colorPrimaryBg: '#10b981',
-            colorPrimaryBgHover: '#059669',
-            primaryShadow: '0 4px 14px rgba(16, 185, 129, 0.35)',
-          },
-          Card: {
-            borderRadius: 16,
-            boxShadowTertiary: '0 8px 24px rgba(16, 185, 129, 0.12)',
-          },
-          Table: {
-            borderRadius: 16,
-            headerBg: 'linear-gradient(180deg, #f0fdf4 0%, #ecfdf5 100%)',
-            rowHoverBg: 'rgba(16, 185, 129, 0.04)',
-          },
-          Input: {
-            borderRadius: 12,
-            activeBorderColor: '#10b981',
-            activeShadow: '0 0 0 3px rgba(16, 185, 129, 0.1)',
-          },
-          Menu: {
-            itemBorderRadius: 12,
-            itemSelectedBg: 'rgba(16, 185, 129, 0.08)',
-            itemSelectedColor: '#047857',
-          },
-          Modal: {
-            borderRadiusLG: 20,
-            headerBg: 'linear-gradient(180deg, #f0fdf4 0%, #ffffff 100%)',
-          },
-          Tag: {
-            borderRadius: 8,
-            defaultColor: '#047857',
-            defaultBg: '#ecfdf5',
-          },
-          Progress: {
-            borderRadius: 6,
-            defaultColor: 'linear-gradient(90deg, #10b981 0%, #14b8a6 100%)',
-          },
-          Statistic: {
-            contentFontSize: 28,
-          },
+        Card: {
+          borderRadius: 16,
+          boxShadowTertiary: `0 8px 24px var(--color-primary-opacity-12)`,
         },
-      }}
-    >
+        Table: {
+          borderRadius: 16,
+          headerBg: isDark ? 'transparent' : `linear-gradient(180deg, var(--bg-base) 0%, var(--color-primary-light) 100%)`,
+          rowHoverBg: `var(--color-primary-opacity-10)`,
+        },
+        Input: {
+          borderRadius: 12,
+          activeBorderColor: colors.primary,
+          activeShadow: `0 0 0 3px var(--color-primary-opacity-10)`,
+        },
+        Menu: {
+          itemBorderRadius: 12,
+          itemSelectedBg: `var(--color-primary-opacity-10)`,
+          itemSelectedColor: colors.textPrimary,
+        },
+        Modal: {
+          borderRadiusLG: 20,
+          headerBg: isDark ? 'transparent' : `linear-gradient(180deg, var(--bg-base) 0%, var(--bg-container) 100%)`,
+        },
+        Tag: {
+          borderRadius: 8,
+          defaultColor: colors.textPrimary,
+          defaultBg: colors.primaryLight,
+        },
+        Progress: {
+          borderRadius: 6,
+          defaultColor: `linear-gradient(90deg, ${colors.primary} 0%, #14b8a6 100%)`,
+        },
+        Statistic: {
+          contentFontSize: 28,
+        },
+      },
+    };
+  }, [colors, isDark]);
+
+  return (
+    <ConfigProvider locale={zhCN} theme={antdTheme}>
       <AntApp>
         <BrowserRouter>
           <Routes>

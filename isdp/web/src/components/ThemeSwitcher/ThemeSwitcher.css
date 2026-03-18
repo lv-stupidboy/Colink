@@ -1,0 +1,43 @@
+/**
+ * 主题切换组件样式
+ */
+
+.theme-switcher-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  border-radius: 8px;
+  transition: all 0.3s ease;
+}
+
+.theme-switcher-btn:hover {
+  background: var(--color-primary-opacity-10);
+  color: var(--color-primary);
+}
+
+.theme-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+  min-width: 140px;
+}
+
+.theme-color-preview {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+  flex-shrink: 0;
+}
+
+.theme-label {
+  flex: 1;
+  font-size: 14px;
+}
+
+.theme-check-icon {
+  color: var(--color-primary);
+  font-size: 14px;
+}
