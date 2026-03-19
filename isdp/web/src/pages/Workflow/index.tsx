@@ -139,7 +139,7 @@ const WorkflowPage: React.FC = () => {
    */
   const renderTemplateCard = (template: WorkflowTemplate) => {
     // 根据agentIds获取对应的Agent实例
-    const templateAgents = agents.filter(a => template.agentIds?.includes(a.id));
+    const templateAgents = (agents || []).filter(a => template.agentIds?.includes(a.id));
 
     return (
       <Card
@@ -239,7 +239,7 @@ const WorkflowPage: React.FC = () => {
       );
     }
 
-    if (agents.length === 0) {
+    if ((agents || []).length === 0) {
       return (
         <Alert
           type="info"
@@ -253,7 +253,7 @@ const WorkflowPage: React.FC = () => {
     return (
       <List
         grid={{ gutter: 16, column: 2 }}
-        dataSource={agents}
+        dataSource={agents || []}
         renderItem={(agent) => (
           <List.Item>
             <Card
@@ -298,7 +298,7 @@ const WorkflowPage: React.FC = () => {
             title={
               <Space>
                 <span>工作流模板</span>
-                <Tag color="blue">{workflowTemplates.length} 个模板</Tag>
+                <Tag color="blue">{(workflowTemplates || []).length} 个模板</Tag>
               </Space>
             }
             extra={
@@ -320,7 +320,7 @@ const WorkflowPage: React.FC = () => {
                 <Spin />
               </div>
             ) : (
-              workflowTemplates.map(renderTemplateCard)
+              (workflowTemplates || []).map(renderTemplateCard)
             )}
           </Card>
         </Col>
@@ -435,7 +435,7 @@ const WorkflowPage: React.FC = () => {
                 (option?.children as unknown as string)?.toLowerCase().includes(input.toLowerCase())
               }
             >
-              {agents.map((agent) => (
+              {(agents || []).map((agent) => (
                 <Option key={agent.id} value={agent.id}>
                   {agent.name} ({AgentRoleLabels[agent.role]})
                 </Option>
@@ -455,7 +455,7 @@ const WorkflowPage: React.FC = () => {
 
           <Form.Item name="basedOn" label="基于模板">
             <Select placeholder="选择一个基础模板" allowClear>
-              {workflowTemplates.map((t) => (
+              {(workflowTemplates || []).map((t) => (
                 <Option key={t.id} value={t.id}>{t.name}</Option>
               ))}
             </Select>

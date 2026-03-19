@@ -2,47 +2,58 @@
 package repo
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
-	"time"
 
-	_ "modernc.org/sqlite"
+	"github.com/anthropic/isdp/pkg/config"
 )
 
-// DBConfig 数据库配置
-type DBConfig struct {
-	Path string // SQLite 数据库文件路径
+// DBType 数据库类型（类型别名，使用 config 包的定义）
+type DBType = config.DBType
+
+const (
+	DBTypeSQLite = config.DBTypeSQLite
+	DBTypeMySQL  = config.DBTypeMySQL
+)
+
+// DBConfig 数据库配置（类型别名，使用 config 包的定义）
+type DBConfig = config.DatabaseConfig
+
+// MySQLConfig MySQL配置（类型别名）
+type MySQLConfig = config.MySQLConfig
+
+// Dialect 数据库方言接口
+type Dialect interface {
+	Placeholder() string
+	QuoteIdentifier() string
+	AutoIncrement() string
 }
 
-// NewDB 创建数据库连接
-func NewDB(dbPath string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", dbPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %w", err)
+// NewDB 创建数据库连接（工厂函数）
+func NewDB(cfg DBConfig) (*sql.DB, Dialect, error) {
+	switch cfg.Type {
+	case DBTypeSQLite:
+		return newSQLiteDB(cfg)
+	case DBTypeMySQL:
+		return newMySQLDB(cfg)
+	default:
+		return nil, nil, fmt.Errorf("unsupported database type: %s", cfg.Type)
 	}
-
-	// 设置连接池
-	db.SetMaxOpenConns(1) // SQLite 只支持单个写连接
-	db.SetMaxIdleConns(1)
-	db.SetConnMaxLifetime(0)
-
-	// 启用外键约束
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if _, err := db.ExecContext(ctx, "PRAGMA foreign_keys = ON"); err != nil {
-		return nil, fmt.Errorf("failed to enable foreign keys: %w", err)
-	}
-
-	// 测试连接
-	if err := db.PingContext(ctx); err != nil {
-		return nil, fmt.Errorf("failed to ping database: %w", err)
-	}
-
-	return db, nil
 }
 
-// NewDBFromConfig 从配置创建数据库连接
+// NewDBFromConfig 从配置创建数据库连接（向后兼容）
 func NewDBFromConfig(cfg DBConfig) (*sql.DB, error) {
-	return NewDB(cfg.Path)
+	db, _, err := NewDB(cfg)
+	return db, err
+}
+
+// NewSQLiteDB 创建SQLite数据库连接（向后兼容旧API）
+// Deprecated: 使用 NewDB 代替
+func NewSQLiteDB(dbPath string) (*sql.DB, error) {
+	cfg := DBConfig{
+		Type: DBTypeSQLite,
+		Path: dbPath,
+	}
+	db, _, err := NewDB(cfg)
+	return db, err
 }

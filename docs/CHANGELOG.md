@@ -4,6 +4,171 @@
 
 ---
 
+## 2026-03-19 项目清理与前端布局优化
+
+### 背景
+
+项目完成了从 SQLite 到 MySQL 的数据库迁移，需要清理迁移相关的临时文件。同时前端布局存在高度溢出问题，页面级滚动导致交互体验不佳。
+
+### 目标
+
+1. 清理数据库迁移相关的临时文件和脚本
+2. 重构前端布局，解决 100vh 溢出问题
+3. 优化前端样式，提取内联样式到 CSS 类
+4. 修复潜在的空值引用错误
+
+### 核心变更
+
+#### 后端清理
+
+##### 删除迁移相关文件
+- 移除 `cmd/migrate/main.go` - SQLite 到 MySQL 数据迁移工具
+- 移除 `isdp/DB_MIGRATION_GUIDE.md` 和 `isdp/docs/DB_MIGRATION_GUIDE.md` - 数据库迁移指南
+- 删除 `scripts/` 目录下所有 SQL 脚本：
+  - `init_db.sql`, `init_db_mysql.sql`, `init_db_sqlite.sql`
+  - `initial_schema.sql`
+  - `migrate.sh`, `schema.sh`
+  - `202403160001_remove_model_name_field.sql`
+  - `202403170003_remove_is_active_field.sql`
+- 删除 `test-results/.last-run.json` - 测试结果缓存
+
+##### 配置文件调整
+- 删除旧配置 `configs/config.yaml`
+- 新增 `configs/config.yaml` - 新版配置文件
+- 新增 `configs/config.yaml.example` - 配置示例
+
+##### SQL 变更目录
+- 新增 `sql-change/` 目录，包含：
+  - `README.md` - SQL 变更说明
+  - `init_db_mysql.sql` - MySQL 初始化脚本
+  - `migrations/` - 迁移脚本目录
+
+#### 后端依赖升级
+
+##### go.mod 更新
+- 升级 SQLite 驱动：`modernc.org/sqlite` 1.29.10 → 1.47.0
+- 新增 `github.com/mattn/go-sqlite3` 依赖
+- 升级相关依赖版本（`golang.org/x/exp`, `golang.org/x/sys`, `modernc.org/*`）
+
+##### MySQL 字符集修复
+- 在 `db_mysql.go` 中添加 `SET NAMES utf8mb4`，确保中文字符正确存储和读取
+
+#### 前端布局重构
+
+##### 全局高度修复 (index.css)
+```css
+/* 修改前 */
+#root {
+  min-height: 100vh;
+}
+
+/* 修改后 */
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+#root {
+  height: 100%;
+}
+```
+
+##### 主布局 Flex 改造 (MainLayout.tsx)
+```tsx
+// 修改前：整体页面滚动，内容区域有 margin
+<Layout style={{ minHeight: '100vh' }}>
+  <Content style={{ margin: 16, borderRadius: 8, padding: 24 }}>
+
+// 修改后：分区独立滚动，Header 固定，Content 自适应
+<Layout style={{ height: '100vh', overflow: 'hidden' }}>
+  <Sider style={{ height: '100vh', overflow: 'auto' }} />
+  <Layout style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+    <Header style={{ flexShrink: 0 }} />
+    <Content style={{ flex: 1, margin: 0, padding: 16, overflow: 'auto' }} />
+  </Layout>
+</Layout>
+```
+
+#### 前端样式优化
+
+##### SandboxPanel 组件重构
+- 将内联样式提取为 CSS 类：
+  - `.sandbox-control-bar` - 控制栏样式
+  - `.sandbox-preview-bar` - 预览栏样式
+  - `.sandbox-iframe-container` - iframe 容器样式
+  - `.sandbox-empty` - 空状态样式
+- 简化 `ThreadView.tsx` 中 @mention 列表项的交互，移除内联事件处理
+
+##### CSS 文件更新
+- `SandboxPanel.css` - 新增沙箱面板样式
+- `ThreadView.css` - 新增 `.mention-list-item` 悬停样式
+- `FileTree.css` - 文件树样式优化
+- `MessageInput.css` - 消息输入组件样式优化
+
+#### 前端 Bug 修复
+
+##### Workflow 页面空值保护
+```tsx
+// 修改前：可能因 undefined 导致渲染错误
+const templateAgents = agents.filter(a => template.agentIds?.includes(a.id));
+
+// 修改后：添加空值默认值
+const templateAgents = (agents || []).filter(a => template.agentIds?.includes(a.id));
+```
+
+涉及数组：`agents`, `workflowTemplates`，所有 `.map()` 和 `.filter()` 调用都添加了 `|| []` 保护。
+
+### 修改文件统计
+
+| 类型 | 数量 | 说明 |
+|------|------|------|
+| 删除文件 | 13 | 迁移工具、SQL脚本、旧配置 |
+| 新增目录 | 2 | `configs/`, `sql-change/` |
+| 修改文件 | 10 | 依赖升级、布局优化、样式重构 |
+
+### 详细文件列表
+
+| 文件 | 改动类型 | 说明 |
+|------|----------|------|
+| `isdp/cmd/migrate/main.go` | 删除 | 迁移工具 |
+| `isdp/DB_MIGRATION_GUIDE.md` | 删除 | 迁移指南 |
+| `isdp/docs/DB_MIGRATION_GUIDE.md` | 删除 | 迁移指南（重复） |
+| `isdp/configs/config.yaml` | 删除 | 旧配置文件 |
+| `isdp/scripts/*` | 删除 | 所有 SQL 脚本和 shell 脚本 |
+| `isdp/test-results/.last-run.json` | 删除 | 测试缓存 |
+| `isdp/go.mod` / `go.sum` | 修改 | 依赖升级 |
+| `isdp/internal/repo/db_mysql.go` | 修改 | 字符集设置 |
+| `isdp/web/src/index.css` | 修改 | 全局高度修复 |
+| `isdp/web/src/layouts/MainLayout.tsx` | 修改 | Flex 布局改造 |
+| `isdp/web/src/pages/ThreadView.tsx` | 修改 | 移除内联事件 |
+| `isdp/web/src/pages/Workflow/index.tsx` | 修改 | 空值保护 |
+| `isdp/web/src/components/thread/SandboxPanel.tsx` | 修改 | 样式类提取 |
+| `isdp/web/src/components/thread/SandboxPanel.css` | 修改 | 新增样式 |
+| `isdp/web/src/pages/ThreadView.css` | 修改 | mention 样式 |
+| `isdp/web/src/components/FileTree/FileTree.css` | 修改 | 样式优化 |
+| `isdp/web/src/components/thread/MessageInput.css` | 修改 | 样式优化 |
+
+### 验证方法
+
+1. 启动后端服务：`go run ./cmd/server`
+2. 启动前端服务：`cd web && npm run dev`
+3. 验证页面布局：
+   - 整体页面不滚动
+   - 侧边栏和内容区域独立滚动
+   - Header 固定高度
+4. 验证中文存储：创建/编辑包含中文的内容，刷新页面检查显示
+5. 验证 Workflow 页面：无报错，正常显示 Agent 列表和模板列表
+
+### 影响范围
+
+- 后端：依赖版本、MySQL 字符集
+- 前端：整体布局、样式结构
+- 数据：不影响现有数据
+- 配置：清理旧配置，新增示例配置
+
+---
+
 ## 2026-03-18 Agent调试功能重构与状态管理优化
 
 ### 背景

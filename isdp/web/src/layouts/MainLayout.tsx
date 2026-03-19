@@ -73,13 +73,15 @@ const MainLayout: React.FC = () => {
   };
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
+    <Layout style={{ height: '100vh', overflow: 'hidden' }}>
       <Sider
         width={220}
         theme="light"
         style={{
           background: 'var(--bg-sidebar)',
           borderRight: '1px solid var(--border-color)',
+          height: '100vh',
+          overflow: 'auto',
         }}
       >
         <Logo />
@@ -90,7 +92,7 @@ const MainLayout: React.FC = () => {
           onClick={({ key }) => navigate(key)}
         />
       </Sider>
-      <Layout>
+      <Layout style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
         <Header
           style={{
             background: 'var(--bg-container)',
@@ -99,6 +101,7 @@ const MainLayout: React.FC = () => {
             justifyContent: 'space-between',
             alignItems: 'center',
             borderBottom: '1px solid var(--border-color)',
+            flexShrink: 0,
           }}
         >
           <Title level={4} style={{ margin: 0, color: 'var(--text-primary)' }}>
@@ -108,11 +111,12 @@ const MainLayout: React.FC = () => {
         </Header>
         <Content
           style={{
-            margin: 16,
+            flex: 1,
+            margin: 0,
             background: 'var(--bg-container)',
-            borderRadius: 8,
-            padding: 24,
+            padding: 16,
             boxShadow: 'var(--shadow-sm)',
+            overflow: 'auto',
           }}
         >
           <Outlet />

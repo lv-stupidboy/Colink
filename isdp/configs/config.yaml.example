@@ -3,7 +3,23 @@ server:
   mode: debug
 
 database:
+  # 数据库类型: sqlite | mysql
+  type: mysql
+
+  # SQLite配置 (type=sqlite时生效)
   path: ./data/isdp.db
+
+  # MySQL配置 (type=mysql时生效)
+  mysql:
+    host: "rm-bp1u503844l66n8g7no.mysql.rds.aliyuncs.com"
+    port: 3306
+    database: product  # 正式库用 product，开发库用 dev_xx
+    username: "isdp"
+    password: "<密码>"  # 密码请通过团队内部渠道获取
+    charset: utf8mb4
+    max_open_conns: 10
+    max_idle_conns: 5
+    conn_max_lifetime: 300
 
 redis:
   addr: localhost:6379
