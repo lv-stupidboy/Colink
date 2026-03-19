@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { Table, Button, Card, Space, Modal, Form, Input, message, Tag, Select } from 'antd';
-import { PlusOutlined, FolderOutlined } from '@ant-design/icons';
+import { PlusOutlined, FolderOutlined, FolderOpenOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '@/api/client';
 import type { Project } from '@/types';
+import PathSelector from '@/components/PathSelector';
 
-const { TextArea } = Input;
 const { Option } = Select;
 
 const ProjectList: React.FC = () => {
@@ -13,6 +13,7 @@ const ProjectList: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
+  const [pathSelectorVisible, setPathSelectorVisible] = useState(false);
   const [form] = Form.useForm();
 
   useEffect(() => {
@@ -44,6 +45,12 @@ const ProjectList: React.FC = () => {
     } catch (error) {
       message.error('创建项目失败');
     }
+  };
+
+  // 处理路径选择
+  const handlePathSelect = (path: string) => {
+    form.setFieldsValue({ local_path: path });
+    setPathSelectorVisible(false);
   };
 
   const columns = [
@@ -146,13 +153,25 @@ const ProjectList: React.FC = () => {
       >
         <Form form={form} layout="vertical" onFinish={handleCreate}>
           <Form.Item name="name" label="项目名称" rules={[{ required: true, message: '请输入项目名称' }]}>
-            <Input placeholder="请输入项目名称" />
+            <Input placeholder="请输入项目名称" autoComplete="off" />
           </Form.Item>
-          <Form.Item name="local_path" label="本地路径" rules={[{ required: true, message: '请输入本地路径' }]}>
-            <Input placeholder="D:\Projects\my-project" />
-          </Form.Item>
-          <Form.Item name="description" label="项目描述">
-            <TextArea placeholder="请输入项目描述" rows={3} />
+          <Form.Item
+            name="local_path"
+            label="本地路径"
+            rules={[{ required: true, message: '请选择本地路径' }]}
+          >
+            <Input
+              placeholder="点击选择或输入本地路径"
+              addonAfter={
+                <Button
+                  icon={<FolderOpenOutlined />}
+                  onClick={() => setPathSelectorVisible(true)}
+                  style={{ border: 'none', background: 'transparent' }}
+                >
+                  浏览
+                </Button>
+              }
+            />
           </Form.Item>
           <Form.Item name="type" label="项目类型" rules={[{ required: true, message: '请选择项目类型' }]}>
             <Select placeholder="请选择项目类型">
@@ -172,6 +191,14 @@ const ProjectList: React.FC = () => {
           </Form.Item>
         </Form>
       </Modal>
+
+      {/* 路径选择器 */}
+      <PathSelector
+        visible={pathSelectorVisible}
+        onSelect={handlePathSelect}
+        onCancel={() => setPathSelectorVisible(false)}
+        title="选择项目保存路径"
+      />
     </div>
   );
 };

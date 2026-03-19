@@ -16,6 +16,14 @@ interface AppState {
   // 流式消息缓存（key: invocationId, value: 正在生成的消息）
   streamingMessages: Record<string, { content: string; agentId: string; agentName?: string }>;
 
+  // 进度状态（key: invocationId, value: 进度信息）
+  progressState: Record<string, {
+    status: 'thinking' | 'tool_use' | 'generating' | 'idle';
+    toolName?: string;
+    toolInput?: Record<string, unknown>;
+    thinkingText?: string;
+  }>;
+
   // 运行中的Agent
   activeAgents: AgentInvocation[];
 
@@ -108,6 +116,12 @@ interface AppActions {
   // 完成流式消息（转为正式消息）
   finalizeStreamingMessage: (invocationId: string) => void;
 
+  // 更新进度状态
+  updateProgress: (invocationId: string, status: string, toolName?: string, toolInput?: Record<string, unknown>) => void;
+
+  // 清除进度状态
+  clearProgress: (invocationId: string) => void;
+
   // 调试模式 actions
   setDebugMode: (isDebug: boolean, agentId?: string) => void;
   setDebugAgentConfig: (config: AgentConfig | null) => void;
@@ -125,6 +139,7 @@ const initialState: AppState = {
   currentThread: null,
   messages: [],
   streamingMessages: {},
+  progressState: {},
   activeAgents: [],
   agentConfigs: [],
   wsConnected: false,
@@ -347,13 +362,16 @@ export const useAppStore = create<AppState & AppActions>()(
     },
 
     updateStreamingMessage: (invocationId, chunk, agentId, agentName) => {
+      console.log('[Store] updateStreamingMessage:', invocationId, 'chunkLen:', chunk?.length);
       set((state) => {
         const existing = state.streamingMessages[invocationId];
+        const newContent = (existing?.content || '') + chunk;
+        console.log('[Store] New content length:', newContent.length);
         return {
           streamingMessages: {
             ...state.streamingMessages,
             [invocationId]: {
-              content: (existing?.content || '') + chunk,
+              content: newContent,
               agentId,
               agentName: agentName || existing?.agentName,
             },
@@ -383,10 +401,33 @@ export const useAppStore = create<AppState & AppActions>()(
 
         // Remove from streaming and add to messages
         const { [invocationId]: _, ...remainingStreaming } = state.streamingMessages;
+        // Also clear progress state
+        const { [invocationId]: __, ...remainingProgress } = state.progressState;
         return {
           streamingMessages: remainingStreaming,
+          progressState: remainingProgress,
           messages: [...state.messages, finalMessage],
         };
+      });
+    },
+
+    updateProgress: (invocationId, status, toolName, toolInput) => {
+      set((state) => ({
+        progressState: {
+          ...state.progressState,
+          [invocationId]: {
+            status: status as 'thinking' | 'tool_use' | 'generating' | 'idle',
+            toolName,
+            toolInput,
+          },
+        },
+      }));
+    },
+
+    clearProgress: (invocationId) => {
+      set((state) => {
+        const { [invocationId]: _, ...remaining } = state.progressState;
+        return { progressState: remaining };
       });
     },
 

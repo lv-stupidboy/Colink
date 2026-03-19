@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -15,6 +16,16 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
+
+// MaxA2ADepth A2A 最大深度限制
+const MaxA2ADepth = 15
+
+// A2AContext A2A 上下文，用于追踪深度和去重
+type A2AContext struct {
+	Depth           int                // 当前深度
+	InvokedAgents   map[uuid.UUID]bool // 已调用的 Agent ID 集合
+	CompletedAgents map[uuid.UUID]bool // 已完成的 Agent ID 集合（用于汇聚判断）
+}
 
 // ExecutionService 统一执行服务，整合Orchestrator和InteractiveSession的功能
 type ExecutionService struct {
@@ -32,6 +43,10 @@ type ExecutionService struct {
 
 	runningAgents  map[uuid.UUID]*RunningAgent
 	mu             sync.RWMutex
+
+	// A2A 上下文追踪
+	a2aContexts    map[uuid.UUID]*A2AContext // threadID -> A2AContext
+	a2aMu          sync.RWMutex
 }
 
 // NewExecutionService 创建统一执行服务
@@ -61,6 +76,7 @@ func NewExecutionService(
 		wsHub:            wsHub,
 		defaultAdapter:   defaultAdapter,
 		runningAgents:    make(map[uuid.UUID]*RunningAgent),
+		a2aContexts:      make(map[uuid.UUID]*A2AContext),
 	}
 
 	return es
@@ -285,8 +301,8 @@ func (es *ExecutionService) handleAgentError(ctx context.Context, invocation *mo
 func (es *ExecutionService) buildContextLayers(ctx context.Context, threadID uuid.UUID, config *model.AgentRoleConfig) (*ContextLayers, error) {
 	layers := &ContextLayers{}
 
-	// Layer 0: 系统提示
-	layers.Layer0 = config.SystemPrompt
+	// Layer 0: 系统提示（动态注入工作流触发点和出口检查）
+	layers.Layer0 = es.buildDynamicSystemPrompt(ctx, threadID, config)
 
 	// Layer 1: Thread历史
 	messages, err := es.msgRepo.FindByThreadID(ctx, threadID, 100)
@@ -308,6 +324,111 @@ func (es *ExecutionService) buildContextLayers(ctx context.Context, threadID uui
 	return layers, nil
 }
 
+// buildDynamicSystemPrompt 构建动态系统提示，注入工作流触发点和出口检查
+func (es *ExecutionService) buildDynamicSystemPrompt(ctx context.Context, threadID uuid.UUID, config *model.AgentRoleConfig) string {
+	var sb strings.Builder
+
+	// 原始系统提示
+	sb.WriteString(config.SystemPrompt)
+
+	// 获取当前 Agent 的转换规则
+	transitions := es.getTransitionsForAgent(ctx, threadID, config.ID)
+
+	// 获取工作流中的所有 Agent，用于将 ID 转换为名称
+	allowedAgents := es.getAllowedAgentsFromWorkflow(ctx, threadID)
+	agentNameMap := make(map[string]string)
+	for _, agent := range allowedAgents {
+		agentNameMap[agent.ID.String()] = agent.Name
+	}
+
+	// 注入工作流触发点提示
+	if len(transitions) > 0 {
+		sb.WriteString("\n\n## 工作流（主动 @ 触发点）\n")
+		for _, t := range transitions {
+			// 将 Agent ID 转换为名称
+			agentName := t.ToAgentID
+			if name, ok := agentNameMap[t.ToAgentID]; ok {
+				agentName = name
+			}
+			sb.WriteString(fmt.Sprintf("- %s → @%s\n", t.Trigger, agentName))
+		}
+	}
+
+	// 注入出口检查提示
+	sb.WriteString("\n\n## 发送消息前的出口检查\n")
+	sb.WriteString("回复前问\"到我这里结束了吗？\"\n")
+	sb.WriteString("- 如果不是，想想谁需要接下来处理 → @ 对方\n")
+	sb.WriteString("- @ 前三问自检（短路规则）：\n")
+	sb.WriteString("  1. 需要对方采取行动？= 是 → 直接 @（跳过后续问题）\n")
+	sb.WriteString("  2. 对方需要知道这个信息？\n")
+	sb.WriteString("  3. 会影响对方的工作？\n")
+	sb.WriteString("  - 三个都否 → 不 @\n")
+
+	return sb.String()
+}
+
+// getTransitionsForAgent 获取当前 Agent 的转换规则
+func (es *ExecutionService) getTransitionsForAgent(ctx context.Context, threadID uuid.UUID, agentConfigID uuid.UUID) []model.Transition {
+	logInfo("getTransitionsForAgent: starting", zap.String("threadID", threadID.String()), zap.String("agentConfigID", agentConfigID.String()))
+
+	// 获取 Thread
+	thread, err := es.threadRepo.FindByID(ctx, threadID)
+	if err != nil {
+		logError("getTransitionsForAgent: failed to find thread", zap.Error(err))
+		return nil
+	}
+	if thread.WorkflowTemplateID == nil {
+		logInfo("getTransitionsForAgent: thread has no WorkflowTemplateID", zap.String("threadID", threadID.String()))
+		return nil
+	}
+	logInfo("getTransitionsForAgent: found thread with WorkflowTemplateID", zap.String("workflowTemplateID", thread.WorkflowTemplateID.String()))
+
+	// 获取工作流模板
+	workflow, err := es.workflowRepo.FindByID(ctx, *thread.WorkflowTemplateID)
+	if err != nil {
+		logError("getTransitionsForAgent: failed to find workflow template", zap.Error(err))
+		return nil
+	}
+	if workflow == nil {
+		logInfo("getTransitionsForAgent: workflow is nil")
+		return nil
+	}
+
+	// 解析 Transitions JSON
+	if len(workflow.Transitions) == 0 {
+		logInfo("getTransitionsForAgent: workflow has no Transitions JSON")
+		return nil
+	}
+	logInfo("getTransitionsForAgent: raw Transitions JSON", zap.String("transitions", string(workflow.Transitions)))
+
+	var transitions []model.Transition
+	if err := json.Unmarshal(workflow.Transitions, &transitions); err != nil {
+		logError("getTransitionsForAgent: failed to parse transitions JSON", zap.Error(err))
+		return nil
+	}
+	logInfo("getTransitionsForAgent: parsed transitions", zap.Int("count", len(transitions)))
+
+	// 过滤出当前 Agent 作为源头的转换规则
+	var result []model.Transition
+	agentIDStr := agentConfigID.String()
+	for _, t := range transitions {
+		logInfo("getTransitionsForAgent: checking transition", zap.String("fromAgentID", t.FromAgentID), zap.String("currentAgentID", agentIDStr))
+		if t.FromAgentID == agentIDStr {
+			result = append(result, t)
+		}
+	}
+
+	logInfo("getTransitionsForAgent: result", zap.Int("matchedCount", len(result)))
+	return result
+}
+
+// ClearA2AContext 清理 A2A 上下文（Thread 完成或取消时调用）
+func (es *ExecutionService) ClearA2AContext(threadID uuid.UUID) {
+	es.a2aMu.Lock()
+	delete(es.a2aContexts, threadID)
+	es.a2aMu.Unlock()
+}
+
 // checkRouting 检查路由
 func (es *ExecutionService) checkRouting(ctx context.Context, threadID uuid.UUID, currentConfig *model.AgentRoleConfig, output string) {
 	mentions := es.parseMentions(output)
@@ -315,6 +436,27 @@ func (es *ExecutionService) checkRouting(ctx context.Context, threadID uuid.UUID
 	if len(mentions) == 0 {
 		// 检查信号路由
 		es.checkSignalRouting(ctx, threadID, currentConfig, output)
+		return
+	}
+
+	// 获取或创建 A2A 上下文
+	es.a2aMu.Lock()
+	a2aCtx, exists := es.a2aContexts[threadID]
+	if !exists {
+		a2aCtx = &A2AContext{
+			Depth:           0,
+			InvokedAgents:   make(map[uuid.UUID]bool),
+			CompletedAgents: make(map[uuid.UUID]bool),
+		}
+		es.a2aContexts[threadID] = a2aCtx
+	}
+	es.a2aMu.Unlock()
+
+	// 深度检查
+	if a2aCtx.Depth >= MaxA2ADepth {
+		logInfo("A2A 深度达到上限，停止路由",
+			zap.String("threadId", threadID.String()),
+			zap.Int("depth", a2aCtx.Depth))
 		return
 	}
 
@@ -347,6 +489,26 @@ func (es *ExecutionService) checkRouting(ctx context.Context, threadID uuid.UUID
 				zap.String("threadId", threadID.String()))
 			continue
 		}
+
+		// 去重检查：同一 Agent 不重复调用
+		if a2aCtx.InvokedAgents[targetConfig.ID] {
+			logInfo("A2A 去重：Agent 已被调用过",
+				zap.String("agentId", targetConfig.ID.String()),
+				zap.String("threadId", threadID.String()))
+			continue
+		}
+
+		// 更新 A2A 上下文
+		es.a2aMu.Lock()
+		a2aCtx.Depth++
+		a2aCtx.InvokedAgents[targetConfig.ID] = true
+		es.a2aMu.Unlock()
+
+		logInfo("A2A 路由触发",
+			zap.String("fromAgent", currentConfig.Name),
+			zap.String("toAgent", targetConfig.Name),
+			zap.Int("depth", a2aCtx.Depth),
+			zap.String("threadId", threadID.String()))
 
 		// 使用工作流模板中指定的 Agent 实例
 		es.SpawnAgent(ctx, &SpawnRequest{
@@ -449,30 +611,155 @@ func (es *ExecutionService) findAgentByName(agents []*model.AgentRoleConfig, nam
 	return nil
 }
 
-// checkSignalRouting 检查信号路由（原有逻辑提取）
+// checkSignalRouting 检查信号路由（基于Transitions自动路由）
+// 支持三种路由类型：
+// 1. sequence - 顺序执行：触发单个下游 Agent
+// 2. parallel - 并行执行：同时触发多个下游 Agent（分支工作流）
+// 3. merge - 汇聚执行：等待多个上游 Agent 完成后再执行
 func (es *ExecutionService) checkSignalRouting(ctx context.Context, threadID uuid.UUID, config *model.AgentRoleConfig, output string) {
-	for _, signal := range config.RoutingConfig.RouteOnSignal {
-		if strings.Contains(output, signal) {
-			nextPhase := es.workflow.GetNextPhase(getPhaseFromSignal(signal))
-			nextRole := es.workflow.GetPhaseAgent(nextPhase)
+	// 获取当前 Agent 的 Transitions
+	transitions := es.getTransitionsForAgent(ctx, threadID, config.ID)
+	if len(transitions) == 0 {
+		logInfo("checkSignalRouting: no transitions found for agent", zap.String("agentId", config.ID.String()))
+		return
+	}
 
-			// 获取项目路径
-			var projectPath string
-			if es.projectRepo != nil {
-				project, err := es.projectRepo.GetByThreadID(ctx, threadID)
-				if err == nil && project != nil {
-					projectPath = project.LocalPath
-				}
-			}
-
-			es.SpawnAgent(ctx, &SpawnRequest{
-				ThreadID:    threadID,
-				Role:        nextRole,
-				Input:       output,
-				ProjectPath: projectPath,
-			})
-			break
+	// 获取或创建 A2A 上下文
+	es.a2aMu.Lock()
+	a2aCtx, exists := es.a2aContexts[threadID]
+	if !exists {
+		a2aCtx = &A2AContext{
+			Depth:         0,
+			InvokedAgents: make(map[uuid.UUID]bool),
+			CompletedAgents: make(map[uuid.UUID]bool), // 初始化完成记录
 		}
+		es.a2aContexts[threadID] = a2aCtx
+	}
+	// 记录当前 Agent 已完成
+	a2aCtx.CompletedAgents[config.ID] = true
+	es.a2aMu.Unlock()
+
+	// 深度检查
+	if a2aCtx.Depth >= MaxA2ADepth {
+		logInfo("A2A 深度达到上限，停止自动路由",
+			zap.String("threadId", threadID.String()),
+			zap.Int("depth", a2aCtx.Depth))
+		return
+	}
+
+	// 获取项目路径
+	var projectPath string
+	if es.projectRepo != nil {
+		project, err := es.projectRepo.GetByThreadID(ctx, threadID)
+		if err == nil && project != nil {
+			projectPath = project.LocalPath
+		}
+	}
+
+	// 获取工作流模板中的 Agent 列表
+	allowedAgents := es.getAllowedAgentsFromWorkflow(ctx, threadID)
+
+	// 收集所有待触发的 Agent（支持并行）
+	var agentsToTrigger []*model.AgentRoleConfig
+	var agentsToMerge []*model.AgentRoleConfig
+
+	// 根据 Transitions 自动路由到下一个 Agent
+	for _, t := range transitions {
+		// 检查条件路由
+		if t.Condition != "" && !es.matchCondition(output, t.Condition) {
+			logInfo("A2A 条件路由：条件不匹配，跳过",
+				zap.String("condition", t.Condition),
+				zap.String("fromAgent", config.Name))
+			continue
+		}
+
+		targetID, err := uuid.Parse(t.ToAgentID)
+		if err != nil {
+			logError("Invalid target agent ID in transition", zap.Error(err), zap.String("toAgentId", t.ToAgentID))
+			continue
+		}
+
+		// 查找目标 Agent 配置
+		var targetConfig *model.AgentRoleConfig
+		for _, agent := range allowedAgents {
+			if agent.ID == targetID {
+				targetConfig = agent
+				break
+			}
+		}
+
+		if targetConfig == nil {
+			logInfo("自动路由被拒绝：目标不在工作流模板中",
+				zap.String("toAgentId", t.ToAgentID),
+				zap.String("threadId", threadID.String()))
+			continue
+		}
+
+		// 去重检查：同一 Agent 不重复调用
+		if a2aCtx.InvokedAgents[targetConfig.ID] {
+			logInfo("A2A 去重：Agent 已被调用过",
+				zap.String("agentId", targetConfig.ID.String()),
+				zap.String("threadId", threadID.String()))
+			continue
+		}
+
+		// 汇聚类型：检查是否所有上游 Agent 都已完成
+		if t.Type == model.TransitionTypeMerge && len(t.WaitFor) > 0 {
+			allCompleted := es.checkMergeCondition(threadID, t.WaitFor)
+			if !allCompleted {
+				logInfo("A2A 汇聚：等待上游 Agent 完成",
+					zap.String("toAgent", targetConfig.Name),
+					zap.Strings("waitingFor", t.WaitFor),
+					zap.String("threadId", threadID.String()))
+				continue
+			}
+			agentsToMerge = append(agentsToMerge, targetConfig)
+			continue
+		}
+
+		// 顺序或并行类型：添加到待触发列表
+		agentsToTrigger = append(agentsToTrigger, targetConfig)
+	}
+
+	// 合并需要触发的 Agent（汇聚类型的 Agent 也需要触发）
+	agentsToTrigger = append(agentsToTrigger, agentsToMerge...)
+
+	// 批量触发 Agent（支持并行）
+	for _, targetConfig := range agentsToTrigger {
+		// 更新 A2A 上下文
+		es.a2aMu.Lock()
+		a2aCtx.Depth++
+		a2aCtx.InvokedAgents[targetConfig.ID] = true
+		es.a2aMu.Unlock()
+
+		// 查找对应的 Transition 获取类型
+		var transitionType model.TransitionType
+		for _, t := range transitions {
+			if t.ToAgentID == targetConfig.ID.String() {
+				transitionType = t.Type
+				break
+			}
+		}
+		if transitionType == "" {
+			transitionType = model.TransitionTypeSequence // 默认顺序
+		}
+
+		logInfo("A2A 自动路由触发（基于Transitions）",
+			zap.String("fromAgent", config.Name),
+			zap.String("toAgent", targetConfig.Name),
+			zap.String("trigger", "auto"),
+			zap.String("type", string(transitionType)),
+			zap.Int("depth", a2aCtx.Depth),
+			zap.String("threadId", threadID.String()))
+
+		// 触发下一个 Agent
+		es.SpawnAgent(ctx, &SpawnRequest{
+			ThreadID:    threadID,
+			ConfigID:    targetConfig.ID,
+			Role:        targetConfig.Role,
+			Input:       output,
+			ProjectPath: projectPath,
+		})
 	}
 }
 
@@ -544,19 +831,33 @@ func (es *ExecutionService) broadcastStatus(threadID, invocationID uuid.UUID, st
 
 // broadcastChunk 广播输出块（实时流式输出）
 func (es *ExecutionService) broadcastChunk(threadID, invocationID uuid.UUID, chunk Chunk, agentID, agentName string) {
+	logInfo("broadcastChunk called", zap.String("threadId", threadID.String()), zap.String("chunkType", string(chunk.Type)), zap.String("toolName", chunk.ToolName))
 	if es.wsHub != nil {
+		payload := map[string]interface{}{
+			"invocationId": invocationID.String(),
+			"chunk":        chunk.Content,
+			"chunkType":    string(chunk.Type),
+			"agentId":      agentID,
+			"agentName":    agentName,
+		}
+
+		// 添加工具相关信息
+		if chunk.Type == ChunkTypeToolUse {
+			payload["toolName"] = chunk.ToolName
+			payload["toolId"] = chunk.ToolID
+			if chunk.ToolInput != nil {
+				payload["toolInput"] = chunk.ToolInput
+			}
+		}
+
 		es.wsHub.BroadcastToThread(threadID.String(), ws.WSMessage{
 			Type:      "agent_output_chunk",
 			ThreadID:  threadID.String(),
 			Timestamp: time.Now().UnixMilli(),
-			Payload: map[string]interface{}{
-				"invocationId": invocationID.String(),
-				"chunk":        chunk.Content,
-				"chunkType":    string(chunk.Type),
-				"agentId":      agentID,
-				"agentName":    agentName,
-			},
+			Payload:   payload,
 		})
+	} else {
+		logInfo("broadcastChunk: wsHub is nil!")
 	}
 }
 
@@ -681,4 +982,61 @@ func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, thread
 // timePtr 返回时间的指针
 func timePtr(t time.Time) *time.Time {
 	return &t
+}
+
+// matchCondition 匹配条件表达式
+// 支持简单的关键词匹配和正则表达式
+// 条件格式：
+//   - "contains:关键词" - 输出包含指定关键词
+//   - "regex:正则表达式" - 正则表达式匹配
+//   - "关键词" - 默认使用 contains 匹配
+func (es *ExecutionService) matchCondition(output, condition string) bool {
+	if condition == "" {
+		return true
+	}
+
+	// 解析条件类型
+	if strings.HasPrefix(condition, "contains:") {
+		keyword := strings.TrimPrefix(condition, "contains:")
+		return strings.Contains(output, keyword)
+	}
+
+	if strings.HasPrefix(condition, "regex:") {
+		pattern := strings.TrimPrefix(condition, "regex:")
+		matched, err := regexp.MatchString(pattern, output)
+		if err != nil {
+			logError("Invalid regex condition", zap.Error(err), zap.String("pattern", pattern))
+			return false
+		}
+		return matched
+	}
+
+	// 默认使用 contains 匹配
+	return strings.Contains(output, condition)
+}
+
+// checkMergeCondition 检查汇聚条件是否满足
+// 所有指定的上游 Agent 都完成后才返回 true
+func (es *ExecutionService) checkMergeCondition(threadID uuid.UUID, waitFor []string) bool {
+	es.a2aMu.RLock()
+	defer es.a2aMu.RUnlock()
+
+	a2aCtx, exists := es.a2aContexts[threadID]
+	if !exists {
+		return false
+	}
+
+	for _, agentIDStr := range waitFor {
+		agentID, err := uuid.Parse(agentIDStr)
+		if err != nil {
+			logError("Invalid agent ID in wait_for", zap.Error(err), zap.String("agentId", agentIDStr))
+			continue
+		}
+
+		if !a2aCtx.CompletedAgents[agentID] {
+			return false
+		}
+	}
+
+	return true
 }

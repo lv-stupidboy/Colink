@@ -142,11 +142,43 @@ class APIClient {
     },
   };
 
+  // 文件浏览 API（用于路径选择）
+  files = {
+    // 浏览文件系统路径，返回目录列表
+    browse: (path?: string): Promise<{
+      currentPath: string;
+      parentPath: string;
+      entries: Array<{ name: string; path: string; isDir: boolean }>;
+      drives?: string[];
+      isValid: boolean;
+      error?: string;
+    }> => {
+      const url = path ? `/files/browse?path=${encodeURIComponent(path)}` : '/files/browse';
+      return this.request(url, 'GET');
+    },
+    // 验证路径是否可用于项目
+    validate: (path: string): Promise<{
+      isValid: boolean;
+      exists: boolean;
+      isDir: boolean;
+      writable: boolean;
+      error?: string;
+      canCreate: boolean;
+    }> => {
+      return this.request(`/files/validate?path=${encodeURIComponent(path)}`, 'GET');
+    },
+    // 创建文件夹
+    createFolder: (parentPath: string, name: string): Promise<{ success: boolean }> => {
+      return this.request('/files/folder', 'POST', { path: parentPath, name });
+    },
+  };
+
   // Thread API
   threads = {
     list: (projectId: string): Promise<Thread[]> => this.request(`/threads/project/${projectId}`, 'GET'),
     get: (id: string): Promise<Thread> => this.request(`/threads/${id}`, 'GET'),
-    create: (projectId: string): Promise<Thread> => this.request(`/threads/project/${projectId}`, 'POST'),
+    create: (projectId: string, name?: string): Promise<Thread> =>
+      this.request(`/threads/project/${projectId}`, 'POST', name ? { name } : {}),
     updateStatus: (id: string, status: string): Promise<Thread> =>
       this.request(`/threads/${id}/status`, 'PUT', { status }),
     setPhase: (id: string, phase: string, agent: string): Promise<Thread> =>

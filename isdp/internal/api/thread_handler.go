@@ -59,7 +59,20 @@ func (h *ThreadHandler) Create(c *gin.Context) {
 		return
 	}
 
-	thread, err := h.service.Create(c.Request.Context(), projectID)
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		// 如果没有请求体，使用默认名称
+		req.Name = "新任务"
+	}
+
+	// 如果名称为空，设置默认名称
+	if req.Name == "" {
+		req.Name = "新任务"
+	}
+
+	thread, err := h.service.Create(c.Request.Context(), projectID, req.Name)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

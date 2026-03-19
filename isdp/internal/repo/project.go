@@ -118,7 +118,7 @@ func (r *ProjectRepository) FindAll(ctx context.Context, limit, offset int) ([]*
 	}
 	defer rows.Close()
 
-	var projects []*model.Project
+	projects := make([]*model.Project, 0) // 初始化为空数组，避免 JSON null
 	for rows.Next() {
 		project := &model.Project{}
 		var idStr string

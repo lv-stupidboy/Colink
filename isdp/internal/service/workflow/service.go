@@ -34,12 +34,14 @@ func (s *Service) GetByID(ctx context.Context, id uuid.UUID) (*model.WorkflowTem
 func (s *Service) Create(ctx context.Context, req *model.CreateWorkflowTemplateRequest) (*model.WorkflowTemplate, error) {
 	agentIDs, _ := json.Marshal(req.AgentIDs)
 	checkpoints, _ := json.Marshal(req.Checkpoints)
+	transitions, _ := json.Marshal(req.Transitions)
 
 	template := &model.WorkflowTemplate{
 		ID:            uuid.New(),
 		Name:          req.Name,
 		Description:   req.Description,
 		AgentIDs:      agentIDs,
+		Transitions:   transitions,
 		Checkpoints:   checkpoints,
 		EstimatedTime: req.EstimatedTime,
 		IsSystem:      false,
@@ -68,6 +70,10 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, req *model.UpdateWor
 	if req.AgentIDs != nil {
 		agentIDs, _ := json.Marshal(req.AgentIDs)
 		template.AgentIDs = agentIDs
+	}
+	if req.Transitions != nil {
+		transitions, _ := json.Marshal(req.Transitions)
+		template.Transitions = transitions
 	}
 	if req.Checkpoints != nil {
 		checkpoints, _ := json.Marshal(req.Checkpoints)

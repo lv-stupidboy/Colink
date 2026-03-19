@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -173,6 +174,214 @@ func (s *Service) ListFiles(ctx context.Context, id uuid.UUID, subPath string) (
 		Files:   files,
 		HasMore: false,
 	}, nil
+}
+
+// BrowsePath 浏览文件系统路径
+func (s *Service) BrowsePath(ctx context.Context, path string) (*model.BrowsePathResponse, error) {
+	resp := &model.BrowsePathResponse{
+		CurrentPath: path,
+		Entries:     make([]model.FileInfo, 0),
+	}
+
+	// 如果路径为空，返回驱动器列表或根目录
+	if path == "" {
+		if runtime.GOOS == "windows" {
+			drives, err := getWindowsDrives()
+			if err != nil {
+				resp.Error = err.Error()
+				return resp, nil
+			}
+			resp.Drives = drives
+			resp.IsValid = true
+			return resp, nil
+		}
+		// 非 Windows 系统从根目录开始
+		path = "/"
+	}
+
+	// Windows 驱动器路径处理：将 "D:" 转换为 "D:\"
+	if runtime.GOOS == "windows" && len(path) == 2 && path[1] == ':' {
+		path = path + string(filepath.Separator)
+	}
+
+	// 规范化路径
+	path = filepath.Clean(path)
+	resp.CurrentPath = path
+
+	// 检查路径是否存在
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			resp.Error = "路径不存在"
+			return resp, nil
+		}
+		resp.Error = err.Error()
+		return resp, nil
+	}
+
+	if !info.IsDir() {
+		resp.Error = "路径不是目录"
+		return resp, nil
+	}
+
+	resp.IsValid = true
+
+	// 设置父目录路径
+	if path != "/" && path != "" {
+		resp.ParentPath = filepath.Dir(path)
+	}
+
+	// 读取目录内容
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		resp.Error = "无法读取目录: " + err.Error()
+		return resp, nil
+	}
+
+	// 构建文件列表（只显示目录）
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue // 只显示目录
+		}
+
+		// 跳过隐藏文件和系统文件
+		if strings.HasPrefix(entry.Name(), ".") || strings.HasPrefix(entry.Name(), "$") {
+			continue
+		}
+
+		entryInfo, err := entry.Info()
+		if err != nil {
+			continue
+		}
+
+		resp.Entries = append(resp.Entries, model.FileInfo{
+			Name:    entry.Name(),
+			Path:    filepath.Join(path, entry.Name()),
+			IsDir:   true,
+			Size:    0,
+			ModTime: entryInfo.ModTime().Format(time.RFC3339),
+		})
+	}
+
+	// 按名称排序
+	sortFiles(resp.Entries)
+
+	return resp, nil
+}
+
+// getWindowsDrives 获取 Windows 驱动器列表
+func getWindowsDrives() ([]string, error) {
+	var drives []string
+	for _, drive := range "ABCDEFGHIJKLMNOPQRSTUVWXYZ" {
+		path := string(drive) + ":"
+		if _, err := os.Stat(path); err == nil {
+			drives = append(drives, path)
+		}
+	}
+	if len(drives) == 0 {
+		return nil, errors.New("未找到可用驱动器")
+	}
+	return drives, nil
+}
+
+// ValidatePath 验证路径是否可用于项目
+func (s *Service) ValidatePath(ctx context.Context, path string) (*model.ValidatePathResponse, error) {
+	resp := &model.ValidatePathResponse{}
+
+	if path == "" {
+		resp.Error = "路径不能为空"
+		return resp, nil
+	}
+
+	// 规范化路径
+	path = filepath.Clean(path)
+
+	// Windows 驱动器路径处理
+	if runtime.GOOS == "windows" && len(path) == 2 && path[1] == ':' {
+		path = path + string(filepath.Separator)
+	}
+
+	// 检查路径是否存在
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// 路径不存在，检查是否可以创建
+			parentDir := filepath.Dir(path)
+			parentInfo, parentErr := os.Stat(parentDir)
+			if parentErr != nil {
+				resp.Error = "父目录不存在"
+				return resp, nil
+			}
+			if !parentInfo.IsDir() {
+				resp.Error = "父路径不是目录"
+				return resp, nil
+			}
+			resp.IsValid = true
+			resp.CanCreate = true
+			return resp, nil
+		}
+		resp.Error = err.Error()
+		return resp, nil
+	}
+
+	resp.Exists = true
+	resp.IsDir = info.IsDir()
+
+	if !info.IsDir() {
+		resp.Error = "路径不是目录"
+		return resp, nil
+	}
+
+	// 目录存在且有效
+	resp.IsValid = true
+	resp.Writable = true
+	resp.CanCreate = true
+	return resp, nil
+}
+
+// CreateFolder 创建文件夹
+func (s *Service) CreateFolder(ctx context.Context, parentPath, name string) error {
+	if parentPath == "" || name == "" {
+		return errors.New("父路径和文件夹名称不能为空")
+	}
+
+	// 规范化路径
+	parentPath = filepath.Clean(parentPath)
+	fullPath := filepath.Join(parentPath, name)
+
+	// 检查父目录是否存在
+	parentInfo, err := os.Stat(parentPath)
+	if err != nil {
+		return errors.New("父目录不存在")
+	}
+	if !parentInfo.IsDir() {
+		return errors.New("父路径不是目录")
+	}
+
+	// 检查目标是否已存在
+	if _, err := os.Stat(fullPath); err == nil {
+		return errors.New("文件夹已存在")
+	}
+
+	// 创建目录（包含所有父目录）
+	if err := os.MkdirAll(fullPath, 0755); err != nil {
+		return errors.New("创建文件夹失败: " + err.Error())
+	}
+
+	return nil
+}
+
+// checkWritable 检查目录是否可写
+func checkWritable(path string) error {
+	// 尝试创建临时文件
+	testFile := filepath.Join(path, ".isdp_write_test")
+	f, err := os.Create(testFile)
+	if err != nil {
+		return err
+	}
+	f.Close()
+	os.Remove(testFile)
+	return nil
 }
 
 // sortFiles 对文件列表排序：目录在前，然后按名称

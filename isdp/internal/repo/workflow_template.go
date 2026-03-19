@@ -24,8 +24,8 @@ func NewWorkflowTemplateRepository(db *sql.DB) *WorkflowTemplateRepository {
 // Create 创建工作流模板
 func (r *WorkflowTemplateRepository) Create(ctx context.Context, template *model.WorkflowTemplate) error {
 	query := `
-		INSERT INTO workflow_templates (id, name, description, agent_ids, checkpoints, estimated_time, is_system, is_default, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO workflow_templates (id, name, description, agent_ids, transitions, checkpoints, estimated_time, is_system, is_default, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	now := time.Now()
 	_, err := r.db.ExecContext(ctx, query,
@@ -33,6 +33,7 @@ func (r *WorkflowTemplateRepository) Create(ctx context.Context, template *model
 		template.Name,
 		template.Description,
 		[]byte(template.AgentIDs),      // 转换为 []byte
+		[]byte(template.Transitions),   // 转换为 []byte
 		[]byte(template.Checkpoints),   // 转换为 []byte
 		template.EstimatedTime,
 		template.IsSystem,
@@ -51,18 +52,19 @@ func (r *WorkflowTemplateRepository) Create(ctx context.Context, template *model
 // FindByID 根据ID查找工作流模板
 func (r *WorkflowTemplateRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.WorkflowTemplate, error) {
 	query := `
-		SELECT id, name, description, agent_ids, checkpoints, estimated_time, is_system, is_default, created_at, updated_at
+		SELECT id, name, description, agent_ids, transitions, checkpoints, estimated_time, is_system, is_default, created_at, updated_at
 		FROM workflow_templates WHERE id = ?
 	`
 	template := &model.WorkflowTemplate{}
 	var idStr string
-	var agentIDs, checkpoints []byte
+	var agentIDs, transitions, checkpoints []byte
 	var isSystem, isDefault int
 	err := r.db.QueryRowContext(ctx, query, id.String()).Scan(
 		&idStr,
 		&template.Name,
 		&template.Description,
 		&agentIDs,
+		&transitions,
 		&checkpoints,
 		&template.EstimatedTime,
 		&isSystem,
@@ -75,6 +77,7 @@ func (r *WorkflowTemplateRepository) FindByID(ctx context.Context, id uuid.UUID)
 	}
 	template.ID, _ = uuid.Parse(idStr)
 	template.AgentIDs = json.RawMessage(agentIDs)
+	template.Transitions = json.RawMessage(transitions)
 	template.Checkpoints = json.RawMessage(checkpoints)
 	template.IsSystem = isSystem == 1
 	template.IsDefault = isDefault == 1
@@ -84,7 +87,7 @@ func (r *WorkflowTemplateRepository) FindByID(ctx context.Context, id uuid.UUID)
 // FindAll 查找所有工作流模板
 func (r *WorkflowTemplateRepository) FindAll(ctx context.Context) ([]*model.WorkflowTemplate, error) {
 	query := `
-		SELECT id, name, description, agent_ids, checkpoints, estimated_time, is_system, is_default, created_at, updated_at
+		SELECT id, name, description, agent_ids, transitions, checkpoints, estimated_time, is_system, is_default, created_at, updated_at
 		FROM workflow_templates ORDER BY created_at DESC
 	`
 	rows, err := r.db.QueryContext(ctx, query)
@@ -93,17 +96,18 @@ func (r *WorkflowTemplateRepository) FindAll(ctx context.Context) ([]*model.Work
 	}
 	defer rows.Close()
 
-	var templates []*model.WorkflowTemplate
+	var templates = make([]*model.WorkflowTemplate, 0) // 初始化为空数组，避免 JSON null
 	for rows.Next() {
 		template := &model.WorkflowTemplate{}
 		var idStr string
-		var agentIDs, checkpoints []byte
+		var agentIDs, transitions, checkpoints []byte
 		var isSystem, isDefault int
 		err := rows.Scan(
 			&idStr,
 			&template.Name,
 			&template.Description,
 			&agentIDs,
+			&transitions,
 			&checkpoints,
 			&template.EstimatedTime,
 			&isSystem,
@@ -116,6 +120,7 @@ func (r *WorkflowTemplateRepository) FindAll(ctx context.Context) ([]*model.Work
 		}
 		template.ID, _ = uuid.Parse(idStr)
 		template.AgentIDs = json.RawMessage(agentIDs)
+		template.Transitions = json.RawMessage(transitions)
 		template.Checkpoints = json.RawMessage(checkpoints)
 		template.IsSystem = isSystem == 1
 		template.IsDefault = isDefault == 1
@@ -128,7 +133,7 @@ func (r *WorkflowTemplateRepository) FindAll(ctx context.Context) ([]*model.Work
 func (r *WorkflowTemplateRepository) Update(ctx context.Context, template *model.WorkflowTemplate) error {
 	query := `
 		UPDATE workflow_templates
-		SET name = ?, description = ?, agent_ids = ?, checkpoints = ?, estimated_time = ?, updated_at = ?
+		SET name = ?, description = ?, agent_ids = ?, transitions = ?, checkpoints = ?, estimated_time = ?, updated_at = ?
 		WHERE id = ?
 	`
 	template.UpdatedAt = time.Now()
@@ -136,6 +141,7 @@ func (r *WorkflowTemplateRepository) Update(ctx context.Context, template *model
 		template.Name,
 		template.Description,
 		[]byte(template.AgentIDs),      // 转换为 []byte
+		[]byte(template.Transitions),   // 转换为 []byte
 		[]byte(template.Checkpoints),   // 转换为 []byte
 		template.EstimatedTime,
 		template.UpdatedAt,
@@ -164,18 +170,19 @@ func (r *WorkflowTemplateRepository) Delete(ctx context.Context, id uuid.UUID) e
 // GetDefault 获取默认工作流模板
 func (r *WorkflowTemplateRepository) GetDefault(ctx context.Context) (*model.WorkflowTemplate, error) {
 	query := `
-		SELECT id, name, description, agent_ids, checkpoints, estimated_time, is_system, is_default, created_at, updated_at
+		SELECT id, name, description, agent_ids, transitions, checkpoints, estimated_time, is_system, is_default, created_at, updated_at
 		FROM workflow_templates WHERE is_default = 1 LIMIT 1
 	`
 	template := &model.WorkflowTemplate{}
 	var idStr string
-	var agentIDs, checkpoints []byte
+	var agentIDs, transitions, checkpoints []byte
 	var isSystem, isDefault int
 	err := r.db.QueryRowContext(ctx, query).Scan(
 		&idStr,
 		&template.Name,
 		&template.Description,
 		&agentIDs,
+		&transitions,
 		&checkpoints,
 		&template.EstimatedTime,
 		&isSystem,
@@ -188,6 +195,7 @@ func (r *WorkflowTemplateRepository) GetDefault(ctx context.Context) (*model.Wor
 	}
 	template.ID, _ = uuid.Parse(idStr)
 	template.AgentIDs = json.RawMessage(agentIDs)
+	template.Transitions = json.RawMessage(transitions)
 	template.Checkpoints = json.RawMessage(checkpoints)
 	template.IsSystem = isSystem == 1
 	template.IsDefault = isDefault == 1

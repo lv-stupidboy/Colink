@@ -152,6 +152,17 @@ export function transformWorkflowTemplate(data: any): any {
     }
   }
 
+  // 确保 transitions 是数组
+  if (result.transitions == null) {
+    result.transitions = [];
+  } else if (typeof result.transitions === 'string') {
+    try {
+      result.transitions = JSON.parse(result.transitions);
+    } catch {
+      result.transitions = [];
+    }
+  }
+
   // 确保 isSystem 是布尔值
   if (typeof result.isSystem === 'number') {
     result.isSystem = result.isSystem === 1;

@@ -23,8 +23,8 @@ func NewThreadRepository(db *sql.DB) *ThreadRepository {
 // Create 创建Thread
 func (r *ThreadRepository) Create(ctx context.Context, thread *model.Thread) error {
 	query := `
-		INSERT INTO threads (id, project_id, status, current_phase, current_agent, depth, workflow_template_id, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO threads (id, project_id, name, status, current_phase, current_agent, depth, workflow_template_id, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	now := time.Now()
 	var workflowTemplateID interface{}
@@ -32,7 +32,7 @@ func (r *ThreadRepository) Create(ctx context.Context, thread *model.Thread) err
 		workflowTemplateID = thread.WorkflowTemplateID.String()
 	}
 	_, err := r.db.ExecContext(ctx, query,
-		thread.ID.String(), thread.ProjectID.String(), thread.Status, thread.CurrentPhase, thread.CurrentAgent, thread.Depth, workflowTemplateID, now, now,
+		thread.ID.String(), thread.ProjectID.String(), thread.Name, thread.Status, thread.CurrentPhase, thread.CurrentAgent, thread.Depth, workflowTemplateID, now, now,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create thread: %w", err)
@@ -45,7 +45,7 @@ func (r *ThreadRepository) Create(ctx context.Context, thread *model.Thread) err
 // FindByID 根据ID查找Thread
 func (r *ThreadRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.Thread, error) {
 	query := `
-		SELECT id, project_id, status, current_phase, current_agent, depth, workflow_template_id, abort_token, created_at, updated_at
+		SELECT id, project_id, name, status, current_phase, current_agent, depth, workflow_template_id, abort_token, created_at, updated_at
 		FROM threads WHERE id = ?
 	`
 	thread := &model.Thread{}
@@ -53,7 +53,7 @@ func (r *ThreadRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.T
 	var projectID sql.NullString
 	var workflowTemplateID sql.NullString
 	err := r.db.QueryRowContext(ctx, query, id.String()).Scan(
-		&idStr, &projectID, &thread.Status, &thread.CurrentPhase, &thread.CurrentAgent,
+		&idStr, &projectID, &thread.Name, &thread.Status, &thread.CurrentPhase, &thread.CurrentAgent,
 		&thread.Depth, &workflowTemplateID, &thread.AbortToken, &thread.CreatedAt, &thread.UpdatedAt,
 	)
 	if err != nil {
@@ -74,7 +74,7 @@ func (r *ThreadRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.T
 // FindByProjectID 根据项目ID查找Thread列表
 func (r *ThreadRepository) FindByProjectID(ctx context.Context, projectID uuid.UUID) ([]*model.Thread, error) {
 	query := `
-		SELECT id, project_id, status, current_phase, current_agent, depth, workflow_template_id, abort_token, created_at, updated_at
+		SELECT id, project_id, name, status, current_phase, current_agent, depth, workflow_template_id, abort_token, created_at, updated_at
 		FROM threads WHERE project_id = ? ORDER BY created_at DESC
 	`
 	rows, err := r.db.QueryContext(ctx, query, projectID.String())
@@ -83,14 +83,14 @@ func (r *ThreadRepository) FindByProjectID(ctx context.Context, projectID uuid.U
 	}
 	defer rows.Close()
 
-	var threads []*model.Thread
+	var threads = make([]*model.Thread, 0) // 初始化为空数组，避免 JSON null
 	for rows.Next() {
 		thread := &model.Thread{}
 		var idStr, projIDStr string
 		var projID sql.NullString
 		var workflowTemplateID sql.NullString
 		err := rows.Scan(
-			&idStr, &projID, &thread.Status, &thread.CurrentPhase, &thread.CurrentAgent,
+			&idStr, &projID, &thread.Name, &thread.Status, &thread.CurrentPhase, &thread.CurrentAgent,
 			&thread.Depth, &workflowTemplateID, &thread.AbortToken, &thread.CreatedAt, &thread.UpdatedAt,
 		)
 		if err != nil {

@@ -63,7 +63,7 @@ func (r *AgentInvocationRepository) FindByThreadID(ctx context.Context, threadID
 	}
 	defer rows.Close()
 
-	var invocations []*model.AgentInvocation
+	var invocations = make([]*model.AgentInvocation, 0) // 初始化为空数组，避免 JSON null
 	for rows.Next() {
 		invocation := &model.AgentInvocation{}
 		var idStr, threadIDStr, agentConfigIDStr string

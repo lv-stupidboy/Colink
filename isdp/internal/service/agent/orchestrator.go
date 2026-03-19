@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -116,33 +115,6 @@ func (o *Orchestrator) handleAgentError(ctx context.Context, invocation *model.A
 	o.broadcastStatus(invocation.ThreadID, invocation.ID, "failed", invocation.Role)
 }
 
-// buildContextLayers 构建上下文层
-func (o *Orchestrator) buildContextLayers(ctx context.Context, threadID uuid.UUID, config *model.AgentRoleConfig) (*ContextLayers, error) {
-	layers := &ContextLayers{}
-
-	// Layer 0: 系统提示
-	layers.Layer0 = config.SystemPrompt
-
-	// Layer 1: Thread历史
-	messages, err := o.msgRepo.FindByThreadID(ctx, threadID, 100)
-	if err != nil {
-		return nil, err
-	}
-	layers.Layer1 = o.formatMessages(messages)
-
-	// Layer 2: 工作产物
-	thread, err := o.threadRepo.FindByID(ctx, threadID)
-	if err != nil {
-		return nil, err
-	}
-	layers.Layer2 = o.getArtifacts(thread)
-
-	// Layer 3: 环境信息
-	layers.Layer3 = o.getEnvironmentInfo(thread)
-
-	return layers, nil
-}
-
 // mergeConfig 合并 AgentRoleConfig 和 BaseAgent 的配置
 func (o *Orchestrator) mergeConfig(config *model.AgentRoleConfig, baseAgent *model.BaseAgent) *model.AgentRoleConfig {
 	// 复制原始配置
@@ -168,112 +140,6 @@ func (o *Orchestrator) getAdapter(ctx context.Context, config *model.AgentRoleCo
 	return o.executionService.getAdapter(ctx, config, baseAgent)
 }
 
-// checkRouting 检查路由
-func (o *Orchestrator) checkRouting(ctx context.Context, threadID uuid.UUID, currentConfig *model.AgentRoleConfig, output string) {
-	fmt.Printf("[DEBUG] Checking routing for thread: %s\n", threadID.String()) // 调试日志
-	fmt.Printf("[DEBUG] Current config: %s (Role: %s)\n", currentConfig.Name, currentConfig.Role) // 调试日志
-
-	mentions := o.parseMentions(output)
-
-	if len(mentions) == 0 {
-		fmt.Printf("[DEBUG] No mentions found, checking signal routing\n") // 调试日志
-		// 检查信号路由
-		o.checkSignalRouting(ctx, threadID, currentConfig, output)
-		return
-	}
-
-	fmt.Printf("[DEBUG] Found %d mentions, getting allowed agents from workflow\n", len(mentions)) // 调试日志
-
-	// 获取工作流模板中的 Agent 列表
-	allowedAgents := o.getAllowedAgentsFromWorkflow(ctx, threadID)
-	fmt.Printf("[DEBUG] Retrieved %d allowed agents from workflow\n", len(allowedAgents)) // 调试日志
-
-	// 打印所有允许的Agent名称和类型，用于调试
-	for i, agent := range allowedAgents {
-		fmt.Printf("[DEBUG] Allowed agent[%d]: %s (Role: %s)\n", i, agent.Name, agent.Role)
-	}
-
-	// 获取项目路径
-	var projectPath string
-	if o.projectRepo != nil {
-		project, err := o.projectRepo.GetByThreadID(ctx, threadID)
-		if err == nil && project != nil {
-			projectPath = project.LocalPath
-		}
-	}
-
-	for _, mention := range mentions {
-		fmt.Printf("[DEBUG] Processing mention: %s (Role: %s)\n", mention.AgentName, mention.Role) // 调试日志
-
-		var targetConfig *model.AgentRoleConfig
-
-		if mention.Role != "" {
-			// 按 role 查找
-			fmt.Printf("[DEBUG] Looking for role: %s\n", mention.Role) // 调试日志
-			targetConfig = o.findAgentByRole(allowedAgents, mention.Role)
-		} else {
-			// 按 name 查找
-			fmt.Printf("[DEBUG] Looking for name: %s\n", mention.AgentName) // 调试日志
-			targetConfig = o.findAgentByName(allowedAgents, mention.AgentName)
-		}
-
-		if targetConfig == nil {
-			fmt.Printf("[DEBUG] Target config not found for mention: %s\n", mention.Raw) // 调试日志
-			logInfo("路由被拒绝：目标不在工作流模板中",
-				zap.String("mention", mention.Raw),
-				zap.String("threadId", threadID.String()))
-			continue
-		}
-
-		fmt.Printf("[DEBUG] Found target config: %s (ID: %s)\n", targetConfig.Name, targetConfig.ID) // 调试日志
-
-		// 使用工作流模板中指定的 Agent 实例
-		o.SpawnAgent(ctx, &SpawnRequest{
-			ThreadID:    threadID,
-			ConfigID:    targetConfig.ID,
-			Role:        targetConfig.Role,
-			Input:       output,
-			ProjectPath: projectPath,
-		})
-	}
-}
-
-// parseMentions 解析@mention
-// 支持: @developer (角色) 或 @前端开发 (实例名称)
-func (o *Orchestrator) parseMentions(content string) []ParsedMention {
-	fmt.Printf("[DEBUG] Parsing mentions in content: %s\n", content) // 调试日志
-
-	var mentions []ParsedMention
-	lines := strings.Split(content, "\n")
-	count := 0
-
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if count >= 2 {
-			break
-		}
-		if strings.HasPrefix(line, "@") {
-			mention := strings.Fields(line[1:])[0]
-			if mention != "" {
-				fmt.Printf("[DEBUG] Found mention: %s\n", mention) // 调试日志
-
-				// 尝试解析为角色
-				role := parseAgentRole(mention)
-
-				mentions = append(mentions, ParsedMention{
-					Role:      role,
-					AgentName: mention,
-					Raw:       mention,
-				})
-				count++
-			}
-		}
-	}
-
-	fmt.Printf("[DEBUG] Total mentions found: %d\n", len(mentions)) // 调试日志
-	return mentions
-}
-
 // parseAgentRole 解析Agent角色
 func parseAgentRole(s string) model.AgentRole {
 	switch strings.ToLower(s) {
@@ -291,93 +157,6 @@ func parseAgentRole(s string) model.AgentRole {
 		return model.AgentRoleDevOps
 	default:
 		return ""
-	}
-}
-
-// getAllowedAgentsFromWorkflow 从工作流模板获取允许路由的 Agent 列表
-// 数据流: Thread → WorkflowTemplate → AgentIDs → AgentConfigs
-func (o *Orchestrator) getAllowedAgentsFromWorkflow(ctx context.Context, threadID uuid.UUID) []*model.AgentRoleConfig {
-	// 1. 获取 Thread
-	thread, err := o.threadRepo.FindByID(ctx, threadID)
-	if err != nil || thread.WorkflowTemplateID == nil {
-		return nil
-	}
-
-	// 2. 获取工作流模板
-	workflow, err := o.workflowRepo.FindByID(ctx, *thread.WorkflowTemplateID)
-	if err != nil || workflow == nil {
-		return nil
-	}
-
-	// 3. 解析 AgentIDs JSON
-	var agentIDs []string
-	if len(workflow.AgentIDs) == 0 {
-		return nil
-	}
-	if err := json.Unmarshal(workflow.AgentIDs, &agentIDs); err != nil {
-		return nil
-	}
-
-	// 4. 查询每个 Agent 的配置
-	var agents []*model.AgentRoleConfig
-	for _, idStr := range agentIDs {
-		id, err := uuid.Parse(idStr)
-		if err != nil {
-			continue
-		}
-		agent, err := o.configSvc.GetByID(ctx, id)
-		if err == nil {
-			agents = append(agents, agent)
-		}
-	}
-
-	return agents
-}
-
-// findAgentByRole 在 Agent 列表中按角色查找
-func (o *Orchestrator) findAgentByRole(agents []*model.AgentRoleConfig, role model.AgentRole) *model.AgentRoleConfig {
-	for _, agent := range agents {
-		if agent.Role == role {
-			return agent
-		}
-	}
-	return nil
-}
-
-// findAgentByName 在 Agent 列表中按名称查找
-func (o *Orchestrator) findAgentByName(agents []*model.AgentRoleConfig, name string) *model.AgentRoleConfig {
-	for _, agent := range agents {
-		if agent.Name == name {
-			return agent
-		}
-	}
-	return nil
-}
-
-// checkSignalRouting 检查信号路由（原有逻辑提取）
-func (o *Orchestrator) checkSignalRouting(ctx context.Context, threadID uuid.UUID, config *model.AgentRoleConfig, output string) {
-	for _, signal := range config.RoutingConfig.RouteOnSignal {
-		if strings.Contains(output, signal) {
-			nextPhase := o.workflow.GetNextPhase(getPhaseFromSignal(signal))
-			nextRole := o.workflow.GetPhaseAgent(nextPhase)
-
-			// 获取项目路径
-			var projectPath string
-			if o.projectRepo != nil {
-				project, err := o.projectRepo.GetByThreadID(ctx, threadID)
-				if err == nil && project != nil {
-					projectPath = project.LocalPath
-				}
-			}
-
-			o.SpawnAgent(ctx, &SpawnRequest{
-				ThreadID:    threadID,
-				Role:        nextRole,
-				Input:       output,
-				ProjectPath: projectPath,
-			})
-			break
-		}
 	}
 }
 
@@ -619,11 +398,15 @@ func (o *Orchestrator) executeDebugAgent(
 	agentRole := string(config.Role)
 
 	// 执行Agent并收集输出
+	chunkCount := 0
 	result, err := adapter.ExecuteWithStream(ctx, execReq, func(chunk Chunk) {
 		outputBuilder.WriteString(chunk.Content)
+		chunkCount++
 		// 广播流式输出
 		o.debugThreadMgr.BroadcastChunk(threadID.String(), invocationID, agentID, agentName, chunk.Content)
 	})
+
+	logInfo("executeDebugAgent: stream complete", zap.Int("chunkCount", chunkCount), zap.Error(err))
 
 	if err != nil {
 		o.debugThreadMgr.SetStatus(threadID, DebugThreadStatusError)

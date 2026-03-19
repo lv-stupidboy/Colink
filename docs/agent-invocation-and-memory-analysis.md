@@ -340,7 +340,62 @@ sequenceDiagram
 | `web/src/stores/useAppStore.ts` | 工作流模式前端状态 |
 | `web/src/stores/useDebugThreadStore.ts` | 调试模式前端状态 |
 
-## 六、总结
+## 六、CLI 调用参数与记忆管理
+
+### CLI 调用参数
+
+ISDP 在调用 Claude CLI 时使用以下参数：
+
+```go
+args := []string{
+    "--print",                        // 打印模式，输出到 stdout
+    "--output-format", "stream-json", // 流式 JSON 输出格式
+    "--verbose",                      // 详细输出
+    "--permission-mode", "auto",      // 自动权限模式
+    "--no-session-persistence",       // 禁用 CLI 会话持久化
+}
+```
+
+### 为什么使用 `--no-session-persistence`
+
+**问题背景**: Claude CLI 默认会将会话信息持久化到 `.claude/sessions/` 目录。如果使用 `--continue` 参数，CLI 会自动恢复上次会话。
+
+**记忆干扰问题**:
+- 当多个 Agent 在同一项目目录下执行时（相同 WorkDir）
+- 每次调用都会读写同一个 `.claude/sessions/` 目录
+- 导致不同 Agent 的"记忆"相互覆盖和干扰
+- 例如：Agent A 的执行结果可能被 Agent B 的下次调用读取到
+
+**解决方案**:
+使用 `--no-session-persistence` 禁用 CLI 内部的会话持久化，由 ISDP 系统统一管理记忆：
+
+```
+ISDP 记忆管理（Layer 1）:
+┌─────────────────────────────────────────────────────────┐
+│  messages 表 (PostgreSQL/SQLite)                        │
+│  └─ 按 thread_id 隔离                                   │
+│  └─ 每个 Thread 有独立的历史消息                         │
+│  └─ buildContextLayers() 动态构建上下文                 │
+└─────────────────────────────────────────────────────────┘
+```
+
+**优势**:
+1. **Thread 级别隔离**: 每个 Thread 的记忆完全独立，不会相互干扰
+2. **多 Agent 支持**: 同一 Thread 内可以有多个 Agent 协作，记忆共享由 ISDP 控制
+3. **持久化可靠**: 记忆存储在数据库，不受 CLI 会话目录影响
+4. **可追溯**: 所有历史消息都保存在数据库，支持查询和回放
+
+### 替代方案
+
+如果需要 CLI 级别的会话持久化（例如保留 CLI 的工具使用历史），可以使用 `--session-id` 参数：
+
+```go
+args = append(args, "--session-id", threadID.String())
+```
+
+这样每个 Thread 会有独立的 CLI 会话文件，但会增加文件系统依赖。当前 ISDP 选择完全由系统管理记忆的方案。
+
+## 七、总结
 
 1. **两种执行模式**: 工作流模式（持久化）和调试模式（内存），满足不同场景需求
 
@@ -348,7 +403,9 @@ sequenceDiagram
 
 3. **动态记忆构建**: Agent 的"记忆"不是独立存储，而是通过查询历史消息动态构建的四层上下文
 
-4. **清晰的职责分离**:
+4. **CLI 会话隔离**: 使用 `--no-session-persistence` 禁用 CLI 内部会话持久化，避免多 Agent 间的记忆干扰
+
+5. **清晰的职责分离**:
    - Orchestrator: 协调调度
    - ExecutionService: 工作流执行
    - DebugThreadManager: 调试执行
@@ -357,3 +414,4 @@ sequenceDiagram
 ---
 
 *文档生成时间: 2026-03-19*
+*最后更新: 2026-03-19 - 添加 CLI 会话隔离说明*

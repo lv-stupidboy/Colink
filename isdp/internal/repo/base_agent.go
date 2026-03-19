@@ -68,7 +68,7 @@ func (r *BaseAgentRepository) FindByType(ctx context.Context, agentType model.Ba
 	}
 	defer rows.Close()
 
-	var agents []*model.BaseAgent
+	var agents = make([]*model.BaseAgent, 0) // 初始化为空数组，避免 JSON null
 	for rows.Next() {
 		agent := &model.BaseAgent{}
 		var idStr string
@@ -102,7 +102,7 @@ func (r *BaseAgentRepository) List(ctx context.Context) ([]*model.BaseAgent, err
 	}
 	defer rows.Close()
 
-	var agents []*model.BaseAgent
+	var agents = make([]*model.BaseAgent, 0) // 初始化为空数组，避免 JSON null
 	for rows.Next() {
 		agent := &model.BaseAgent{}
 		var idStr string
@@ -136,7 +136,7 @@ func (r *BaseAgentRepository) ListActive(ctx context.Context) ([]*model.BaseAgen
 	}
 	defer rows.Close()
 
-	var agents []*model.BaseAgent
+	var agents = make([]*model.BaseAgent, 0) // 初始化为空数组，避免 JSON null
 	for rows.Next() {
 		agent := &model.BaseAgent{}
 		var idStr string

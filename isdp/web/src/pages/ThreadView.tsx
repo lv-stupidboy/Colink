@@ -79,6 +79,7 @@ const ThreadView: React.FC = () => {
     currentThread,
     messages: workflowMessages,
     streamingMessages: workflowStreamingMessages,
+    progressState,
     activeAgents,
     loading: workflowLoading,
     wsConnected: workflowWsConnected,
@@ -90,6 +91,7 @@ const ThreadView: React.FC = () => {
     updateAgentStatus,
     updateStreamingMessage,
     finalizeStreamingMessage,
+    updateProgress,
     loadingProjectContext,
     loadProjectContext,
     loadWorkflowTemplate,
@@ -385,6 +387,11 @@ const ThreadView: React.FC = () => {
   };
 
   const handleWsMessage = (data: { type: string; threadId?: string; payload: Record<string, unknown> }) => {
+    // 调试：打印收到的消息
+    if (data.type === 'agent_output_chunk') {
+      console.log('[WebSocket] Received chunk:', data.payload.invocationId, 'len:', (data.payload.chunk as string)?.length);
+    }
+
     // 验证消息是否属于当前 thread，防止跨 thread 数据泄露
     const currentThreadId = useAppStore.getState().currentThread?.id;
     if (data.threadId && currentThreadId && data.threadId !== currentThreadId) {
@@ -393,23 +400,43 @@ const ThreadView: React.FC = () => {
     }
 
     switch (data.type) {
-      case 'agent_output_chunk':
-        // 流式输出块：实时追加内容
-        updateStreamingMessage(
-          data.payload.invocationId as string,
-          data.payload.chunk as string,
-          data.payload.agentId as string || '',
-          data.payload.agentName as string
-        );
+      case 'agent_output_chunk': {
+        const chunkType = data.payload.chunkType as string || 'text';
+        const invocId = data.payload.invocationId as string;
+
+        // 处理不同类型的 chunk
+        if (chunkType === 'thinking') {
+          // 思考中状态
+          updateProgress(invocId, 'thinking');
+        } else if (chunkType === 'tool_use') {
+          // 工具调用
+          updateProgress(
+            invocId,
+            'tool_use',
+            data.payload.toolName as string,
+            data.payload.toolInput as Record<string, unknown>
+          );
+        } else if (chunkType === 'text') {
+          // 文本输出
+          updateProgress(invocId, 'generating');
+          // 流式输出块：实时追加内容
+          updateStreamingMessage(
+            invocId,
+            data.payload.chunk as string,
+            data.payload.agentId as string || '',
+            data.payload.agentName as string
+          );
+        }
         break;
-      case 'agent_message':
+      }
+      case 'agent_message': {
         // Agent 完成消息（非流式场景备用）：清除流式缓存，显示最终消息
         // 注意：流式场景下不会收到此消息，由 agent_status/completed 触发 finalizeStreamingMessage
-        const invocationId = data.payload.invocationId as string || data.payload.messageId as string;
+        const invocId = data.payload.invocationId as string || data.payload.messageId as string;
         // 使用 getState() 避免闭包陷阱
         const currentStreaming = useAppStore.getState().streamingMessages;
-        if (invocationId && currentStreaming[invocationId]) {
-          finalizeStreamingMessage(invocationId);
+        if (invocId && currentStreaming[invocId]) {
+          finalizeStreamingMessage(invocId);
         } else {
           // 直接添加消息（非流式场景）
           addMessage({
@@ -427,6 +454,7 @@ const ThreadView: React.FC = () => {
           });
         }
         break;
+      }
       case 'system_message':
         addMessage({
           id: `sys-${Date.now()}`,
@@ -445,7 +473,7 @@ const ThreadView: React.FC = () => {
       case 'artifact_created':
         if (threadId) loadArtifacts(threadId);
         break;
-      case 'agent_status':
+      case 'agent_status': {
         const status = data.payload.status as string;
         const invocId = data.payload.invocationId as string;
         updateAgentStatus(invocId, status);
@@ -458,7 +486,8 @@ const ThreadView: React.FC = () => {
           }
         }
         break;
-      case 'sandbox_ready':
+      }
+      case 'sandbox_ready': {
         // 沙箱就绪，更新沙箱 URL
         const sandboxUrl = data.payload.url as string;
         const sandboxId = data.payload.id as string;
@@ -478,6 +507,7 @@ const ThreadView: React.FC = () => {
           message.success('沙箱已启动');
         }
         break;
+      }
     }
   };
 
@@ -1232,44 +1262,77 @@ const ThreadView: React.FC = () => {
           <>
             {messages.map(renderMessage)}
             {/* 流式消息渲染 */}
-            {Object.entries(streamingMessages).map(([invocationId, streamMsg]) => (
-              <div key={invocationId} className="message-container message-container-agent">
-                <Avatar
-                  className="message-avatar"
-                  icon={<RobotOutlined />}
-                  style={{ backgroundColor: '#1890ff' }}
-                />
-                <div className="message message-agent streaming">
-                  <div className="message-content">
-                    <div className="message-header">
-                      <span className="message-role">
-                        {streamMsg.agentName || 'Agent'}
-                      </span>
-                      <div className="message-header-right">
-                        <Tag color="processing" style={{ marginLeft: 8 }}>
-                          生成中...
-                        </Tag>
-                        {/* 终止按钮 */}
-                        <Tooltip title="终止">
-                          <Button
-                            type="text"
-                            size="small"
-                            danger
-                            icon={<StopOutlined />}
-                            className="message-action-btn"
-                            onClick={() => handleStopAgent(invocationId)}
-                          />
-                        </Tooltip>
+            {Object.entries(streamingMessages).map(([invocationId, streamMsg]) => {
+              const progress = progressState[invocationId];
+              const isThinking = progress?.status === 'thinking';
+              const isToolUse = progress?.status === 'tool_use';
+              const isGenerating = progress?.status === 'generating';
+
+              return (
+                <div key={invocationId} className="message-container message-container-agent">
+                  <Avatar
+                    className="message-avatar"
+                    icon={<RobotOutlined />}
+                    style={{ backgroundColor: '#1890ff' }}
+                  />
+                  <div className="message message-agent streaming">
+                    <div className="message-content">
+                      <div className="message-header">
+                        <span className="message-role">
+                          {streamMsg.agentName || 'Agent'}
+                        </span>
+                        <div className="message-header-right">
+                          {/* 进度状态标签 */}
+                          {isThinking && (
+                            <Tag color="blue" style={{ marginLeft: 8 }}>
+                              💭 思考中...
+                            </Tag>
+                          )}
+                          {isToolUse && progress?.toolName && (
+                            <Tag color="orange" style={{ marginLeft: 8 }}>
+                              🔧 执行: {progress.toolName}
+                            </Tag>
+                          )}
+                          {isGenerating && (
+                            <Tag color="processing" style={{ marginLeft: 8 }}>
+                              生成中...
+                            </Tag>
+                          )}
+                          {/* 终止按钮 */}
+                          <Tooltip title="终止">
+                            <Button
+                              type="text"
+                              size="small"
+                              danger
+                              icon={<StopOutlined />}
+                              className="message-action-btn"
+                              onClick={() => handleStopAgent(invocationId)}
+                            />
+                          </Tooltip>
+                        </div>
                       </div>
-                    </div>
-                    <div className="message-body">
-                      {streamMsg.content}
-                      <span className="streaming-cursor">▌</span>
+                      {/* 工具调用详情 */}
+                      {isToolUse && progress?.toolInput && Object.keys(progress.toolInput).length > 0 && (
+                        <div style={{
+                          marginBottom: 8,
+                          padding: '4px 8px',
+                          background: '#fafafa',
+                          borderRadius: 4,
+                          fontSize: 12,
+                          color: '#666'
+                        }}>
+                          {String(progress.toolInput.description || progress.toolInput.command || JSON.stringify(progress.toolInput).slice(0, 100))}
+                        </div>
+                      )}
+                      <div className="message-body">
+                        {streamMsg.content}
+                        {isGenerating && <span className="streaming-cursor">▌</span>}
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </>
         )}
         <div ref={messagesEndRef} />

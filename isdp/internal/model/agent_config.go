@@ -43,6 +43,12 @@ type AgentRoleConfig struct {
 	Temperature  float64        `json:"temperature"`
 	RoutingConfig RoutingConfig `json:"routing_config"`
 	IsDefault    bool           `json:"is_default"`
+
+	// 能力声明（用于自动编排工作流）
+	Capabilities []string `json:"capabilities"`  // 能力列表：这个 Agent 能做什么
+	Dependencies []string `json:"dependencies"`  // 依赖列表：需要什么上游产物
+	Outputs      []string `json:"outputs"`       // 产出列表：产出什么产物
+
 	CreatedAt    time.Time      `json:"created_at"`
 	UpdatedAt    time.Time      `json:"updated_at"`
 }
@@ -62,4 +68,9 @@ type CreateAgentRequest struct {
 	Temperature  float64        `json:"temperature"`
 	RoutingConfig *RoutingConfig `json:"routing_config"`
 	IsDefault    bool           `json:"is_default"`
+
+	// 能力声明
+	Capabilities []string `json:"capabilities"`
+	Dependencies []string `json:"dependencies"`
+	Outputs      []string `json:"outputs"`
 }

@@ -114,9 +114,9 @@ const ProjectDetail: React.FC = () => {
     }
   };
 
-  const handleCreateThread = async () => {
+  const handleCreateThread = async (values: { name?: string }) => {
     try {
-      const thread = await api.threads.create(projectId!);
+      const thread = await api.threads.create(projectId!, values.name || '新任务');
       message.success('任务创建成功');
       setCreateThreadModalVisible(false);
       threadForm.resetFields();
@@ -149,14 +149,14 @@ const ProjectDetail: React.FC = () => {
   // Thread 列表列定义
   const threadColumns = [
     {
-      title: '任务 ID',
-      dataIndex: 'id',
-      key: 'id',
-      width: 120,
-      render: (id: string) => (
-        <Tooltip title={id}>
-          <Text code>{id.slice(0, 8)}...</Text>
-        </Tooltip>
+      title: '任务名称',
+      dataIndex: 'name',
+      key: 'name',
+      width: 200,
+      render: (name: string, record: Thread) => (
+        <a onClick={() => navigate(`/projects/${projectId}/threads/${record.id}`)}>
+          {name || '未命名任务'}
+        </a>
       ),
     },
     {
@@ -540,7 +540,7 @@ const ProjectDetail: React.FC = () => {
       >
         <Form form={threadForm} layout="vertical" onFinish={handleCreateThread}>
           <Form.Item name="name" label="任务名称（可选）">
-            <Input placeholder="为任务起个名字" />
+            <Input placeholder="为任务起个名字" autoComplete="off" />
           </Form.Item>
           <Divider style={{ margin: '12px 0' }} />
           <div>

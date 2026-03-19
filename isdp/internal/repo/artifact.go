@@ -66,7 +66,7 @@ func (r *ArtifactRepository) FindByThreadID(ctx context.Context, threadID uuid.U
 	}
 	defer rows.Close()
 
-	var artifacts []*model.Artifact
+	var artifacts = make([]*model.Artifact, 0) // 初始化为空数组，避免 JSON null
 	for rows.Next() {
 		artifact := &model.Artifact{}
 		var idStr, threadIDStr string

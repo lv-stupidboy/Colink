@@ -55,6 +55,7 @@ export interface Project {
 export interface Thread {
   id: string;
   projectId: string;
+  name: string; // 任务名称
   status: ThreadStatus;
   currentPhase: Phase;
   currentAgent?: string;
@@ -227,12 +228,28 @@ export const ArtifactTypeLabels: Record<string, string> = {
   test: '测试文件',
 };
 
+// Transition类型
+export type TransitionType = 'sequence' | 'parallel' | 'merge';
+
+// Transition转换规则
+export interface Transition {
+  fromAgentId: string;
+  toAgentId: string;
+  type: TransitionType;
+  trigger?: string;
+  condition?: string;
+  waitFor?: string[];
+  messageTemplate?: string;
+  description?: string;
+}
+
 // 工作流模板
 export interface WorkflowTemplate {
   id: string;
   name: string;
   description: string;
   agentIds: string[];
+  transitions: Transition[];
   checkpoints: string[];
   estimatedTime: string;
   isSystem: boolean;

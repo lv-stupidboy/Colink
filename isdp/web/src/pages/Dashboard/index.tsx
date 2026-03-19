@@ -53,6 +53,7 @@ const Dashboard: React.FC = () => {
         {
           id: '1',
           projectId: '1',
+          name: '功能开发中',
           status: 'running',
           currentPhase: 'development',
           currentAgent: 'developer',
@@ -63,6 +64,7 @@ const Dashboard: React.FC = () => {
         {
           id: '2',
           projectId: '2',
+          name: '代码审查中',
           status: 'running',
           currentPhase: 'review',
           currentAgent: 'reviewer',

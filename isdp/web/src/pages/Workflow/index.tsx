@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Card,
   Typography,
@@ -19,6 +19,7 @@ import {
   Alert,
   Spin,
   Popconfirm,
+  Tabs,
 } from 'antd';
 import {
   PlusOutlined,
@@ -27,13 +28,15 @@ import {
   CheckCircleOutlined,
   UserOutlined,
   DeleteOutlined,
+  EditOutlined,
+  EyeOutlined,
 } from '@ant-design/icons';
 import { api } from '@/api/client';
-import type { AgentConfig, WorkflowTemplate } from '@/types';
+import type { AgentConfig, WorkflowTemplate, Transition } from '@/types';
 import { AgentRoleLabels } from '@/types';
+import WorkflowEditor from '@/components/WorkflowEditor';
 
 const { Title, Text, Paragraph } = Typography;
-const { Panel } = Collapse;
 const { Option } = Select;
 const { TextArea } = Input;
 
@@ -48,7 +51,9 @@ const { TextArea } = Input;
  */
 const WorkflowPage: React.FC = () => {
   const [createModalVisible, setCreateModalVisible] = useState(false);
+  const [editModalVisible, setEditModalVisible] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<WorkflowTemplate | null>(null);
+  const [editingTemplate, setEditingTemplate] = useState<WorkflowTemplate | null>(null);
   const [form] = Form.useForm();
   const [agents, setAgents] = useState<AgentConfig[]>([]);
   const [loadingAgents, setLoadingAgents] = useState(false);
@@ -91,14 +96,15 @@ const WorkflowPage: React.FC = () => {
       await api.workflows.create({
         name: values.name,
         description: values.description || '',
-        agentIds: values.agentIds || [],
+        agentIds: [],
+        transitions: [],
         checkpoints: values.checkpoints || [],
         estimatedTime: '自定义',
       });
       message.success('工作流创建成功');
       setCreateModalVisible(false);
       form.resetFields();
-      fetchWorkflowTemplates(); // 刷新列表
+      fetchWorkflowTemplates();
     } catch (error: any) {
       console.error('Failed to create workflow:', error);
       message.error(error?.response?.data?.error || '工作流创建失败');
@@ -107,12 +113,33 @@ const WorkflowPage: React.FC = () => {
     }
   };
 
+  // 编辑工作流
+  const handleEditWorkflow = (template: WorkflowTemplate) => {
+    setEditingTemplate(template);
+    setEditModalVisible(true);
+  };
+
+  // 保存工作流配置
+  const handleSaveWorkflow = async (transitions: Transition[], agentIds: string[]) => {
+    if (!editingTemplate) return;
+
+    try {
+      await api.workflows.update(editingTemplate.id, {
+        agentIds,
+        transitions,
+      });
+      fetchWorkflowTemplates();
+    } catch (error: any) {
+      throw error;
+    }
+  };
+
   // 删除工作流
   const handleDeleteWorkflow = async (id: string) => {
     try {
       await api.workflows.delete(id);
       message.success('工作流删除成功');
-      fetchWorkflowTemplates(); // 刷新列表
+      fetchWorkflowTemplates();
       if (selectedTemplate?.id === id) {
         setSelectedTemplate(null);
       }
@@ -127,7 +154,7 @@ const WorkflowPage: React.FC = () => {
     try {
       await api.workflows.setDefault(id);
       message.success('已设置为默认工作流');
-      fetchWorkflowTemplates(); // 刷新列表
+      fetchWorkflowTemplates();
     } catch (error: any) {
       console.error('Failed to set default workflow:', error);
       message.error(error?.response?.data?.error || '设置默认工作流失败');
@@ -139,7 +166,16 @@ const WorkflowPage: React.FC = () => {
    */
   const renderTemplateCard = (template: WorkflowTemplate) => {
     // 根据agentIds获取对应的Agent实例
-    const templateAgents = (agents || []).filter(a => template.agentIds?.includes(a.id));
+    const templateAgents = (agents || []).filter(a => (template.agentIds || []).includes(a.id));
+
+    // 统计转换规则
+    const transitions = template.transitions || [];
+    const transitionStats = {
+      total: transitions.length,
+      parallel: transitions.filter(t => t.type === 'parallel').length,
+      merge: transitions.filter(t => t.type === 'merge').length,
+      sequence: transitions.filter(t => t.type === 'sequence').length,
+    };
 
     return (
       <Card
@@ -172,6 +208,17 @@ const WorkflowPage: React.FC = () => {
                   设为默认
                 </Button>
               )}
+              <Button
+                type="link"
+                size="small"
+                icon={<EditOutlined />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleEditWorkflow(template);
+                }}
+              >
+                编辑
+              </Button>
               {!template.isSystem && (
                 <Popconfirm
                   title="确定删除此工作流？"
@@ -202,17 +249,36 @@ const WorkflowPage: React.FC = () => {
             <Text strong>Agent配置：</Text>
             <div style={{ marginTop: 8 }}>
               {templateAgents.length > 0 ? (
-                templateAgents.map((agent, index) => (
-                  <span key={agent.id}>
-                    <Tag color="blue">{agent.name} ({AgentRoleLabels[agent.role]})</Tag>
-                    {index < templateAgents.length - 1 && <span style={{ margin: '0 4px' }}>→</span>}
-                  </span>
-                ))
+                <Space wrap>
+                  {templateAgents.map((agent) => (
+                    <Tag key={agent.id} color="blue" icon={<UserOutlined />}>
+                      {agent.name}
+                    </Tag>
+                  ))}
+                </Space>
               ) : (
-                <Text type="secondary">请在自定义工作流中配置Agent</Text>
+                <Text type="secondary">请在编辑模式下配置Agent</Text>
               )}
             </div>
           </div>
+
+          {/* 转换规则统计 */}
+          {transitionStats.total > 0 && (
+            <div>
+              <Text strong>工作流规则：</Text>
+              <Space style={{ marginTop: 8 }} wrap>
+                {transitionStats.sequence > 0 && (
+                  <Tag color="blue">顺序执行 x{transitionStats.sequence}</Tag>
+                )}
+                {transitionStats.parallel > 0 && (
+                  <Tag color="green">并行触发 x{transitionStats.parallel}</Tag>
+                )}
+                {transitionStats.merge > 0 && (
+                  <Tag color="purple">汇聚等待 x{transitionStats.merge}</Tag>
+                )}
+              </Space>
+            </div>
+          )}
 
           <div>
             <Text strong>人工检查点：</Text>
@@ -307,7 +373,7 @@ const WorkflowPage: React.FC = () => {
                 icon={<PlusOutlined />}
                 onClick={() => setCreateModalVisible(true)}
               >
-                自定义工作流
+                新建工作流
               </Button>
             }
           >
@@ -336,45 +402,90 @@ const WorkflowPage: React.FC = () => {
 
           {/* 工作流编排说明 */}
           <Card style={{ marginTop: 16 }} title="编排规则">
-            <Collapse defaultActiveKey={['1']}>
-              <Panel header="顺序执行模式" key="1">
-                <Paragraph>
-                  Agent 按工作流顺序依次执行，前一个完成后下一个自动开始。
-                </Paragraph>
-                <Space wrap>
-                  <Tag color="green">需求分析</Tag>
-                  <span>→</span>
-                  <Tag color="purple">架构设计</Tag>
-                  <span>→</span>
-                  <Tag color="blue">代码实现</Tag>
-                  <span>→</span>
-                  <Tag color="orange">代码审查</Tag>
-                </Space>
-              </Panel>
-              <Panel header="人工检查点" key="2">
-                <Paragraph>
-                  关键节点需要用户确认才能继续执行。
-                </Paragraph>
-                <List
-                  size="small"
-                  dataSource={['需求确认', '方案确认', '代码合入', '部署确认']}
-                  renderItem={(item) => (
-                    <List.Item>
-                      <Space>
-                        <CheckCircleOutlined style={{ color: '#52c41a' }} />
-                        <span>{item}</span>
+            <Collapse
+              defaultActiveKey={['1']}
+              items={[
+                {
+                  key: '1',
+                  label: '顺序执行模式',
+                  children: (
+                    <>
+                      <Paragraph>
+                        Agent 按工作流顺序依次执行，前一个完成后下一个自动开始。
+                      </Paragraph>
+                      <Space wrap>
+                        <Tag color="green">需求分析</Tag>
+                        <span>→</span>
+                        <Tag color="purple">架构设计</Tag>
+                        <span>→</span>
+                        <Tag color="blue">代码实现</Tag>
+                        <span>→</span>
+                        <Tag color="orange">代码审查</Tag>
                       </Space>
-                    </List.Item>
-                  )}
-                />
-              </Panel>
-              <Panel header="A2A 路由机制" key="3">
-                <Paragraph>
-                  Agent 可以通过 @mention 触发其他 Agent 协作。
-                </Paragraph>
-                <Text code>@审查员 请帮我 review 这段代码</Text>
-              </Panel>
-            </Collapse>
+                    </>
+                  ),
+                },
+                {
+                  key: '2',
+                  label: '并行触发模式',
+                  children: (
+                    <>
+                      <Paragraph>
+                        一个Agent完成后，同时触发多个下游Agent并行工作。
+                      </Paragraph>
+                      <Space wrap>
+                        <Tag color="blue">需求分析</Tag>
+                        <span>→</span>
+                        <Tag color="green">前端开发</Tag>
+                        <span>+</span>
+                        <Tag color="purple">后端开发</Tag>
+                      </Space>
+                    </>
+                  ),
+                },
+                {
+                  key: '3',
+                  label: '汇聚等待模式',
+                  children: (
+                    <>
+                      <Paragraph>
+                        等待多个上游Agent都完成后，才触发下游Agent。
+                      </Paragraph>
+                      <Space wrap>
+                        <Tag color="green">前端开发</Tag>
+                        <span>+</span>
+                        <Tag color="purple">后端开发</Tag>
+                        <span>→</span>
+                        <Tag color="orange">测试工程师</Tag>
+                      </Space>
+                    </>
+                  ),
+                },
+                {
+                  key: '4',
+                  label: '人工检查点',
+                  children: (
+                    <>
+                      <Paragraph>
+                        关键节点需要用户确认才能继续执行。
+                      </Paragraph>
+                      <List
+                        size="small"
+                        dataSource={['需求确认', '方案确认', '代码合入', '部署确认']}
+                        renderItem={(item) => (
+                          <List.Item>
+                            <Space>
+                              <CheckCircleOutlined style={{ color: '#52c41a' }} />
+                              <span>{item}</span>
+                            </Space>
+                          </List.Item>
+                        )}
+                      />
+                    </>
+                  ),
+                },
+              ]}
+            />
           </Card>
         </Col>
       </Row>
@@ -404,9 +515,9 @@ const WorkflowPage: React.FC = () => {
         </Card>
       )}
 
-      {/* 自定义工作流弹窗 */}
+      {/* 新建工作流弹窗 */}
       <Modal
-        title="自定义工作流"
+        title="新建工作流"
         open={createModalVisible}
         onOk={() => form.submit()}
         onCancel={() => {
@@ -461,6 +572,129 @@ const WorkflowPage: React.FC = () => {
             </Select>
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* 编辑工作流弹窗 */}
+      <Modal
+        title={`编辑工作流：${editingTemplate?.name || ''}`}
+        open={editModalVisible}
+        onCancel={() => {
+          setEditModalVisible(false);
+          setEditingTemplate(null);
+        }}
+        footer={null}
+        width={900}
+        styles={{ body: { padding: 0 } }}
+      >
+        {editingTemplate && (
+          <Tabs
+            defaultActiveKey="visual"
+            items={[
+              {
+                key: 'visual',
+                label: (
+                  <span>
+                    <ApartmentOutlined style={{ marginRight: 4 }} />
+                    可视化编辑
+                  </span>
+                ),
+                children: (
+                  <div style={{ padding: 16 }}>
+                    <Alert
+                      type="info"
+                      message="操作提示"
+                      description={
+                        <ul style={{ margin: 0, paddingLeft: 20 }}>
+                          <li>从下拉框选择Agent添加到画布</li>
+                          <li>拖拽节点底部的连接点，连接到另一个节点的顶部</li>
+                          <li>点击连接线可编辑转换规则</li>
+                          <li>配置完成后点击"保存工作流"</li>
+                        </ul>
+                      }
+                      style={{ marginBottom: 16 }}
+                      showIcon
+                    />
+                    <WorkflowEditor
+                      agents={agents}
+                      initialTransitions={editingTemplate.transitions || []}
+                      onSave={handleSaveWorkflow}
+                    />
+                  </div>
+                ),
+              },
+              {
+                key: 'basic',
+                label: (
+                  <span>
+                    <EditOutlined style={{ marginRight: 4 }} />
+                    基本设置
+                  </span>
+                ),
+                children: (
+                  <div style={{ padding: 16 }}>
+                    <Form
+                      layout="vertical"
+                      initialValues={{
+                        name: editingTemplate.name,
+                        description: editingTemplate.description,
+                        checkpoints: editingTemplate.checkpoints || [],
+                      }}
+                      onFinish={async (values) => {
+                        try {
+                          await api.workflows.update(editingTemplate.id, values);
+                          message.success('基本信息更新成功');
+                          fetchWorkflowTemplates();
+                        } catch (error: any) {
+                          message.error(error?.response?.data?.error || '更新失败');
+                        }
+                      }}
+                    >
+                      <Form.Item name="name" label="工作流名称" rules={[{ required: true }]}>
+                        <Input />
+                      </Form.Item>
+                      <Form.Item name="description" label="描述">
+                        <TextArea rows={2} />
+                      </Form.Item>
+                      <Form.Item name="checkpoints" label="人工检查点">
+                        <Select mode="multiple">
+                          <Option value="需求确认">需求确认</Option>
+                          <Option value="方案确认">方案确认</Option>
+                          <Option value="代码合入">代码合入</Option>
+                          <Option value="部署确认">部署确认</Option>
+                          <Option value="修复确认">修复确认</Option>
+                        </Select>
+                      </Form.Item>
+                      <Form.Item>
+                        <Button type="primary" htmlType="submit">
+                          保存基本信息
+                        </Button>
+                      </Form.Item>
+                    </Form>
+                  </div>
+                ),
+              },
+              {
+                key: 'preview',
+                label: (
+                  <span>
+                    <EyeOutlined style={{ marginRight: 4 }} />
+                    预览
+                  </span>
+                ),
+                children: (
+                  <div style={{ padding: 16 }}>
+                    <WorkflowEditor
+                      agents={agents}
+                      initialTransitions={editingTemplate.transitions || []}
+                      onSave={async () => {}}
+                      readOnly
+                    />
+                  </div>
+                ),
+              },
+            ]}
+          />
+        )}
       </Modal>
     </div>
   );

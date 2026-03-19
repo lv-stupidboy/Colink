@@ -46,7 +46,7 @@ func (r *MessageRepository) FindByThreadID(ctx context.Context, threadID uuid.UU
 	}
 	defer rows.Close()
 
-	var messages []*model.Message
+	var messages = make([]*model.Message, 0) // 初始化为空数组，避免 JSON null
 	for rows.Next() {
 		msg := &model.Message{}
 		var idStr, threadIDStr string
@@ -77,7 +77,7 @@ func (r *MessageRepository) GetRecent(ctx context.Context, threadID uuid.UUID, l
 	}
 	defer rows.Close()
 
-	var messages []*model.Message
+	var messages = make([]*model.Message, 0) // 初始化为空数组，避免 JSON null
 	for rows.Next() {
 		msg := &model.Message{}
 		var idStr, threadIDStr string

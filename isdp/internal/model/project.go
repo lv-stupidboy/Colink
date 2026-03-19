@@ -114,3 +114,34 @@ type ListFilesResponse struct {
 	Files   []FileInfo `json:"files"`
 	HasMore bool       `json:"has_more"`
 }
+
+// BrowsePathRequest 浏览路径请求
+type BrowsePathRequest struct {
+	Path string `json:"path"`
+}
+
+// BrowsePathResponse 浏览路径响应
+type BrowsePathResponse struct {
+	CurrentPath string     `json:"current_path"`
+	ParentPath  string     `json:"parent_path"`
+	Entries     []FileInfo `json:"entries"`
+	Drives      []string   `json:"drives,omitempty"` // Windows 驱动器列表
+	IsValid     bool       `json:"is_valid"`
+	Error       string     `json:"error,omitempty"`
+}
+
+// CreateFolderRequest 创建文件夹请求
+type CreateFolderRequest struct {
+	Path string `json:"path"`
+	Name string `json:"name"`
+}
+
+// ValidatePathResponse 验证路径响应
+type ValidatePathResponse struct {
+	IsValid   bool   `json:"is_valid"`
+	Exists    bool   `json:"exists"`
+	IsDir     bool   `json:"is_dir"`
+	Writable  bool   `json:"writable"`
+	Error     string `json:"error,omitempty"`
+	CanCreate bool   `json:"can_create"` // 是否可以在此路径创建项目
+}

@@ -70,7 +70,7 @@ func (r *SandboxRepository) FindByThreadID(ctx context.Context, threadID uuid.UU
 	}
 	defer rows.Close()
 
-	var sandboxes []*model.Sandbox
+	var sandboxes = make([]*model.Sandbox, 0) // 初始化为空数组，避免 JSON null
 	for rows.Next() {
 		sandbox := &model.Sandbox{}
 		var idStr, threadIDStr string

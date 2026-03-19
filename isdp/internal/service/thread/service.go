@@ -26,7 +26,7 @@ func NewService(repo *repo.ThreadRepository, projectRepo *repo.ProjectRepository
 }
 
 // Create 创建Thread
-func (s *Service) Create(ctx context.Context, projectID uuid.UUID) (*model.Thread, error) {
+func (s *Service) Create(ctx context.Context, projectID uuid.UUID, name string) (*model.Thread, error) {
 	// 1. 获取项目信息
 	project, err := s.projectRepo.FindByID(ctx, projectID)
 	if err != nil {
@@ -56,6 +56,7 @@ func (s *Service) Create(ctx context.Context, projectID uuid.UUID) (*model.Threa
 	thread := &model.Thread{
 		ID:                 uuid.New(),
 		ProjectID:          projectID,
+		Name:               name,
 		Status:             model.ThreadStatusIdle,
 		CurrentPhase:       model.PhaseRequirement,
 		WorkflowTemplateID: workflowID,

@@ -34,6 +34,7 @@ const (
 type Thread struct {
 	ID                 uuid.UUID    `json:"id"`
 	ProjectID          uuid.UUID    `json:"project_id"`
+	Name               string       `json:"name"` // 任务名称
 	Status             ThreadStatus `json:"status"`
 	CurrentPhase       Phase        `json:"current_phase"`
 	CurrentAgent       string       `json:"current_agent"`

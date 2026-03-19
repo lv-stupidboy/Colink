@@ -132,6 +132,43 @@ func (h *ProjectHandler) ListFilesByPath(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
+// BrowsePath 浏览文件系统路径
+func (h *ProjectHandler) BrowsePath(c *gin.Context) {
+	path := c.Query("path")
+	result, err := h.service.BrowsePath(c.Request.Context(), path)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+// ValidatePath 验证路径是否可用于项目
+func (h *ProjectHandler) ValidatePath(c *gin.Context) {
+	path := c.Query("path")
+	result, err := h.service.ValidatePath(c.Request.Context(), path)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+// CreateFolder 创建文件夹
+func (h *ProjectHandler) CreateFolder(c *gin.Context) {
+	var req model.CreateFolderRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := h.service.CreateFolder(c.Request.Context(), req.Path, req.Name); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
 // RegisterRoutes 注册路由
 func (h *ProjectHandler) RegisterRoutes(r *gin.RouterGroup) {
 	projects := r.Group("/projects")
@@ -144,6 +181,11 @@ func (h *ProjectHandler) RegisterRoutes(r *gin.RouterGroup) {
 		projects.PUT("/:id", h.Update)
 		projects.DELETE("/:id", h.Delete)
 	}
-	// 文件浏览 API（调试模式）
-	r.GET("/files/browse", h.ListFilesByPath)
+	// 文件浏览 API
+	files := r.Group("/files")
+	{
+		files.GET("/browse", h.BrowsePath)
+		files.GET("/validate", h.ValidatePath)
+		files.POST("/folder", h.CreateFolder)
+	}
 }

@@ -80,15 +80,16 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionReq
 		"--print",
 		"--output-format", "stream-json",
 		"--verbose",
-		"--permission-mode", "auto",
-		"--continue", // 统一使用 --continue 让 CLI 自动恢复上次会话
+		"--include-partial-messages", // 启用真正的流式输出（增量 chunks）
+		"--dangerously-skip-permissions", // 跳过权限检查，允许 Agent 完全访问项目目录
+		"--no-session-persistence", // 禁用 CLI 会话持久化，由 ISDP 管理记忆（避免多 Agent 间记忆干扰）
 	}
 
 	if req.BaseAgent != nil && req.BaseAgent.DefaultModel != "" {
 		args = append(args, "--model", req.BaseAgent.DefaultModel)
 	}
 
-	logInfo("Claude: Starting with --continue", zap.String("workDir", req.WorkDir))
+	logInfo("Claude: Starting execution", zap.String("workDir", req.WorkDir), zap.String("model", req.BaseAgent.DefaultModel), zap.Strings("args", args))
 
 	cmd := exec.CommandContext(ctx, a.cliPath, args...)
 	cmd.Stdin = strings.NewReader(prompt)
@@ -132,16 +133,28 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionReq
 		defer wg.Done()
 		scanner := bufio.NewScanner(stdout)
 		scanner.Buffer(make([]byte, 1024*1024), 10*1024*1024)
+		lineCount := 0
+		chunkCount := 0
 		for scanner.Scan() {
 			line := scanner.Text()
 			if line == "" {
 				continue
 			}
-			text := a.parseStreamJSONLine(line)
-			if text != "" && onChunk != nil {
-				onChunk(Chunk{Type: ChunkTypeText, Content: text})
+			lineCount++
+			// 调试：打印每行原始输出
+			if lineCount <= 5 {
+				logInfo("ExecuteWithStream: received line", zap.Int("lineNum", lineCount), zap.String("line", line[:min(200, len(line))]))
+			}
+			chunks := a.parseStreamJSONLine(line)
+			for _, chunk := range chunks {
+				if onChunk != nil {
+					chunkCount++
+					logInfo("ExecuteWithStream: calling onChunk", zap.Int("chunkNum", chunkCount), zap.String("type", string(chunk.Type)))
+					onChunk(chunk)
+				}
 			}
 		}
+		logInfo("ExecuteWithStream: stdout scan complete", zap.Int("lines", lineCount), zap.Int("chunks", chunkCount))
 	}()
 
 	wg.Wait()
@@ -273,35 +286,109 @@ func (a *ClaudeAdapter) buildPromptFromRequest(req *ExecutionRequest) string {
 	return sb.String()
 }
 
-// parseStreamJSONLine 解析 stream-json 格式的单行输出
-func (a *ClaudeAdapter) parseStreamJSONLine(line string) string {
+// parseStreamJSONLine 解析 stream-json 格式的单行输出，返回 Chunk 数组
+func (a *ClaudeAdapter) parseStreamJSONLine(line string) []Chunk {
+	var chunks []Chunk
+
 	var msg struct {
-		Type  string `json:"type"`
-		Event struct {
-			Type  string `json:"type"`
-			Delta struct {
-				Type     string `json:"type"`
-				Text     string `json:"text"`
-				Thinking string `json:"thinking"`
+		Type    string `json:"type"`
+		Subtype string `json:"subtype"`
+		Event   struct {
+			Type         string `json:"type"`
+			Index        int    `json:"index"`
+			Delta        struct {
+				Type        string                 `json:"type"`
+				Text        string                 `json:"text"`
+				Thinking    string                 `json:"thinking"`
+				PartialJSON string                 `json:"partial_json"`
 			} `json:"delta"`
+			ContentBlock struct {
+				Type  string                 `json:"type"`
+				Name  string                 `json:"name"`
+				ID    string                 `json:"id"`
+				Input map[string]interface{} `json:"input"`
+			} `json:"content_block"`
 		} `json:"event"`
+		Message struct {
+			Content []struct {
+				Type   string                 `json:"type"`
+				Text   string                 `json:"text"`
+				Name   string                 `json:"name"`
+				ID     string                 `json:"id"`
+				Input  map[string]interface{} `json:"input"`
+			} `json:"content"`
+		} `json:"message"`
 		Result string `json:"result"`
 	}
 
 	if err := json.Unmarshal([]byte(line), &msg); err != nil {
-		return ""
+		logInfo("parseStreamJSONLine: JSON parse error", zap.Error(err), zap.String("line", line[:min(100, len(line))]))
+		return nil
 	}
 
 	switch msg.Type {
 	case "stream_event":
-		if msg.Event.Type == "content_block_delta" && msg.Event.Delta.Type == "text_delta" {
-			return msg.Event.Delta.Text
+		switch msg.Event.Type {
+		case "content_block_start":
+			// 内容块开始
+			switch msg.Event.ContentBlock.Type {
+			case "thinking":
+				chunks = append(chunks, Chunk{
+					Type:    ChunkTypeThinking,
+					Content: "思考中...",
+				})
+			case "tool_use":
+				chunks = append(chunks, Chunk{
+					Type:      ChunkTypeToolUse,
+					ToolName:  msg.Event.ContentBlock.Name,
+					ToolID:    msg.Event.ContentBlock.ID,
+					ToolInput: msg.Event.ContentBlock.Input,
+				})
+			}
+		case "content_block_delta":
+			switch msg.Event.Delta.Type {
+			case "text_delta":
+				if msg.Event.Delta.Text != "" {
+					chunks = append(chunks, Chunk{
+						Type:    ChunkTypeText,
+						Content: msg.Event.Delta.Text,
+					})
+				}
+			case "thinking_delta":
+				// 思考过程增量（可选：可以累积并显示）
+				// 暂不返回，避免干扰主要输出
+			}
 		}
+	case "assistant":
+		// 完整消息（非增量模式下的输出）
+		for _, content := range msg.Message.Content {
+			if content.Type == "text" && content.Text != "" {
+				chunks = append(chunks, Chunk{
+					Type:    ChunkTypeText,
+					Content: content.Text,
+				})
+			} else if content.Type == "tool_use" {
+				chunks = append(chunks, Chunk{
+					Type:      ChunkTypeToolUse,
+					ToolName:  content.Name,
+					ToolID:    content.ID,
+					ToolInput: content.Input,
+				})
+			}
+		}
+	case "user":
+		// 用户消息（工具结果）
+		// 这里包含工具执行结果，可以用来更新进度
 	case "result":
-		return msg.Result
+		if msg.Result != "" {
+			chunks = append(chunks, Chunk{
+				Type:    ChunkTypeText,
+				Content: msg.Result,
+			})
+		}
 	}
 
-	return ""
+	return chunks
 }
 
 // buildEnv 构建环境变量

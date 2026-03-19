@@ -1,5 +1,5 @@
 -- ISDP Database Initialization Script for MySQL
--- Version: 2.2
+-- Version: 2.3
 -- Description: ISDP智能软件开发平台数据库初始化脚本
 
 -- 设置字符集
@@ -36,6 +36,7 @@ CREATE TABLE workflow_templates (
     name VARCHAR(255) NOT NULL COMMENT '模板名称',
     description TEXT COMMENT '模板描述',
     agent_ids JSON COMMENT 'Agent ID列表(JSON数组)',
+    transitions JSON COMMENT 'A2A路由转换规则',
     checkpoints JSON COMMENT '检查点配置(JSON格式)',
     estimated_time VARCHAR(64) COMMENT '预计完成时间',
     is_system TINYINT DEFAULT 0 COMMENT '是否系统模板(0-否,1-是)',
@@ -73,6 +74,7 @@ DROP TABLE IF EXISTS threads;
 CREATE TABLE threads (
     id VARCHAR(64) NOT NULL COMMENT '会话唯一标识符',
     project_id VARCHAR(64) NOT NULL COMMENT '关联项目ID',
+    name VARCHAR(255) NOT NULL DEFAULT '' COMMENT '会话名称',
     status VARCHAR(32) DEFAULT 'idle' COMMENT '会话状态(idle/running/completed/error)',
     current_phase VARCHAR(64) COMMENT '当前开发阶段(planning/coding/testing等)',
     current_agent VARCHAR(64) COMMENT '当前执行Agent ID',
@@ -122,6 +124,9 @@ CREATE TABLE agent_configs (
     max_tokens INT DEFAULT 4096 COMMENT '最大生成token数',
     temperature DECIMAL(3,2) DEFAULT 0.7 COMMENT '温度参数(0-1,越高越随机)',
     routing_config JSON COMMENT '路由配置(定义Agent调用规则)',
+    capabilities JSON COMMENT 'Agent能力声明',
+    dependencies JSON COMMENT 'Agent依赖配置',
+    outputs JSON COMMENT 'Agent输出配置',
     is_default TINYINT DEFAULT 0 COMMENT '是否默认配置(0-否,1-是)',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',

@@ -2,6 +2,7 @@
 package agent
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -220,6 +221,7 @@ func (m *DebugThreadManager) DeleteThread(id uuid.UUID) {
 // Broadcast 向线程广播消息（WebSocket集成）
 func (m *DebugThreadManager) Broadcast(threadID uuid.UUID, msgType string, payload map[string]interface{}) {
 	if m.wsHub == nil {
+		fmt.Printf("[Broadcast] wsHub is nil, cannot broadcast msgType=%s\n", msgType)
 		return
 	}
 
@@ -230,6 +232,9 @@ func (m *DebugThreadManager) Broadcast(threadID uuid.UUID, msgType string, paylo
 		Timestamp: time.Now().Unix(),
 	}
 
+	clientCount := m.wsHub.GetClientCount(threadID.String())
+	fmt.Printf("[Broadcast] threadID=%s, msgType=%s, clientCount=%d\n", threadID.String(), msgType, clientCount)
+
 	m.wsHub.BroadcastToThread(threadID.String(), msg)
 }
 
@@ -237,8 +242,10 @@ func (m *DebugThreadManager) Broadcast(threadID uuid.UUID, msgType string, paylo
 func (m *DebugThreadManager) BroadcastChunk(threadID, invocationID, agentID, agentName, chunk string) {
 	id, err := uuid.Parse(threadID)
 	if err != nil {
+		fmt.Printf("[BroadcastChunk] Invalid threadID: %s, error: %v\n", threadID, err)
 		return
 	}
+	fmt.Printf("[BroadcastChunk] threadID=%s, chunkLen=%d, wsHubNil=%v\n", threadID, len(chunk), m.wsHub == nil)
 	m.Broadcast(id, "agent_output_chunk", map[string]interface{}{
 		"chunk":        chunk,
 		"invocationId": invocationID,
