@@ -45,6 +45,11 @@ func newMySQLDB(cfg DBConfig) (*sql.DB, Dialect, error) {
 		return nil, nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
+	// 设置字符集，确保中文正确存储和读取
+	if _, err := db.ExecContext(ctx, "SET NAMES utf8mb4"); err != nil {
+		return nil, nil, fmt.Errorf("failed to set charset: %w", err)
+	}
+
 	if mc.Schema != "" {
 		if _, err := db.ExecContext(ctx, fmt.Sprintf("USE `%s`", mc.Schema)); err != nil {
 			return nil, nil, fmt.Errorf("failed to use schema %s: %w", mc.Schema, err)

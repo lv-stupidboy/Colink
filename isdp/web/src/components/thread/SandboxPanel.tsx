@@ -81,7 +81,7 @@ export const SandboxPanel: React.FC<SandboxPanelProps> = ({
       </div>
 
       {/* 控制栏 */}
-      <div style={{ padding: '12px 16px', borderBottom: '1px solid #f0f0f0', background: '#fafafa' }}>
+      <div className="sandbox-control-bar">
         <Space>
           <Tooltip title="在本地进程沙箱中运行项目并预览">
             <Button
@@ -110,7 +110,7 @@ export const SandboxPanel: React.FC<SandboxPanelProps> = ({
 
       {/* 预览控制栏 */}
       {sandboxServer && (
-        <div style={{ padding: '8px 16px', borderBottom: '1px solid #f0f0f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div className="sandbox-preview-bar">
           <Text type="secondary" style={{ fontSize: 12 }}>
             {sandboxServer.url}
           </Text>
@@ -136,7 +136,7 @@ export const SandboxPanel: React.FC<SandboxPanelProps> = ({
       )}
 
       {/* 预览区域 */}
-      <div style={{ flex: 1, position: 'relative', background: '#fff' }}>
+      <div className="sandbox-iframe-container">
         {sandboxServer ? (
           <iframe
             id="sandbox-preview-iframe"
@@ -149,13 +149,7 @@ export const SandboxPanel: React.FC<SandboxPanelProps> = ({
             title="沙箱预览"
           />
         ) : (
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            height: '100%',
-            color: '#999',
-          }}>
+          <div className="sandbox-empty">
             <Empty
               description={isDebugMode ? "输入工作目录后点击运行按钮启动项目预览" : "点击运行按钮启动项目预览"}
               image={Empty.PRESENTED_IMAGE_SIMPLE}

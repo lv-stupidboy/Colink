@@ -1320,14 +1320,9 @@ const ThreadView: React.FC = () => {
                   )}
                   renderItem={(opt) => (
                     <List.Item
+                      className="mention-list-item"
                       style={{ cursor: 'pointer', padding: '8px 12px' }}
                       onClick={() => selectMention(opt.id, opt.role as AgentRole, opt.name)}
-                      onMouseEnter={(e) => {
-                        (e.currentTarget as HTMLElement).style.background = '#f5f5f5';
-                      }}
-                      onMouseLeave={(e) => {
-                        (e.currentTarget as HTMLElement).style.background = 'transparent';
-                      }}
                     >
                       <Space>
                         <Avatar size="small" icon={<RobotOutlined />} />

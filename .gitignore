@@ -12,6 +12,7 @@ bin/
 
 # Environment
 .env
+isdp/configs/config.yaml
 configs/config.local.yaml
 
 # IDE
