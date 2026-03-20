@@ -34,6 +34,7 @@ type ExecutionService struct {
 	msgRepo          *repo.MessageRepository
 	configSvc        *ConfigService
 	baseAgentSvc     *BaseAgentService
+	baseAgentRepo    *repo.BaseAgentRepository // 直接访问repo获取完整BaseAgent（含ApiToken）
 	tracker          *InvocationTracker
 	workflow         *WorkflowEngine
 	workflowRepo     *repo.WorkflowTemplateRepository
@@ -56,6 +57,7 @@ func NewExecutionService(
 	msgRepo *repo.MessageRepository,
 	configSvc *ConfigService,
 	baseAgentSvc *BaseAgentService,
+	baseAgentRepo *repo.BaseAgentRepository,
 	tracker *InvocationTracker,
 	workflow *WorkflowEngine,
 	workflowRepo *repo.WorkflowTemplateRepository,
@@ -69,6 +71,7 @@ func NewExecutionService(
 		msgRepo:          msgRepo,
 		configSvc:        configSvc,
 		baseAgentSvc:     baseAgentSvc,
+		baseAgentRepo:    baseAgentRepo,
 		tracker:          tracker,
 		workflow:         workflow,
 		workflowRepo:     workflowRepo,
@@ -224,8 +227,9 @@ func (es *ExecutionService) resolveConfigAndBaseAgent(ctx context.Context, req *
 	}
 
 	var baseAgent *model.BaseAgent
-	if config.BaseAgentID != uuid.Nil && es.baseAgentSvc != nil {
-		baseAgent, err = es.baseAgentSvc.GetByID(ctx, config.BaseAgentID)
+	if config.BaseAgentID != uuid.Nil && es.baseAgentRepo != nil {
+		// 直接使用repo获取完整BaseAgent（包含ApiToken）
+		baseAgent, err = es.baseAgentRepo.FindByID(ctx, config.BaseAgentID)
 		if err != nil {
 			baseAgent = nil // 不阻止执行
 		}

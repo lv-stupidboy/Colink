@@ -128,7 +128,8 @@ const AgentRoleList: React.FC = () => {
     {
       title: '操作',
       key: 'actions',
-      width: 250,
+      width: 280,
+      fixed: 'right' as const,
       render: (_: unknown, record: AgentConfig) => (
         <Space size="small">
           <Button type="link" size="small" icon={<BugOutlined />} onClick={() => handleDebug(record)}>
@@ -172,6 +173,7 @@ const AgentRoleList: React.FC = () => {
           columns={columns}
           rowKey="id"
           loading={loading}
+          scroll={{ x: 'max-content' }}
         />
       </Card>
 

@@ -5,6 +5,7 @@
 *.out
 server
 main
+isdp-server
 build/
 
 # Database files

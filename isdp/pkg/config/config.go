@@ -18,6 +18,7 @@ type Config struct {
 	Agent    AgentConfig    `mapstructure:"agent"`
 	Logging  LoggingConfig  `mapstructure:"logging"`
 	MCP      MCPConfig      `mapstructure:"mcp"`
+	Auth     AuthConfig     `mapstructure:"auth"`
 }
 
 // ServerConfig 服务器配置
@@ -126,6 +127,11 @@ type LoggingConfig struct {
 type MCPConfig struct {
 	BaseURL  string        `mapstructure:"base_url"`
 	TokenTTL time.Duration `mapstructure:"token_ttl"`
+}
+
+// AuthConfig 认证配置
+type AuthConfig struct {
+	InviteCode string `mapstructure:"invite_code"` // 访问邀请码，为空则不启用验证
 }
 
 // Load 加载配置文件

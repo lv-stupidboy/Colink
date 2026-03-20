@@ -4,6 +4,126 @@
 
 ---
 
+## 2026-03-20 邀请码认证系统与沙箱代理功能
+
+### 背景
+
+项目需要增加访问控制机制，防止未授权访问。同时沙箱服务需要通过后端代理访问，解决前端跨域问题。
+
+### 目标
+
+1. 实现邀请码认证中间件，支持配置化启用
+2. 新增沙箱代理路由，解决前端跨域访问问题
+3. 前端版本管理自动化
+4. 清理无用文件，优化项目配置
+
+### 核心变更
+
+#### 后端改动
+
+##### 邀请码认证中间件
+- 新增 `internal/middleware/invite.go` - 邀请码认证中间件
+- 功能特性：
+  - 配置化启用：`auth.invite_code` 为空则放行
+  - 会话管理：24小时有效期，自动清理过期会话
+  - 公开路径放行：健康检查、静态资源、认证接口
+  - 精美登录页面：内置 HTML/CSS/JS 单页面
+
+##### 配置结构扩展
+- `pkg/config/config.go` 新增 `AuthConfig` 结构体
+- 支持通过 `config.yaml` 配置 `auth.invite_code`
+
+##### 沙箱代理功能
+- `internal/api/sandbox_handler.go` 新增代理路由
+- 新增 `ProxySandbox` 方法：反向代理沙箱服务
+- API 返回结构调整：
+  - `url`: 代理URL（前端使用）
+  - `localUrl`: 本地URL（调试使用）
+
+#### 前端改动
+
+##### BaseAgentSettings 页面优化
+- OpenCode 类型显示特殊的 API URL 配置提示
+- OpenCode 类型隐藏 API Token 字段
+- 提示用户使用 `opencode providers login` 命令管理凭证
+
+##### 版本管理自动化
+- 新增 `web/scripts/generate-version.js` - 版本号自动生成脚本
+- 新增 `web/src/config/version.ts` - 版本配置文件
+- 构建时自动注入版本信息
+
+#### 配置文件优化
+
+##### config.yaml.example
+- 新增 `auth` 配置段
+- 数据库名默认改为 `dev_xx`，防止误用生产库
+- 密码使用 `<密码>` 占位符
+
+##### .gitignore
+- 添加 `isdp-server` 编译产物忽略规则
+
+#### 删除的文件
+
+| 文件 | 说明 |
+|------|------|
+| `isdp/Dockerfile` | Docker 构建文件 |
+| `isdp/docker-compose.yml` | Docker 编排文件 |
+| `isdp/web/Dockerfile.dev` | 前端开发 Docker 文件 |
+| `isdp/sql-change/migrations/.gitkeep` | 空文件 |
+
+### 新增文件
+
+| 文件 | 说明 |
+|------|------|
+| `isdp/internal/middleware/invite.go` | 邀请码认证中间件 |
+| `isdp/web/scripts/generate-version.js` | 版本生成脚本 |
+| `isdp/web/src/config/version.ts` | 版本配置 |
+| `isdp/CLAUDE.md` | Claude Code 项目指南 |
+
+### 修改文件统计
+
+| 类型 | 数量 | 说明 |
+|------|------|------|
+| 新增文件 | 4 | 中间件、脚本、配置、文档 |
+| 修改文件 | 10 | 后端API、配置、前端页面 |
+| 删除文件 | 4 | Docker 相关、空文件 |
+
+### 详细文件列表
+
+| 文件 | 改动类型 | 说明 |
+|------|----------|------|
+| `isdp/internal/middleware/invite.go` | 新增 | 邀请码认证中间件 |
+| `isdp/pkg/config/config.go` | 修改 | 新增 AuthConfig |
+| `isdp/cmd/server/main.go` | 修改 | 集成邀请码中间件 |
+| `isdp/internal/api/sandbox_handler.go` | 修改 | 新增代理路由 |
+| `isdp/web/src/pages/Settings/BaseAgentSettings.tsx` | 修改 | OpenCode 特殊处理 |
+| `isdp/web/scripts/generate-version.js` | 新增 | 版本生成脚本 |
+| `isdp/web/src/config/version.ts` | 新增 | 版本配置 |
+| `isdp/configs/config.yaml.example` | 修改 | 新增 auth 配置 |
+| `isdp/.gitignore` | 修改 | 添加 isdp-server |
+| `isdp/CLAUDE.md` | 新增 | Claude Code 指南 |
+| `isdp/Dockerfile` | 删除 | 不再使用 Docker |
+| `isdp/docker-compose.yml` | 删除 | 不再使用 Docker |
+| `isdp/web/Dockerfile.dev` | 删除 | 不再使用 Docker |
+| `isdp/sql-change/migrations/.gitkeep` | 删除 | 空文件 |
+
+### 验证方法
+
+1. 启动后端服务：`go run ./cmd/server`
+2. 配置 `config.yaml` 中 `auth.invite_code` 为非空值
+3. 访问任意页面，验证跳转到邀请码输入页面
+4. 输入正确邀请码，验证进入系统
+5. 测试沙箱代理：运行项目后通过代理 URL 访问沙箱服务
+
+### 影响范围
+
+- 后端：认证中间件、沙箱代理、配置结构
+- 前端：BaseAgentSettings 页面、版本管理
+- 配置：新增 auth 配置段
+- 删除：Docker 相关文件
+
+---
+
 ## 2026-03-19 项目清理与前端布局优化
 
 ### 背景

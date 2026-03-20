@@ -402,10 +402,10 @@ func (a *ClaudeAdapter) buildEnv() []string {
 	env := os.Environ()
 	env = append(env, "CLAUDE_NO_INTERACTIVE=1")
 	if a.apiURL != "" {
-		env = append(env, fmt.Sprintf("ANTHROPIC_API_URL=%s", a.apiURL))
+		env = append(env, fmt.Sprintf("ANTHROPIC_BASE_URL=%s", a.apiURL))
 	}
 	if a.apiToken != "" {
-		env = append(env, fmt.Sprintf("ANTHROPIC_API_KEY=%s", a.apiToken))
+		env = append(env, fmt.Sprintf("ANTHROPIC_AUTH_TOKEN=%s", a.apiToken))
 	}
 	if a.gitBashPath != "" {
 		env = append(env, fmt.Sprintf("CLAUDE_CODE_GIT_BASH_PATH=%s", a.gitBashPath))

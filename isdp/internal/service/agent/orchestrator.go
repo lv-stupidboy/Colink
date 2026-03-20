@@ -29,6 +29,7 @@ type Orchestrator struct {
 	msgRepo          *repo.MessageRepository
 	configSvc        *ConfigService
 	baseAgentSvc     *BaseAgentService
+	baseAgentRepo    *repo.BaseAgentRepository // 直接访问repo获取完整BaseAgent
 	tracker          *InvocationTracker
 	workflow         *WorkflowEngine
 	workflowRepo     *repo.WorkflowTemplateRepository // 新增：工作流模板仓库
@@ -59,6 +60,7 @@ func NewOrchestrator(
 	msgRepo *repo.MessageRepository,
 	configSvc *ConfigService,
 	baseAgentSvc *BaseAgentService,
+	baseAgentRepo *repo.BaseAgentRepository,
 	tracker *InvocationTracker,
 	workflow *WorkflowEngine,
 	workflowRepo *repo.WorkflowTemplateRepository,
@@ -72,6 +74,7 @@ func NewOrchestrator(
 		msgRepo:        msgRepo,
 		configSvc:      configSvc,
 		baseAgentSvc:   baseAgentSvc,
+		baseAgentRepo:  baseAgentRepo,
 		tracker:        tracker,
 		workflow:       workflow,
 		workflowRepo:   workflowRepo,
@@ -88,6 +91,7 @@ func NewOrchestrator(
 		msgRepo,
 		configSvc,
 		baseAgentSvc,
+		baseAgentRepo,
 		tracker,
 		workflow,
 		workflowRepo,

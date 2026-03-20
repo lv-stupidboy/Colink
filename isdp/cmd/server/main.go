@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/anthropic/isdp/internal/api"
+	"github.com/anthropic/isdp/internal/middleware"
 	"github.com/anthropic/isdp/internal/repo"
 	"github.com/anthropic/isdp/internal/service/agent"
 	"github.com/anthropic/isdp/internal/service/a2a"
@@ -127,7 +128,7 @@ func main() {
 	tracker := agent.NewInvocationTracker(invocationRepo)
 	orchestrator := agent.NewOrchestrator(
 		invocationRepo, threadRepo, messageRepo,
-		configService, baseAgentService, tracker, workflowEngine, workflowRepo, projectRepo, wsHub, defaultAdapter,
+		configService, baseAgentService, baseAgentRepo, tracker, workflowEngine, workflowRepo, projectRepo, wsHub, defaultAdapter,
 	)
 
 	// 在Orchestrator中设置调试管理器
@@ -156,6 +157,13 @@ func main() {
 	router.Use(gin.Recovery())
 	router.Use(corsMiddleware())
 	router.Use(requestLogger(logger))
+
+	// 邀请码验证中间件
+	inviteMiddleware := middleware.NewInviteMiddleware(cfg.Auth.InviteCode)
+	router.Use(inviteMiddleware.Handler())
+
+	// 邀请码验证接口
+	router.POST("/api/v1/auth/invite", inviteMiddleware.VerifyInvite)
 
 	// 健康检查
 	router.GET("/health", func(c *gin.Context) {
@@ -219,6 +227,15 @@ func main() {
 		sandboxHandler := api.NewSandboxHandler(sandboxService)
 		sandboxHandler.RegisterRoutes(v1)
 	}
+
+	// 前端静态文件服务
+	router.Static("/assets", "./web/assets")
+	router.StaticFile("/favicon.svg", "./web/favicon.svg")
+
+	// SPA fallback - 所有未匹配的路由返回 index.html
+	router.NoRoute(func(c *gin.Context) {
+		c.File("./web/index.html")
+	})
 
 	// 启动服务器
 	srv := &http.Server{

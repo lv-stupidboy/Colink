@@ -307,17 +307,20 @@ func (a *OpenCodeAdapter) buildPromptFromRequest(req *ExecutionRequest) string {
 }
 
 // buildEnv 构建环境变量
+// OpenCode CLI 使用 ~/.local/share/opencode/auth.json 管理 Provider 凭证
+// API Token 不支持通过环境变量设置，需在 auth.json 中配置
+// API URL 仅私有部署模型需要配置
 func (a *OpenCodeAdapter) buildEnv() []string {
 	env := os.Environ()
+	// API URL: 仅私有部署模型需要配置
 	if a.apiURL != "" {
 		env = append(env, fmt.Sprintf("OPENCODE_API_URL=%s", a.apiURL))
 	}
-	if a.apiToken != "" {
-		env = append(env, fmt.Sprintf("OPENCODE_API_KEY=%s", a.apiToken))
-	}
+	// Git-Bash 路径: Windows 下需要
 	if a.gitBashPath != "" {
 		env = append(env, fmt.Sprintf("OPENCODE_GIT_BASH_PATH=%s", a.gitBashPath))
 	}
+	// 注意: API Token 不支持环境变量，需配置 auth.json
 	return env
 }
 

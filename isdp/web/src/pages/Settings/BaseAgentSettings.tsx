@@ -265,12 +265,53 @@ const BaseAgentSettings: React.FC = () => {
             <Input placeholder="如: D:\Program Files\Git\bin\bash.exe" />
           </Form.Item>
 
-          <Form.Item name="apiUrl" label="API URL (可选)">
-            <Input placeholder="自定义API地址，留空使用默认" />
+          {/* 根据类型显示不同的 API URL 提示 */}
+          <Form.Item shouldUpdate noStyle>
+            {({ getFieldValue }) => {
+              const agentType = getFieldValue('type');
+              if (agentType === 'open_code') {
+                return (
+                  <Form.Item
+                    name="apiUrl"
+                    label="API URL (可选)"
+                    extra="仅私有部署模型需要配置，公开模型无需填写。OpenCode 使用 auth.json 管理 Provider 凭证"
+                  >
+                    <Input placeholder="私有模型API地址，公开模型留空" />
+                  </Form.Item>
+                );
+              }
+              return (
+                <Form.Item
+                  name="apiUrl"
+                  label="API URL (可选)"
+                  extra="自定义API地址，留空使用默认"
+                >
+                  <Input placeholder="自定义API地址，留空使用默认" />
+                </Form.Item>
+              );
+            }}
           </Form.Item>
 
-          <Form.Item name="apiToken" label="API Token (可选)">
-            <Input.Password placeholder="API令牌，留空使用环境变量" />
+          {/* OpenCode 类型不显示 API Token 字段 */}
+          <Form.Item shouldUpdate noStyle>
+            {({ getFieldValue }) => {
+              const agentType = getFieldValue('type');
+              if (agentType === 'open_code') {
+                return (
+                  <div style={{ padding: '12px', background: '#fffbe6', borderRadius: '4px', marginBottom: '24px' }}>
+                    <Text type="warning">
+                      ⚠️ OpenCode 的 API 令牌需要在 ~/.local/share/opencode/auth.json 中配置，
+                      不支持在此处设置。请使用 opencode providers login 命令添加凭证。
+                    </Text>
+                  </div>
+                );
+              }
+              return (
+                <Form.Item name="apiToken" label="API Token (可选)" extra="API令牌，留空使用环境变量">
+                  <Input.Password placeholder="API令牌，留空使用环境变量" />
+                </Form.Item>
+              );
+            }}
           </Form.Item>
 
           <Form.Item name="maxTokens" label="最大Token数">

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Layout, Menu, Typography } from 'antd';
+import { Layout, Menu, Typography, Space, Tag } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   DashboardOutlined,
@@ -8,9 +8,11 @@ import {
   InboxOutlined,
   SettingOutlined,
   ApartmentOutlined,
+  ExperimentOutlined,
 } from '@ant-design/icons';
 import ThemeSwitcher from '@/components/ThemeSwitcher';
 import Logo from '@/components/Logo';
+import { VERSION, BETA_LABEL } from '@/config/version';
 
 const { Header, Sider, Content } = Layout;
 const { Title } = Typography;
@@ -107,7 +109,13 @@ const MainLayout: React.FC = () => {
           <Title level={4} style={{ margin: 0, color: 'var(--text-primary)' }}>
             智能软件开发平台
           </Title>
-          <ThemeSwitcher />
+          <Space size="small">
+            <Tag color="orange" style={{ margin: 0 }}>
+              <ExperimentOutlined /> {BETA_LABEL}
+            </Tag>
+            <Tag color="blue" style={{ margin: 0 }}>{VERSION}</Tag>
+            <ThemeSwitcher />
+          </Space>
         </Header>
         <Content
           style={{
