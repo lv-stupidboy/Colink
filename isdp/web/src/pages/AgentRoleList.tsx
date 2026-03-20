@@ -3,7 +3,7 @@ import { Table, Button, Card, Modal, Form, Input, Select, message, Space, Tag, T
 import { PlusOutlined, EditOutlined, DeleteOutlined, RobotOutlined, BugOutlined, CopyOutlined, ExclamationCircleOutlined, EyeOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '@/api/client';
-import type { AgentConfig, BaseAgent } from '@/types';
+import type { AgentConfig, BaseAgent, Skill } from '@/types';
 
 const { Title, Text } = Typography;
 
@@ -18,6 +18,8 @@ const AgentRoleList: React.FC = () => {
   const navigate = useNavigate();
   const [configs, setConfigs] = useState<AgentConfig[]>([]);
   const [baseAgents, setBaseAgents] = useState<BaseAgent[]>([]);
+  const [skills, setSkills] = useState<Skill[]>([]);
+  const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingConfig, setEditingConfig] = useState<AgentConfig | null>(null);
@@ -27,6 +29,7 @@ const AgentRoleList: React.FC = () => {
   useEffect(() => {
     loadConfigs();
     loadBaseAgents();
+    loadSkills();
   }, []);
 
   const loadConfigs = async () => {
@@ -50,15 +53,36 @@ const AgentRoleList: React.FC = () => {
     }
   };
 
+  const loadSkills = async () => {
+    try {
+      const result = await api.skills.list({ pageSize: 100 });
+      setSkills(result.data);
+    } catch (error) {
+      console.error('加载技能列表失败', error);
+    }
+  };
+
+  const loadAgentSkills = async (agentId: string) => {
+    try {
+      const result = await api.agents.getSkills(agentId);
+      setSelectedSkillIds(result.skills.map(s => s.id));
+    } catch (error) {
+      console.error('加载Agent绑定的技能失败', error);
+      setSelectedSkillIds([]);
+    }
+  };
+
   const handleCreate = () => {
     setEditingConfig(null);
     form.resetFields();
+    setSelectedSkillIds([]);
     setModalVisible(true);
   };
 
-  const handleEdit = (record: AgentConfig) => {
+  const handleEdit = async (record: AgentConfig) => {
     setEditingConfig(record);
     form.setFieldsValue(record);
+    await loadAgentSkills(record.id);
     setModalVisible(true);
   };
 
@@ -107,9 +131,17 @@ const AgentRoleList: React.FC = () => {
     try {
       if (editingConfig) {
         await api.agents.update(editingConfig.id, values);
+        // 更新技能绑定
+        if (selectedSkillIds.length > 0) {
+          await api.agents.bindSkills(editingConfig.id, selectedSkillIds);
+        }
         message.success('更新成功');
       } else {
-        await api.agents.create(values);
+        const newAgent = await api.agents.create(values);
+        // 为新创建的Agent绑定技能
+        if (selectedSkillIds.length > 0) {
+          await api.agents.bindSkills(newAgent.id, selectedSkillIds);
+        }
         message.success('创建成功');
       }
       setModalVisible(false);
@@ -311,6 +343,20 @@ const AgentRoleList: React.FC = () => {
 
           <Form.Item name="systemPrompt" label="系统提示词" rules={[{ required: true, message: '请输入系统提示词' }]}>
             <Input.TextArea rows={8} placeholder="系统提示词，定义Agent的行为和能力" />
+          </Form.Item>
+
+          <Form.Item label="绑定技能">
+            <Select
+              mode="multiple"
+              placeholder="选择要绑定的技能"
+              value={selectedSkillIds}
+              onChange={setSelectedSkillIds}
+              style={{ width: '100%' }}
+              options={skills.map(s => ({
+                label: `${s.displayName || s.name} (${s.type === 'rule' ? '规则' : '技能'})`,
+                value: s.id,
+              }))}
+            />
           </Form.Item>
         </Form>
       </Modal>
