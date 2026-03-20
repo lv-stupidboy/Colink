@@ -3,7 +3,7 @@ import { Table, Button, Card, Space, Modal, Form, Input, message, Tag, Select } 
 import { PlusOutlined, FolderOutlined, FolderOpenOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '@/api/client';
-import type { Project } from '@/types';
+import type { Project, WorkflowTemplate } from '@/types';
 import PathSelector from '@/components/PathSelector';
 
 const { Option } = Select;
@@ -11,6 +11,7 @@ const { Option } = Select;
 const ProjectList: React.FC = () => {
   const navigate = useNavigate();
   const [projects, setProjects] = useState<Project[]>([]);
+  const [workflowTemplates, setWorkflowTemplates] = useState<WorkflowTemplate[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [pathSelectorVisible, setPathSelectorVisible] = useState(false);
@@ -18,6 +19,7 @@ const ProjectList: React.FC = () => {
 
   useEffect(() => {
     loadProjects();
+    loadWorkflowTemplates();
   }, []);
 
   const loadProjects = async () => {
@@ -30,6 +32,15 @@ const ProjectList: React.FC = () => {
       message.error('加载项目列表失败');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadWorkflowTemplates = async () => {
+    try {
+      const data = await api.workflows.list();
+      setWorkflowTemplates(data || []);
+    } catch (error) {
+      console.error('加载工作流模板失败', error);
     }
   };
 
@@ -53,6 +64,13 @@ const ProjectList: React.FC = () => {
     setPathSelectorVisible(false);
   };
 
+  // 获取工作流模板名称
+  const getWorkflowTemplateName = (templateId?: string) => {
+    if (!templateId) return '-';
+    const template = workflowTemplates.find(t => t.id === templateId);
+    return template?.name || '-';
+  };
+
   const columns = [
     {
       title: '项目名称',
@@ -61,13 +79,6 @@ const ProjectList: React.FC = () => {
       render: (name: string, record: Project) => (
         <a onClick={() => navigate(`/projects/${record.id}`)}>{name}</a>
       ),
-    },
-    {
-      title: '本地路径',
-      dataIndex: 'local_path',
-      key: 'local_path',
-      ellipsis: true,
-      render: (path?: string) => path || '-',
     },
     {
       title: '类型',
@@ -105,6 +116,19 @@ const ProjectList: React.FC = () => {
       ),
     },
     {
+      title: '工作流模板',
+      dataIndex: 'workflowTemplateId',
+      key: 'workflowTemplateId',
+      render: (templateId?: string) => getWorkflowTemplateName(templateId),
+    },
+    {
+      title: '本地路径',
+      dataIndex: 'localPath',
+      key: 'localPath',
+      ellipsis: true,
+      render: (path?: string) => path || '-',
+    },
+    {
       title: '创建时间',
       dataIndex: 'createdAt',
       key: 'createdAt',
@@ -113,6 +137,7 @@ const ProjectList: React.FC = () => {
     {
       title: '操作',
       key: 'actions',
+      width: 120,
       render: (_: unknown, record: Project) => (
         <Space>
           <Button
@@ -120,7 +145,7 @@ const ProjectList: React.FC = () => {
             icon={<FolderOutlined />}
             onClick={() => navigate(`/projects/${record.id}`)}
           >
-            进入项目
+            进入
           </Button>
         </Space>
       ),

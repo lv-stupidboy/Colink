@@ -203,6 +203,8 @@ class APIClient {
     delete: (id: string): Promise<void> => this.request(`/agents/${id}`, 'DELETE'),
     getByRole: (role: string): Promise<AgentConfig[]> => this.request(`/agents/role/${role}`, 'GET'),
     copy: (id: string): Promise<AgentConfig> => this.request(`/agents/${id}/copy`, 'POST'),
+    checkReferences: (id: string): Promise<{ referenced: boolean; referenceCount: number; referenceNames: string[] }> =>
+      this.request(`/agents/${id}/references`, 'GET'),
     // 预创建调试Thread，前端先调用此方法获取threadId，建立WebSocket连接
     createDebugThread: (projectPath?: string): Promise<{ threadId: string }> =>
       this.request('/agents/debug/thread', 'POST', { projectPath }),

@@ -157,13 +157,6 @@ const BaseAgentSettings: React.FC = () => {
       ellipsis: true,
     },
     {
-      title: 'Git-Bash路径',
-      dataIndex: 'gitBashPath',
-      key: 'gitBashPath',
-      ellipsis: true,
-      render: (path: string) => path || '-',
-    },
-    {
       title: 'API URL',
       dataIndex: 'apiUrl',
       key: 'apiUrl',
@@ -171,27 +164,24 @@ const BaseAgentSettings: React.FC = () => {
       render: (url: string) => url || '-',
     },
     {
-      title: '超时(分钟)',
-      dataIndex: 'timeoutMinutes',
-      key: 'timeoutMinutes',
-    },
-    {
       title: '操作',
       key: 'actions',
+      width: 200,
       render: (_: unknown, record: BaseAgent) => (
-        <Space>
+        <Space size="small">
           <Button
             type="link"
+            size="small"
             icon={<ApiOutlined />}
             onClick={() => handleTest(record.id)}
             loading={testing === record.id}
           >
             测试
           </Button>
-          <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
+          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
             编辑
           </Button>
-          <Button type="link" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record.id)}>
+          <Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record.id)}>
             删除
           </Button>
         </Space>

@@ -1,11 +1,18 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Button, Card, Modal, Form, Input, Select, message, Space, Tag, Typography } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, RobotOutlined, BugOutlined, CopyOutlined } from '@ant-design/icons';
+import { Table, Button, Card, Modal, Form, Input, Select, message, Space, Tag, Typography, Tooltip } from 'antd';
+import { PlusOutlined, EditOutlined, DeleteOutlined, RobotOutlined, BugOutlined, CopyOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '@/api/client';
 import type { AgentConfig, BaseAgent } from '@/types';
 
 const { Title, Text } = Typography;
+
+// 截断文本并添加省略号
+const truncateText = (text: string, maxLength: number = 50): string => {
+  if (!text) return '-';
+  if (text.length <= maxLength) return text;
+  return text.substring(0, maxLength) + '...';
+};
 
 const AgentRoleList: React.FC = () => {
   const navigate = useNavigate();
@@ -14,6 +21,7 @@ const AgentRoleList: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingConfig, setEditingConfig] = useState<AgentConfig | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState<string | null>(null);
   const [form] = Form.useForm();
 
   useEffect(() => {
@@ -54,13 +62,55 @@ const AgentRoleList: React.FC = () => {
     setModalVisible(true);
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (record: AgentConfig) => {
+    setDeleteLoading(record.id);
     try {
-      await api.agents.delete(id);
-      message.success('删除成功');
-      loadConfigs();
+      // 先检查是否被引用
+      const refCheck = await api.agents.checkReferences(record.id);
+
+      if (refCheck.referenced) {
+        Modal.confirm({
+          title: '无法删除',
+          icon: <ExclamationCircleOutlined />,
+          content: (
+            <div>
+              <p>该Agent角色被以下工作流引用，无法删除：</p>
+              <ul style={{ marginTop: 8, paddingLeft: 20 }}>
+                {refCheck.referenceNames.map(name => (
+                  <li key={name}>{name}</li>
+                ))}
+              </ul>
+              <p style={{ marginTop: 8 }}>请先从工作流中移除该Agent，再进行删除。</p>
+            </div>
+          ),
+          okText: '知道了',
+          cancelButtonProps: { style: { display: 'none' } },
+        });
+        return;
+      }
+
+      // 二次确认
+      Modal.confirm({
+        title: '确认删除',
+        icon: <ExclamationCircleOutlined />,
+        content: `确定要删除Agent角色「${record.name}」吗？此操作不可恢复。`,
+        okText: '确认删除',
+        okType: 'danger',
+        cancelText: '取消',
+        onOk: async () => {
+          try {
+            await api.agents.delete(record.id);
+            message.success('删除成功');
+            loadConfigs();
+          } catch (error) {
+            message.error('删除失败');
+          }
+        },
+      });
     } catch (error) {
-      message.error('删除失败');
+      message.error('检查引用失败');
+    } finally {
+      setDeleteLoading(null);
     }
   };
 
@@ -99,6 +149,7 @@ const AgentRoleList: React.FC = () => {
       title: '名称',
       dataIndex: 'name',
       key: 'name',
+      width: 150,
       render: (name: string) => (
         <Space>
           <RobotOutlined />
@@ -110,6 +161,7 @@ const AgentRoleList: React.FC = () => {
       title: '基础Agent',
       dataIndex: 'baseAgentId',
       key: 'baseAgentId',
+      width: 120,
       render: (baseAgentId: string) => {
         const agent = baseAgents.find(a => a.id === baseAgentId);
         return agent ? (
@@ -123,12 +175,34 @@ const AgentRoleList: React.FC = () => {
       title: '描述',
       dataIndex: 'description',
       key: 'description',
+      width: 200,
       ellipsis: true,
+      render: (desc?: string) => (
+        <Tooltip title={desc} placement="topLeft">
+          {desc || '-'}
+        </Tooltip>
+      ),
+    },
+    {
+      title: '系统提示词',
+      dataIndex: 'systemPrompt',
+      key: 'systemPrompt',
+      width: 250,
+      render: (prompt?: string) => {
+        if (!prompt) return '-';
+        const truncated = truncateText(prompt, 60);
+        if (truncated === prompt) return <Text style={{ maxWidth: 250 }}>{prompt}</Text>;
+        return (
+          <Tooltip title={<div style={{ maxWidth: 400, whiteSpace: 'pre-wrap' }}>{prompt}</div>} placement="topLeft">
+            <Text style={{ maxWidth: 250, cursor: 'pointer' }}>{truncated}</Text>
+          </Tooltip>
+        );
+      },
     },
     {
       title: '操作',
       key: 'actions',
-      width: 280,
+      width: 240,
       fixed: 'right' as const,
       render: (_: unknown, record: AgentConfig) => (
         <Space size="small">
@@ -141,7 +215,14 @@ const AgentRoleList: React.FC = () => {
           <Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
             编辑
           </Button>
-          <Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record.id)}>
+          <Button
+            type="link"
+            size="small"
+            danger
+            icon={<DeleteOutlined />}
+            onClick={() => handleDelete(record)}
+            loading={deleteLoading === record.id}
+          >
             删除
           </Button>
         </Space>

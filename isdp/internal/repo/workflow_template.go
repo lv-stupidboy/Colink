@@ -244,3 +244,49 @@ func (r *WorkflowTemplateRepository) CountProjectReferences(ctx context.Context,
 	}
 	return count, nil
 }
+
+// FindByAgentID 查找包含指定AgentID的工作流模板
+func (r *WorkflowTemplateRepository) FindByAgentID(ctx context.Context, agentID uuid.UUID) ([]*model.WorkflowTemplate, error) {
+	query := `
+		SELECT id, name, description, agent_ids, transitions, checkpoints, estimated_time, is_system, is_default, created_at, updated_at
+		FROM workflow_templates WHERE JSON_CONTAINS(agent_ids, ?)
+	`
+	agentIDJSON := fmt.Sprintf(`"%s"`, agentID.String())
+	rows, err := r.db.QueryContext(ctx, query, agentIDJSON)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find workflow templates by agent id: %w", err)
+	}
+	defer rows.Close()
+
+	var templates = make([]*model.WorkflowTemplate, 0)
+	for rows.Next() {
+		template := &model.WorkflowTemplate{}
+		var idStr string
+		var agentIDs, transitions, checkpoints []byte
+		var isSystem, isDefault int
+		err := rows.Scan(
+			&idStr,
+			&template.Name,
+			&template.Description,
+			&agentIDs,
+			&transitions,
+			&checkpoints,
+			&template.EstimatedTime,
+			&isSystem,
+			&isDefault,
+			&template.CreatedAt,
+			&template.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan workflow template: %w", err)
+		}
+		template.ID, _ = uuid.Parse(idStr)
+		template.AgentIDs = json.RawMessage(agentIDs)
+		template.Transitions = json.RawMessage(transitions)
+		template.Checkpoints = json.RawMessage(checkpoints)
+		template.IsSystem = isSystem == 1
+		template.IsDefault = isDefault == 1
+		templates = append(templates, template)
+	}
+	return templates, nil
+}

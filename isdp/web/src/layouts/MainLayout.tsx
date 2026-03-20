@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Layout, Menu, Typography, Space, Tag } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -9,7 +9,9 @@ import {
   SettingOutlined,
   ApartmentOutlined,
   ExperimentOutlined,
+  RobotOutlined,
 } from '@ant-design/icons';
+import type { MenuProps } from 'antd';
 import ThemeSwitcher from '@/components/ThemeSwitcher';
 import Logo from '@/components/Logo';
 import { VERSION, BETA_LABEL } from '@/config/version';
@@ -20,6 +22,7 @@ const { Title } = Typography;
 const MainLayout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   /**
    * 导航菜单配置
@@ -29,10 +32,13 @@ const MainLayout: React.FC = () => {
    * ├── 首页/仪表盘
    * ├── 项目空间
    * ├── 工作流编排
+   * ├── Agent角色
    * ├── 沙箱环境
-   * └── 系统设置
+   * └── 设置（子菜单）
+   *     ├── 通用设置
+   *     └── 基础Agent设置
    */
-  const menuItems = [
+  const menuItems: MenuProps['items'] = [
     {
       key: '/dashboard',
       icon: <DashboardOutlined />,
@@ -59,9 +65,21 @@ const MainLayout: React.FC = () => {
       label: '沙箱环境',
     },
     {
-      key: '/settings',
+      key: 'settings',
       icon: <SettingOutlined />,
       label: '设置',
+      children: [
+        {
+          key: '/settings/general',
+          icon: <SettingOutlined />,
+          label: '通用设置',
+        },
+        {
+          key: '/settings/base-agents',
+          icon: <RobotOutlined />,
+          label: '基础Agent设置',
+        },
+      ],
     },
   ];
 
@@ -70,8 +88,27 @@ const MainLayout: React.FC = () => {
     const path = location.pathname;
     if (path.startsWith('/projects')) return '/projects';
     if (path.startsWith('/threads')) return '/projects';
-    if (path.startsWith('/settings')) return '/settings';
+    if (path.startsWith('/settings')) return location.pathname;
     return path;
+  };
+
+  // 获取展开的子菜单
+  const getOpenKeys = () => {
+    const path = location.pathname;
+    if (path.startsWith('/settings')) {
+      return ['settings'];
+    }
+    return [];
+  };
+
+  const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
+    if (key.startsWith('/')) {
+      navigate(key);
+    }
+  };
+
+  const handleOpenChange: MenuProps['onOpenChange'] = (keys) => {
+    setSettingsOpen(keys.includes('settings'));
   };
 
   return (
@@ -90,8 +127,10 @@ const MainLayout: React.FC = () => {
         <Menu
           mode="inline"
           selectedKeys={[getSelectedKey()]}
+          openKeys={settingsOpen ? ['settings'] : getOpenKeys()}
           items={menuItems}
-          onClick={({ key }) => navigate(key)}
+          onClick={handleMenuClick}
+          onOpenChange={handleOpenChange}
         />
       </Sider>
       <Layout style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>

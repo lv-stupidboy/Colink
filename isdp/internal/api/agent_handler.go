@@ -12,11 +12,12 @@ import (
 
 // AgentHandler Agent配置API处理器
 type AgentHandler struct {
-	configSvc      *agent.ConfigService
-	baseAgentSvc   *agent.BaseAgentService
-	orchestrator   *agent.Orchestrator
-	threadRepo     *repo.ThreadRepository
-	debugThreadMgr *agent.DebugThreadManager // 调试线程管理器
+	configSvc       *agent.ConfigService
+	baseAgentSvc    *agent.BaseAgentService
+	orchestrator    *agent.Orchestrator
+	threadRepo      *repo.ThreadRepository
+	debugThreadMgr  *agent.DebugThreadManager // 调试线程管理器
+	workflowRepo    *repo.WorkflowTemplateRepository
 }
 
 // NewAgentHandler 创建处理器
@@ -26,6 +27,7 @@ func NewAgentHandler(
 	orchestrator *agent.Orchestrator,
 	threadRepo *repo.ThreadRepository,
 	debugThreadMgr *agent.DebugThreadManager, // 新增
+	workflowRepo *repo.WorkflowTemplateRepository,
 ) *AgentHandler {
 	return &AgentHandler{
 		configSvc:      configSvc,
@@ -33,6 +35,7 @@ func NewAgentHandler(
 		orchestrator:   orchestrator,
 		threadRepo:     threadRepo,
 		debugThreadMgr: debugThreadMgr,
+		workflowRepo:   workflowRepo,
 	}
 }
 
@@ -124,6 +127,34 @@ func (h *AgentHandler) Delete(c *gin.Context) {
 		return
 	}
 	c.Status(http.StatusNoContent)
+}
+
+// CheckReferences 检查Agent是否被工作流引用
+func (h *AgentHandler) CheckReferences(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	templates, err := h.workflowRepo.FindByAgentID(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 提取模板名称列表
+	var refNames []string
+	for _, t := range templates {
+		refNames = append(refNames, t.Name)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"referenced":       len(templates) > 0,
+		"referenceCount":   len(templates),
+		"referenceNames":   refNames,
+		"referenceDetails": templates,
+	})
 }
 
 // Copy 复制角色
@@ -308,6 +339,7 @@ func (h *AgentHandler) RegisterRoutes(r *gin.RouterGroup) {
 		agents.GET("/role/:role", h.GetByRole)
 		agents.POST("/debug/thread", h.CreateDebugThread) // 预创建调试Thread
 		agents.POST("/debug/:threadId/continue", h.ContinueDebug)
+		agents.GET("/:id/references", h.CheckReferences) // 检查引用
 		agents.GET("/:id", h.Get)
 		agents.PUT("/:id", h.Update)
 		agents.DELETE("/:id", h.Delete)
