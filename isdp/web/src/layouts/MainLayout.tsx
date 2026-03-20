@@ -10,6 +10,7 @@ import {
   ApartmentOutlined,
   ExperimentOutlined,
   RobotOutlined,
+  BookOutlined,
 } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import ThemeSwitcher from '@/components/ThemeSwitcher';
@@ -58,6 +59,11 @@ const MainLayout: React.FC = () => {
       key: '/agents',
       icon: <ThunderboltOutlined />,
       label: 'Agent 角色',
+    },
+    {
+      key: '/skills',
+      icon: <BookOutlined />,
+      label: '技能库',
     },
     {
       key: '/sandbox',
