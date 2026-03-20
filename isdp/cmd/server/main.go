@@ -20,6 +20,7 @@ import (
 	"github.com/anthropic/isdp/internal/service/message"
 	"github.com/anthropic/isdp/internal/service/project"
 	"github.com/anthropic/isdp/internal/service/sandbox"
+	"github.com/anthropic/isdp/internal/service/skill"
 	"github.com/anthropic/isdp/internal/service/thread"
 	"github.com/anthropic/isdp/internal/service/workflow"
 	"github.com/anthropic/isdp/internal/ws"
@@ -99,6 +100,8 @@ func main() {
 	sandboxRepo := repo.NewSandboxRepository(db)
 	reviewRepo := repo.NewReviewRepository(artifactRepo)
 	workflowRepo := repo.NewWorkflowTemplateRepository(db)
+	skillRepo := repo.NewSkillRepository(db)
+	agentSkillBindingRepo := repo.NewAgentSkillBindingRepository(db)
 
 	// 初始化Services
 	projectService := project.NewService(projectRepo, workflowRepo)
@@ -109,6 +112,7 @@ func main() {
 	workflowEngine := agent.NewWorkflowEngine(threadRepo, messageRepo, configService)
 	workflowService := workflow.NewService(workflowRepo)
 	mcpAuthService := a2a.NewMCPAuthService(cfg.MCP.TokenTTL)
+	skillService := skill.NewService(skillRepo, agentSkillBindingRepo, agentConfigRepo)
 
 	// 初始化默认基础Agent
 	if err := baseAgentService.InitDefaultAgents(context.Background()); err != nil {
@@ -217,6 +221,10 @@ func main() {
 	// 工作流模板 Handler
 	workflowHandler := api.NewWorkflowHandler(workflowService)
 	workflowHandler.RegisterRoutes(v1)
+
+	// Skill Handler
+	skillHandler := api.NewSkillHandler(skillService)
+	skillHandler.RegisterRoutes(v1)
 
 	// WebSocket
 	wsHandler := ws.NewHandler(wsHub)
