@@ -293,7 +293,7 @@ func (r *AgentSkillBindingRepository) FindByAgentRoleID(ctx context.Context, age
 	for rows.Next() {
 		var skillIDStr string
 		if err := rows.Scan(&skillIDStr); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to scan skill_id: %w", err)
 		}
 		skillID, _ := uuid.Parse(skillIDStr)
 		skillIDs = append(skillIDs, skillID)
@@ -314,7 +314,7 @@ func (r *AgentSkillBindingRepository) FindBySkillID(ctx context.Context, skillID
 	for rows.Next() {
 		var agentRoleIDStr string
 		if err := rows.Scan(&agentRoleIDStr); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to scan agent_role_id: %w", err)
 		}
 		agentRoleID, _ := uuid.Parse(agentRoleIDStr)
 		agentRoleIDs = append(agentRoleIDs, agentRoleID)
