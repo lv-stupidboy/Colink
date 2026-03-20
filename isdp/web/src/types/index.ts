@@ -331,3 +331,104 @@ export interface SandboxServer {
   status: string;
   containerId?: string;
 }
+
+// ========== Skill 相关类型 ==========
+
+// Skill类型
+export type SkillType = 'skill' | 'rule';
+
+// Skill来源类型
+export type SkillSourceType = 'built_in' | 'uploaded' | 'federated';
+
+// Skill状态
+export type SkillStatus = 'active' | 'deprecated';
+
+// 安装源配置
+export type InstallSource = Record<string, string>;
+
+// Skill
+export interface Skill {
+  id: string;
+  name: string;
+  displayName?: string;
+  description?: string;
+  type: SkillType;
+  category?: string;
+  sourceType: SkillSourceType;
+  sourceRegistryId?: string;
+  authorId?: string;
+  projectId?: string;
+  installSource?: InstallSource;
+  supportedAgents?: string[];
+  version: string;
+  useCount: number;
+  starCount: number;
+  favoriteCount: number;
+  status: SkillStatus;
+  isPublic: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// 创建Skill请求
+export interface CreateSkillRequest {
+  name: string;
+  displayName?: string;
+  description?: string;
+  type?: SkillType;
+  category?: string;
+  sourceType: SkillSourceType;
+  installSource?: InstallSource;
+  supportedAgents?: string[];
+  version?: string;
+  isPublic?: boolean;
+}
+
+// 更新Skill请求
+export interface UpdateSkillRequest {
+  displayName?: string;
+  description?: string;
+  type?: SkillType;
+  category?: string;
+  installSource?: InstallSource;
+  supportedAgents?: string[];
+  version?: string;
+  status?: SkillStatus;
+  isPublic?: boolean;
+}
+
+// Skill列表查询参数
+export interface SkillListQuery {
+  type?: string;
+  category?: string;
+  sourceType?: string;
+  agentType?: string;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+// Skill列表响应
+export interface SkillListResponse {
+  data: Skill[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+// Agent-Skill绑定请求
+export interface BindSkillsRequest {
+  skillIds: string[];
+}
+
+// Agent绑定的Skills响应
+export interface AgentSkillsResponse {
+  skills: Skill[];
+  count: number;
+}
+
+// Skill绑定的Agents响应
+export interface SkillAgentsResponse {
+  agents: AgentConfig[];
+  count: number;
+}
