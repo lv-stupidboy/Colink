@@ -259,9 +259,19 @@ export const useAppStore = create<AppState & AppActions>()(
     },
 
     addMessage: (message) => {
-      set((state) => ({
-        messages: [...state.messages, message],
-      }));
+      set((state) => {
+        // 去重检查：如果消息 ID 已存在，不重复添加
+        const exists = state.messages.some(m => m.id === message.id);
+        if (exists) {
+          console.log('[Store] addMessage: duplicate ignored, id=', message.id);
+          return state;
+        }
+        console.log('[Store] addMessage: adding message, id=', message.id, 'role=', message.role);
+
+        return {
+          messages: [...state.messages, message],
+        };
+      });
     },
 
     updateAgentStatus: (invocationId, status) => {
@@ -381,13 +391,31 @@ export const useAppStore = create<AppState & AppActions>()(
     },
 
     finalizeStreamingMessage: (invocationId) => {
+      console.log('[Store] finalizeStreamingMessage called, invocationId=', invocationId);
       set((state) => {
         const streamingMsg = state.streamingMessages[invocationId];
-        if (!streamingMsg) return state;
+        if (!streamingMsg) {
+          console.log('[Store] finalizeStreamingMessage: no streaming message found');
+          return state;
+        }
 
+        // 去重检查：如果消息已存在，只清理流式缓存
+        const messageId = `agent-${invocationId}`;
+        const exists = state.messages.some(m => m.id === messageId);
+        if (exists) {
+          console.log('[Store] finalizeStreamingMessage: message already exists, just clearing streaming cache');
+          const { [invocationId]: _, ...remainingStreaming } = state.streamingMessages;
+          const { [invocationId]: __, ...remainingProgress } = state.progressState;
+          return {
+            streamingMessages: remainingStreaming,
+            progressState: remainingProgress,
+          };
+        }
+
+        console.log('[Store] finalizeStreamingMessage: creating message, id=', messageId);
         // Create the final message from streaming content
         const finalMessage: Message = {
-          id: `agent-${invocationId}`,
+          id: messageId,
           threadId: state.currentThread?.id || '',
           role: 'agent',
           agentId: streamingMsg.agentId,

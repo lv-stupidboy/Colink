@@ -171,24 +171,45 @@ const ThreadView: React.FC = () => {
 
   // 调试模式的 WebSocket 连接
   const connectDebugWebSocket = (id: string) => {
+    // 先关闭已有连接，避免重复连接
+    if (wsRef.current) {
+      const oldWs = wsRef.current;
+      oldWs.onopen = null;
+      oldWs.onclose = null;
+      oldWs.onmessage = null;
+      oldWs.onerror = null;
+      oldWs.close();
+      wsRef.current = null;
+    }
+
     const wsUrl = `ws://${window.location.host}/api/v1/ws?threadId=${id}`;
-    wsRef.current = new WebSocket(wsUrl);
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
 
-    wsRef.current.onopen = () => {
-      wsConnectedRef.current = true;
-      setDebugWsConnected(true);
-      console.log('[Debug] WebSocket connected');
+    ws.onopen = () => {
+      // 确保这是当前的 WebSocket
+      if (wsRef.current === ws) {
+        wsConnectedRef.current = true;
+        setDebugWsConnected(true);
+        console.log('[Debug] WebSocket connected');
+      }
     };
 
-    wsRef.current.onclose = () => {
-      wsConnectedRef.current = false;
-      setDebugWsConnected(false);
-      console.log('[Debug] WebSocket disconnected');
+    ws.onclose = () => {
+      // 确保这是当前的 WebSocket
+      if (wsRef.current === ws) {
+        wsConnectedRef.current = false;
+        setDebugWsConnected(false);
+        console.log('[Debug] WebSocket disconnected');
+      }
     };
 
-    wsRef.current.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      handleDebugWsMessage(data);
+    ws.onmessage = (event) => {
+      // 确保这是当前的 WebSocket
+      if (wsRef.current === ws) {
+        const data = JSON.parse(event.data);
+        handleDebugWsMessage(data);
+      }
     };
   };
 
@@ -271,9 +292,15 @@ const ThreadView: React.FC = () => {
     }
 
     return () => {
+      // 清理：关闭 WebSocket 连接
       if (wsRef.current) {
+        wsRef.current.onopen = null;
+        wsRef.current.onclose = null;
+        wsRef.current.onmessage = null;
+        wsRef.current.onerror = null;
         wsRef.current.close();
         wsRef.current = null;
+        wsConnectedRef.current = false;
       }
     };
   }, [threadId, isDebugMode]);
@@ -367,22 +394,45 @@ const ThreadView: React.FC = () => {
   }, [streamingMessages]);
 
   const connectWebSocket = (id: string) => {
+    // 先关闭已有连接，避免重复连接
+    if (wsRef.current) {
+      const oldWs = wsRef.current;
+      oldWs.onopen = null;
+      oldWs.onclose = null;
+      oldWs.onmessage = null;
+      oldWs.onerror = null;
+      oldWs.close();
+      wsRef.current = null;
+    }
+
     const wsUrl = `ws://${window.location.host}/api/v1/ws?threadId=${id}`;
-    wsRef.current = new WebSocket(wsUrl);
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
 
-    wsRef.current.onopen = () => {
-      setWsConnected(true);
-      console.log('WebSocket connected');
+    ws.onopen = () => {
+      // 确保这是当前的 WebSocket
+      if (wsRef.current === ws) {
+        wsConnectedRef.current = true;
+        setWsConnected(true);
+        console.log('WebSocket connected');
+      }
     };
 
-    wsRef.current.onclose = () => {
-      setWsConnected(false);
-      console.log('WebSocket disconnected');
+    ws.onclose = () => {
+      // 确保这是当前的 WebSocket
+      if (wsRef.current === ws) {
+        wsConnectedRef.current = false;
+        setWsConnected(false);
+        console.log('WebSocket disconnected');
+      }
     };
 
-    wsRef.current.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      handleWsMessage(data);
+    ws.onmessage = (event) => {
+      // 确保这是当前的 WebSocket
+      if (wsRef.current === ws) {
+        const data = JSON.parse(event.data);
+        handleWsMessage(data);
+      }
     };
   };
 
@@ -433,14 +483,28 @@ const ThreadView: React.FC = () => {
         // Agent 完成消息（非流式场景备用）：清除流式缓存，显示最终消息
         // 注意：流式场景下不会收到此消息，由 agent_status/completed 触发 finalizeStreamingMessage
         const invocId = data.payload.invocationId as string || data.payload.messageId as string;
+        // 使用统一的消息 ID 格式
+        const messageId = `agent-${invocId}`;
         // 使用 getState() 避免闭包陷阱
         const currentStreaming = useAppStore.getState().streamingMessages;
+        const existingMessages = useAppStore.getState().messages;
+
+        // 检查消息是否已存在（去重）
+        const alreadyExists = existingMessages.some(m => m.id === messageId);
+        if (alreadyExists) {
+          // 消息已存在，只清理流式缓存
+          if (invocId && currentStreaming[invocId]) {
+            finalizeStreamingMessage(invocId);
+          }
+          break;
+        }
+
         if (invocId && currentStreaming[invocId]) {
           finalizeStreamingMessage(invocId);
         } else {
-          // 直接添加消息（非流式场景）
+          // 直接添加消息（非流式场景），使用统一的 ID 格式
           addMessage({
-            id: data.payload.messageId as string,
+            id: messageId,
             threadId: threadId!,
             role: 'agent',
             agentId: data.payload.agentId as string,
@@ -1261,8 +1325,12 @@ const ThreadView: React.FC = () => {
         ) : (
           <>
             {messages.map(renderMessage)}
-            {/* 流式消息渲染 */}
-            {Object.entries(streamingMessages).map(([invocationId, streamMsg]) => {
+            {/* 流式消息渲染 - 只渲染还未完成的消息 */}
+            {Object.entries(streamingMessages).filter(([invocationId]) => {
+              // 如果消息已在 messages 中，不重复渲染
+              const messageId = `agent-${invocationId}`;
+              return !messages.some(m => m.id === messageId);
+            }).map(([invocationId, streamMsg]) => {
               const progress = progressState[invocationId];
               const isThinking = progress?.status === 'thinking';
               const isToolUse = progress?.status === 'tool_use';

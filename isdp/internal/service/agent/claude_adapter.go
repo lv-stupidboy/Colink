@@ -145,7 +145,7 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionReq
 			if lineCount <= 5 {
 				logInfo("ExecuteWithStream: received line", zap.Int("lineNum", lineCount), zap.String("line", line[:min(200, len(line))]))
 			}
-			chunks := a.parseStreamJSONLine(line)
+			chunks := a.parseStreamJSONLine(line, onChunk != nil)
 			for _, chunk := range chunks {
 				if onChunk != nil {
 					chunkCount++
@@ -287,7 +287,8 @@ func (a *ClaudeAdapter) buildPromptFromRequest(req *ExecutionRequest) string {
 }
 
 // parseStreamJSONLine 解析 stream-json 格式的单行输出，返回 Chunk 数组
-func (a *ClaudeAdapter) parseStreamJSONLine(line string) []Chunk {
+// isStreaming: 是否为增量模式，增量模式下忽略完整消息避免重复
+func (a *ClaudeAdapter) parseStreamJSONLine(line string, isStreaming bool) []Chunk {
 	var chunks []Chunk
 
 	var msg struct {
@@ -361,26 +362,31 @@ func (a *ClaudeAdapter) parseStreamJSONLine(line string) []Chunk {
 		}
 	case "assistant":
 		// 完整消息（非增量模式下的输出）
-		for _, content := range msg.Message.Content {
-			if content.Type == "text" && content.Text != "" {
-				chunks = append(chunks, Chunk{
-					Type:    ChunkTypeText,
-					Content: content.Text,
-				})
-			} else if content.Type == "tool_use" {
-				chunks = append(chunks, Chunk{
-					Type:      ChunkTypeToolUse,
-					ToolName:  content.Name,
-					ToolID:    content.ID,
-					ToolInput: content.Input,
-				})
+		// 在增量模式下忽略，避免重复（内容已通过 stream_event.content_block_delta 发送）
+		if !isStreaming {
+			for _, content := range msg.Message.Content {
+				if content.Type == "text" && content.Text != "" {
+					chunks = append(chunks, Chunk{
+						Type:    ChunkTypeText,
+						Content: content.Text,
+					})
+				} else if content.Type == "tool_use" {
+					chunks = append(chunks, Chunk{
+						Type:      ChunkTypeToolUse,
+						ToolName:  content.Name,
+						ToolID:    content.ID,
+						ToolInput: content.Input,
+					})
+				}
 			}
 		}
 	case "user":
 		// 用户消息（工具结果）
 		// 这里包含工具执行结果，可以用来更新进度
 	case "result":
-		if msg.Result != "" {
+		// 最终结果（非增量模式下使用）
+		// 在增量模式下忽略，避免重复
+		if !isStreaming && msg.Result != "" {
 			chunks = append(chunks, Chunk{
 				Type:    ChunkTypeText,
 				Content: msg.Result,

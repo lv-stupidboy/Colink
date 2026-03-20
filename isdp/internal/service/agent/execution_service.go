@@ -377,14 +377,28 @@ func (es *ExecutionService) getTransitionsForAgent(ctx context.Context, threadID
 		logError("getTransitionsForAgent: failed to find thread", zap.Error(err))
 		return nil
 	}
-	if thread.WorkflowTemplateID == nil {
-		logInfo("getTransitionsForAgent: thread has no WorkflowTemplateID", zap.String("threadID", threadID.String()))
+
+	// 优先使用 Project 的工作流模板，如果没有则使用 Thread 的
+	var workflowTemplateID *uuid.UUID
+	if es.projectRepo != nil {
+		project, err := es.projectRepo.GetByThreadID(ctx, threadID)
+		if err == nil && project != nil && project.WorkflowTemplateID != nil {
+			workflowTemplateID = project.WorkflowTemplateID
+			logInfo("getTransitionsForAgent: using project's workflow template", zap.String("workflowTemplateID", workflowTemplateID.String()))
+		}
+	}
+	if workflowTemplateID == nil && thread.WorkflowTemplateID != nil {
+		workflowTemplateID = thread.WorkflowTemplateID
+		logInfo("getTransitionsForAgent: using thread's workflow template", zap.String("workflowTemplateID", workflowTemplateID.String()))
+	}
+
+	if workflowTemplateID == nil {
+		logInfo("getTransitionsForAgent: no workflow template found", zap.String("threadID", threadID.String()))
 		return nil
 	}
-	logInfo("getTransitionsForAgent: found thread with WorkflowTemplateID", zap.String("workflowTemplateID", thread.WorkflowTemplateID.String()))
 
 	// 获取工作流模板
-	workflow, err := es.workflowRepo.FindByID(ctx, *thread.WorkflowTemplateID)
+	workflow, err := es.workflowRepo.FindByID(ctx, *workflowTemplateID)
 	if err != nil {
 		logError("getTransitionsForAgent: failed to find workflow template", zap.Error(err))
 		return nil
@@ -556,12 +570,28 @@ func (es *ExecutionService) parseMentions(content string) []ParsedMention {
 func (es *ExecutionService) getAllowedAgentsFromWorkflow(ctx context.Context, threadID uuid.UUID) []*model.AgentRoleConfig {
 	// 1. 获取 Thread
 	thread, err := es.threadRepo.FindByID(ctx, threadID)
-	if err != nil || thread.WorkflowTemplateID == nil {
+	if err != nil {
+		return nil
+	}
+
+	// 优先使用 Project 的工作流模板，如果没有则使用 Thread 的
+	var workflowTemplateID *uuid.UUID
+	if es.projectRepo != nil {
+		project, err := es.projectRepo.GetByThreadID(ctx, threadID)
+		if err == nil && project != nil && project.WorkflowTemplateID != nil {
+			workflowTemplateID = project.WorkflowTemplateID
+		}
+	}
+	if workflowTemplateID == nil && thread.WorkflowTemplateID != nil {
+		workflowTemplateID = thread.WorkflowTemplateID
+	}
+
+	if workflowTemplateID == nil {
 		return nil
 	}
 
 	// 2. 获取工作流模板
-	workflow, err := es.workflowRepo.FindByID(ctx, *thread.WorkflowTemplateID)
+	workflow, err := es.workflowRepo.FindByID(ctx, *workflowTemplateID)
 	if err != nil || workflow == nil {
 		return nil
 	}
@@ -815,6 +845,7 @@ func (es *ExecutionService) CancelAgent(ctx context.Context, invocationID uuid.U
 
 // broadcastStatus 广播状态
 func (es *ExecutionService) broadcastStatus(threadID, invocationID uuid.UUID, status string, role model.AgentRole) {
+	logInfo("broadcastStatus called", zap.String("threadId", threadID.String()), zap.String("invocationId", invocationID.String()), zap.String("status", status))
 	if es.wsHub != nil {
 		es.wsHub.BroadcastToThread(threadID.String(), ws.WSMessage{
 			Type:      "agent_status",
@@ -902,19 +933,28 @@ func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, thread
 		return fmt.Errorf("failed to get thread: %w", err)
 	}
 
-	// 获取项目路径
+	// 获取项目路径和工作流模板
 	var projectPath string
+	var workflowTemplateID *uuid.UUID
 	if es.projectRepo != nil {
 		project, err := es.projectRepo.GetByThreadID(ctx, threadID)
 		if err == nil && project != nil {
 			projectPath = project.LocalPath
+			// 优先使用 Project 的工作流模板
+			if project.WorkflowTemplateID != nil {
+				workflowTemplateID = project.WorkflowTemplateID
+			}
 		}
+	}
+	// 如果 Project 没有工作流模板，使用 Thread 的
+	if workflowTemplateID == nil && thread.WorkflowTemplateID != nil {
+		workflowTemplateID = thread.WorkflowTemplateID
 	}
 
 	// 获取工作流模板中的Agent列表
 	var agentIDs []string
-	if thread.WorkflowTemplateID != nil && es.workflowRepo != nil {
-		workflow, err := es.workflowRepo.FindByID(ctx, *thread.WorkflowTemplateID)
+	if workflowTemplateID != nil && es.workflowRepo != nil {
+		workflow, err := es.workflowRepo.FindByID(ctx, *workflowTemplateID)
 		if err == nil && workflow != nil {
 			// 解析 agent_ids JSON
 			if len(workflow.AgentIDs) > 0 {
