@@ -255,3 +255,94 @@ func (r *SkillRepository) IncrementFavoriteCount(ctx context.Context, id uuid.UU
 	_, err := r.db.ExecContext(ctx, query, delta, id.String())
 	return err
 }
+
+// ========== Agent-Skill Binding ==========
+
+// AgentSkillBindingRepository Agent-Skill绑定数据访问
+type AgentSkillBindingRepository struct {
+	db *sql.DB
+}
+
+// NewAgentSkillBindingRepository 创建AgentSkillBinding Repository
+func NewAgentSkillBindingRepository(db *sql.DB) *AgentSkillBindingRepository {
+	return &AgentSkillBindingRepository{db: db}
+}
+
+// Create 创建绑定
+func (r *AgentSkillBindingRepository) Create(ctx context.Context, binding *model.AgentSkillBinding) error {
+	query := `
+		INSERT INTO agent_skill_bindings (id, agent_role_id, skill_id, created_at)
+		VALUES (?, ?, ?, ?)
+	`
+	_, err := r.db.ExecContext(ctx, query,
+		binding.ID.String(), binding.AgentRoleID.String(), binding.SkillID.String(), binding.CreatedAt,
+	)
+	return err
+}
+
+// FindByAgentRoleID 根据AgentRole ID查找绑定的Skill ID列表
+func (r *AgentSkillBindingRepository) FindByAgentRoleID(ctx context.Context, agentRoleID uuid.UUID) ([]uuid.UUID, error) {
+	query := `SELECT skill_id FROM agent_skill_bindings WHERE agent_role_id = ?`
+	rows, err := r.db.QueryContext(ctx, query, agentRoleID.String())
+	if err != nil {
+		return nil, fmt.Errorf("failed to find bindings: %w", err)
+	}
+	defer rows.Close()
+
+	skillIDs := make([]uuid.UUID, 0)
+	for rows.Next() {
+		var skillIDStr string
+		if err := rows.Scan(&skillIDStr); err != nil {
+			return nil, err
+		}
+		skillID, _ := uuid.Parse(skillIDStr)
+		skillIDs = append(skillIDs, skillID)
+	}
+	return skillIDs, nil
+}
+
+// FindBySkillID 根据Skill ID查找绑定的AgentRole ID列表
+func (r *AgentSkillBindingRepository) FindBySkillID(ctx context.Context, skillID uuid.UUID) ([]uuid.UUID, error) {
+	query := `SELECT agent_role_id FROM agent_skill_bindings WHERE skill_id = ?`
+	rows, err := r.db.QueryContext(ctx, query, skillID.String())
+	if err != nil {
+		return nil, fmt.Errorf("failed to find bindings: %w", err)
+	}
+	defer rows.Close()
+
+	agentRoleIDs := make([]uuid.UUID, 0)
+	for rows.Next() {
+		var agentRoleIDStr string
+		if err := rows.Scan(&agentRoleIDStr); err != nil {
+			return nil, err
+		}
+		agentRoleID, _ := uuid.Parse(agentRoleIDStr)
+		agentRoleIDs = append(agentRoleIDs, agentRoleID)
+	}
+	return agentRoleIDs, nil
+}
+
+// DeleteByAgentRoleID 删除AgentRole的所有绑定
+func (r *AgentSkillBindingRepository) DeleteByAgentRoleID(ctx context.Context, agentRoleID uuid.UUID) error {
+	query := `DELETE FROM agent_skill_bindings WHERE agent_role_id = ?`
+	_, err := r.db.ExecContext(ctx, query, agentRoleID.String())
+	return err
+}
+
+// DeleteBinding 删除特定绑定
+func (r *AgentSkillBindingRepository) DeleteBinding(ctx context.Context, agentRoleID, skillID uuid.UUID) error {
+	query := `DELETE FROM agent_skill_bindings WHERE agent_role_id = ? AND skill_id = ?`
+	_, err := r.db.ExecContext(ctx, query, agentRoleID.String(), skillID.String())
+	return err
+}
+
+// ExistsBinding 检查绑定是否存在
+func (r *AgentSkillBindingRepository) ExistsBinding(ctx context.Context, agentRoleID, skillID uuid.UUID) (bool, error) {
+	query := `SELECT COUNT(*) FROM agent_skill_bindings WHERE agent_role_id = ? AND skill_id = ?`
+	var count int
+	err := r.db.QueryRowContext(ctx, query, agentRoleID.String(), skillID.String()).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
