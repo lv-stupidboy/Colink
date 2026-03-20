@@ -11,6 +11,13 @@ import type {
   MergeCheckResult,
   WorkflowTemplate,
   ListFilesResponse,
+  Skill,
+  CreateSkillRequest,
+  UpdateSkillRequest,
+  SkillListQuery,
+  SkillListResponse,
+  AgentSkillsResponse,
+  SkillAgentsResponse,
 } from '@/types';
 import {
   transformProjects,
@@ -229,6 +236,13 @@ class APIClient {
       this.request(`/agents/${id}/debug`, 'POST', { input, projectPath, threadId }),
     continueDebug: (threadId: string, message: string): Promise<{ status: string }> =>
       this.request(`/agents/debug/${threadId}/continue`, 'POST', { message }),
+    // Skill 相关
+    getSkills: (agentId: string): Promise<AgentSkillsResponse> =>
+      this.request(`/agents/${agentId}/skills`, 'GET'),
+    bindSkills: (agentId: string, skillIds: string[]): Promise<{ message: string }> =>
+      this.request(`/agents/${agentId}/skills`, 'POST', { skill_ids: skillIds }),
+    unbindSkill: (agentId: string, skillId: string): Promise<{ message: string }> =>
+      this.request(`/agents/${agentId}/skills/${skillId}`, 'DELETE'),
   };
 
   // 基础Agent API
@@ -306,6 +320,33 @@ class APIClient {
     delete: (id: string): Promise<void> => this.request(`/workflows/${id}`, 'DELETE'),
     setDefault: (id: string): Promise<WorkflowTemplate> =>
       this.request(`/workflows/${id}/default`, 'PUT'),
+  };
+
+  // Skill API
+  skills = {
+    list: (query?: SkillListQuery): Promise<SkillListResponse> => {
+      const params = new URLSearchParams();
+      if (query?.type) params.append('type', query.type);
+      if (query?.category) params.append('category', query.category);
+      if (query?.sourceType) params.append('source_type', query.sourceType);
+      if (query?.agentType) params.append('agent_type', query.agentType);
+      if (query?.search) params.append('search', query.search);
+      if (query?.page) params.append('page', query.page.toString());
+      if (query?.pageSize) params.append('page_size', query.pageSize.toString());
+
+      const url = params.toString() ? `/skills?${params.toString()}` : '/skills';
+      return this.request(url, 'GET');
+    },
+    get: (id: string): Promise<Skill> =>
+      this.request(`/skills/${id}`, 'GET'),
+    create: (data: CreateSkillRequest): Promise<Skill> =>
+      this.request('/skills', 'POST', data),
+    update: (id: string, data: UpdateSkillRequest): Promise<Skill> =>
+      this.request(`/skills/${id}`, 'PUT', data),
+    delete: (id: string): Promise<void> =>
+      this.request(`/skills/${id}`, 'DELETE'),
+    getBoundAgents: (id: string): Promise<SkillAgentsResponse> =>
+      this.request(`/skills/${id}/agents`, 'GET'),
   };
 }
 
