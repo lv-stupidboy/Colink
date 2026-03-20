@@ -166,7 +166,7 @@ const BaseAgentSettings: React.FC = () => {
     {
       title: '操作',
       key: 'actions',
-      width: 200,
+      width: 250,
       render: (_: unknown, record: BaseAgent) => (
         <Space size="small">
           <Button

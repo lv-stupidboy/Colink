@@ -122,6 +122,27 @@ func (h *AgentHandler) Delete(c *gin.Context) {
 		return
 	}
 
+	// 检查是否被工作流引用
+	templates, err := h.workflowRepo.FindByAgentID(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check references"})
+		return
+	}
+
+	if len(templates) > 0 {
+		// 提取模板名称
+		var names []string
+		for _, t := range templates {
+			names = append(names, t.Name)
+		}
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":          "agent is referenced by workflow templates",
+			"referenced":     true,
+			"referenceNames": names,
+		})
+		return
+	}
+
 	if err := h.configSvc.Delete(c.Request.Context(), id); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -339,10 +360,10 @@ func (h *AgentHandler) RegisterRoutes(r *gin.RouterGroup) {
 		agents.GET("/role/:role", h.GetByRole)
 		agents.POST("/debug/thread", h.CreateDebugThread) // 预创建调试Thread
 		agents.POST("/debug/:threadId/continue", h.ContinueDebug)
-		agents.GET("/:id/references", h.CheckReferences) // 检查引用
 		agents.GET("/:id", h.Get)
 		agents.PUT("/:id", h.Update)
 		agents.DELETE("/:id", h.Delete)
+		agents.POST("/:id/refs", h.CheckReferences)
 		agents.POST("/:id/copy", h.Copy)
 		agents.POST("/:id/debug", h.Debug)
 	}

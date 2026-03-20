@@ -431,11 +431,41 @@ func (a *ClaudeAdapter) GetAvailableModels(ctx context.Context) ([]string, error
 	return models, nil
 }
 
-// CheckHealth 检查CLI健康状态
+// CheckHealth 检查CLI健康状态，执行简单prompt验证API连接
 func (a *ClaudeAdapter) CheckHealth(ctx context.Context) error {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, a.cliPath, "--version")
-	return cmd.Run()
+	args := []string{
+		"--print",
+		"--dangerously-skip-permissions",
+	}
+
+	if a.baseAgent != nil && a.baseAgent.DefaultModel != "" {
+		args = append(args, "--model", a.baseAgent.DefaultModel)
+	}
+
+	cmd := exec.CommandContext(ctx, a.cliPath, args...)
+
+	// 设置环境变量，和正常执行流程一致
+	cmd.Env = a.buildEnv()
+
+	// 通过stdin传递prompt
+	cmd.Stdin = strings.NewReader("reply with ok only")
+
+	// 使用临时目录作为工作目录
+	cmd.Dir = os.TempDir()
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("claude CLI test failed: %w, output: %s", err, string(output))
+	}
+
+	// 检查输出是否包含有效响应
+	outputStr := strings.TrimSpace(string(output))
+	if outputStr == "" {
+		return fmt.Errorf("claude CLI returned empty response")
+	}
+
+	return nil
 }

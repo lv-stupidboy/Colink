@@ -136,19 +136,17 @@ func (s *BaseAgentService) Update(ctx context.Context, id uuid.UUID, req *model.
 	if req.Type != "" {
 		agent.Type = req.Type
 	}
-	if req.ApiURL != "" {
-		agent.ApiURL = req.ApiURL
-	}
-	if req.ApiToken != "" {
-		agent.ApiToken = req.ApiToken
-	}
+	// ApiURL 可以为空字符串（清除配置）
+	agent.ApiURL = req.ApiURL
+	// ApiToken 可以为空字符串（清除配置）
+	agent.ApiToken = req.ApiToken
 	if req.DefaultModel != "" {
 		agent.DefaultModel = req.DefaultModel
 	}
 	if req.CliPath != "" {
 		agent.CliPath = req.CliPath
 	}
-	// GitBashPath 可以为空字符串（清除配置），所以需要单独判断
+	// GitBashPath 可以为空字符串（清除配置）
 	agent.GitBashPath = req.GitBashPath
 	if req.MaxTokens != 0 {
 		agent.MaxTokens = req.MaxTokens

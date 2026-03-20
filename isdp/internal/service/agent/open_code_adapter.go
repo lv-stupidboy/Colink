@@ -377,13 +377,49 @@ func (a *OpenCodeAdapter) extractTextFromJSON(line string) string {
 	return ""
 }
 
-// CheckHealth 检查CLI健康状态
+// CheckHealth 检查CLI健康状态，执行简单prompt验证API连接
 func (a *OpenCodeAdapter) CheckHealth(ctx context.Context) error {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
+	// 首先检查 CLI 是否存在
 	cmd := exec.CommandContext(ctx, a.cliPath, "--version")
-	return cmd.Run()
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("opencode CLI not found: %w", err)
+	}
+
+	// 如果配置了模型，执行简单的测试 prompt
+	if a.baseAgent != nil && a.baseAgent.DefaultModel != "" {
+		args := []string{
+			"run",
+			"--model", a.baseAgent.DefaultModel,
+			"--format", "json",
+		}
+
+		cmd = exec.CommandContext(ctx, a.cliPath, args...)
+
+		// 设置环境变量，和正常执行流程一致
+		cmd.Env = a.buildEnv()
+
+		// 通过stdin传递prompt
+		cmd.Stdin = strings.NewReader("reply with ok only")
+
+		// 使用临时目录作为工作目录
+		cmd.Dir = os.TempDir()
+
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("opencode CLI test failed: %w, output: %s", err, string(output))
+		}
+
+		// 检查输出是否包含有效响应
+		outputStr := strings.TrimSpace(string(output))
+		if outputStr == "" {
+			return fmt.Errorf("opencode CLI returned empty response")
+		}
+	}
+
+	return nil
 }
 
 // GetAvailableModels 获取可用模型列表

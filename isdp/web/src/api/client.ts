@@ -76,7 +76,23 @@ class APIClient {
 
       // 转换 snake_case 为 camelCase
       if (result && typeof result === 'object') {
-        if (url.includes('/projects')) {
+        if (url.includes('/base-agents')) {
+          // 基础Agent - 使用通用转换
+          const snakeToCamel = (obj: any): any => {
+            if (obj === null || obj === undefined) return obj;
+            if (Array.isArray(obj)) return obj.map(snakeToCamel);
+            if (typeof obj !== 'object') return obj;
+            const res: any = {};
+            for (const key in obj) {
+              if (Object.prototype.hasOwnProperty.call(obj, key)) {
+                const camelKey = key.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+                res[camelKey] = snakeToCamel(obj[key]);
+              }
+            }
+            return res;
+          };
+          result = snakeToCamel(result);
+        } else if (url.includes('/projects')) {
           result = Array.isArray(result) ? transformProjects(result) : transformProject(result);
         } else if (url.includes('/threads')) {
           result = Array.isArray(result) ? transformThreads(result) : transformThread(result);
@@ -204,7 +220,7 @@ class APIClient {
     getByRole: (role: string): Promise<AgentConfig[]> => this.request(`/agents/role/${role}`, 'GET'),
     copy: (id: string): Promise<AgentConfig> => this.request(`/agents/${id}/copy`, 'POST'),
     checkReferences: (id: string): Promise<{ referenced: boolean; referenceCount: number; referenceNames: string[] }> =>
-      this.request(`/agents/${id}/references`, 'GET'),
+      this.request(`/agents/${id}/refs`, 'POST'),
     // 预创建调试Thread，前端先调用此方法获取threadId，建立WebSocket连接
     createDebugThread: (projectPath?: string): Promise<{ threadId: string }> =>
       this.request('/agents/debug/thread', 'POST', { projectPath }),

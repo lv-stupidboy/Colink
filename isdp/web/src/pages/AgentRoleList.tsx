@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Table, Button, Card, Modal, Form, Input, Select, message, Space, Tag, Typography, Tooltip } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, RobotOutlined, BugOutlined, CopyOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, RobotOutlined, BugOutlined, CopyOutlined, ExclamationCircleOutlined, EyeOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '@/api/client';
 import type { AgentConfig, BaseAgent } from '@/types';
@@ -62,56 +62,45 @@ const AgentRoleList: React.FC = () => {
     setModalVisible(true);
   };
 
-  const handleDelete = async (record: AgentConfig) => {
-    setDeleteLoading(record.id);
-    try {
-      // 先检查是否被引用
-      const refCheck = await api.agents.checkReferences(record.id);
-
-      if (refCheck.referenced) {
-        Modal.confirm({
-          title: '无法删除',
-          icon: <ExclamationCircleOutlined />,
-          content: (
-            <div>
-              <p>该Agent角色被以下工作流引用，无法删除：</p>
-              <ul style={{ marginTop: 8, paddingLeft: 20 }}>
-                {refCheck.referenceNames.map(name => (
-                  <li key={name}>{name}</li>
-                ))}
-              </ul>
-              <p style={{ marginTop: 8 }}>请先从工作流中移除该Agent，再进行删除。</p>
-            </div>
-          ),
-          okText: '知道了',
-          cancelButtonProps: { style: { display: 'none' } },
-        });
-        return;
-      }
-
-      // 二次确认
-      Modal.confirm({
-        title: '确认删除',
-        icon: <ExclamationCircleOutlined />,
-        content: `确定要删除Agent角色「${record.name}」吗？此操作不可恢复。`,
-        okText: '确认删除',
-        okType: 'danger',
-        cancelText: '取消',
-        onOk: async () => {
-          try {
-            await api.agents.delete(record.id);
-            message.success('删除成功');
-            loadConfigs();
-          } catch (error) {
+  const handleDelete = (record: AgentConfig) => {
+    Modal.confirm({
+      title: '确认删除',
+      icon: <ExclamationCircleOutlined />,
+      content: `确定要删除Agent角色「${record.name}」吗？此操作不可恢复。`,
+      okText: '确认删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        setDeleteLoading(record.id);
+        try {
+          await api.agents.delete(record.id);
+          message.success('删除成功');
+          loadConfigs();
+        } catch (error: any) {
+          const errorData = error.response?.data;
+          if (errorData?.referenced && errorData?.referenceNames) {
+            Modal.error({
+              title: '无法删除',
+              content: (
+                <div>
+                  <p>该Agent角色被以下工作流引用，无法删除：</p>
+                  <ul style={{ marginTop: 8, paddingLeft: 20 }}>
+                    {errorData.referenceNames.map((name: string) => (
+                      <li key={name}>{name}</li>
+                    ))}
+                  </ul>
+                  <p style={{ marginTop: 8 }}>请先从工作流中移除该Agent，再进行删除。</p>
+                </div>
+              ),
+            });
+          } else {
             message.error('删除失败');
           }
-        },
-      });
-    } catch (error) {
-      message.error('检查引用失败');
-    } finally {
-      setDeleteLoading(null);
-    }
+        } finally {
+          setDeleteLoading(null);
+        }
+      },
+    });
   };
 
   const handleSubmit = async (values: Partial<AgentConfig>) => {
@@ -141,6 +130,34 @@ const AgentRoleList: React.FC = () => {
       loadConfigs();
     } catch (error) {
       message.error('复制失败');
+    }
+  };
+
+  const handleViewRefs = async (record: AgentConfig) => {
+    try {
+      const result = await api.agents.checkReferences(record.id);
+      if (result.referenced) {
+        Modal.info({
+          title: '工作流引用',
+          content: (
+            <div>
+              <p>该Agent角色被以下 <strong>{result.referenceCount}</strong> 个工作流引用：</p>
+              <ul style={{ marginTop: 8, paddingLeft: 20 }}>
+                {result.referenceNames.map((name: string) => (
+                  <li key={name}>{name}</li>
+                ))}
+              </ul>
+            </div>
+          ),
+        });
+      } else {
+        Modal.info({
+          title: '工作流引用',
+          content: <p>该Agent角色暂未被任何工作流引用</p>,
+        });
+      }
+    } catch (error) {
+      message.error('查询引用失败');
     }
   };
 
@@ -187,14 +204,14 @@ const AgentRoleList: React.FC = () => {
       title: '系统提示词',
       dataIndex: 'systemPrompt',
       key: 'systemPrompt',
-      width: 250,
+      width: 350,
       render: (prompt?: string) => {
         if (!prompt) return '-';
-        const truncated = truncateText(prompt, 60);
-        if (truncated === prompt) return <Text style={{ maxWidth: 250 }}>{prompt}</Text>;
+        const truncated = truncateText(prompt, 80);
+        if (truncated === prompt) return <Text style={{ maxWidth: 350 }}>{prompt}</Text>;
         return (
           <Tooltip title={<div style={{ maxWidth: 400, whiteSpace: 'pre-wrap' }}>{prompt}</div>} placement="topLeft">
-            <Text style={{ maxWidth: 250, cursor: 'pointer' }}>{truncated}</Text>
+            <Text style={{ maxWidth: 350, cursor: 'pointer' }}>{truncated}</Text>
           </Tooltip>
         );
       },
@@ -202,12 +219,15 @@ const AgentRoleList: React.FC = () => {
     {
       title: '操作',
       key: 'actions',
-      width: 240,
+      width: 280,
       fixed: 'right' as const,
       render: (_: unknown, record: AgentConfig) => (
         <Space size="small">
           <Button type="link" size="small" icon={<BugOutlined />} onClick={() => handleDebug(record)}>
             调试
+          </Button>
+          <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => handleViewRefs(record)}>
+            引用
           </Button>
           <Button type="link" size="small" icon={<CopyOutlined />} onClick={() => handleCopy(record)}>
             复制
