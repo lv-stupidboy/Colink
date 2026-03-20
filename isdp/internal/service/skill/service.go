@@ -3,6 +3,8 @@ package skill
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/anthropic/isdp/internal/model"
@@ -30,8 +32,14 @@ func NewService(skillRepo *repo.SkillRepository, bindingRepo *repo.AgentSkillBin
 func (s *Service) Create(ctx context.Context, req *model.CreateSkillRequest) (*model.Skill, error) {
 	// 检查名称是否重复
 	existing, err := s.skillRepo.FindByName(ctx, req.Name)
-	if err == nil && existing != nil {
-		return nil, errors.New("skill name already exists")
+	if err != nil {
+		// 如果不是"未找到"错误，返回实际错误
+		if !strings.Contains(err.Error(), "not found") {
+			return nil, fmt.Errorf("检查技能名称失败: %w", err)
+		}
+		// 名称不存在，可以创建
+	} else if existing != nil {
+		return nil, errors.New("技能名称已存在")
 	}
 
 	skill := &model.Skill{
@@ -55,7 +63,7 @@ func (s *Service) Create(ctx context.Context, req *model.CreateSkillRequest) (*m
 	}
 
 	if err := s.skillRepo.Create(ctx, skill); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("创建技能失败: %w", err)
 	}
 
 	return skill, nil
@@ -80,7 +88,7 @@ func (s *Service) List(ctx context.Context, query *model.SkillListQuery) ([]*mod
 func (s *Service) Update(ctx context.Context, id uuid.UUID, req *model.UpdateSkillRequest) (*model.Skill, error) {
 	skill, err := s.skillRepo.FindByID(ctx, id)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("技能不存在: %w", err)
 	}
 
 	// 更新字段
@@ -112,7 +120,7 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, req *model.UpdateSki
 	skill.UpdatedAt = time.Now()
 
 	if err := s.skillRepo.Update(ctx, skill); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("更新技能失败: %w", err)
 	}
 
 	return skill, nil
@@ -123,28 +131,36 @@ func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
 	// 检查是否有Agent绑定
 	agentRoleIDs, err := s.bindingRepo.FindBySkillID(ctx, id)
 	if err != nil {
-		return err
+		return fmt.Errorf("检查绑定关系失败: %w", err)
 	}
 	if len(agentRoleIDs) > 0 {
-		return errors.New("cannot delete skill: skill is bound to agents")
+		return fmt.Errorf("无法删除技能：该技能已被 %d 个Agent绑定", len(agentRoleIDs))
 	}
 
-	return s.skillRepo.Delete(ctx, id)
+	if err := s.skillRepo.Delete(ctx, id); err != nil {
+		return fmt.Errorf("删除技能失败: %w", err)
+	}
+	return nil
 }
 
 // BindSkills 绑定Skills到Agent
 func (s *Service) BindSkills(ctx context.Context, agentRoleID uuid.UUID, skillIDs []uuid.UUID) error {
+	// 空切片检查
+	if len(skillIDs) == 0 {
+		return errors.New("技能ID列表不能为空")
+	}
+
 	// 验证Agent是否存在
 	_, err := s.agentRepo.FindByID(ctx, agentRoleID)
 	if err != nil {
-		return errors.New("agent not found")
+		return fmt.Errorf("Agent角色不存在: %w", err)
 	}
 
 	// 验证所有Skill存在
 	for _, skillID := range skillIDs {
 		_, err := s.skillRepo.FindByID(ctx, skillID)
 		if err != nil {
-			return errors.New("skill not found: " + skillID.String())
+			return fmt.Errorf("技能 %s 不存在: %w", skillID.String(), err)
 		}
 	}
 
