@@ -66,8 +66,8 @@ type Skill struct {
 	FavoriteCount int `json:"favorite_count"`
 
 	// 状态
-	Status   string `json:"status"`
-	IsPublic bool   `json:"is_public"`
+	Status   SkillStatus `json:"status"`
+	IsPublic bool        `json:"is_public"`
 
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
