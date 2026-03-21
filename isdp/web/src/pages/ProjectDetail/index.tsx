@@ -28,6 +28,7 @@ import {
   EditOutlined,
   DeleteOutlined,
   PlayCircleOutlined,
+  SyncOutlined,
 } from '@ant-design/icons';
 import api from '@/api/client';
 import type { Project, Thread, WorkflowTemplate } from '@/types';
@@ -61,6 +62,7 @@ const ProjectDetail: React.FC = () => {
   const [threadForm] = Form.useForm();
   const [workflowTemplates, setWorkflowTemplates] = useState<WorkflowTemplate[]>([]);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const [syncLoading, setSyncLoading] = useState(false);
 
   useEffect(() => {
     if (projectId) {
@@ -141,6 +143,41 @@ const ProjectDetail: React.FC = () => {
           navigate('/projects');
         } catch (error) {
           message.error('删除失败');
+        }
+      },
+    });
+  };
+
+  // 同步配置到项目
+  const handleSyncConfig = () => {
+    Modal.confirm({
+      title: '同步 Skill 配置',
+      content: (
+        <div>
+          <p>将 AgentRole 绑定的 Skill 同步到项目配置目录：</p>
+          <p><code>.claude/skills/</code> 或 <code>.opencode/tool/</code></p>
+        </div>
+      ),
+      okText: '同步',
+      cancelText: '取消',
+      onOk: async () => {
+        setSyncLoading(true);
+        try {
+          const response = await fetch(`/api/v1/projects/${projectId}/config/sync`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ baseAgentType: 'claude_code' }),
+          });
+          const result = await response.json();
+          if (result.error) {
+            message.error(result.error);
+          } else {
+            message.success(`配置同步成功：${result.skillsCount} 个技能，${result.rulesCount} 个规则`);
+          }
+        } catch (error) {
+          message.error('同步失败');
+        } finally {
+          setSyncLoading(false);
         }
       },
     });
@@ -466,12 +503,17 @@ const ProjectDetail: React.FC = () => {
               <Divider />
 
               <div style={{ marginTop: 16 }}>
-                <Button type="primary" icon={<EditOutlined />} onClick={() => {
-                  form.setFieldsValue(project);
-                  setEditModalVisible(true);
-                }}>
-                  编辑项目信息
-                </Button>
+                <Space>
+                  <Button type="primary" icon={<EditOutlined />} onClick={() => {
+                    form.setFieldsValue(project);
+                    setEditModalVisible(true);
+                  }}>
+                    编辑项目信息
+                  </Button>
+                  <Button icon={<SyncOutlined spin={syncLoading} />} onClick={handleSyncConfig} loading={syncLoading}>
+                    同步配置
+                  </Button>
+                </Space>
               </div>
             </Card>
           </TabPane>
