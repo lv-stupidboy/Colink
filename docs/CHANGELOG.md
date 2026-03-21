@@ -4,6 +4,186 @@
 
 ---
 
+## 2026-03-21 技能库完整功能实现
+
+### 背景
+
+项目需要实现完整的技能库管理功能，包括技能的CRUD、与Agent的绑定关系、技能包上传与管理、联邦技能源同步等核心能力。
+
+### 目标
+
+1. 实现技能数据的完整CRUD功能
+2. 实现Agent与Skill的多对多绑定关系
+3. 支持技能包的上传、仓库导入、联邦同步三种来源
+4. 实现配置生成服务，支持技能安装到项目
+5. 实现联邦技能源管理和知识库管理功能
+
+### 核心变更
+
+#### 后端改动
+
+##### 数据库迁移
+- 新增 `sql-change/migrations/202603210001_add_skill_tables.sql`
+  - `skills` 表：技能基础信息、来源类型、支持的Agent、使用次数等
+  - `agent_skill_bindings` 表：Agent与Skill的多对多绑定关系
+- 新增 `sql-change/migrations/202603210002_add_skill_registries.sql`
+  - `skill_registries` 表：联邦技能源配置
+- 新增 `sql-change/migrations/202603210003_add_knowledge_bases.sql`
+  - `knowledge_bases` 表：知识库配置
+
+##### Skill 核心功能
+- 新增 `internal/model/skill.go` - Skill、AgentSkillBinding、SkillRegistry、KnowledgeBase 模型
+- 新增 `internal/repo/skill.go` - SkillRepository 数据访问层
+- 新增 `internal/repo/agent_skill_binding.go` - AgentSkillBindingRepository
+- 新增 `internal/service/skill/service.go` - Skill 业务逻辑层
+- 新增 `internal/service/skill/usecount_updater.go` - 技能使用次数定时更新器
+- 新增 `internal/api/skill_handler.go` - Skill API 处理器
+  - 支持上传技能包（zip格式，解析skill.md）
+  - 支持从Git仓库导入（GitHub/Gitee）
+  - 支持从联邦源导入
+
+##### 配置生成服务
+- 新增 `internal/service/configgen/downloader.go` - 技能包下载器
+- 新增 `internal/service/configgen/service.go` - 配置生成服务
+- 新增 `internal/api/configgen_handler.go` - 配置生成API
+- 支持将技能安装到项目的 `.claude/` 目录
+
+##### 联邦技能源管理
+- 新增 `internal/service/skill/registry_service.go` - Registry 业务逻辑
+- 新增 `internal/api/registry_handler.go` - Registry API
+
+##### 知识库管理
+- 新增 `internal/repo/knowledge.go` - KnowledgeBase 数据访问层
+- 新增 `internal/service/knowledge/service.go` - Knowledge 业务逻辑
+- 新增 `internal/api/knowledge_handler.go` - Knowledge API
+
+##### 配置扩展
+- `pkg/config/config.go` 新增 SkillConfig 结构体
+  - `use_count_update_interval` - 使用次数更新间隔
+  - `upload_max_size` - 上传文件大小限制
+  - `storage_path` - 技能包存储路径
+
+#### 前端改动
+
+##### 技能库页面 (`SkillLibrary/index.tsx`)
+- 技能卡片列表展示，支持分页
+- 新增/编辑技能弹窗，集成技能包上传
+- 支持按标签、来源类型、Agent类型过滤
+- 技能卡片显示：名称、描述、标签、支持的Agent、来源、使用次数
+- 删除技能功能
+
+##### 联邦技能源页面 (`RegistryManagement/index.tsx`)
+- 注册表列表管理
+- 新增/编辑/删除注册表
+- 同步功能（单个/全部）
+
+##### 知识库页面 (`KnowledgeManagement/index.tsx`)
+- 知识库列表管理
+- 新增/编辑/删除知识库
+
+##### 布局调整
+- `MainLayout.tsx` - 沙箱环境菜单移至设置子菜单
+- `AgentConfig.tsx` - Agent编辑页面集成技能绑定
+- 各页面间距优化
+
+##### API 客户端
+- `api/client.ts` 新增 skills、registries、knowledge API方法
+
+##### 类型定义
+- `types/index.ts` 新增 Skill、SkillRegistry、KnowledgeBase 类型
+
+### 数据库表结构
+
+#### skills 表
+```sql
+CREATE TABLE skills (
+    id VARCHAR(64) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL UNIQUE,
+    description TEXT,
+    tags JSON,
+    source_type VARCHAR(50) NOT NULL,      -- platform/personal/federated
+    source_registry_id VARCHAR(64),
+    supported_agents JSON,
+    version VARCHAR(50) DEFAULT '1.0.0',
+    use_count INT DEFAULT 0,
+    status VARCHAR(50) DEFAULT 'active',
+    is_public TINYINT DEFAULT 0,
+    created_at TIMESTAMP,
+    updated_at TIMESTAMP
+);
+```
+
+#### agent_skill_bindings 表
+```sql
+CREATE TABLE agent_skill_bindings (
+    id VARCHAR(64) PRIMARY KEY,
+    agent_role_id VARCHAR(64) NOT NULL,
+    skill_id VARCHAR(64) NOT NULL,
+    created_at TIMESTAMP,
+    UNIQUE KEY (agent_role_id, skill_id),
+    FOREIGN KEY (agent_role_id) REFERENCES agent_configs(id) ON DELETE CASCADE,
+    FOREIGN KEY (skill_id) REFERENCES skills(id) ON DELETE CASCADE
+);
+```
+
+### API 端点
+
+| 模块 | 方法 | 路径 | 说明 |
+|------|------|------|------|
+| Skills | GET | `/api/v1/skills` | 列出技能（支持分页、过滤） |
+| Skills | POST | `/api/v1/skills` | 创建技能 |
+| Skills | POST | `/api/v1/skills/upload` | 上传技能包 |
+| Skills | POST | `/api/v1/skills/import/repo` | 从仓库导入 |
+| Skills | POST | `/api/v1/skills/import/federated` | 从联邦源导入 |
+| Skills | PUT | `/api/v1/skills/:id` | 更新技能 |
+| Skills | DELETE | `/api/v1/skills/:id` | 删除技能（同时删除文件） |
+| Agent-Skills | GET | `/api/v1/agent-skills/:agentId` | 获取Agent绑定的技能 |
+| Agent-Skills | POST | `/api/v1/agent-skills/:agentId` | 绑定技能到Agent |
+| Registries | GET/POST/PUT/DELETE | `/api/v1/registries` | 联邦技能源CRUD |
+| Knowledge | GET/POST/PUT/DELETE | `/api/v1/knowledge` | 知识库CRUD |
+| Config | POST | `/api/v1/projects/:id/config/sync` | 同步技能配置到项目 |
+
+### 技能文件存储
+
+- 存储路径：`{storage_path}/{skill_name}.zip`
+- 删除技能时同步删除对应文件
+- 支持平台、个人、联邦三种来源类型
+
+### 修改文件统计
+
+| 类型 | 数量 | 说明 |
+|------|------|------|
+| 新增文件 | 15 | 模型、Repository、Service、Handler |
+| 修改文件 | 15 | 配置、前端页面、类型定义 |
+
+### 提交记录
+
+```
+c3c4884 chore: 移除暂时不需要的 skill_favorites 表
+5faddd1 chore: 更新项目配置文件
+9955a61 feat: 技能库功能增强和UI优化
+900afdc chore: 固定前后端端口并更新规范
+5d4f7a1 feat: 添加联邦技能源和知识库功能
+... (共27个提交)
+```
+
+### 验证方法
+
+1. 启动后端服务：`cd isdp && go run ./cmd/server`
+2. 启动前端服务：`cd web && npm run dev`
+3. 访问技能库页面：http://localhost:3000/skills
+4. 测试技能上传、编辑、删除功能
+5. 测试Agent绑定技能功能
+6. 测试联邦技能源管理功能
+
+### 影响范围
+
+- 后端：新增技能库、联邦源、知识库完整功能
+- 前端：新增三个管理页面，Agent编辑页集成技能绑定
+- 数据库：新增三张表
+
+---
+
 ## 2026-03-20 邀请码认证系统与沙箱代理功能
 
 ### 背景
