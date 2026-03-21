@@ -7,6 +7,7 @@ server
 main
 isdp-server
 build/
+deploy/
 
 # Database files
 *.db

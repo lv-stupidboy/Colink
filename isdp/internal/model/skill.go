@@ -149,3 +149,81 @@ type SkillWithBindings struct {
 	*Skill
 	BoundAgents []*AgentRoleConfig `json:"bound_agents,omitempty"`
 }
+
+// ========== Skill Registry Models ==========
+
+// RegistryType 注册表类型
+type RegistryType string
+
+const (
+	RegistryTypeGitHub RegistryType = "github"
+	RegistryTypeGitLab RegistryType = "gitlab"
+	RegistryTypeAPI    RegistryType = "api"
+	RegistryTypeCustom RegistryType = "custom"
+)
+
+// RegistrySyncStatus 同步状态
+type RegistrySyncStatus string
+
+const (
+	RegistrySyncPending RegistrySyncStatus = "pending"
+	RegistrySyncSuccess RegistrySyncStatus = "success"
+	RegistrySyncFailed  RegistrySyncStatus = "failed"
+)
+
+// RegistryStatus 注册表状态
+type RegistryStatus string
+
+const (
+	RegistryStatusActive   RegistryStatus = "active"
+	RegistryStatusInactive RegistryStatus = "inactive"
+)
+
+// SkillRegistry 联邦技能源配置
+type SkillRegistry struct {
+	ID           uuid.UUID          `json:"id"`
+	Name         string             `json:"name"`
+	DisplayName  string             `json:"display_name,omitempty"`
+	Type         RegistryType       `json:"type"`
+	URL          string             `json:"url"`
+	AuthConfig   map[string]string  `json:"auth_config,omitempty"` // 加密存储
+	SyncInterval int                `json:"sync_interval"`
+	LastSyncAt   *time.Time         `json:"last_sync_at,omitempty"`
+	SyncStatus   RegistrySyncStatus `json:"sync_status"`
+	SkillCount   int                `json:"skill_count"`
+	Status       RegistryStatus     `json:"status"`
+	CreatedAt    time.Time          `json:"created_at"`
+}
+
+func (r *SkillRegistry) TableName() string {
+	return "skill_registries"
+}
+
+// CreateRegistryRequest 创建注册表请求
+type CreateRegistryRequest struct {
+	Name         string            `json:"name" binding:"required"`
+	DisplayName  string            `json:"display_name"`
+	Type         RegistryType      `json:"type" binding:"required"`
+	URL          string            `json:"url" binding:"required"`
+	AuthConfig   map[string]string `json:"auth_config"`
+	SyncInterval int               `json:"sync_interval"`
+}
+
+// UpdateRegistryRequest 更新注册表请求
+type UpdateRegistryRequest struct {
+	DisplayName  string            `json:"display_name"`
+	URL          string            `json:"url"`
+	AuthConfig   map[string]string `json:"auth_config"`
+	SyncInterval int               `json:"sync_interval"`
+	Status       RegistryStatus    `json:"status"`
+}
+
+// SyncResult 同步结果
+type SyncResult struct {
+	RegistryID   uuid.UUID `json:"registry_id"`
+	RegistryName string    `json:"registry_name"`
+	SkillsAdded  int       `json:"skills_added"`
+	SkillsUpdated int      `json:"skills_updated"`
+	SkillsRemoved int      `json:"skills_removed"`
+	Error        string    `json:"error,omitempty"`
+}

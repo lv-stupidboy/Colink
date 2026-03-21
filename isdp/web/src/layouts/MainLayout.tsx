@@ -11,6 +11,8 @@ import {
   ExperimentOutlined,
   RobotOutlined,
   BookOutlined,
+  CloudServerOutlined,
+  DatabaseOutlined,
 } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import ThemeSwitcher from '@/components/ThemeSwitcher';
@@ -66,6 +68,16 @@ const MainLayout: React.FC = () => {
       label: '技能库',
     },
     {
+      key: '/registries',
+      icon: <CloudServerOutlined />,
+      label: '联邦技能源',
+    },
+    {
+      key: '/knowledge',
+      icon: <DatabaseOutlined />,
+      label: '知识库',
+    },
+    {
       key: '/sandbox',
       icon: <InboxOutlined />,
       label: '沙箱环境',
@@ -94,6 +106,8 @@ const MainLayout: React.FC = () => {
     const path = location.pathname;
     if (path.startsWith('/projects')) return '/projects';
     if (path.startsWith('/threads')) return '/projects';
+    if (path.startsWith('/registries')) return '/registries';
+    if (path.startsWith('/knowledge')) return '/knowledge';
     if (path.startsWith('/settings')) return location.pathname;
     return path;
   };

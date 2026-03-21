@@ -14,6 +14,8 @@ import GeneralSettings from '@/pages/Settings/GeneralSettings';
 import BaseAgentSettings from '@/pages/Settings/BaseAgentSettings';
 import WorkflowPage from '@/pages/Workflow';
 import SkillLibrary from '@/pages/SkillLibrary';
+import RegistryManagement from '@/pages/RegistryManagement';
+import KnowledgeManagement from '@/pages/KnowledgeManagement';
 import { useThemeStore } from '@/store/themeStore';
 import '@/themes/themeVariables.css';
 
@@ -132,6 +134,8 @@ const App: React.FC = () => {
               <Route path="workflow" element={<WorkflowPage />} />
               <Route path="sandbox" element={<SandboxPage />} />
               <Route path="skills" element={<SkillLibrary />} />
+              <Route path="registries" element={<RegistryManagement />} />
+              <Route path="knowledge" element={<KnowledgeManagement />} />
 
               {/* 设置页面 - 二级菜单 */}
               <Route path="settings" element={<SettingsLayout />}>

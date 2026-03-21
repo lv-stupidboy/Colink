@@ -18,6 +18,19 @@ import type {
   SkillListResponse,
   AgentSkillsResponse,
   SkillAgentsResponse,
+  SkillRegistry,
+  CreateRegistryRequest,
+  UpdateRegistryRequest,
+  RegistryListQuery,
+  RegistryListResponse,
+  SyncResult,
+  KnowledgeBase,
+  CreateKnowledgeBaseRequest,
+  UpdateKnowledgeBaseRequest,
+  KnowledgeBaseListQuery,
+  KnowledgeBaseListResponse,
+  KnowledgeQueryRequest,
+  KnowledgeQueryResult,
 } from '@/types';
 import {
   transformProjects,
@@ -347,6 +360,60 @@ class APIClient {
       this.request(`/skills/${id}`, 'DELETE'),
     getBoundAgents: (id: string): Promise<SkillAgentsResponse> =>
       this.request(`/skills/${id}/agents`, 'GET'),
+  };
+
+  // Registry API
+  registries = {
+    list: (query?: RegistryListQuery): Promise<RegistryListResponse> => {
+      const params = new URLSearchParams();
+      if (query?.type) params.append('type', query.type);
+      if (query?.status) params.append('status', query.status);
+      if (query?.search) params.append('search', query.search);
+      if (query?.page) params.append('page', query.page.toString());
+      if (query?.size) params.append('size', query.size.toString());
+
+      const url = params.toString() ? `/registries?${params.toString()}` : '/registries';
+      return this.request(url, 'GET');
+    },
+    get: (id: string): Promise<SkillRegistry> =>
+      this.request(`/registries/${id}`, 'GET'),
+    create: (data: CreateRegistryRequest): Promise<SkillRegistry> =>
+      this.request('/registries', 'POST', data),
+    update: (id: string, data: UpdateRegistryRequest): Promise<SkillRegistry> =>
+      this.request(`/registries/${id}`, 'PUT', data),
+    delete: (id: string): Promise<void> =>
+      this.request(`/registries/${id}`, 'DELETE'),
+    sync: (id: string): Promise<SyncResult> =>
+      this.request(`/registries/${id}/sync`, 'POST'),
+    syncAll: (): Promise<{ message: string; results: SyncResult[] }> =>
+      this.request('/registries/sync', 'POST'),
+  };
+
+  // Knowledge API
+  knowledge = {
+    list: (query?: KnowledgeBaseListQuery): Promise<KnowledgeBaseListResponse> => {
+      const params = new URLSearchParams();
+      if (query?.type) params.append('type', query.type);
+      if (query?.status) params.append('status', query.status);
+      if (query?.search) params.append('search', query.search);
+      if (query?.page) params.append('page', query.page.toString());
+      if (query?.size) params.append('size', query.size.toString());
+
+      const url = params.toString() ? `/knowledge?${params.toString()}` : '/knowledge';
+      return this.request(url, 'GET');
+    },
+    get: (id: string): Promise<KnowledgeBase> =>
+      this.request(`/knowledge/${id}`, 'GET'),
+    create: (data: CreateKnowledgeBaseRequest): Promise<KnowledgeBase> =>
+      this.request('/knowledge', 'POST', data),
+    update: (id: string, data: UpdateKnowledgeBaseRequest): Promise<KnowledgeBase> =>
+      this.request(`/knowledge/${id}`, 'PUT', data),
+    delete: (id: string): Promise<void> =>
+      this.request(`/knowledge/${id}`, 'DELETE'),
+    query: (id: string, request: KnowledgeQueryRequest): Promise<KnowledgeQueryResult> =>
+      this.request(`/knowledge/${id}/query`, 'POST', request),
+    queryAll: (request: KnowledgeQueryRequest): Promise<{ query: string; results: KnowledgeQueryResult[] }> =>
+      this.request('/knowledge/query', 'POST', request),
   };
 }
 

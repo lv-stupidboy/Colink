@@ -63,6 +63,54 @@ cd web && npm run test:e2e  # Playwright E2E 测试
 
 ## 数据库变更
 
-- 增量脚本: `sql-change/migrations/`
-- 命名格式: `YYYYMMDD_description.sql`
-- 完整初始化: `sql-change/init_db_mysql.sql`
+### 目录结构
+```
+sql-change/
+├── init_db_mysql.sql      # 初始数据库快照（新建环境时执行一次，后续不再修改）
+└── migrations/            # 增量变更脚本（所有变更都必须创建迁移文件）
+    ├── 202603200001_add_thread_name.sql
+    ├── 202603200002_add_workflow_transitions.sql
+    └── ...
+```
+
+### 归档规则
+
+1. **任何数据库结构变更必须创建迁移文件**
+   - 新建表
+   - 添加/删除/修改字段
+   - 添加/删除索引
+   - 添加/删除外键约束
+
+2. **迁移文件命名规范**
+   - 格式: `YYYYMMDDNN_description.sql`
+   - YYYYMMDD: 日期（如 20260321）
+   - NN: 当日序号（01, 02, 03...）
+   - description: 简短描述（小写下划线分隔）
+   - 示例: `202603210001_add_skill_tables.sql`
+
+3. **迁移文件内容规范**
+   ```sql
+   -- 文件路径（注释说明）
+   -- 变更说明：简要描述本次变更内容
+   -- 作者：XXX
+   -- 日期：YYYY-MM-DD
+
+   SET NAMES utf8mb4;
+
+   -- DDL 语句...
+
+   -- 回滚语句（如需回滚执行以下语句）
+   -- DROP TABLE IF EXISTS xxx;
+   ```
+
+4. **执行流程**
+   - 新环境初始化: 先执行 `init_db_mysql.sql`，再按顺序执行所有 migrations
+   - 已有环境更新: 按顺序执行新的 migrations 脚本
+   - 执行命令:
+     ```bash
+     mysqlsh --sql -h <host> -P 3306 -u <user> -p<password> -D <database> -f sql-change/migrations/xxx.sql
+     ```
+
+5. **init_db_mysql.sql 不再修改**
+   - 该文件是初始版本快照，代表项目某个历史节点的完整状态
+   - 所有后续变更都通过 migrations 增量实现

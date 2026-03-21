@@ -432,3 +432,161 @@ export interface SkillAgentsResponse {
   agents: AgentConfig[];
   count: number;
 }
+
+// ========== Registry 相关类型 ==========
+
+// 注册表类型
+export type RegistryType = 'github' | 'gitlab' | 'api' | 'custom';
+
+// 同步状态
+export type RegistrySyncStatus = 'pending' | 'success' | 'failed';
+
+// 注册表状态
+export type RegistryStatus = 'active' | 'inactive';
+
+// 联邦技能源注册表
+export interface SkillRegistry {
+  id: string;
+  name: string;
+  displayName?: string;
+  type: RegistryType;
+  url: string;
+  authConfig?: Record<string, string>;
+  syncInterval: number;
+  lastSyncAt?: string;
+  syncStatus: RegistrySyncStatus;
+  skillCount: number;
+  status: RegistryStatus;
+  createdAt: string;
+}
+
+// 创建注册表请求
+export interface CreateRegistryRequest {
+  name: string;
+  displayName?: string;
+  type: RegistryType;
+  url: string;
+  authConfig?: Record<string, string>;
+  syncInterval?: number;
+}
+
+// 更新注册表请求
+export interface UpdateRegistryRequest {
+  displayName?: string;
+  url?: string;
+  authConfig?: Record<string, string>;
+  syncInterval?: number;
+  status?: RegistryStatus;
+}
+
+// 注册表列表查询参数
+export interface RegistryListQuery {
+  type?: string;
+  status?: string;
+  search?: string;
+  page?: number;
+  size?: number;
+}
+
+// 注册表列表响应
+export interface RegistryListResponse {
+  data: SkillRegistry[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+// 同步结果
+export interface SyncResult {
+  registryId: string;
+  registryName: string;
+  skillsAdded: number;
+  skillsUpdated: number;
+  skillsRemoved: number;
+  error?: string;
+}
+
+// ========== Knowledge Base 相关类型 ==========
+
+// 知识库类型
+export type KnowledgeBaseType = 'git' | 'mcp' | 'api';
+
+// 知识库状态
+export type KnowledgeBaseStatus = 'active' | 'inactive';
+
+// 知识库
+export interface KnowledgeBase {
+  id: string;
+  name: string;
+  displayName?: string;
+  description?: string;
+  type: KnowledgeBaseType;
+  config?: Record<string, string>;
+  queryEndpoint?: string;
+  status: KnowledgeBaseStatus;
+  lastQueryAt?: string;
+  queryCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// 创建知识库请求
+export interface CreateKnowledgeBaseRequest {
+  name: string;
+  displayName?: string;
+  description?: string;
+  type: KnowledgeBaseType;
+  config?: Record<string, string>;
+  queryEndpoint?: string;
+}
+
+// 更新知识库请求
+export interface UpdateKnowledgeBaseRequest {
+  displayName?: string;
+  description?: string;
+  config?: Record<string, string>;
+  queryEndpoint?: string;
+  status?: KnowledgeBaseStatus;
+}
+
+// 知识库列表查询参数
+export interface KnowledgeBaseListQuery {
+  type?: string;
+  status?: string;
+  search?: string;
+  page?: number;
+  size?: number;
+}
+
+// 知识库列表响应
+export interface KnowledgeBaseListResponse {
+  data: KnowledgeBase[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+// 知识查询请求
+export interface KnowledgeQueryRequest {
+  query: string;
+  limit?: number;
+}
+
+// 知识片段
+export interface KnowledgeSnippet {
+  title?: string;
+  content: string;
+  source: string;
+  url?: string;
+  relevance?: number;
+  tags?: string[];
+}
+
+// 知识查询结果
+export interface KnowledgeQueryResult {
+  query: string;
+  results: KnowledgeSnippet[];
+  total: number;
+  source: string;
+  error?: string;
+}

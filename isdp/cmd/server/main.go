@@ -17,6 +17,7 @@ import (
 	"github.com/anthropic/isdp/internal/service/agent"
 	"github.com/anthropic/isdp/internal/service/a2a"
 	"github.com/anthropic/isdp/internal/service/configgen"
+	"github.com/anthropic/isdp/internal/service/knowledge"
 	"github.com/anthropic/isdp/internal/service/merge"
 	"github.com/anthropic/isdp/internal/service/message"
 	"github.com/anthropic/isdp/internal/service/project"
@@ -103,6 +104,8 @@ func main() {
 	workflowRepo := repo.NewWorkflowTemplateRepository(db)
 	skillRepo := repo.NewSkillRepository(db)
 	agentSkillBindingRepo := repo.NewAgentSkillBindingRepository(db)
+	registryRepo := repo.NewSkillRegistryRepository(db)
+	knowledgeRepo := repo.NewKnowledgeBaseRepository(db)
 
 	// 初始化Services
 	projectService := project.NewService(projectRepo, workflowRepo)
@@ -114,6 +117,8 @@ func main() {
 	workflowService := workflow.NewService(workflowRepo)
 	mcpAuthService := a2a.NewMCPAuthService(cfg.MCP.TokenTTL)
 	skillService := skill.NewService(skillRepo, agentSkillBindingRepo, agentConfigRepo)
+	registryService := skill.NewRegistryService(registryRepo, skillRepo)
+	knowledgeService := knowledge.NewService(knowledgeRepo)
 	configGenService := configgen.NewService(projectRepo, agentConfigRepo, skillRepo, agentSkillBindingRepo, logger)
 
 	// 初始化默认基础Agent
@@ -227,6 +232,14 @@ func main() {
 	// Skill Handler
 	skillHandler := api.NewSkillHandler(skillService)
 	skillHandler.RegisterRoutes(v1)
+
+	// Registry Handler
+	registryHandler := api.NewRegistryHandler(registryService)
+	registryHandler.RegisterRoutes(v1)
+
+	// Knowledge Handler
+	knowledgeHandler := api.NewKnowledgeHandler(knowledgeService)
+	knowledgeHandler.RegisterRoutes(v1)
 
 	// ConfigGen Handler
 	configGenHandler := api.NewConfigGenHandler(configGenService)
