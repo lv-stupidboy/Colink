@@ -16,6 +16,7 @@ import (
 	"github.com/anthropic/isdp/internal/repo"
 	"github.com/anthropic/isdp/internal/service/agent"
 	"github.com/anthropic/isdp/internal/service/a2a"
+	"github.com/anthropic/isdp/internal/service/configgen"
 	"github.com/anthropic/isdp/internal/service/merge"
 	"github.com/anthropic/isdp/internal/service/message"
 	"github.com/anthropic/isdp/internal/service/project"
@@ -113,6 +114,7 @@ func main() {
 	workflowService := workflow.NewService(workflowRepo)
 	mcpAuthService := a2a.NewMCPAuthService(cfg.MCP.TokenTTL)
 	skillService := skill.NewService(skillRepo, agentSkillBindingRepo, agentConfigRepo)
+	configGenService := configgen.NewService(projectRepo, agentConfigRepo, skillRepo, agentSkillBindingRepo, logger)
 
 	// 初始化默认基础Agent
 	if err := baseAgentService.InitDefaultAgents(context.Background()); err != nil {
@@ -225,6 +227,10 @@ func main() {
 	// Skill Handler
 	skillHandler := api.NewSkillHandler(skillService)
 	skillHandler.RegisterRoutes(v1)
+
+	// ConfigGen Handler
+	configGenHandler := api.NewConfigGenHandler(configGenService)
+	configGenHandler.RegisterRoutes(v1)
 
 	// WebSocket
 	wsHandler := ws.NewHandler(wsHub)
