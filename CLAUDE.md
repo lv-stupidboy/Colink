@@ -57,9 +57,47 @@ cd web && npm run test:e2e  # Playwright E2E 测试
 
 ## 配置
 
-- 配置模板: `configs/config.yaml.example`
-- 复制为 `configs/config.yaml` 后修改
-- 敏感信息（数据库密码）不提交，使用占位符
+### 配置文件管理
+
+项目采用**配置模板 + 本地配置**的协作方式：
+
+| 文件 | 用途 | Git 管理 |
+|------|------|----------|
+| `configs/config.yaml.example` | 配置模板，记录所有可用配置项和默认值 | ✅ 提交到仓库 |
+| `configs/config.yaml` | 本地真实配置，包含敏感信息 | ❌ 不提交（已在 .gitignore） |
+
+### 新增配置项流程
+
+1. **更新配置模板** `config.yaml.example`
+   - 添加新配置项及注释说明
+   - 使用占位符代替敏感信息（如 `<密码>`）
+
+2. **更新本地配置** `config.yaml`
+   - 同步添加新配置项
+   - 填入真实值
+
+3. **更新配置结构体** `pkg/config/config.go`
+   - 在 `Config` 结构体中添加对应字段
+   - 添加默认值（`setDefaults` 函数）
+
+### 示例：添加技能配置
+
+```yaml
+# config.yaml.example（模板）
+skill:
+  # 技能使用次数统计更新间隔，默认 1h
+  use_count_update_interval: "1h"
+
+# config.yaml（本地真实配置）
+skill:
+  use_count_update_interval: "1h"
+```
+
+### 重要规则
+
+- **敏感信息绝不提交**：数据库密码、API密钥等
+- **模板与本地同步**：新增配置项时，两个文件都要更新
+- **默认值在代码中设置**：确保未配置时有合理默认值
 
 ## 服务端口
 
@@ -83,8 +121,11 @@ cd web && npm run dev               # 前端
 ## 数据库变更
 
 ### 目录结构
+
+数据库变更脚本位于 `isdp/sql-change/` 目录：
+
 ```
-sql-change/
+isdp/sql-change/
 ├── init_db_mysql.sql      # 初始数据库快照（新建环境时执行一次，后续不再修改）
 └── migrations/            # 增量变更脚本（所有变更都必须创建迁移文件）
     ├── 202603200001_add_thread_name.sql
@@ -125,7 +166,7 @@ sql-change/
 4. **执行流程**
    - 新环境初始化: 先执行 `init_db_mysql.sql`，再按顺序执行所有 migrations
    - 已有环境更新: 按顺序执行新的 migrations 脚本
-   - 执行命令:
+   - 执行命令（在 isdp 目录下执行）:
      ```bash
      mysqlsh --sql -h <host> -P 3306 -u <user> -p<password> -D <database> -f sql-change/migrations/xxx.sql
      ```

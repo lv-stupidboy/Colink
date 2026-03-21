@@ -18,6 +18,9 @@ data/
 logs/
 tmp/
 
+# Skill packages (uploaded)
+skills/
+
 # Debug and temp files
 *debug*
 !web/src/store/debugThread.ts
