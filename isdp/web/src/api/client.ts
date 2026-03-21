@@ -251,11 +251,11 @@ class APIClient {
       this.request(`/agents/debug/${threadId}/continue`, 'POST', { message }),
     // Skill 相关
     getSkills: (agentId: string): Promise<AgentSkillsResponse> =>
-      this.request(`/agents/${agentId}/skills`, 'GET'),
+      this.request(`/agent-skills/${agentId}`, 'GET'),
     bindSkills: (agentId: string, skillIds: string[]): Promise<{ message: string }> =>
-      this.request(`/agents/${agentId}/skills`, 'POST', { skill_ids: skillIds }),
+      this.request(`/agent-skills/${agentId}`, 'POST', { skill_ids: skillIds }),
     unbindSkill: (agentId: string, skillId: string): Promise<{ message: string }> =>
-      this.request(`/agents/${agentId}/skills/${skillId}`, 'DELETE'),
+      this.request(`/agent-skills/${agentId}/${skillId}`, 'DELETE'),
   };
 
   // 基础Agent API

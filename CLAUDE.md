@@ -61,6 +61,25 @@ cd web && npm run test:e2e  # Playwright E2E 测试
 - 复制为 `configs/config.yaml` 后修改
 - 敏感信息（数据库密码）不提交，使用占位符
 
+## 服务端口
+
+- **后端**: 8080
+- **前端**: 3000
+
+遇到端口冲突时，先停掉占用端口的进程再启动：
+
+```bash
+# Windows 查看端口占用
+netstat -ano | findstr ":3000 :8080"
+
+# 停掉进程
+taskkill //F //PID <PID>
+
+# 然后启动服务
+cd isdp && go run ./cmd/server      # 后端
+cd web && npm run dev               # 前端
+```
+
 ## 数据库变更
 
 ### 目录结构

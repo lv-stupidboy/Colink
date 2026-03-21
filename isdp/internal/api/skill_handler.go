@@ -214,10 +214,11 @@ func (h *SkillHandler) RegisterRoutes(r *gin.RouterGroup) {
 		skills.GET("/:id/agents", h.GetBoundAgents)
 	}
 
-	agents := r.Group("/agents")
+	// Agent-Skill 绑定路由（使用独立路径避免与 /agents/:id 冲突）
+	agentSkills := r.Group("/agent-skills")
 	{
-		agents.GET("/:agentId/skills", h.GetAgentSkills)
-		agents.POST("/:agentId/skills", h.BindSkills)
-		agents.DELETE("/:agentId/skills/:skillId", h.UnbindSkill)
+		agentSkills.GET("/:agentId", h.GetAgentSkills)
+		agentSkills.POST("/:agentId", h.BindSkills)
+		agentSkills.DELETE("/:agentId/:skillId", h.UnbindSkill)
 	}
 }
