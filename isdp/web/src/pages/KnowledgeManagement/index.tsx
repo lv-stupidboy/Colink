@@ -22,7 +22,6 @@ import {
   PlusOutlined,
   EditOutlined,
   DeleteOutlined,
-  DatabaseOutlined,
   SearchOutlined,
   ClockCircleOutlined,
 } from '@ant-design/icons';
@@ -238,18 +237,18 @@ const KnowledgeManagement: React.FC = () => {
   ];
 
   return (
-    <div className="knowledge-management" style={{ padding: 24 }}>
-      <Card>
-        <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
-          <Title level={4} style={{ margin: 0 }}>
-            <DatabaseOutlined style={{ marginRight: 8 }} />
-            知识库管理
-          </Title>
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-            新建知识库
-          </Button>
+    <div className="knowledge-management" style={{ padding: 12 }}>
+      <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <Title level={2} style={{ margin: 0 }}>知识库管理</Title>
+          <Text type="secondary">管理知识库和知识片段，支持智能检索</Text>
         </div>
+        <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
+          新建知识库
+        </Button>
+      </div>
 
+      <Card>
         <Table
           dataSource={knowledgeBases}
           columns={columns}

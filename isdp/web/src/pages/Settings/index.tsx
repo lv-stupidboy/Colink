@@ -1,7 +1,6 @@
 import React from 'react';
 import { Card, Form, Input, Switch, Select, Typography, Space, Button, message } from 'antd';
 import {
-  SettingOutlined,
   ApiOutlined,
   BellOutlined,
   UserOutlined,
@@ -19,14 +18,9 @@ const SettingsPage: React.FC = () => {
   };
 
   return (
-    <div className="settings-page">
-      <div style={{ marginBottom: 24 }}>
-        <Title level={2}>
-          <Space>
-            <SettingOutlined />
-            系统设置
-          </Space>
-        </Title>
+    <div style={{ padding: 12 }}>
+      <div style={{ marginBottom: 12 }}>
+        <Title level={2} style={{ margin: 0 }}>系统设置</Title>
         <Text type="secondary">配置平台参数和个性化选项</Text>
       </div>
 

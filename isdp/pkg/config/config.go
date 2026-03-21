@@ -19,6 +19,7 @@ type Config struct {
 	Logging  LoggingConfig  `mapstructure:"logging"`
 	MCP      MCPConfig      `mapstructure:"mcp"`
 	Auth     AuthConfig     `mapstructure:"auth"`
+	Skill    SkillConfig    `mapstructure:"skill"`
 }
 
 // ServerConfig 服务器配置
@@ -134,6 +135,47 @@ type AuthConfig struct {
 	InviteCode string `mapstructure:"invite_code"` // 访问邀请码，为空则不启用验证
 }
 
+// SkillConfig 技能配置
+type SkillConfig struct {
+	// UseCountUpdateInterval 技能使用次数更新间隔，默认 1 小时
+	// 格式示例: "1h", "30m", "2h30m"
+	UseCountUpdateInterval string `mapstructure:"use_count_update_interval"`
+
+	// UploadMaxSize 技能包上传最大大小，单位 MB，默认 5
+	UploadMaxSize int `mapstructure:"upload_max_size"`
+
+	// StoragePath 技能包存储路径，默认 ./skills
+	StoragePath string `mapstructure:"storage_path"`
+}
+
+// GetUseCountUpdateInterval 获取技能使用次数更新间隔
+func (c *SkillConfig) GetUseCountUpdateInterval() time.Duration {
+	if c.UseCountUpdateInterval == "" {
+		return time.Hour // 默认 1 小时
+	}
+	d, err := time.ParseDuration(c.UseCountUpdateInterval)
+	if err != nil {
+		return time.Hour
+	}
+	return d
+}
+
+// GetUploadMaxSize 获取上传文件最大大小（字节）
+func (c *SkillConfig) GetUploadMaxSize() int64 {
+	if c.UploadMaxSize <= 0 {
+		return 5 * 1024 * 1024 // 默认 5MB
+	}
+	return int64(c.UploadMaxSize) * 1024 * 1024
+}
+
+// GetStoragePath 获取技能包存储路径
+func (c *SkillConfig) GetStoragePath() string {
+	if c.StoragePath == "" {
+		return "./skills"
+	}
+	return c.StoragePath
+}
+
 // Load 加载配置文件
 func Load(configPath string) (*Config, error) {
 	v := viper.New()
@@ -182,4 +224,7 @@ func setDefaults() {
 	viper.SetDefault("logging.format", "json")
 	viper.SetDefault("mcp.base_url", "http://localhost:8080/api/v1/mcp")
 	viper.SetDefault("mcp.token_ttl", "30m")
+	viper.SetDefault("skill.use_count_update_interval", "1h")
+	viper.SetDefault("skill.upload_max_size", 5)
+	viper.SetDefault("skill.storage_path", "./skills")
 }

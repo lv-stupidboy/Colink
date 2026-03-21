@@ -127,6 +127,33 @@ code {
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* 主菜单样式覆盖 - 确保子菜单父项与其他菜单项对齐 */
+.main-menu > .ant-menu-submenu {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.main-menu > .ant-menu-submenu > .ant-menu-submenu-title {
+  border-radius: 12px !important;
+  margin: 4px 8px !important;
+}
+
+/* 子菜单箭头图标位置 */
+.main-menu .ant-menu-submenu-arrow {
+  right: 16px !important;
+}
+
+/* 子菜单列表 */
+.ant-menu-sub {
+  padding-left: 0 !important;
+}
+
+/* 子菜单内的菜单项 - 缩进显示 */
+.main-menu .ant-menu-sub .ant-menu-item {
+  padding-left: 48px !important;
+  margin: 4px 8px !important;
+}
+
 .ant-menu-item:hover {
   background: linear-gradient(90deg, var(--color-primary-opacity-12) 0%, var(--color-primary-opacity-5) 100%);
   box-shadow: inset 0 0 10px var(--color-primary-opacity-5);
@@ -207,6 +234,16 @@ code {
   border-bottom: 1px solid var(--color-primary-bg-hover);
   font-weight: 600;
   color: var(--text-primary);
+}
+
+/* 技能卡片头部 */
+.skill-card .ant-card-head {
+  padding: 8px 12px;
+  min-height: auto;
+}
+
+.skill-card .ant-card-head-title {
+  padding: 0;
 }
 
 /* 统计卡片特殊样式 */

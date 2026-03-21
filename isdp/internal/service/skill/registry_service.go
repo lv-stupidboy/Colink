@@ -158,24 +158,19 @@ func (s *RegistryService) Sync(ctx context.Context, id uuid.UUID) (*model.SyncRe
 		if err != nil {
 			// 不存在，创建新技能
 			skill := &model.Skill{
-				ID:              uuid.New(),
-				Name:            remoteSkill.Name,
-				DisplayName:     remoteSkill.DisplayName,
-				Description:     remoteSkill.Description,
-				Type:            model.SkillType(remoteSkill.Type),
-				Category:        remoteSkill.Category,
-				SourceType:      model.SkillSourceFederated,
+				ID:               uuid.New(),
+				Name:             remoteSkill.Name,
+				Description:      remoteSkill.Description,
+				Tags:             remoteSkill.Tags,
+				SourceType:       model.SkillSourceFederated,
 				SourceRegistryID: registry.ID,
-				InstallSource:   remoteSkill.InstallSource,
-				SupportedAgents: remoteSkill.SupportedAgents,
-				Version:         remoteSkill.Version,
-				IsPublic:        true,
-				Status:          model.SkillStatusActive,
-				UseCount:        0,
-				StarCount:       0,
-				FavoriteCount:   0,
-				CreatedAt:       time.Now(),
-				UpdatedAt:       time.Now(),
+				SupportedAgents:  remoteSkill.SupportedAgents,
+				Version:          remoteSkill.Version,
+				IsPublic:         true, // 联邦技能固定公开
+				Status:           model.SkillStatusActive,
+				UseCount:         0,
+				CreatedAt:        time.Now(),
+				UpdatedAt:        time.Now(),
 			}
 			if err := s.skillRepo.Create(ctx, skill); err != nil {
 				continue
@@ -183,10 +178,9 @@ func (s *RegistryService) Sync(ctx context.Context, id uuid.UUID) (*model.SyncRe
 			result.SkillsAdded++
 		} else {
 			// 已存在，更新技能
-			existing.DisplayName = remoteSkill.DisplayName
 			existing.Description = remoteSkill.Description
+			existing.Tags = remoteSkill.Tags
 			existing.Version = remoteSkill.Version
-			existing.InstallSource = remoteSkill.InstallSource
 			existing.SupportedAgents = remoteSkill.SupportedAgents
 			existing.UpdatedAt = time.Now()
 			if err := s.skillRepo.Update(ctx, existing); err != nil {
@@ -204,14 +198,11 @@ func (s *RegistryService) Sync(ctx context.Context, id uuid.UUID) (*model.SyncRe
 
 // RemoteSkill 远程技能结构
 type RemoteSkill struct {
-	Name            string                 `json:"name"`
-	DisplayName     string                 `json:"display_name"`
-	Description     string                 `json:"description"`
-	Type            string                 `json:"type"`
-	Category        string                 `json:"category"`
-	InstallSource   model.InstallSource    `json:"install_source"`
-	SupportedAgents []string               `json:"supported_agents"`
-	Version         string                 `json:"version"`
+	Name            string   `json:"name"`
+	Description     string   `json:"description"`
+	Tags            []string `json:"tags"`
+	SupportedAgents []string `json:"supported_agents"`
+	Version         string   `json:"version"`
 }
 
 // syncFromGitHub 从 GitHub 同步
@@ -304,13 +295,8 @@ func (s *RegistryService) downloadGitHubSkill(ctx context.Context, client *http.
 	skillName := strings.TrimSuffix(req.URL.Path[strings.LastIndex(req.URL.Path, "/")+1:], ".md")
 	return &RemoteSkill{
 		Name:        skillName,
-		DisplayName: skillName,
 		Description: string(content),
-		Type:        "skill",
 		Version:     "1.0.0",
-		InstallSource: model.InstallSource{
-			"claude_code": url,
-		},
 	}, nil
 }
 

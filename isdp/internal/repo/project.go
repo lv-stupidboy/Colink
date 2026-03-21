@@ -160,6 +160,58 @@ func (r *ProjectRepository) FindAll(ctx context.Context, limit, offset int) ([]*
 	return projects, nil
 }
 
+// ListAll 获取所有项目（不分页）
+func (r *ProjectRepository) ListAll(ctx context.Context) ([]*model.Project, error) {
+	query := `
+		SELECT id, name, type, mode, status, local_path, git_repo, config, workflow_template_id, created_at, updated_at
+		FROM projects ORDER BY created_at DESC
+	`
+	rows, err := r.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list projects: %w", err)
+	}
+	defer rows.Close()
+
+	projects := make([]*model.Project, 0)
+	for rows.Next() {
+		project := &model.Project{}
+		var idStr string
+		var gitRepo sql.NullString
+		var config []byte
+		var workflowTemplateID sql.NullString
+		err := rows.Scan(
+			&idStr,
+			&project.Name,
+			&project.Type,
+			&project.Mode,
+			&project.Status,
+			&project.LocalPath,
+			&gitRepo,
+			&config,
+			&workflowTemplateID,
+			&project.CreatedAt,
+			&project.UpdatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan project: %w", err)
+		}
+		project.ID, _ = uuid.Parse(idStr)
+
+		if gitRepo.Valid {
+			project.GitRepo = &gitRepo.String
+		}
+		if config != nil {
+			project.Config = config
+		}
+		if workflowTemplateID.Valid {
+			wid, _ := uuid.Parse(workflowTemplateID.String)
+			project.WorkflowTemplateID = &wid
+		}
+		projects = append(projects, project)
+	}
+	return projects, nil
+}
+
 // Update 更新项目
 func (r *ProjectRepository) Update(ctx context.Context, project *model.Project) error {
 	query := `

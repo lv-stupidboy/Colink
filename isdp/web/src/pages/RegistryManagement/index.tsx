@@ -20,7 +20,6 @@ import {
   SyncOutlined,
   EditOutlined,
   DeleteOutlined,
-  CloudServerOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined,
   ClockCircleOutlined,
@@ -264,28 +263,28 @@ const RegistryManagement: React.FC = () => {
   ];
 
   return (
-    <div className="registry-management" style={{ padding: 24 }}>
-      <Card>
-        <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
-          <Title level={4} style={{ margin: 0 }}>
-            <CloudServerOutlined style={{ marginRight: 8 }} />
-            联邦技能源管理
-          </Title>
-          <Space>
-            <Button
-              icon={<SyncOutlined spin={syncingId === 'all'} />}
-              onClick={handleSyncAll}
-              loading={syncingId === 'all'}
-              disabled={syncingId !== null}
-            >
-              同步全部
-            </Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-              新建注册表
-            </Button>
-          </Space>
+    <div className="registry-management" style={{ padding: 12 }}>
+      <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <Title level={2} style={{ margin: 0 }}>联邦技能源</Title>
+          <Text type="secondary">管理外部技能仓库，同步联邦技能</Text>
         </div>
+        <Space>
+          <Button
+            icon={<SyncOutlined spin={syncingId === 'all'} />}
+            onClick={handleSyncAll}
+            loading={syncingId === 'all'}
+            disabled={syncingId !== null}
+          >
+            同步全部
+          </Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
+            新建注册表
+          </Button>
+        </Space>
+      </div>
 
+      <Card>
         <Table
           dataSource={registries}
           columns={columns}

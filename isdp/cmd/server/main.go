@@ -119,7 +119,7 @@ func main() {
 	skillService := skill.NewService(skillRepo, agentSkillBindingRepo, agentConfigRepo)
 	registryService := skill.NewRegistryService(registryRepo, skillRepo)
 	knowledgeService := knowledge.NewService(knowledgeRepo)
-	configGenService := configgen.NewService(projectRepo, agentConfigRepo, skillRepo, agentSkillBindingRepo, logger)
+	configGenService := configgen.NewService(projectRepo, agentConfigRepo, skillRepo, agentSkillBindingRepo, cfg.Skill.GetStoragePath(), logger)
 
 	// 初始化默认基础Agent
 	if err := baseAgentService.InitDefaultAgents(context.Background()); err != nil {
@@ -230,7 +230,7 @@ func main() {
 	workflowHandler.RegisterRoutes(v1)
 
 	// Skill Handler
-	skillHandler := api.NewSkillHandler(skillService)
+	skillHandler := api.NewSkillHandler(skillService, &cfg.Skill)
 	skillHandler.RegisterRoutes(v1)
 
 	// Registry Handler

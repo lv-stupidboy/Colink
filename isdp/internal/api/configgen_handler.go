@@ -62,7 +62,6 @@ func (h *ConfigGenHandler) SyncConfig(c *gin.Context) {
 		"projectId":   result.ProjectID,
 		"targetDir":   result.TargetDir,
 		"skillsCount": result.SkillsCount,
-		"rulesCount":  result.RulesCount,
 		"agentRoles":  result.AgentRoles,
 		"details":     result.Results,
 	})

@@ -12,11 +12,71 @@ import (
 	"github.com/google/uuid"
 )
 
+// BuiltInTagCategory 内置标签分类
+type BuiltInTagCategory struct {
+	Name  string   `json:"name"`
+	Tags  []string `json:"tags"`
+}
+
+// builtInTagCategories 内置标签分类列表
+var builtInTagCategories = []BuiltInTagCategory{
+	{
+		Name: "编程语言",
+		Tags: []string{
+			"Java", "Python", "JavaScript", "TypeScript", "Go", "Rust",
+			"C++", "C#", "PHP", "Ruby", "Swift", "Kotlin", "Scala",
+		},
+	},
+	{
+		Name: "前端技术",
+		Tags: []string{
+			"React", "Vue", "Angular", "Next.js", "Nuxt", "Svelte",
+			"CSS", "Tailwind", "Sass", "Webpack", "Vite",
+		},
+	},
+	{
+		Name: "后端技术",
+		Tags: []string{
+			"Spring", "Spring Boot", "Django", "Flask", "Express",
+			"Gin", "FastAPI", "Node.js", "Microservices", "REST API",
+		},
+	},
+	{
+		Name: "数据库",
+		Tags: []string{
+			"MySQL", "PostgreSQL", "MongoDB", "Redis", "Elasticsearch",
+			"SQLite", "Oracle", "SQL Server", "Cassandra",
+		},
+	},
+	{
+		Name: "云与DevOps",
+		Tags: []string{
+			"Docker", "Kubernetes", "AWS", "Azure", "GCP",
+			"CI/CD", "Terraform", "Ansible", "Nginx",
+		},
+	},
+	{
+		Name: "使用场景",
+		Tags: []string{
+			"代码规范", "代码审查", "单元测试", "集成测试",
+			"安全审计", "性能优化", "重构", "文档生成",
+			"API设计", "数据库设计", "架构设计", "错误处理",
+		},
+	},
+	{
+		Name: "项目类型",
+		Tags: []string{
+			"Web应用", "移动应用", "微服务", "CLI工具",
+			"API服务", "批处理", "实时系统", "游戏开发",
+		},
+	},
+}
+
 // Service Skill业务服务
 type Service struct {
-	skillRepo  *repo.SkillRepository
+	skillRepo   *repo.SkillRepository
 	bindingRepo *repo.AgentSkillBindingRepository
-	agentRepo  *repo.AgentConfigRepository
+	agentRepo   *repo.AgentConfigRepository
 }
 
 // NewService 创建Skill Service
@@ -42,22 +102,23 @@ func (s *Service) Create(ctx context.Context, req *model.CreateSkillRequest) (*m
 		return nil, errors.New("技能名称已存在")
 	}
 
+	// 只有 personal 类型才能设置私有
+	isPublic := true
+	if req.SourceType == model.SkillSourcePersonal {
+		isPublic = req.IsPublic
+	}
+
 	skill := &model.Skill{
 		ID:              uuid.New(),
 		Name:            req.Name,
-		DisplayName:     req.DisplayName,
 		Description:     req.Description,
-		Type:            req.Type,
-		Category:        req.Category,
+		Tags:            req.Tags,
 		SourceType:      req.SourceType,
-		InstallSource:   req.InstallSource,
 		SupportedAgents: req.SupportedAgents,
 		Version:         req.Version,
-		IsPublic:        req.IsPublic,
+		IsPublic:        isPublic,
 		Status:          model.SkillStatusActive,
 		UseCount:        0,
-		StarCount:       0,
-		FavoriteCount:   0,
 		CreatedAt:       time.Now(),
 		UpdatedAt:       time.Now(),
 	}
@@ -92,20 +153,11 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, req *model.UpdateSki
 	}
 
 	// 更新字段
-	if req.DisplayName != "" {
-		skill.DisplayName = req.DisplayName
-	}
 	if req.Description != "" {
 		skill.Description = req.Description
 	}
-	if req.Type != "" {
-		skill.Type = req.Type
-	}
-	if req.Category != "" {
-		skill.Category = req.Category
-	}
-	if req.InstallSource != nil {
-		skill.InstallSource = req.InstallSource
+	if req.Tags != nil {
+		skill.Tags = req.Tags
 	}
 	if req.SupportedAgents != nil {
 		skill.SupportedAgents = req.SupportedAgents
@@ -116,7 +168,10 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, req *model.UpdateSki
 	if req.Status != "" {
 		skill.Status = model.SkillStatus(req.Status)
 	}
-	skill.IsPublic = req.IsPublic
+	// 只有 personal 类型才能设置私有
+	if skill.SourceType == model.SkillSourcePersonal {
+		skill.IsPublic = req.IsPublic
+	}
 	skill.UpdatedAt = time.Now()
 
 	if err := s.skillRepo.Update(ctx, skill); err != nil {
@@ -235,4 +290,14 @@ func (s *Service) GetBoundAgents(ctx context.Context, skillID uuid.UUID) ([]*mod
 // IncrementUse 增加使用次数
 func (s *Service) IncrementUse(ctx context.Context, id uuid.UUID) error {
 	return s.skillRepo.IncrementUseCount(ctx, id)
+}
+
+// GetAllTags 获取所有标签
+func (s *Service) GetAllTags(ctx context.Context) ([]string, error) {
+	return s.skillRepo.GetAllTags(ctx)
+}
+
+// GetBuiltInTagCategories 获取内置标签分类
+func (s *Service) GetBuiltInTagCategories() []BuiltInTagCategory {
+	return builtInTagCategories
 }

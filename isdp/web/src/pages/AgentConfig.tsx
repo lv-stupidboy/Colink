@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Button, Card, Modal, Form, Input, Select, InputNumber, Switch, message, Space, Tag } from 'antd';
+import { Table, Button, Card, Modal, Form, Input, Select, InputNumber, Switch, message, Space, Tag, Typography } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import api from '@/api/client';
 import type { AgentConfig, AgentRole } from '@/types';
 import { AgentRoleLabels } from '@/types';
+
+const { Title, Text } = Typography;
 
 const AgentConfigPage: React.FC = () => {
   const [configs, setConfigs] = useState<AgentConfig[]>([]);
@@ -112,15 +114,18 @@ const AgentConfigPage: React.FC = () => {
   ];
 
   return (
-    <div>
-      <Card
-        title="Agent配置"
-        extra={
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-            新建配置
-          </Button>
-        }
-      >
+    <div style={{ padding: 12 }}>
+      <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <Title level={2} style={{ margin: 0 }}>Agent 配置</Title>
+          <Text type="secondary">管理 Agent 角色的系统提示词和模型参数</Text>
+        </div>
+        <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
+          新建配置
+        </Button>
+      </div>
+
+      <Card>
         <Table
           dataSource={configs}
           columns={columns}

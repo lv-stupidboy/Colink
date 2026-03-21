@@ -29,17 +29,6 @@ const MainLayout: React.FC = () => {
 
   /**
    * 导航菜单配置
-   * PRD Section 1.5 - Web页面布局
-   *
-   * 页面结构：
-   * ├── 首页/仪表盘
-   * ├── 项目空间
-   * ├── 工作流编排
-   * ├── Agent角色
-   * ├── 沙箱环境
-   * └── 设置（子菜单）
-   *     ├── 通用设置
-   *     └── 基础Agent设置
    */
   const menuItems: MenuProps['items'] = [
     {
@@ -68,19 +57,9 @@ const MainLayout: React.FC = () => {
       label: '技能库',
     },
     {
-      key: '/registries',
-      icon: <CloudServerOutlined />,
-      label: '联邦技能源',
-    },
-    {
       key: '/knowledge',
       icon: <DatabaseOutlined />,
       label: '知识库',
-    },
-    {
-      key: '/sandbox',
-      icon: <InboxOutlined />,
-      label: '沙箱环境',
     },
     {
       key: 'settings',
@@ -97,6 +76,16 @@ const MainLayout: React.FC = () => {
           icon: <RobotOutlined />,
           label: '基础Agent设置',
         },
+        {
+          key: '/sandbox',
+          icon: <InboxOutlined />,
+          label: '沙箱环境',
+        },
+        {
+          key: '/registries',
+          icon: <CloudServerOutlined />,
+          label: '联邦技能源',
+        },
       ],
     },
   ];
@@ -107,6 +96,7 @@ const MainLayout: React.FC = () => {
     if (path.startsWith('/projects')) return '/projects';
     if (path.startsWith('/threads')) return '/projects';
     if (path.startsWith('/registries')) return '/registries';
+    if (path.startsWith('/sandbox')) return '/sandbox';
     if (path.startsWith('/knowledge')) return '/knowledge';
     if (path.startsWith('/settings')) return location.pathname;
     return path;
@@ -115,7 +105,7 @@ const MainLayout: React.FC = () => {
   // 获取展开的子菜单
   const getOpenKeys = () => {
     const path = location.pathname;
-    if (path.startsWith('/settings')) {
+    if (path.startsWith('/settings') || path.startsWith('/registries') || path.startsWith('/sandbox')) {
       return ['settings'];
     }
     return [];
@@ -151,6 +141,9 @@ const MainLayout: React.FC = () => {
           items={menuItems}
           onClick={handleMenuClick}
           onOpenChange={handleOpenChange}
+          style={{ borderRight: 0 }}
+          // 覆盖子菜单父项样式，使其与其他菜单项对齐
+          className="main-menu"
         />
       </Sider>
       <Layout style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>

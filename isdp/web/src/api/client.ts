@@ -31,6 +31,7 @@ import type {
   KnowledgeBaseListResponse,
   KnowledgeQueryRequest,
   KnowledgeQueryResult,
+  BuiltInTagCategory,
 } from '@/types';
 import {
   transformProjects,
@@ -339,8 +340,7 @@ class APIClient {
   skills = {
     list: (query?: SkillListQuery): Promise<SkillListResponse> => {
       const params = new URLSearchParams();
-      if (query?.type) params.append('type', query.type);
-      if (query?.category) params.append('category', query.category);
+      if (query?.tag) params.append('tag', query.tag);
       if (query?.sourceType) params.append('source_type', query.sourceType);
       if (query?.agentType) params.append('agent_type', query.agentType);
       if (query?.search) params.append('search', query.search);
@@ -360,6 +360,19 @@ class APIClient {
       this.request(`/skills/${id}`, 'DELETE'),
     getBoundAgents: (id: string): Promise<SkillAgentsResponse> =>
       this.request(`/skills/${id}/agents`, 'GET'),
+    getTags: (): Promise<string[]> =>
+      this.request('/skills/tags', 'GET'),
+    getBuiltInTags: (): Promise<BuiltInTagCategory[]> =>
+      this.request('/skills/tags/builtin', 'GET'),
+    // 从仓库导入
+    importRepo: (repoUrl: string): Promise<Skill> =>
+      this.request('/skills/import/repo', 'POST', { repo_url: repoUrl }),
+    // 从联邦源导入
+    importFederated: (registryId: string, skillName?: string): Promise<Skill | { skills: any[] }> => {
+      const body: any = { registry_id: registryId };
+      if (skillName) body.skill_name = skillName;
+      return this.request('/skills/import/federated', 'POST', body);
+    },
   };
 
   // Registry API

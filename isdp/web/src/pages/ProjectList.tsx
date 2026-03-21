@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Button, Card, Space, Modal, Form, Input, message, Tag, Select } from 'antd';
+import { Table, Button, Card, Space, Modal, Form, Input, message, Tag, Select, Typography } from 'antd';
 import { PlusOutlined, FolderOutlined, FolderOpenOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '@/api/client';
 import type { Project, WorkflowTemplate } from '@/types';
 import PathSelector from '@/components/PathSelector';
 
+const { Title, Text } = Typography;
 const { Option } = Select;
 
 const ProjectList: React.FC = () => {
@@ -153,15 +154,18 @@ const ProjectList: React.FC = () => {
   ];
 
   return (
-    <div>
-      <Card
-        title="项目列表"
-        extra={
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setModalVisible(true)}>
-            新建项目
-          </Button>
-        }
-      >
+    <div style={{ padding: 12 }}>
+      <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <Title level={2} style={{ margin: 0 }}>项目管理</Title>
+          <Text type="secondary">管理开发项目，配置工作流和 Agent</Text>
+        </div>
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => setModalVisible(true)}>
+          新建项目
+        </Button>
+      </div>
+
+      <Card>
         <Table
           dataSource={projects}
           columns={columns}

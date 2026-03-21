@@ -13,19 +13,14 @@ DROP TABLE IF EXISTS skills;
 CREATE TABLE skills (
     id VARCHAR(64) NOT NULL COMMENT 'Skill唯一标识符',
     name VARCHAR(255) NOT NULL COMMENT 'Skill名称(唯一标识)',
-    display_name VARCHAR(255) COMMENT '显示名称',
     description TEXT COMMENT '描述',
-    type VARCHAR(50) DEFAULT 'skill' COMMENT '类型(skill/rule)',
-    category VARCHAR(100) COMMENT '分类',
+    tags JSON DEFAULT NULL COMMENT '标签(JSON数组)',
 
     -- 来源信息
-    source_type VARCHAR(50) NOT NULL COMMENT '来源类型(built_in/uploaded/federated)',
+    source_type VARCHAR(50) NOT NULL COMMENT '来源类型(platform/personal/federated)',
     source_registry_id VARCHAR(64) COMMENT '联邦来源ID',
     author_id VARCHAR(64) COMMENT '创建者ID',
     project_id VARCHAR(64) COMMENT '所属项目ID',
-
-    -- 安装信息
-    install_source JSON COMMENT '不同智能体的安装地址',
 
     -- 兼容性
     supported_agents JSON COMMENT '支持的智能体列表',
@@ -34,9 +29,7 @@ CREATE TABLE skills (
     version VARCHAR(50) DEFAULT '1.0.0' COMMENT '版本号',
 
     -- 统计数据
-    use_count INT DEFAULT 0 COMMENT '使用次数',
-    star_count INT DEFAULT 0 COMMENT '点赞数',
-    favorite_count INT DEFAULT 0 COMMENT '收藏数',
+    use_count INT DEFAULT 0 COMMENT '使用次数(被项目引用的次数)',
 
     -- 状态
     status VARCHAR(50) DEFAULT 'active' COMMENT '状态(active/deprecated)',
@@ -47,9 +40,7 @@ CREATE TABLE skills (
 
     PRIMARY KEY (id),
     UNIQUE KEY uk_skills_name (name),
-    KEY idx_skills_type (type),
     KEY idx_skills_source_type (source_type),
-    KEY idx_skills_category (category),
     KEY idx_skills_project_id (project_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='技能表';
 

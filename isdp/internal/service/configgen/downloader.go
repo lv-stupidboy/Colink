@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -14,20 +13,19 @@ import (
 )
 
 // Downloader Skill 文件下载器
+// 从本地技能存储目录复制技能文件到目标项目目录
 type Downloader struct {
-	client    *http.Client
-	maxRetries int
-	logger    *zap.Logger
+	skillStoragePath string
+	maxRetries       int
+	logger           *zap.Logger
 }
 
 // NewDownloader 创建下载器
-func NewDownloader(logger *zap.Logger) *Downloader {
+func NewDownloader(skillStoragePath string, logger *zap.Logger) *Downloader {
 	return &Downloader{
-		client: &http.Client{
-			Timeout: 30 * time.Second,
-		},
-		maxRetries: 3,
-		logger:     logger,
+		skillStoragePath: skillStoragePath,
+		maxRetries:       3,
+		logger:           logger,
 	}
 }
 
@@ -40,38 +38,34 @@ type DownloadResult struct {
 }
 
 // DownloadSkill 下载 Skill 文件到指定目录
+// 从本地技能存储目录复制技能文件到目标项目目录
 // agentType: "claude_code" 或 "open_code"
 // targetDir: 目标目录（如 .claude/ 或 .opencode/）
 func (d *Downloader) DownloadSkill(ctx context.Context, skill *model.Skill, agentType, targetDir string) (string, error) {
-	// 获取对应智能体类型的下载地址
-	url := d.getDownloadURL(skill, agentType)
-	if url == "" {
-		return "", fmt.Errorf("没有找到 %s 类型的下载地址", agentType)
+	// 确定源文件路径（本地存储的技能 zip 包）
+	sourcePath := filepath.Join(d.skillStoragePath, skill.Name+".zip")
+	if _, err := os.Stat(sourcePath); os.IsNotExist(err) {
+		return "", fmt.Errorf("技能文件不存在: %s", skill.Name)
 	}
 
 	// 确定目标文件路径
 	fileName := d.getFileName(skill, agentType)
-	subDir := "skills"
-	if skill.Type == model.SkillTypeRule {
-		subDir = "rules"
-	}
-
-	targetPath := filepath.Join(targetDir, subDir, fileName)
+	targetPath := filepath.Join(targetDir, "skills", fileName)
 
 	// 创建目标目录
 	if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
 		return "", fmt.Errorf("创建目录失败: %w", err)
 	}
 
-	// 下载文件
-	if err := d.downloadWithRetry(ctx, url, targetPath); err != nil {
-		return "", fmt.Errorf("下载失败: %w", err)
+	// 复制文件
+	if err := d.copyFileWithRetry(ctx, sourcePath, targetPath); err != nil {
+		return "", fmt.Errorf("复制失败: %w", err)
 	}
 
-	d.logger.Info("Skill 下载完成",
+	d.logger.Info("Skill 复制完成",
 		zap.String("skill", skill.Name),
-		zap.String("url", url),
-		zap.String("path", targetPath))
+		zap.String("source", sourcePath),
+		zap.String("target", targetPath))
 
 	return targetPath, nil
 }
@@ -93,33 +87,6 @@ func (d *Downloader) DownloadSkills(ctx context.Context, skills []*model.Skill, 
 	return results
 }
 
-// getDownloadURL 获取下载地址
-func (d *Downloader) getDownloadURL(skill *model.Skill, agentType string) string {
-	if skill.InstallSource == nil {
-		return ""
-	}
-
-	// 尝试从 install_source 中获取对应类型的 URL
-	// install_source 格式: {"claude_code": "https://...", "open_code": "https://..."}
-	if url, ok := skill.InstallSource[agentType]; ok {
-		return url
-	}
-
-	// 如果没有特定类型的 URL，尝试使用默认 key
-	if url, ok := skill.InstallSource["default"]; ok {
-		return url
-	}
-
-	// 尝试使用任意可用的 URL
-	for _, url := range skill.InstallSource {
-		if url != "" {
-			return url
-		}
-	}
-
-	return ""
-}
-
 // getFileName 获取保存的文件名
 func (d *Downloader) getFileName(skill *model.Skill, agentType string) string {
 	// 使用 skill 名称作为文件名
@@ -127,15 +94,15 @@ func (d *Downloader) getFileName(skill *model.Skill, agentType string) string {
 	return skill.Name + ".md"
 }
 
-// downloadWithRetry 带重试的下载
-func (d *Downloader) downloadWithRetry(ctx context.Context, url, targetPath string) error {
+// copyFileWithRetry 带重试的文件复制
+func (d *Downloader) copyFileWithRetry(ctx context.Context, sourcePath, targetPath string) error {
 	var lastErr error
 
 	for i := 0; i < d.maxRetries; i++ {
-		if err := d.downloadOnce(ctx, url, targetPath); err != nil {
+		if err := d.copyFileOnce(ctx, sourcePath, targetPath); err != nil {
 			lastErr = err
-			d.logger.Warn("下载重试",
-				zap.String("url", url),
+			d.logger.Warn("复制重试",
+				zap.String("source", sourcePath),
 				zap.Int("attempt", i+1),
 				zap.Error(err))
 
@@ -151,39 +118,37 @@ func (d *Downloader) downloadWithRetry(ctx context.Context, url, targetPath stri
 		return nil
 	}
 
-	return fmt.Errorf("下载失败，已重试 %d 次: %w", d.maxRetries, lastErr)
+	return fmt.Errorf("复制失败，已重试 %d 次: %w", d.maxRetries, lastErr)
 }
 
-// downloadOnce 执行一次下载
-func (d *Downloader) downloadOnce(ctx context.Context, url, targetPath string) error {
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+// copyFileOnce 执行一次文件复制
+func (d *Downloader) copyFileOnce(ctx context.Context, sourcePath, targetPath string) error {
+	// 打开源文件
+	sourceFile, err := os.Open(sourcePath)
 	if err != nil {
-		return fmt.Errorf("创建请求失败: %w", err)
+		return fmt.Errorf("打开源文件失败: %w", err)
 	}
-
-	resp, err := d.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("请求失败: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("HTTP 错误: %d %s", resp.StatusCode, resp.Status)
-	}
+	defer sourceFile.Close()
 
 	// 创建临时文件
 	tempPath := targetPath + ".tmp"
-	file, err := os.Create(tempPath)
+	targetFile, err := os.Create(tempPath)
 	if err != nil {
-		return fmt.Errorf("创建文件失败: %w", err)
+		return fmt.Errorf("创建目标文件失败: %w", err)
 	}
-	defer file.Close()
+	defer targetFile.Close()
 
-	// 写入内容
-	_, err = io.Copy(file, resp.Body)
+	// 复制内容
+	_, err = io.Copy(targetFile, sourceFile)
 	if err != nil {
 		os.Remove(tempPath)
-		return fmt.Errorf("写入文件失败: %w", err)
+		return fmt.Errorf("复制内容失败: %w", err)
+	}
+
+	// 确保数据写入磁盘
+	if err := targetFile.Sync(); err != nil {
+		os.Remove(tempPath)
+		return fmt.Errorf("同步文件失败: %w", err)
 	}
 
 	// 原子性重命名

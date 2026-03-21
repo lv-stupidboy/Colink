@@ -299,7 +299,7 @@ const WorkflowPage: React.FC = () => {
   const renderAgentRoles = () => {
     if (loadingAgents) {
       return (
-        <div style={{ textAlign: 'center', padding: 24 }}>
+        <div style={{ textAlign: 'center', padding: 12 }}>
           <Spin />
         </div>
       );
@@ -346,15 +346,10 @@ const WorkflowPage: React.FC = () => {
   };
 
   return (
-    <div className="workflow-page">
-      <div style={{ marginBottom: 24 }}>
-        <Title level={2}>
-          <ApartmentOutlined style={{ marginRight: 8 }} />
-          工作流编排
-        </Title>
-        <Text type="secondary">
-          可视化配置 Agent 协作流程，定义任务执行顺序和条件
-        </Text>
+    <div style={{ padding: 12 }}>
+      <div style={{ marginBottom: 12 }}>
+        <Title level={2} style={{ margin: 0 }}>工作流编排</Title>
+        <Text type="secondary">可视化配置 Agent 协作流程，定义任务执行顺序和条件</Text>
       </div>
 
       <Row gutter={24}>
@@ -382,7 +377,7 @@ const WorkflowPage: React.FC = () => {
             </Paragraph>
 
             {loadingTemplates ? (
-              <div style={{ textAlign: 'center', padding: 24 }}>
+              <div style={{ textAlign: 'center', padding: 12 }}>
                 <Spin />
               </div>
             ) : (

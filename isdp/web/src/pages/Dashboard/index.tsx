@@ -121,9 +121,9 @@ const Dashboard: React.FC = () => {
   ];
 
   return (
-    <div className="dashboard">
-      <div style={{ marginBottom: 24 }}>
-        <Title level={2}>Dashboard</Title>
+    <div style={{ padding: 12 }}>
+      <div style={{ marginBottom: 12 }}>
+        <Title level={2} style={{ margin: 0 }}>Dashboard</Title>
         <Text type="secondary">欢迎使用 ISDP 智能软件开发平台</Text>
       </div>
 

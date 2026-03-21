@@ -12,12 +12,13 @@ import (
 
 // Service 配置生成服务
 type Service struct {
-	downloader  *Downloader
-	projectRepo *repo.ProjectRepository
-	agentRepo   *repo.AgentConfigRepository
-	skillRepo   *repo.SkillRepository
-	bindingRepo *repo.AgentSkillBindingRepository
-	logger      *zap.Logger
+	downloader       *Downloader
+	projectRepo      *repo.ProjectRepository
+	agentRepo        *repo.AgentConfigRepository
+	skillRepo        *repo.SkillRepository
+	bindingRepo      *repo.AgentSkillBindingRepository
+	skillStoragePath string
+	logger           *zap.Logger
 }
 
 // NewService 创建配置生成服务
@@ -26,15 +27,17 @@ func NewService(
 	agentRepo *repo.AgentConfigRepository,
 	skillRepo *repo.SkillRepository,
 	bindingRepo *repo.AgentSkillBindingRepository,
+	skillStoragePath string,
 	logger *zap.Logger,
 ) *Service {
 	return &Service{
-		downloader:  NewDownloader(logger),
-		projectRepo: projectRepo,
-		agentRepo:   agentRepo,
-		skillRepo:   skillRepo,
-		bindingRepo: bindingRepo,
-		logger:      logger,
+		downloader:       NewDownloader(skillStoragePath, logger),
+		projectRepo:      projectRepo,
+		agentRepo:        agentRepo,
+		skillRepo:        skillRepo,
+		bindingRepo:      bindingRepo,
+		skillStoragePath: skillStoragePath,
+		logger:           logger,
 	}
 }
 
@@ -47,12 +50,11 @@ type GenerateConfigRequest struct {
 
 // GenerateConfigResult 配置生成结果
 type GenerateConfigResult struct {
-	ProjectID    string           `json:"project_id"`
-	TargetDir    string           `json:"target_dir"`
-	SkillsCount  int              `json:"skills_count"`
-	RulesCount   int              `json:"rules_count"`
-	Results      []DownloadResult `json:"results"`
-	AgentRoles   []string         `json:"agent_roles"`
+	ProjectID   string           `json:"project_id"`
+	TargetDir   string           `json:"target_dir"`
+	SkillsCount int              `json:"skills_count"`
+	Results     []DownloadResult `json:"results"`
+	AgentRoles  []string         `json:"agent_roles"`
 }
 
 // GenerateConfig 生成项目配置
@@ -140,7 +142,6 @@ func (s *Service) GenerateConfig(ctx context.Context, req *GenerateConfigRequest
 			ProjectID:   req.ProjectID,
 			TargetDir:   targetDir,
 			SkillsCount: 0,
-			RulesCount:  0,
 			Results:     []DownloadResult{},
 			AgentRoles:  agentRoleNames,
 		}, nil
@@ -148,17 +149,6 @@ func (s *Service) GenerateConfig(ctx context.Context, req *GenerateConfigRequest
 
 	// 下载所有 Skill
 	results := s.downloader.DownloadSkills(ctx, skills, req.BaseAgentType, targetDir)
-
-	// 统计
-	skillsCount := 0
-	rulesCount := 0
-	for _, skill := range skills {
-		if skill.Type == model.SkillTypeRule {
-			rulesCount++
-		} else {
-			skillsCount++
-		}
-	}
 
 	// 更新使用次数
 	for _, skill := range skills {
@@ -171,14 +161,12 @@ func (s *Service) GenerateConfig(ctx context.Context, req *GenerateConfigRequest
 
 	s.logger.Info("配置生成完成",
 		zap.String("project_id", req.ProjectID),
-		zap.Int("skills_count", skillsCount),
-		zap.Int("rules_count", rulesCount))
+		zap.Int("skills_count", len(skills)))
 
 	return &GenerateConfigResult{
 		ProjectID:   req.ProjectID,
 		TargetDir:   targetDir,
-		SkillsCount: skillsCount,
-		RulesCount:  rulesCount,
+		SkillsCount: len(skills),
 		Results:     results,
 		AgentRoles:  agentRoleNames,
 	}, nil

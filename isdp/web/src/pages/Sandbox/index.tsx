@@ -5,7 +5,6 @@ import {
   PlayCircleOutlined,
   StopOutlined,
   FileTextOutlined,
-  DashboardOutlined,
   ReloadOutlined,
   ClearOutlined,
   CloudServerOutlined,
@@ -307,19 +306,14 @@ const SandboxPage: React.FC = () => {
   const localCount = sandboxes.filter((s) => s.mode === 'local').length;
 
   return (
-    <div className="sandbox-page">
-      <div style={{ marginBottom: 24 }}>
-        <Title level={2}>
-          <Space>
-            <DashboardOutlined />
-            沙箱环境
-          </Space>
-        </Title>
+    <div style={{ padding: 12 }}>
+      <div style={{ marginBottom: 12 }}>
+        <Title level={2} style={{ margin: 0 }}>沙箱环境</Title>
         <Text type="secondary">管理和监控隔离的执行环境</Text>
       </div>
 
       {/* 概览统计 */}
-      <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+      <Row gutter={[16, 16]} style={{ marginBottom: 12 }}>
         <Col xs={24} sm={6}>
           <Card>
             <Statistic

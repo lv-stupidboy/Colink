@@ -283,24 +283,18 @@ const AgentRoleList: React.FC = () => {
   ];
 
   return (
-    <div className="agent-role-list">
-      <div style={{ marginBottom: 24 }}>
-        <Title level={2}>
-          <Space>
-            <RobotOutlined />
-            Agent角色
-          </Space>
-        </Title>
-        <Text type="secondary">管理不同职责的Agent角色配置</Text>
+    <div style={{ padding: 12 }}>
+      <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <Title level={2} style={{ margin: 0 }}>Agent 角色</Title>
+          <Text type="secondary">管理不同职责的 Agent 角色配置</Text>
+        </div>
+        <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
+          新建角色
+        </Button>
       </div>
 
-      <Card
-        extra={
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-            新建角色
-          </Button>
-        }
-      >
+      <Card>
         <Table
           dataSource={configs}
           columns={columns}
@@ -352,10 +346,20 @@ const AgentRoleList: React.FC = () => {
               value={selectedSkillIds}
               onChange={setSelectedSkillIds}
               style={{ width: '100%' }}
+              optionLabelProp="label"
               options={skills.map(s => ({
-                label: `${s.displayName || s.name} (${s.type === 'rule' ? '规则' : '技能'})`,
+                label: s.name,
                 value: s.id,
+                desc: s.description || '暂无描述',
               }))}
+              optionRender={(option) => (
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <span style={{ fontWeight: 500 }}>{option.label}</span>
+                  <span style={{ fontSize: 12, color: '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 400 }}>
+                    {option.data.desc}
+                  </span>
+                </div>
+              )}
             />
           </Form.Item>
         </Form>

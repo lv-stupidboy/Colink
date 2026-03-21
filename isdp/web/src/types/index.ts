@@ -334,36 +334,25 @@ export interface SandboxServer {
 
 // ========== Skill 相关类型 ==========
 
-// Skill类型
-export type SkillType = 'skill' | 'rule';
-
 // Skill来源类型
-export type SkillSourceType = 'built_in' | 'uploaded' | 'federated';
+export type SkillSourceType = 'platform' | 'personal' | 'federated';
 
 // Skill状态
 export type SkillStatus = 'active' | 'deprecated';
-
-// 安装源配置
-export type InstallSource = Record<string, string>;
 
 // Skill
 export interface Skill {
   id: string;
   name: string;
-  displayName?: string;
   description?: string;
-  type: SkillType;
-  category?: string;
+  tags?: string[];
   sourceType: SkillSourceType;
   sourceRegistryId?: string;
   authorId?: string;
   projectId?: string;
-  installSource?: InstallSource;
   supportedAgents?: string[];
   version: string;
   useCount: number;
-  starCount: number;
-  favoriteCount: number;
   status: SkillStatus;
   isPublic: boolean;
   createdAt: string;
@@ -373,12 +362,9 @@ export interface Skill {
 // 创建Skill请求
 export interface CreateSkillRequest {
   name: string;
-  displayName?: string;
   description?: string;
-  type?: SkillType;
-  category?: string;
+  tags?: string[];
   sourceType: SkillSourceType;
-  installSource?: InstallSource;
   supportedAgents?: string[];
   version?: string;
   isPublic?: boolean;
@@ -386,11 +372,8 @@ export interface CreateSkillRequest {
 
 // 更新Skill请求
 export interface UpdateSkillRequest {
-  displayName?: string;
   description?: string;
-  type?: SkillType;
-  category?: string;
-  installSource?: InstallSource;
+  tags?: string[];
   supportedAgents?: string[];
   version?: string;
   status?: SkillStatus;
@@ -399,13 +382,18 @@ export interface UpdateSkillRequest {
 
 // Skill列表查询参数
 export interface SkillListQuery {
-  type?: string;
-  category?: string;
+  tag?: string;
   sourceType?: string;
   agentType?: string;
   search?: string;
   page?: number;
   pageSize?: number;
+}
+
+// 内置标签分类
+export interface BuiltInTagCategory {
+  name: string;
+  tags: string[];
 }
 
 // Skill列表响应
