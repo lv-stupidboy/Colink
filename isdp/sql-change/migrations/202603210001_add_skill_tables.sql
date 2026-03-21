@@ -62,24 +62,6 @@ CREATE TABLE agent_skill_bindings (
     CONSTRAINT fk_binding_skill FOREIGN KEY (skill_id) REFERENCES skills(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent与Skill关联表';
 
--- ----------------------------
--- Skill 收藏记录表
--- ----------------------------
-DROP TABLE IF EXISTS skill_favorites;
-CREATE TABLE skill_favorites (
-    id VARCHAR(64) NOT NULL COMMENT '收藏记录唯一标识符',
-    skill_id VARCHAR(64) NOT NULL COMMENT 'Skill ID',
-    user_id VARCHAR(64) NOT NULL COMMENT '用户ID',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-
-    PRIMARY KEY (id),
-    UNIQUE KEY uk_favorite (skill_id, user_id),
-    KEY idx_skill_favorites_skill_id (skill_id),
-    KEY idx_skill_favorites_user_id (user_id),
-    CONSTRAINT fk_favorite_skill FOREIGN KEY (skill_id) REFERENCES skills(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Skill收藏记录表';
-
 -- 回滚语句（如需回滚执行以下语句）
--- DROP TABLE IF EXISTS skill_favorites;
 -- DROP TABLE IF EXISTS agent_skill_bindings;
 -- DROP TABLE IF EXISTS skills;
