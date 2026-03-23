@@ -874,15 +874,38 @@ const ThreadView: React.FC = () => {
 
   // 选择任务
   const handleSelectSoloTask = useCallback(async (task: Thread) => {
+    // 1. 清空当前消息
+    if (isDebugMode) {
+      clearDebugAll();
+    }
+
+    // 2. 设置活跃任务
     setSoloActiveTask(task);
     setSoloNewTaskPending(false);
-    // 导航到该任务
-    if (isDebugMode && agentId) {
-      navigate(`/agents/${agentId}?threadId=${task.id}`);
-    } else if (projectId) {
-      navigate(`/projects/${projectId}/threads/${task.id}`);
+
+    // 3. 调试模式：设置 threadId + 加载消息 + 连接 WebSocket
+    if (isDebugMode) {
+      setDebugThreadId(task.id);
+
+      // 加载历史消息
+      try {
+        const messages = await api.messages.list(task.id);
+        messages.forEach(msg => addDebugMessage(msg));
+      } catch (error) {
+        console.error('Failed to load messages:', error);
+      }
+
+      // 连接 WebSocket（函数内部会先关闭现有连接）
+      connectDebugWebSocket(task.id);
     }
-  }, [isDebugMode, agentId, projectId, navigate]);
+
+    // 4. 更新 URL（不触发重新渲染）
+    if (isDebugMode && agentId) {
+      navigate(`/agents/${agentId}?threadId=${task.id}`, { replace: true });
+    } else if (projectId) {
+      navigate(`/projects/${projectId}/threads/${task.id}`, { replace: true });
+    }
+  }, [isDebugMode, agentId, projectId, navigate, clearDebugAll, setDebugThreadId, addDebugMessage, connectDebugWebSocket]);
 
   // 新建任务
   const handleCreateSoloTask = useCallback(() => {
