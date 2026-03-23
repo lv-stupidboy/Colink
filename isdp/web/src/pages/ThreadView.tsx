@@ -36,14 +36,17 @@ import {
   MenuUnfoldOutlined,
   DesktopOutlined,
   UnorderedListOutlined,
+  FullscreenOutlined,
+  ThunderboltOutlined,
+  ApartmentOutlined,
 } from '@ant-design/icons';
 import { useAppStore } from '@/store';
 import { useDebugThreadStore } from '@/store/debugThread';
 import type { Message, Artifact, ReviewIssue, MergeCheckResult, AgentRole, AgentConfig } from '@/types';
-import { PhaseLabels, PhaseColors, AgentRoleLabels, ArtifactTypeLabels } from '@/types';
-import { InterventionControls } from '@/components/InterventionControls';
+import { AgentRoleLabels, ArtifactTypeLabels } from '@/types';
 import { ReviewReport } from '@/components/ReviewReport';
-import { SandboxPanel } from '@/components/thread';
+import { SandboxPanel, MessageContent, ContentCard, CodePreviewButton, CodePanel } from '@/components/thread';
+import { parseContentBlocks, shouldShowInPanel, shouldShowInBubble, parseCodeFiles } from '@/utils/contentDetector';
 import FileTree from '@/components/FileTree';
 import api from '@/api/client';
 import './ThreadView.css';
@@ -124,6 +127,11 @@ const ThreadView: React.FC = () => {
     status: debugStatus,
     sandboxServer: debugSandboxServer,
     sandboxLoading: debugSandboxLoading,
+    // 代码面板状态
+    codePanelOpen,
+    codePanelCollapsed,
+    codeFiles,
+    expandedFiles,
     setThreadId: setDebugThreadId,
     addMessage: addDebugMessage,
     appendStreamChunk: appendDebugStreamChunk,
@@ -132,11 +140,19 @@ const ThreadView: React.FC = () => {
     clearAll: clearDebugAll,
     setSandboxServer: setDebugSandboxServer,
     setSandboxLoading: setDebugSandboxLoading,
+    // 代码面板操作
+    openCodePanel,
+    closeCodePanel,
+    toggleCodePanelCollapse,
+    toggleFileExpand,
   } = useDebugThreadStore();
 
   // 调试模式的本地 WebSocket 连接状态（避免使用全局状态导致重新渲染）
   // 必须在使用之前定义
   const [debugWsConnected, setDebugWsConnected] = useState(false);
+
+  // Solo 模式状态
+  const [soloMode, setSoloMode] = useState(false);
 
   // 根据模式选择使用哪个状态
   const messages = isDebugMode ? debugMessages : workflowMessages;
@@ -168,6 +184,12 @@ const ThreadView: React.FC = () => {
   const [fileSidebarVisible, setFileSidebarVisible] = useState(true);
   const [sandboxSidebarVisible, setSandboxSidebarVisible] = useState(false);
   const [artifactsSidebarVisible, setArtifactsSidebarVisible] = useState(false);
+
+  // 沙箱面板宽度（可拖拽调整）
+  const [sandboxWidth, setSandboxWidth] = useState(450);
+  const [isResizing, setIsResizing] = useState(false);
+  const resizeStartX = useRef(0);
+  const resizeStartWidth = useRef(0);
 
   // 调试模式的 WebSocket 连接
   const connectDebugWebSocket = (id: string) => {
@@ -321,6 +343,10 @@ const ThreadView: React.FC = () => {
       // 加载 Agent 配置
       api.agents.get(agentId).then((config: AgentConfig) => {
         setDebugAgentConfig(config);
+        // 全栈工程师角色自动进入 Solo 模式
+        if (config.role === 'fullstack_engineer') {
+          setSoloMode(true);
+        }
       }).catch(err => {
         message.error('加载 Agent 配置失败');
         console.error(err);
@@ -334,6 +360,8 @@ const ThreadView: React.FC = () => {
     } else {
       setDebugMode(false);
       setDebugAgentConfig(null);
+      // 退出调试模式时关闭 Solo 模式
+      setSoloMode(false);
     }
 
     return () => {
@@ -392,6 +420,34 @@ const ThreadView: React.FC = () => {
   useEffect(() => {
     scrollToBottom();
   }, [streamingMessages]);
+
+  // 沙箱面板拖拽调整大小
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing) return;
+      const deltaX = resizeStartX.current - e.clientX;
+      const newWidth = Math.max(300, Math.min(800, resizeStartWidth.current + deltaX));
+      setSandboxWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      if (isResizing) {
+        setIsResizing(false);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+    };
+
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing]);
 
   const connectWebSocket = (id: string) => {
     // 先关闭已有连接，避免重复连接
@@ -789,61 +845,6 @@ const ThreadView: React.FC = () => {
     inputRef.current?.focus();
   };
 
-  // 干预操作处理
-  const handlePause = async () => {
-    try {
-      if (currentThread?.abortToken) {
-        // 调用取消 API
-        message.info('正在暂停当前 Agent...');
-      }
-    } catch (error) {
-      message.error('暂停失败');
-    }
-  };
-
-  const handleResume = () => {
-    message.info('继续执行');
-  };
-
-  const handleSkip = async () => {
-    try {
-      await api.threads.updateStatus(threadId!, 'running');
-      message.success('已跳过当前任务，继续执行');
-    } catch (error) {
-      message.error('跳过失败');
-    }
-  };
-
-  const handleRetry = async () => {
-    try {
-      await api.threads.updateStatus(threadId!, 'running');
-      message.success('正在重试当前任务');
-    } catch (error) {
-      message.error('重试失败');
-    }
-  };
-
-  const handleStop = () => {
-    Modal.confirm({
-      title: '确认终止？',
-      content: '终止后将无法恢复当前进度',
-      okText: '确认终止',
-      okType: 'danger',
-      cancelText: '取消',
-      onOk: async () => {
-        try {
-          if (currentThread?.abortToken) {
-            // 调用终止 API
-          }
-          await api.threads.updateStatus(threadId!, 'failed');
-          message.info('已终止任务');
-        } catch (error) {
-          message.error('终止失败');
-        }
-      },
-    });
-  };
-
   /**
    * 处理终止Agent
    */
@@ -1014,6 +1015,9 @@ const ThreadView: React.FC = () => {
         msg.agentId ||
         'Agent';
 
+      // 解析内容块
+      const contentBlocks = parseContentBlocks(msg.content);
+
       return (
         <div key={msg.id} className="message-container message-container-agent">
           <Avatar
@@ -1043,7 +1047,41 @@ const ThreadView: React.FC = () => {
                   </Tooltip>
                 </div>
               </div>
-              <div className="message-body">{msg.content}</div>
+
+              {/* 内容块渲染 */}
+              <div className="message-body">
+                {contentBlocks.map((block, index) => {
+                  // 视觉内容：气泡内卡片
+                  if (shouldShowInBubble(block.type)) {
+                    return (
+                      <ContentCard
+                        key={index}
+                        type={block.type}
+                        content={block.content}
+                        title={block.filename}
+                        language={block.language}
+                      />
+                    );
+                  }
+
+                  // 代码：预览入口按钮
+                  if (shouldShowInPanel(block.type)) {
+                    const files = parseCodeFiles(block);
+                    return (
+                      <CodePreviewButton
+                        key={index}
+                        files={files}
+                        onClick={() => openCodePanel(files)}
+                      />
+                    );
+                  }
+
+                  // 默认：使用 MessageContent 渲染
+                  return (
+                    <MessageContent key={index} content={block.content} />
+                  );
+                })}
+              </div>
 
               {/* 产物卡片 */}
               {hasArtifact && (
@@ -1098,7 +1136,7 @@ const ThreadView: React.FC = () => {
                 {new Date(msg.createdAt).toLocaleString()}
               </span>
             </div>
-            <div className="message-body">{msg.content}</div>
+            <MessageContent content={msg.content} className="message-body" />
           </div>
         </div>
         <Avatar
@@ -1168,7 +1206,6 @@ const ThreadView: React.FC = () => {
   }
 
   const isRunning = isDebugMode ? debugStatus === 'running' : activeAgents.length > 0;
-  const isPaused = !isDebugMode && currentThread?.status === 'paused';
 
   // Get agents available for @mention
   // 调试模式：只显示当前调试的 Agent
@@ -1188,10 +1225,61 @@ const ThreadView: React.FC = () => {
   // 获取工作目录
   const displayProjectPath = isDebugMode ? debugProjectPath : (currentProject?.localPath || '');
 
+  // 切换 Solo 模式
+  const toggleSoloMode = () => {
+    setSoloMode(!soloMode);
+    if (!soloMode) {
+      // 进入 Solo 模式时，收起侧边栏
+      setFileSidebarVisible(false);
+      setArtifactsSidebarVisible(false);
+      setSandboxSidebarVisible(false);
+    }
+  };
+
+  // 沙箱面板拖拽调整大小
+  const handleResizeStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+    resizeStartX.current = e.clientX;
+    resizeStartWidth.current = sandboxWidth;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  };
+
   return (
-    <div className="thread-view-wrapper">
-      {/* 左侧文件树侧边栏 - 调试模式和工作流模式都显示 */}
-      {fileSidebarVisible && (isDebugMode || projectId) && (
+    <div className={`thread-view-wrapper ${soloMode ? 'solo-mode' : ''}`}>
+      {/* Solo 模式下的顶部切换栏 */}
+      {soloMode && (
+        <div className="solo-mode-header">
+          <div className="solo-mode-tabs">
+            <Button
+              type="text"
+              className="solo-mode-tab"
+              icon={<ApartmentOutlined />}
+              onClick={() => setSoloMode(false)}
+            >
+              工作流模式
+            </Button>
+            <Button
+              type="text"
+              className="solo-mode-tab active"
+              icon={<ThunderboltOutlined />}
+            >
+              Solo 模式
+            </Button>
+          </div>
+          <Button
+            className={`solo-mode-action-btn ${currentSandboxServer ? 'primary' : ''}`}
+            icon={<DesktopOutlined />}
+            onClick={() => setSandboxSidebarVisible(!sandboxSidebarVisible)}
+          >
+            沙箱
+          </Button>
+        </div>
+      )}
+
+      {/* 正常模式下的左侧文件树侧边栏 */}
+      {!soloMode && fileSidebarVisible && (isDebugMode || projectId) && (
         <div className="file-sidebar">
           {/* 工作目录显示/输入 */}
           <div className="file-sidebar-path">
@@ -1226,365 +1314,346 @@ const ThreadView: React.FC = () => {
         </div>
       )}
 
-      <div className="thread-view">
-        {/* 干预控制面板 */}
-        <div className="intervention-bar">
-          <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-            <Space>
-              <Tooltip title={fileSidebarVisible ? '隐藏文件树' : '显示文件树'}>
-                <Button
-                  icon={fileSidebarVisible ? <MenuFoldOutlined /> : <MenuUnfoldOutlined />}
-                  onClick={() => setFileSidebarVisible(!fileSidebarVisible)}
-                  size="small"
-                />
-              </Tooltip>
-              <Button
-                icon={<ArrowLeftOutlined />}
-                onClick={() => isDebugMode ? navigate('/agents') : navigate(`/projects/${projectId}`)}
-                size="small"
-              >
-                {isDebugMode ? '返回 Agent 列表' : '返回项目'}
-              </Button>
-            <Tag color={wsConnected ? 'green' : 'red'}>
-              {wsConnected ? '已连接' : '未连接'}
-            </Tag>
-            {isDebugMode && debugAgentConfig && (
-              <Tag color="purple">调试: {debugAgentConfig.name}</Tag>
-            )}
-            {currentThread && !isDebugMode && (
-              <Tag color={PhaseColors[currentThread.currentPhase]}>
-                {PhaseLabels[currentThread.currentPhase]}
-              </Tag>
-            )}
-            {isRunning && (
-              <Badge status="processing" text={`${activeAgents.length} 个 Agent 运行中`} />
-            )}
-          </Space>
-          <Space>
-            <InterventionControls
-              onPause={handlePause}
-              onResume={handleResume}
-              onSkip={handleSkip}
-              onRetry={handleRetry}
-              onStop={handleStop}
-              isPaused={isPaused}
-              isRunning={isRunning}
-            />
-            {/* 产物按钮 */}
-            <Tooltip title={artifactsSidebarVisible ? '隐藏产物' : '查看产物列表'}>
-              <Button
-                icon={<UnorderedListOutlined />}
-                onClick={() => {
-                  const willShow = !artifactsSidebarVisible;
-                  setArtifactsSidebarVisible(willShow);
-                  // 打开产物时关闭沙箱
-                  if (willShow) {
-                    setSandboxSidebarVisible(false);
-                  }
-                }}
-                size="small"
-                type={artifactsSidebarVisible ? 'primary' : 'default'}
-              >
-                产物
-              </Button>
-            </Tooltip>
-            {/* 沙箱按钮 */}
-            <Tooltip title={sandboxSidebarVisible ? '隐藏沙箱' : '打开沙箱预览'}>
-              <Button
-                icon={<DesktopOutlined />}
-                onClick={() => {
-                  const willShow = !sandboxSidebarVisible;
-                  setSandboxSidebarVisible(willShow);
-                  // 打开沙箱时关闭产物
-                  if (willShow) {
-                    setArtifactsSidebarVisible(false);
-                    // 收起左侧目录树，给对话框更大空间
-                    setFileSidebarVisible(false);
-                  }
-                }}
-                size="small"
-                type={currentSandboxServer ? 'primary' : sandboxSidebarVisible ? 'default' : 'default'}
-              >
-                沙箱
-              </Button>
-            </Tooltip>
-          </Space>
-        </Space>
-      </div>
-
-      {/* 消息区域 */}
-      <div className="thread-messages">
-        {messages.length === 0 && Object.keys(streamingMessages).length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '60px 20px', color: '#999' }}>
-            <RobotOutlined style={{ fontSize: 48, marginBottom: 16 }} />
-            <Title level={4} type="secondary">开始您的开发任务</Title>
-            <Text type="secondary">
-              在下方输入您的需求，或使用 @需求分析师、@架构师、@开发者 等 Agent 协助开发
-            </Text>
-          </div>
-        ) : (
-          <>
-            {messages.map(renderMessage)}
-            {/* 流式消息渲染 - 只渲染还未完成的消息 */}
-            {Object.entries(streamingMessages).filter(([invocationId]) => {
-              // 如果消息已在 messages 中，不重复渲染
-              const messageId = `agent-${invocationId}`;
-              return !messages.some(m => m.id === messageId);
-            }).map(([invocationId, streamMsg]) => {
-              const progress = progressState[invocationId];
-              const isThinking = progress?.status === 'thinking';
-              const isToolUse = progress?.status === 'tool_use';
-              const isGenerating = progress?.status === 'generating';
-
-              return (
-                <div key={invocationId} className="message-container message-container-agent">
-                  <Avatar
-                    className="message-avatar"
-                    icon={<RobotOutlined />}
-                    style={{ backgroundColor: '#1890ff' }}
-                  />
-                  <div className="message message-agent streaming">
-                    <div className="message-content">
-                      <div className="message-header">
-                        <span className="message-role">
-                          {streamMsg.agentName || 'Agent'}
-                        </span>
-                        <div className="message-header-right">
-                          {/* 进度状态标签 */}
-                          {isThinking && (
-                            <Tag color="blue" style={{ marginLeft: 8 }}>
-                              💭 思考中...
-                            </Tag>
-                          )}
-                          {isToolUse && progress?.toolName && (
-                            <Tag color="orange" style={{ marginLeft: 8 }}>
-                              🔧 执行: {progress.toolName}
-                            </Tag>
-                          )}
-                          {isGenerating && (
-                            <Tag color="processing" style={{ marginLeft: 8 }}>
-                              生成中...
-                            </Tag>
-                          )}
-                          {/* 终止按钮 */}
-                          <Tooltip title="终止">
-                            <Button
-                              type="text"
-                              size="small"
-                              danger
-                              icon={<StopOutlined />}
-                              className="message-action-btn"
-                              onClick={() => handleStopAgent(invocationId)}
-                            />
-                          </Tooltip>
-                        </div>
-                      </div>
-                      {/* 工具调用详情 */}
-                      {isToolUse && progress?.toolInput && Object.keys(progress.toolInput).length > 0 && (
-                        <div style={{
-                          marginBottom: 8,
-                          padding: '4px 8px',
-                          background: '#fafafa',
-                          borderRadius: 4,
-                          fontSize: 12,
-                          color: '#666'
-                        }}>
-                          {String(progress.toolInput.description || progress.toolInput.command || JSON.stringify(progress.toolInput).slice(0, 100))}
-                        </div>
-                      )}
-                      <div className="message-body">
-                        {streamMsg.content}
-                        {isGenerating && <span className="streaming-cursor">▌</span>}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </>
-        )}
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* 底部输入区 */}
-      <div className="thread-input">
-        <div style={{ position: 'relative', flex: 1 }}>
-          <TextArea
-            ref={inputRef}
-            value={inputValue}
-            onChange={handleInputChange}
-            onKeyPress={handleKeyPress}
-            placeholder="输入消息或使用 @需求分析师 @架构师 @开发者 等触发 Agent..."
-            autoSize={{ minRows: 2, maxRows: 6 }}
-          />
-
-          {/* @mention 下拉列表 */}
-          {mentionListVisible && (
-            <Card
-              size="small"
-              className="mention-dropdown"
-              style={{
-                position: 'absolute',
-                bottom: '100%',
-                left: 0,
-                marginBottom: 4,
-                minWidth: 200,
-                zIndex: 1000,
-              }}
-            >
-              {loadingProjectContext ? (
-                <div style={{ padding: 16, textAlign: 'center' }}>
-                  <Spin size="small" />
-                  <span style={{ marginLeft: 8 }}>加载中...</span>
-                </div>
-              ) : agentOptions.length === 0 ? (
-                <div style={{ padding: 16, textAlign: 'center', color: '#999' }}>
-                  当前工作流没有可用的 Agent
+      {/* Solo 模式下：消息区 + 沙箱 并排显示 */}
+      {soloMode ? (
+        /* Solo 模式：消息区 + 沙箱 并排 */
+        <div className="solo-mode-content">
+          <div className="thread-view">
+            {/* 消息区域 */}
+            <div className="thread-messages">
+              {messages.length === 0 && Object.keys(streamingMessages).length === 0 ? (
+                <div className="solo-mode-welcome">
+                  <RobotOutlined className="solo-mode-welcome-icon" />
+                  <Title level={3} type="secondary" className="solo-mode-welcome-title">
+                    开始您的开发任务
+                  </Title>
+                  <Text type="secondary" className="solo-mode-welcome-desc">
+                    在下方输入您的需求，全栈工程师将协助您完成开发
+                  </Text>
                 </div>
               ) : (
-                <List
-                  size="small"
-                  dataSource={agentOptions.filter(opt =>
-                    !mentionFilter ||
-                    opt.label.toLowerCase().includes(mentionFilter.toLowerCase()) ||
-                    opt.role.toLowerCase().includes(mentionFilter.toLowerCase())
-                  )}
-                  renderItem={(opt) => (
-                    <List.Item
-                      className="mention-list-item"
-                      style={{ cursor: 'pointer', padding: '8px 12px' }}
-                      onClick={() => selectMention(opt.id, opt.role as AgentRole, opt.name)}
-                    >
-                      <Space>
-                        <Avatar size="small" icon={<RobotOutlined />} />
-                        <span>{opt.label}</span>
-                      </Space>
-                    </List.Item>
-                  )}
-                />
+                <>
+                  {messages.map(renderMessage)}
+                  {Object.entries(streamingMessages).filter(([invocationId]) => {
+                    const messageId = `agent-${invocationId}`;
+                    return !messages.some(m => m.id === messageId);
+                  }).map(([invocationId, streamMsg]) => {
+                    const progress = progressState[invocationId];
+                    const isThinking = progress?.status === 'thinking';
+                    const isToolUse = progress?.status === 'tool_use';
+                    const isGenerating = progress?.status === 'generating';
+
+                    return (
+                      <div key={invocationId} className="message-container message-container-agent">
+                        <Avatar
+                          className="message-avatar"
+                          icon={<RobotOutlined />}
+                          style={{ backgroundColor: '#1890ff' }}
+                        />
+                        <div className="message message-agent streaming">
+                          <div className="message-content">
+                            <div className="message-header">
+                              <span className="message-role">{streamMsg.agentName || 'Agent'}</span>
+                              <div className="message-header-right">
+                                {isThinking && <Tag color="blue" style={{ marginLeft: 8 }}>💭 思考中...</Tag>}
+                                {isToolUse && progress?.toolName && <Tag color="orange" style={{ marginLeft: 8 }}>🔧 执行: {progress.toolName}</Tag>}
+                                {isGenerating && <Tag color="processing" style={{ marginLeft: 8 }}>生成中...</Tag>}
+                                <Tooltip title="终止">
+                                  <Button type="text" size="small" danger icon={<StopOutlined />} className="message-action-btn" onClick={() => handleStopAgent(invocationId)} />
+                                </Tooltip>
+                              </div>
+                            </div>
+                            {isToolUse && progress?.toolInput && Object.keys(progress.toolInput).length > 0 && (
+                              <div style={{ marginBottom: 8, padding: '4px 8px', background: '#fafafa', borderRadius: 4, fontSize: 12, color: '#666' }}>
+                                {String(progress.toolInput.description || progress.toolInput.command || JSON.stringify(progress.toolInput).slice(0, 100))}
+                              </div>
+                            )}
+                            <div className="message-body">
+                              {streamMsg.content}
+                              {isGenerating && <span className="streaming-cursor">▌</span>}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </>
               )}
-            </Card>
+              <div ref={messagesEndRef} />
+            </div>
+
+            {/* 底部输入区 */}
+            <div className="thread-input">
+              <div style={{ position: 'relative', flex: 1 }}>
+                <TextArea
+                  ref={inputRef}
+                  value={inputValue}
+                  onChange={handleInputChange}
+                  onKeyPress={handleKeyPress}
+                  placeholder="输入您的需求..."
+                  autoSize={{ minRows: 2, maxRows: 6 }}
+                />
+              </div>
+              <Space direction="vertical">
+                <Button type="primary" icon={<SendOutlined />} onClick={handleSend}>发送</Button>
+              </Space>
+            </div>
+          </div>
+
+          {/* Solo 模式下的沙箱面板 */}
+          {sandboxSidebarVisible && (
+            <>
+              <div className={`resize-handle ${isResizing ? 'resizing' : ''}`} onMouseDown={handleResizeStart} style={{ width: isResizing ? 3 : 6 }} />
+              <div style={{ position: 'relative', display: 'flex' }}>
+                {/* 拖拽时的遮罩层 - 防止iframe捕获鼠标事件 */}
+                {isResizing && <div className="resize-overlay" />}
+                <SandboxPanel
+                  onClose={() => setSandboxSidebarVisible(false)}
+                  isDebugMode={isDebugMode}
+                  hasProjectPath={Boolean(getProjectPath())}
+                  sandboxServer={currentSandboxServer}
+                  sandboxLoading={currentSandboxLoading}
+                  dockerAvailable={dockerAvailable}
+                  onRunSandbox={handleRunSandbox}
+                  onStopSandbox={handleStopSandbox}
+                  soloMode={true}
+                  width={sandboxWidth}
+                />
+              </div>
+            </>
+          )}
+
+          {/* 代码面板 */}
+          {codePanelOpen && (
+            <CodePanel
+              isOpen={codePanelOpen}
+              isCollapsed={codePanelCollapsed}
+              files={codeFiles}
+              expandedFiles={expandedFiles}
+              onToggleCollapse={toggleCodePanelCollapse}
+              onClose={closeCodePanel}
+              onToggleFile={toggleFileExpand}
+              onApplyAll={() => {
+                message.success('代码已应用');
+              }}
+              onCopyAll={() => {
+                const allCode = codeFiles.map(f => `// ${f.filename}\n${f.modifiedContent}`).join('\n\n');
+                navigator.clipboard.writeText(allCode);
+                message.success('代码已复制到剪贴板');
+              }}
+            />
           )}
         </div>
-        <Space direction="vertical">
-          <Button type="primary" icon={<SendOutlined />} onClick={handleSend}>
-            发送
-          </Button>
-        </Space>
-      </div>
+      ) : (
+        /* 非Solo模式：原有结构 */
+        <>
+          <div className="thread-view">
+            {/* 干预控制面板 */}
+            <div className="intervention-bar">
+              <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+                <Space>
+                  <Tooltip title={fileSidebarVisible ? '隐藏文件树' : '显示文件树'}>
+                    <Button icon={fileSidebarVisible ? <MenuFoldOutlined /> : <MenuUnfoldOutlined />} onClick={() => setFileSidebarVisible(!fileSidebarVisible)} size="small" />
+                  </Tooltip>
+                  <Button icon={<ArrowLeftOutlined />} onClick={() => isDebugMode ? navigate('/agents') : navigate(`/projects/${projectId}`)} size="small">
+                    {isDebugMode ? '返回 Agent 列表' : '返回项目'}
+                  </Button>
+                  <Tag color={wsConnected ? 'green' : 'red'}>{wsConnected ? '已连接' : '未连接'}</Tag>
+                  {isDebugMode && debugAgentConfig && <Tag color="purple">调试: {debugAgentConfig.name}</Tag>}
+                  {isRunning && <Badge status="processing" text={`${activeAgents.length} 个 Agent 运行中`} />}
+                </Space>
+                <Space>
+                  <Tooltip title="进入 Solo 模式">
+                    <Button icon={<FullscreenOutlined />} onClick={toggleSoloMode} size="small">Solo</Button>
+                  </Tooltip>
+                  <Tooltip title={artifactsSidebarVisible ? '隐藏产物' : '查看产物列表'}>
+                    <Button
+                      icon={<UnorderedListOutlined />}
+                      onClick={() => { setArtifactsSidebarVisible(!artifactsSidebarVisible); setSandboxSidebarVisible(false); }}
+                      size="small"
+                      type={artifactsSidebarVisible ? 'primary' : 'default'}
+                    >产物</Button>
+                  </Tooltip>
+                  <Tooltip title={sandboxSidebarVisible ? '隐藏沙箱' : '打开沙箱预览'}>
+                    <Button
+                      icon={<DesktopOutlined />}
+                      onClick={() => { setSandboxSidebarVisible(!sandboxSidebarVisible); setArtifactsSidebarVisible(false); setFileSidebarVisible(false); }}
+                      size="small"
+                      type={currentSandboxServer ? 'primary' : sandboxSidebarVisible ? 'default' : 'default'}
+                    >沙箱</Button>
+                  </Tooltip>
+                </Space>
+              </Space>
+            </div>
 
-      {/* 运行中 Agent 显示 */}
-      {activeAgents.length > 0 && (
-        <div className="active-agents">
-          <span>运行中的 Agent: </span>
-          {activeAgents.map((agent) => (
-            <Tooltip key={agent.id} title={agent.input}>
-              <Tag color="processing">
-                {AgentRoleLabels[agent.role as keyof typeof AgentRoleLabels] || agent.role}
-              </Tag>
-            </Tooltip>
-          ))}
-        </div>
-      )}
+            {/* 消息区域 */}
+            <div className="thread-messages">
+              {messages.length === 0 && Object.keys(streamingMessages).length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '60px 20px', color: '#999' }}>
+                  <RobotOutlined style={{ fontSize: 48, marginBottom: 16 }} />
+                  <Title level={4} type="secondary">开始您的开发任务</Title>
+                  <Text type="secondary">在下方输入您的需求，或使用 @需求分析师、@架构师、@开发者 等 Agent 协助开发</Text>
+                </div>
+              ) : (
+                <>
+                  {messages.map(renderMessage)}
+                  {Object.entries(streamingMessages).filter(([invocationId]) => {
+                    const messageId = `agent-${invocationId}`;
+                    return !messages.some(m => m.id === messageId);
+                  }).map(([invocationId, streamMsg]) => {
+                    const progress = progressState[invocationId];
+                    const isThinking = progress?.status === 'thinking';
+                    const isToolUse = progress?.status === 'tool_use';
+                    const isGenerating = progress?.status === 'generating';
 
-      {/* 检查点确认弹窗 */}
-      <Modal
-        title={
-          <Space>
-            <ExclamationCircleOutlined style={{ color: '#faad14' }} />
-            <span>{currentCheckpoint?.title || '确认检查点'}</span>
-          </Space>
-        }
-        open={checkpointModalVisible}
-        onOk={handleCheckpointConfirm}
-        onCancel={handleCheckpointReject}
-        okText="确认通过"
-        cancelText="需要修改"
-        width={600}
-      >
-        <Alert
-          type="info"
-          message="请确认以下内容是否符合预期"
-          description={currentCheckpoint?.content}
-          showIcon
-          style={{ marginBottom: 16 }}
-        />
-        <Text type="secondary">
-          确认后将进入下一阶段，如需修改请点击"需要修改"并在对话中描述您的修改要求。
-        </Text>
-      </Modal>
-      </div>
+                    return (
+                      <div key={invocationId} className="message-container message-container-agent">
+                        <Avatar className="message-avatar" icon={<RobotOutlined />} style={{ backgroundColor: '#1890ff' }} />
+                        <div className="message message-agent streaming">
+                          <div className="message-content">
+                            <div className="message-header">
+                              <span className="message-role">{streamMsg.agentName || 'Agent'}</span>
+                              <div className="message-header-right">
+                                {isThinking && <Tag color="blue" style={{ marginLeft: 8 }}>💭 思考中...</Tag>}
+                                {isToolUse && progress?.toolName && <Tag color="orange" style={{ marginLeft: 8 }}>🔧 执行: {progress.toolName}</Tag>}
+                                {isGenerating && <Tag color="processing" style={{ marginLeft: 8 }}>生成中...</Tag>}
+                                <Tooltip title="终止">
+                                  <Button type="text" size="small" danger icon={<StopOutlined />} className="message-action-btn" onClick={() => handleStopAgent(invocationId)} />
+                                </Tooltip>
+                              </div>
+                            </div>
+                            {isToolUse && progress?.toolInput && Object.keys(progress.toolInput).length > 0 && (
+                              <div style={{ marginBottom: 8, padding: '4px 8px', background: '#fafafa', borderRadius: 4, fontSize: 12, color: '#666' }}>
+                                {String(progress.toolInput.description || progress.toolInput.command || JSON.stringify(progress.toolInput).slice(0, 100))}
+                              </div>
+                            )}
+                            <div className="message-body">
+                              {streamMsg.content}
+                              {isGenerating && <span className="streaming-cursor">▌</span>}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+              <div ref={messagesEndRef} />
+            </div>
 
-      {/* 产物侧边栏 */}
-      {artifactsSidebarVisible && (
-        <div className="artifacts-sidebar">
-          <div className="artifacts-sidebar-header">
-            <span>产物列表</span>
-            <Button
-              type="text"
-              size="small"
-              onClick={() => setArtifactsSidebarVisible(false)}
-            >
-              ✕
-            </Button>
-          </div>
-          <div className="artifacts-sidebar-content">
-            {artifacts.length > 0 ? (
-              <List
-                dataSource={artifacts}
-                renderItem={renderArtifactItem}
-                split
-                style={{ padding: '12px 16px' }}
-              />
-            ) : (
-              <Empty
-                description="暂无产物"
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-                style={{ padding: '40px 16px' }}
-              />
-            )}
-
-            <Divider style={{ margin: '12px 16px' }} />
-
-            {/* 审查报告 */}
-            {reviewResult && (
-              <div style={{ padding: '0 16px 16px' }}>
-                <Collapse defaultActiveKey={['review']}>
-                  <Panel
-                    header={
-                      <Space>
-                        <ExclamationCircleOutlined />
-                        <span>审查状态</span>
-                        {reviewResult.decision === 'allow' ? (
-                          <Tag color="green">可以放行</Tag>
-                        ) : (
-                          <Tag color="red">{reviewResult.p1Issues + reviewResult.p2Issues} 个问题</Tag>
+            {/* 底部输入区 */}
+            <div className="thread-input">
+              <div style={{ position: 'relative', flex: 1 }}>
+                <TextArea
+                  ref={inputRef}
+                  value={inputValue}
+                  onChange={handleInputChange}
+                  onKeyPress={handleKeyPress}
+                  placeholder="输入消息或使用 @需求分析师 @架构师 @开发者 等触发 Agent..."
+                  autoSize={{ minRows: 2, maxRows: 6 }}
+                />
+                {mentionListVisible && (
+                  <Card size="small" className="mention-dropdown" style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: 4, minWidth: 200, zIndex: 1000 }}>
+                    {loadingProjectContext ? (
+                      <div style={{ padding: 16, textAlign: 'center' }}><Spin size="small" /><span style={{ marginLeft: 8 }}>加载中...</span></div>
+                    ) : agentOptions.length === 0 ? (
+                      <div style={{ padding: 16, textAlign: 'center', color: '#999' }}>当前工作流没有可用的 Agent</div>
+                    ) : (
+                      <List size="small" dataSource={agentOptions.filter(opt => !mentionFilter || opt.label.toLowerCase().includes(mentionFilter.toLowerCase()) || opt.role.toLowerCase().includes(mentionFilter.toLowerCase()))}
+                        renderItem={(opt) => (
+                          <List.Item className="mention-list-item" style={{ cursor: 'pointer', padding: '8px 12px' }} onClick={() => selectMention(opt.id, opt.role as AgentRole, opt.name)}>
+                            <Space><Avatar size="small" icon={<RobotOutlined />} /><span>{opt.label}</span></Space>
+                          </List.Item>
                         )}
-                      </Space>
-                    }
-                    key="review"
-                  >
-                    <ReviewReport result={reviewResult} issues={reviewIssues} />
-                  </Panel>
-                </Collapse>
+                      />
+                    )}
+                  </Card>
+                )}
+              </div>
+              <Space direction="vertical">
+                <Button type="primary" icon={<SendOutlined />} onClick={handleSend}>发送</Button>
+              </Space>
+            </div>
+
+            {/* 运行中 Agent 显示 */}
+            {activeAgents.length > 0 && (
+              <div className="active-agents">
+                <span>运行中的 Agent: </span>
+                {activeAgents.map((agent) => (
+                  <Tooltip key={agent.id} title={agent.input}>
+                    <Tag color="processing">{AgentRoleLabels[agent.role as keyof typeof AgentRoleLabels] || agent.role}</Tag>
+                  </Tooltip>
+                ))}
               </div>
             )}
-          </div>
-        </div>
-      )}
 
-      {/* 沙箱侧边栏 */}
-      {sandboxSidebarVisible && (
-        <SandboxPanel
-          onClose={() => setSandboxSidebarVisible(false)}
-          isDebugMode={isDebugMode}
-          hasProjectPath={Boolean(getProjectPath())}
-          sandboxServer={currentSandboxServer}
-          sandboxLoading={currentSandboxLoading}
-          dockerAvailable={dockerAvailable}
-          onRunSandbox={handleRunSandbox}
-          onStopSandbox={handleStopSandbox}
-        />
+            {/* 检查点确认弹窗 */}
+            <Modal
+              title={<Space><ExclamationCircleOutlined style={{ color: '#faad14' }} /><span>{currentCheckpoint?.title || '确认检查点'}</span></Space>}
+              open={checkpointModalVisible}
+              onOk={handleCheckpointConfirm}
+              onCancel={handleCheckpointReject}
+              okText="确认通过"
+              cancelText="需要修改"
+              width={600}
+            >
+              <Alert type="info" message="请确认以下内容是否符合预期" description={currentCheckpoint?.content} showIcon style={{ marginBottom: 16 }} />
+              <Text type="secondary">确认后将进入下一阶段，如需修改请点击"需要修改"并在对话中描述您的修改要求。</Text>
+            </Modal>
+          </div>
+
+          {/* 产物侧边栏 */}
+          {artifactsSidebarVisible && (
+            <div className="artifacts-sidebar">
+              <div className="artifacts-sidebar-header">
+                <span>产物列表</span>
+                <Button type="text" size="small" onClick={() => setArtifactsSidebarVisible(false)}>✕</Button>
+              </div>
+              <div className="artifacts-sidebar-content">
+                {artifacts.length > 0 ? (
+                  <List dataSource={artifacts} renderItem={renderArtifactItem} split style={{ padding: '12px 16px' }} />
+                ) : (
+                  <Empty description="暂无产物" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ padding: '40px 16px' }} />
+                )}
+                <Divider style={{ margin: '12px 16px' }} />
+                {reviewResult && (
+                  <div style={{ padding: '0 16px 16px' }}>
+                    <Collapse defaultActiveKey={['review']}>
+                      <Panel
+                        header={<Space><ExclamationCircleOutlined /><span>审查状态</span>{reviewResult.decision === 'allow' ? <Tag color="green">可以放行</Tag> : <Tag color="red">{reviewResult.p1Issues + reviewResult.p2Issues} 个问题</Tag>}</Space>}
+                        key="review"
+                      >
+                        <ReviewReport result={reviewResult} issues={reviewIssues} />
+                      </Panel>
+                    </Collapse>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* 沙箱侧边栏 */}
+          {sandboxSidebarVisible && (
+            <>
+              <div className={`resize-handle ${isResizing ? 'resizing' : ''}`} onMouseDown={handleResizeStart} style={{ width: isResizing ? 3 : 6 }} />
+              <div style={{ position: 'relative', display: 'flex' }}>
+                {isResizing && <div className="resize-overlay" />}
+                <SandboxPanel
+                  onClose={() => setSandboxSidebarVisible(false)}
+                  isDebugMode={isDebugMode}
+                  hasProjectPath={Boolean(getProjectPath())}
+                  sandboxServer={currentSandboxServer}
+                  sandboxLoading={currentSandboxLoading}
+                  dockerAvailable={dockerAvailable}
+                  onRunSandbox={handleRunSandbox}
+                  onStopSandbox={handleStopSandbox}
+                  soloMode={false}
+                  width={sandboxWidth}
+                />
+              </div>
+            </>
+          )}
+        </>
       )}
     </div>
   );
