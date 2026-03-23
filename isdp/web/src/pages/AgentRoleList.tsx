@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Table, Button, Card, Modal, Form, Input, Select, message, Space, Tag, Typography, Tooltip } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, RobotOutlined, BugOutlined, CopyOutlined, ExclamationCircleOutlined, EyeOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, RobotOutlined, BugOutlined, CopyOutlined, ExclamationCircleOutlined, EyeOutlined, SettingOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '@/api/client';
-import type { AgentConfig, BaseAgent, Skill } from '@/types';
+import type { AgentConfig, BaseAgent, Skill, Subagent, Command, Rule } from '@/types';
 
 const { Title, Text } = Typography;
 
@@ -20,24 +20,38 @@ const AgentRoleList: React.FC = () => {
   const [baseAgents, setBaseAgents] = useState<BaseAgent[]>([]);
   const [skills, setSkills] = useState<Skill[]>([]);
   const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
+  const [subagents, setSubagents] = useState<Subagent[]>([]);
+  const [selectedSubagentIds, setSelectedSubagentIds] = useState<string[]>([]);
+  const [commands, setCommands] = useState<Command[]>([]);
+  const [selectedCommandIds, setSelectedCommandIds] = useState<string[]>([]);
+  const [publicRules, setPublicRules] = useState<Rule[]>([]);
+  const [instanceRules, setInstanceRules] = useState<Rule[]>([]);
+  const [selectedRuleIds, setSelectedRuleIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingConfig, setEditingConfig] = useState<AgentConfig | null>(null);
   const [deleteLoading, setDeleteLoading] = useState<string | null>(null);
+  const [generateLoading, setGenerateLoading] = useState<string | null>(null);
   const [form] = Form.useForm();
 
   useEffect(() => {
     loadConfigs();
     loadBaseAgents();
     loadSkills();
+    loadSubagents();
+    loadCommands();
+    loadRules();
   }, []);
 
   const loadConfigs = async () => {
     setLoading(true);
     try {
       const data = await api.agents.list();
+      console.log('[DEBUG] Agent configs loaded:', data);
+      console.log('[DEBUG] First config sample:', data[0]);
       setConfigs(data);
     } catch (error) {
+      console.error('[DEBUG] Error loading configs:', error);
       message.error('加载Agent角色失败');
     } finally {
       setLoading(false);
@@ -56,19 +70,85 @@ const AgentRoleList: React.FC = () => {
   const loadSkills = async () => {
     try {
       const result = await api.skills.list({ pageSize: 100 });
-      setSkills(result.data);
+      setSkills(result.data || []);
     } catch (error) {
       console.error('加载技能列表失败', error);
+      setSkills([]);
     }
   };
 
   const loadAgentSkills = async (agentId: string) => {
     try {
       const result = await api.agents.getSkills(agentId);
-      setSelectedSkillIds(result.skills.map(s => s.id));
+      setSelectedSkillIds(result.skills?.map(s => s.id) || []);
     } catch (error) {
       console.error('加载Agent绑定的技能失败', error);
       setSelectedSkillIds([]);
+    }
+  };
+
+  const loadSubagents = async () => {
+    try {
+      const result = await api.subagents.list({ pageSize: 100 });
+      setSubagents(result.data || []);
+    } catch (error) {
+      console.error('加载子代理列表失败', error);
+      setSubagents([]);
+    }
+  };
+
+  const loadAgentSubagents = async (agentId: string) => {
+    try {
+      const result = await api.agents.getSubagents(agentId);
+      setSelectedSubagentIds(result.subagents?.map(s => s.id) || []);
+    } catch (error) {
+      console.error('加载Agent绑定的子代理失败', error);
+      setSelectedSubagentIds([]);
+    }
+  };
+
+  const loadCommands = async () => {
+    try {
+      const result = await api.commands.list({ pageSize: 100 });
+      setCommands(result.data || []);
+    } catch (error) {
+      console.error('加载命令列表失败', error);
+      setCommands([]);
+    }
+  };
+
+  const loadAgentCommands = async (agentId: string) => {
+    try {
+      const result = await api.commands.getAgentCommands(agentId);
+      setSelectedCommandIds(result.commands?.map(c => c.id) || []);
+    } catch (error) {
+      console.error('加载Agent绑定的命令失败', error);
+      setSelectedCommandIds([]);
+    }
+  };
+
+  const loadRules = async () => {
+    try {
+      const [publicResult, instanceResult] = await Promise.all([
+        api.rules.getPublicRules(),
+        api.rules.getInstanceRules(),
+      ]);
+      setPublicRules(publicResult || []);
+      setInstanceRules(instanceResult || []);
+    } catch (error) {
+      console.error('加载规约列表失败', error);
+      setPublicRules([]);
+      setInstanceRules([]);
+    }
+  };
+
+  const loadAgentRules = async (agentId: string) => {
+    try {
+      const result = await api.rules.getAgentRules(agentId);
+      setSelectedRuleIds(result.agents?.map(a => a.id) || []);
+    } catch (error) {
+      console.error('加载Agent绑定的规约失败', error);
+      setSelectedRuleIds([]);
     }
   };
 
@@ -76,13 +156,22 @@ const AgentRoleList: React.FC = () => {
     setEditingConfig(null);
     form.resetFields();
     setSelectedSkillIds([]);
+    setSelectedSubagentIds([]);
+    setSelectedCommandIds([]);
+    // 公共规约默认选中
+    setSelectedRuleIds(publicRules.map(r => r.id));
     setModalVisible(true);
   };
 
   const handleEdit = async (record: AgentConfig) => {
     setEditingConfig(record);
     form.setFieldsValue(record);
-    await loadAgentSkills(record.id);
+    await Promise.all([
+      loadAgentSkills(record.id),
+      loadAgentSubagents(record.id),
+      loadAgentCommands(record.id),
+      loadAgentRules(record.id),
+    ]);
     setModalVisible(true);
   };
 
@@ -132,8 +221,16 @@ const AgentRoleList: React.FC = () => {
       if (editingConfig) {
         await api.agents.update(editingConfig.id, values);
         // 更新技能绑定
-        if (selectedSkillIds.length > 0) {
-          await api.agents.bindSkills(editingConfig.id, selectedSkillIds);
+        await api.agents.bindSkills(editingConfig.id, selectedSkillIds);
+        // 更新子代理绑定
+        await api.agents.bindSubagents(editingConfig.id, selectedSubagentIds);
+        // 更新命令绑定
+        if (selectedCommandIds.length > 0) {
+          await api.commands.bindCommandsToAgent(editingConfig.id, selectedCommandIds);
+        }
+        // 更新规约绑定
+        if (selectedRuleIds.length > 0) {
+          await api.rules.bindRulesToAgent(editingConfig.id, selectedRuleIds);
         }
         message.success('更新成功');
       } else {
@@ -141,6 +238,18 @@ const AgentRoleList: React.FC = () => {
         // 为新创建的Agent绑定技能
         if (selectedSkillIds.length > 0) {
           await api.agents.bindSkills(newAgent.id, selectedSkillIds);
+        }
+        // 为新创建的Agent绑定子代理
+        if (selectedSubagentIds.length > 0) {
+          await api.agents.bindSubagents(newAgent.id, selectedSubagentIds);
+        }
+        // 为新创建的Agent绑定命令
+        if (selectedCommandIds.length > 0) {
+          await api.commands.bindCommandsToAgent(newAgent.id, selectedCommandIds);
+        }
+        // 为新创建的Agent绑定规约
+        if (selectedRuleIds.length > 0) {
+          await api.rules.bindRulesToAgent(newAgent.id, selectedRuleIds);
         }
         message.success('创建成功');
       }
@@ -193,6 +302,30 @@ const AgentRoleList: React.FC = () => {
     }
   };
 
+  const handleGenerateConfig = (record: AgentConfig) => {
+    Modal.confirm({
+      title: '生成配置',
+      content: (
+        <div>
+          <p>确定要为Agent「{record.name}」生成配置吗？</p>
+          <p>这将创建独立的配置目录，包含绑定的技能和子代理。</p>
+        </div>
+      ),
+      onOk: async () => {
+        setGenerateLoading(record.id);
+        try {
+          const result = await api.agents.generateConfig(record.id, 'claude_code');
+          message.success(`配置生成成功，包含 ${result.skills_count} 个技能和 ${result.subagents_count} 个子代理`);
+          loadConfigs();
+        } catch (error) {
+          message.error('配置生成失败');
+        } finally {
+          setGenerateLoading(null);
+        }
+      },
+    });
+  };
+
   const columns = [
     {
       title: '名称',
@@ -233,6 +366,22 @@ const AgentRoleList: React.FC = () => {
       ),
     },
     {
+      title: '配置状态',
+      key: 'configStatus',
+      width: 150,
+      render: (_: unknown, record: AgentConfig) => (
+        record.configGeneratedAt ? (
+          <Tooltip title={`路径: ${record.configPath}`}>
+            <Tag color="green">
+              已生成 ({new Date(record.configGeneratedAt).toLocaleDateString()})
+            </Tag>
+          </Tooltip>
+        ) : (
+          <Tag color="default">未生成</Tag>
+        )
+      ),
+    },
+    {
       title: '系统提示词',
       dataIndex: 'systemPrompt',
       key: 'systemPrompt',
@@ -255,6 +404,15 @@ const AgentRoleList: React.FC = () => {
       fixed: 'right' as const,
       render: (_: unknown, record: AgentConfig) => (
         <Space size="small">
+          <Button
+            type="link"
+            size="small"
+            icon={<SettingOutlined />}
+            onClick={() => handleGenerateConfig(record)}
+            loading={generateLoading === record.id}
+          >
+            生成配置
+          </Button>
           <Button type="link" size="small" icon={<BugOutlined />} onClick={() => handleDebug(record)}>
             调试
           </Button>
@@ -361,6 +519,117 @@ const AgentRoleList: React.FC = () => {
                 </div>
               )}
             />
+          </Form.Item>
+
+          <Form.Item label="绑定子代理">
+            <Select
+              mode="multiple"
+              placeholder="选择要绑定的子代理"
+              value={selectedSubagentIds}
+              onChange={setSelectedSubagentIds}
+              style={{ width: '100%' }}
+              optionLabelProp="label"
+              options={subagents.map(s => ({
+                label: s.name,
+                value: s.id,
+                desc: s.description || '暂无描述',
+              }))}
+              optionRender={(option) => (
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <span style={{ fontWeight: 500 }}>{option.label}</span>
+                  <span style={{ fontSize: 12, color: '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 400 }}>
+                    {option.data.desc}
+                  </span>
+                </div>
+              )}
+            />
+          </Form.Item>
+
+          <Form.Item label="绑定命令">
+            <Select
+              mode="multiple"
+              placeholder="选择要绑定的命令"
+              value={selectedCommandIds}
+              onChange={setSelectedCommandIds}
+              style={{ width: '100%' }}
+              optionLabelProp="label"
+              options={commands.map(c => ({
+                label: c.name,
+                value: c.id,
+                desc: c.description || '暂无描述',
+              }))}
+              optionRender={(option) => (
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <span style={{ fontWeight: 500 }}>{option.label}</span>
+                  <span style={{ fontSize: 12, color: '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 400 }}>
+                    {option.data.desc}
+                  </span>
+                </div>
+              )}
+            />
+          </Form.Item>
+
+          <Form.Item label="绑定规约">
+            <div style={{ marginBottom: 8 }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                公共规约（默认选中，可取消）:
+              </Text>
+              <Select
+                mode="multiple"
+                placeholder="选择公共规约"
+                value={selectedRuleIds.filter(id => publicRules.some(r => r.id === id))}
+                onChange={(ids) => {
+                  // 合并公共规约选择和实例规约选择
+                  const instanceSelected = selectedRuleIds.filter(id => instanceRules.some(r => r.id === id));
+                  setSelectedRuleIds([...ids, ...instanceSelected]);
+                }}
+                style={{ width: '100%', marginTop: 4 }}
+                optionLabelProp="label"
+                options={publicRules.map(r => ({
+                  label: r.name,
+                  value: r.id,
+                  desc: r.description || '暂无描述',
+                }))}
+                optionRender={(option) => (
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <span style={{ fontWeight: 500 }}>{option.label}</span>
+                    <span style={{ fontSize: 12, color: '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 400 }}>
+                      {option.data.desc}
+                    </span>
+                  </div>
+                )}
+              />
+            </div>
+            <div>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                实例规约（按需绑定）:
+              </Text>
+              <Select
+                mode="multiple"
+                placeholder="选择实例规约"
+                value={selectedRuleIds.filter(id => instanceRules.some(r => r.id === id))}
+                onChange={(ids) => {
+                  // 合并公共规约选择和实例规约选择
+                  const publicSelected = selectedRuleIds.filter(id => publicRules.some(r => r.id === id));
+                  setSelectedRuleIds([...publicSelected, ...ids]);
+                }}
+                style={{ width: '100%', marginTop: 4 }}
+                optionLabelProp="label"
+                options={instanceRules.map(r => ({
+                  label: r.name,
+                  value: r.id,
+                  desc: r.description || '暂无描述',
+                }))}
+                optionRender={(option) => (
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <span style={{ fontWeight: 500 }}>{option.label}</span>
+                    <span style={{ fontSize: 12, color: '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 400 }}>
+                      {option.data.desc}
+                    </span>
+                  </div>
+                )}
+              />
+            </div>
           </Form.Item>
         </Form>
       </Modal>
