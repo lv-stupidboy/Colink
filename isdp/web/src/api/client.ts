@@ -283,6 +283,8 @@ class APIClient {
       config_path: string;
       skills_count: number;
       subagents_count: number;
+      commands_count: number;
+      rules_count: number;
       generated_at: string;
     }> => this.request(`/agents/${id}/config/generate`, 'POST', {
       base_agent_type: baseAgentType,

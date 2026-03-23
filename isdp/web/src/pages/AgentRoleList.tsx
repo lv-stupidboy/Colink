@@ -311,7 +311,7 @@ const AgentRoleList: React.FC = () => {
         setGenerateLoading(record.id);
         try {
           const result = await api.agents.generateConfig(record.id, 'claude_code');
-          message.success(`配置生成成功，包含 ${result.skills_count} 个技能和 ${result.subagents_count} 个子代理`);
+          message.success(`配置生成成功，包含 ${result.commands_count} 个命令、${result.subagents_count} 个子代理、${result.skills_count} 个技能、${result.rules_count} 个规约`);
           loadConfigs();
         } catch (error) {
           message.error('配置生成失败');
