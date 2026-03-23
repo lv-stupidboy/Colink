@@ -4,6 +4,152 @@
 
 ---
 
+## 2026-03-24 Agent 资产管理功能实现
+
+### 背景
+
+将团队基于 Claude Code 的实践范式沉淀到 ISDP 平台，包括 Command、Rule 等资产管理能力，将 Agent 角色升级为一级菜单。
+
+### 目标
+
+1. 将 Agent 角色菜单改为一级菜单，下设多个二级菜单
+2. 新增 Command（命令）、Rule（规约）资产管理能力
+3. 建立清晰的资产绑定关系：Agent→Command/Subagent/Rule，Command/Subagent→Skill
+4. 配置生成时支持复制所有相关资产文件
+
+### 核心变更
+
+#### 后端改动
+
+##### 数据模型
+- 新增 `internal/model/command.go` - Command 模型
+- 新增 `internal/model/rule.go` - Rule 模型
+
+##### Repository 层
+- 新增 `internal/repo/command.go` - Command Repository
+- 新增 `internal/repo/rule.go` - Rule Repository
+- 新增 `internal/repo/agent_command_binding.go` - Agent-Command 绑定
+- 新增 `internal/repo/agent_rule_binding.go` - Agent-Rule 绑定
+- 新增 `internal/repo/command_skill_binding.go` - Command-Skill 绑定
+- 新增 `internal/repo/subagent_skill_binding.go` - Subagent-Skill 绑定
+
+##### Service 层
+- 新增 `internal/service/command/service.go` - Command Service
+- 新增 `internal/service/rule/service.go` - Rule Service
+- 扩展 `internal/service/configgen/service.go` - 支持 Command 和 Rule
+
+##### API 层
+- 新增 `internal/api/command_handler.go` - Command Handler
+- 新增 `internal/api/rule_handler.go` - Rule Handler
+- 扩展 Agent 绑定 API（Command/Rule）
+- 新增 Subagent 技能绑定 API
+
+#### 前端改动
+
+##### 菜单结构重构
+- 重构 `MainLayout.tsx`，Agent 角色改为一级菜单
+- 新增二级菜单：Agent 角色、Subagent、Command、Rule
+
+##### 新增页面
+- 新增 `web/src/pages/CommandList.tsx` - 命令集管理页面
+- 新增 `web/src/pages/RuleList.tsx` - 规约管理页面
+- 新增 `web/src/pages/PlaceholderPage.tsx` - 占位页面组件
+
+##### 页面扩展
+- 扩展 `AgentRoleList.tsx` - 支持 Command/Rule 绑定
+- 扩展 `SubagentList.tsx` - 支持技能绑定
+
+#### 数据库变更
+
+```sql
+-- 新增 commands 表
+CREATE TABLE commands (
+    id VARCHAR(64) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL UNIQUE,
+    description TEXT,
+    content TEXT NOT NULL,
+    tags JSON,
+    use_count INT DEFAULT 0,
+    created_at TIMESTAMP,
+    updated_at TIMESTAMP
+);
+
+-- 新增 rules 表
+CREATE TABLE rules (
+    id VARCHAR(64) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL UNIQUE,
+    description TEXT,
+    content TEXT NOT NULL,
+    scope VARCHAR(50) NOT NULL,  -- public/instance
+    tags JSON,
+    use_count INT DEFAULT 0,
+    created_at TIMESTAMP,
+    updated_at TIMESTAMP
+);
+
+-- 新增绑定关系表
+CREATE TABLE agent_command_bindings (...);
+CREATE TABLE agent_rule_bindings (...);
+CREATE TABLE command_skill_bindings (...);
+CREATE TABLE subagent_skill_bindings (...);
+```
+
+### 新增文件列表
+
+| 文件 | 说明 |
+|------|------|
+| `internal/model/command.go` | Command 模型 |
+| `internal/model/rule.go` | Rule 模型 |
+| `internal/repo/command.go` | Command Repository |
+| `internal/repo/rule.go` | Rule Repository |
+| `internal/repo/agent_command_binding.go` | Agent-Command 绑定 |
+| `internal/repo/agent_rule_binding.go` | Agent-Rule 绑定 |
+| `internal/repo/command_skill_binding.go` | Command-Skill 绑定 |
+| `internal/repo/subagent_skill_binding.go` | Subagent-Skill 绑定 |
+| `internal/service/command/service.go` | Command Service |
+| `internal/service/rule/service.go` | Rule Service |
+| `internal/api/command_handler.go` | Command Handler |
+| `internal/api/rule_handler.go` | Rule Handler |
+| `web/src/pages/CommandList.tsx` | 命令集管理页面 |
+| `web/src/pages/RuleList.tsx` | 规约管理页面 |
+| `web/src/pages/PlaceholderPage.tsx` | 占位页面组件 |
+
+### API 端点
+
+| 模块 | 方法 | 路径 | 说明 |
+|------|------|------|------|
+| Command | GET | `/api/v1/commands` | 列出命令 |
+| Command | POST | `/api/v1/commands` | 创建命令 |
+| Command | PUT | `/api/v1/commands/:id` | 更新命令 |
+| Command | DELETE | `/api/v1/commands/:id` | 删除命令 |
+| Rule | GET | `/api/v1/rules` | 列出规约 |
+| Rule | POST | `/api/v1/rules` | 创建规约 |
+| Rule | PUT | `/api/v1/rules/:id` | 更新规约 |
+| Rule | DELETE | `/api/v1/rules/:id` | 删除规约 |
+| Agent-Command | GET/POST | `/api/v1/agent-commands/:agentId` | Agent 命令绑定 |
+| Agent-Rule | GET/POST | `/api/v1/agent-rules/:agentId` | Agent 规约绑定 |
+| Command-Skill | GET/POST | `/api/v1/command-skills/:commandId` | 命令技能绑定 |
+| Subagent-Skill | GET/POST | `/api/v1/subagent-skills/:subagentId` | Subagent 技能绑定 |
+
+### 验证方法
+
+1. 启动后端服务: `cd isdp && go run ./cmd/server`
+2. 启动前端服务: `cd web && npm run dev`
+3. 访问 Agent 角色菜单，测试各二级菜单功能
+4. 测试 Command 创建、编辑、删除
+5. 测试 Rule 创建、编辑、删除
+6. 测试 Agent 绑定 Command/Rule
+7. 测试 Subagent 绑定 Skill
+
+### 影响范围
+
+- Agent 角色管理模块全面重构
+- 配置生成服务功能扩展
+- 前端菜单结构调整
+- 新增 6 张数据库表
+
+---
+
 ## 2026-03-21 技能库完整功能实现
 
 ### 背景
