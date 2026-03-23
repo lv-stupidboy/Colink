@@ -4,6 +4,62 @@
 
 ---
 
+## 2026-03-23 Solo 模式任务抽屉修复
+
+### 背景
+
+Solo 模式左侧任务列表存在布局异常、切换功能缺失、新建任务跳转页面等问题，影响用户的主要开发交互体验。
+
+### 目标
+
+1. 修复 Solo 模式布局，实现任务抽屉与消息区的水平排列
+2. 完善任务切换逻辑，确保选择历史任务时能正确加载消息
+3. 新建任务时不跳转页面，直接开启新对话
+4. 添加抽屉展开/收起控制，提升用户体验
+
+### 核心变更
+
+#### 前端改动
+
+##### CSS 样式
+- `pages/ThreadView.css` - 添加 `.solo-mode-body` 水平布局容器、`.solo-task-drawer` 抽屉样式
+
+##### 状态管理
+- `store/index.ts` - 新增 `clearThreadMessages`、`setCurrentThread` actions
+
+##### 组件逻辑
+- `pages/ThreadView.tsx` - 添加 `taskDrawerOpen` 状态、修改 JSX 结构、修复切换和新建逻辑
+
+##### 关键修复
+1. **布局修复**：添加 `.solo-mode-body` 容器实现水平布局
+2. **消息清空**：工作流模式下新建对话时清空 `workflowMessages`
+3. **线程设置**：创建/切换任务时设置 `currentThread`，确保 `sendMessage` 正常工作
+4. **任务切换**：加载历史消息到对应的 store（调试模式/工作流模式）
+
+### 新增/修改文件列表
+
+| 文件 | 改动类型 | 说明 |
+|------|----------|------|
+| isdp/web/src/pages/ThreadView.css | 修改 | 添加布局和抽屉样式 |
+| isdp/web/src/pages/ThreadView.tsx | 修改 | 状态、JSX 结构、事件处理 |
+| isdp/web/src/store/index.ts | 修改 | 新增 clearThreadMessages、setCurrentThread actions |
+
+### 验证方法
+
+1. 进入项目 → 切换 Solo 模式
+2. 点击"新建对话"，确认对话框清空显示欢迎界面
+3. 输入消息发送，确认任务创建成功且消息正常显示
+4. 切换历史任务，确认消息正确加载
+5. 在历史任务中发送消息，确认响应正常
+
+### 影响范围
+
+- Solo 模式（所有 Agent 调试模式可用）
+- 全栈工程师 Agent：自动进入 Solo 模式
+- 其他工作流：可通过顶部 Solo 按钮手动切换进入
+
+---
+
 ## 2026-03-23 工作流模板页面沙箱风格优化
 
 ### 背景

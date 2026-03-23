@@ -68,6 +68,9 @@ interface AppActions {
   // 加载Thread
   loadThread: (threadId: string) => Promise<void>;
 
+  // 设置当前Thread（用于Solo模式新建对话）
+  setCurrentThread: (thread: Thread) => void;
+
   // 发送消息
   sendMessage: (content: string, skipAgentTrigger?: boolean) => Promise<void>;
 
@@ -97,6 +100,9 @@ interface AppActions {
 
   // 重置状态
   reset: () => void;
+
+  // 清除当前会话消息（用于Solo模式新建对话）
+  clearThreadMessages: () => void;
 
   // 加载项目上下文（项目和工作流模板）
   loadProjectContext: (projectId: string) => Promise<void>;
@@ -196,6 +202,10 @@ export const useAppStore = create<AppState & AppActions>()(
       } finally {
         set({ loading: false });
       }
+    },
+
+    setCurrentThread: (thread) => {
+      set({ currentThread: thread });
     },
 
     sendMessage: async (content, skipAgentTrigger = false) => {
@@ -304,6 +314,16 @@ export const useAppStore = create<AppState & AppActions>()(
 
     reset: () => {
       set(initialState);
+    },
+
+    clearThreadMessages: () => {
+      set({
+        messages: [],
+        streamingMessages: {},
+        currentThread: null,
+        activeAgents: [],
+        progressState: {},
+      });
     },
 
     loadProjectContext: async (projectId: string) => {

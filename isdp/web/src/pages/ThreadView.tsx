@@ -101,6 +101,8 @@ const ThreadView: React.FC = () => {
     loadProjectContext,
     loadWorkflowTemplate,
     clearProjectContext,
+    clearThreadMessages,
+    setCurrentThread,
     getFilteredAgents,
     loadAgentConfigs,
     // 调试模式状态
@@ -738,6 +740,8 @@ const ThreadView: React.FC = () => {
     setInputValue('');
     setMentionListVisible(false);
 
+    console.log('[handleSend] soloMode:', soloMode, 'isDebugMode:', isDebugMode, 'projectId:', projectId, 'soloNewTaskPending:', soloNewTaskPending);
+
     // Solo 模式 - 使用特殊的发送逻辑（处理新任务创建）
     if (soloMode) {
       await handleSoloSend(content);
@@ -877,6 +881,9 @@ const ThreadView: React.FC = () => {
     // 1. 清空当前消息
     if (isDebugMode) {
       clearDebugAll();
+    } else {
+      // 工作流模式：清除工作流消息
+      clearThreadMessages();
     }
 
     // 2. 设置活跃任务
@@ -897,6 +904,15 @@ const ThreadView: React.FC = () => {
 
       // 连接 WebSocket（函数内部会先关闭现有连接）
       connectDebugWebSocket(task.id);
+    } else {
+      // 工作流模式：设置 currentThread + 加载历史消息
+      setCurrentThread(task);
+      try {
+        const messages = await api.messages.list(task.id);
+        messages.forEach(msg => addMessage(msg));
+      } catch (error) {
+        console.error('Failed to load messages:', error);
+      }
     }
 
     // 4. 更新 URL（不触发重新渲染）
@@ -905,24 +921,30 @@ const ThreadView: React.FC = () => {
     } else if (projectId) {
       navigate(`/projects/${projectId}/threads/${task.id}`, { replace: true });
     }
-  }, [isDebugMode, agentId, projectId, navigate, clearDebugAll, setDebugThreadId, addDebugMessage, connectDebugWebSocket]);
+  }, [isDebugMode, agentId, projectId, navigate, clearDebugAll, clearThreadMessages, setCurrentThread, setDebugThreadId, addDebugMessage, connectDebugWebSocket, addMessage]);
 
   // 新建任务
   const handleCreateSoloTask = useCallback(() => {
+    console.log('[SoloMode] handleCreateSoloTask called, isDebugMode:', isDebugMode);
     // 1. 清空当前消息和状态
     if (isDebugMode) {
       clearDebugAll();
+    } else {
+      // 工作流模式：清除工作流消息
+      clearThreadMessages();
     }
 
     // 2. 重置活跃任务状态，标记为新任务待创建
     setSoloActiveTask(null);
     setSoloNewTaskPending(true);
+    console.log('[SoloMode] soloNewTaskPending set to true');
 
     // 3. 不再导航跳转，保持在当前页面
-  }, [isDebugMode, clearDebugAll]);
+  }, [isDebugMode, clearDebugAll, clearThreadMessages]);
 
   // Solo 模式发送消息（处理新任务命名）
   const handleSoloSend = useCallback(async (content: string) => {
+    console.log('[handleSoloSend] soloNewTaskPending:', soloNewTaskPending, 'isDebugMode:', isDebugMode);
     // 如果是新任务，先创建 thread
     if (soloNewTaskPending) {
       try {
@@ -954,6 +976,9 @@ const ThreadView: React.FC = () => {
           setDebugThreadId(newThread.id);
           // 连接 WebSocket
           connectDebugWebSocket(newThread.id);
+        } else {
+          // 工作流模式：设置 currentThread 以便 sendMessage 能正常工作
+          setCurrentThread(newThread);
         }
         // 更新 URL
         if (isDebugMode && agentId) {
@@ -974,7 +999,7 @@ const ThreadView: React.FC = () => {
     } else {
       await sendMessage(content);
     }
-  }, [soloNewTaskPending, projectId, isDebugMode, agentId, navigate, setDebugThreadId, handleDebugSend, sendMessage, debugProjectPath, connectDebugWebSocket]);
+  }, [soloNewTaskPending, projectId, isDebugMode, agentId, navigate, setDebugThreadId, handleDebugSend, sendMessage, debugProjectPath, connectDebugWebSocket, setCurrentThread]);
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
