@@ -22,7 +22,9 @@
 | 📷 截图/图片 | **气泡内卡片** | 图片预览，支持点击放大 |
 | 💻 代码 | **右侧面板** | 需要 Diff 对比、复制、编辑等深入操作 |
 | 📋 表格数据 | **右侧面板** | 需要排序、筛选、导出等操作 |
-| 📝 长文档 | **右侧面板** | 需要滚动阅读、编辑、保存 |
+| 📝 长文档（>100行） | **右侧面板** | 需要滚动阅读、编辑、保存 |
+| 📦 JSON/YAML 数据 | **右侧面板** | 支持折叠展开、语法高亮、复制 |
+| ❌ 错误日志/堆栈 | **气泡内折叠卡片** | 模拟终端样式，支持复制 |
 
 ---
 
@@ -200,7 +202,7 @@
 
 ### 1. 内容类型识别
 
-需要识别 AI 返回内容的类型：
+基于 Markdown 代码块的语言标识符自动判断内容类型：
 
 ```typescript
 type ContentType =
@@ -210,7 +212,9 @@ type ContentType =
   | 'chart'          // 数据图表
   | 'image'          // 图片
   | 'table'          // 表格
-  | 'document';      // 长文档
+  | 'document'       // 长文档
+  | 'json'           // JSON/YAML 数据
+  | 'error-log';     // 错误日志/堆栈
 
 interface ContentBlock {
   type: ContentType;
@@ -222,6 +226,58 @@ interface ContentBlock {
     deletions?: number;
     isNew?: boolean;
   };
+}
+
+// 内容类型检测函数
+function detectContentType(codeBlock: string, language: string): ContentType {
+  // 架构图语言
+  if (['mermaid', 'plantuml', 'graphviz'].includes(language)) return 'diagram';
+
+  // JSON/YAML 数据
+  if (['json', 'yaml', 'yml'].includes(language)) return 'json';
+
+  // 错误日志（包含 Error/Exception/Stack 等关键词）
+  if (language === 'log' || /Error:|Exception|Stack trace/i.test(codeBlock)) {
+    return 'error-log';
+  }
+
+  // 代码
+  if (language) return 'code';
+
+  return 'text';
+}
+```
+
+### 2. 原始代码获取
+
+Diff 对比需要获取文件的原始内容，有以下几种方式：
+
+```typescript
+interface OriginalCodeSource {
+  // 方式1：从本地文件系统读取（调试模式）
+  fromFileSystem: (filePath: string) => Promise<string>;
+
+  // 方式2：从后端 API 获取（工作流模式）
+  fromAPI: (projectId: string, filePath: string) => Promise<string>;
+
+  // 方式3：从消息历史中提取（AI 之前的输出）
+  fromMessageHistory: (threadId: string, filename: string) => string | null;
+}
+
+// 获取原始代码的优先级
+async function getOriginalCode(
+  projectPath: string,
+  filename: string
+): Promise<string | null> {
+  // 1. 尝试从本地文件读取
+  if (projectPath) {
+    try {
+      return await readFile(`${projectPath}/${filename}`);
+    } catch { /* 文件不存在 */ }
+  }
+
+  // 2. 返回 null 表示新文件
+  return null;
 }
 ```
 
@@ -423,3 +479,158 @@ components/thread/DiffViewer.tsx
 3. **代码编辑** - 支持在 Diff 视图中编辑代码
 4. **快捷键** - 添加键盘快捷操作
 5. **全屏模式** - Diff 视图支持全屏对比
+
+---
+
+## 边界情况处理
+
+### 空状态
+
+面板无代码时显示引导文案：
+
+```
+┌───────────────────────────────────────┐
+│                                       │
+│         📄 暂无代码变更               │
+│                                       │
+│   AI 生成的代码将在这里展示对比       │
+│                                       │
+└───────────────────────────────────────┘
+```
+
+### 大文件处理
+
+超过 1000 行的文件需要懒加载：
+
+```typescript
+const LARGE_FILE_THRESHOLD = 1000;
+
+interface FileLoadState {
+  isLoading: boolean;
+  loadedLines: number;
+  totalLines: number;
+}
+
+// 大文件提示
+function LargeFileNotice({ totalLines }: { totalLines: number }) {
+  return (
+    <div className="large-file-notice">
+      文件较大（{totalLines} 行），点击加载完整内容
+    </div>
+  );
+}
+```
+
+### 多消息代码切换
+
+当面板中存在多条消息的代码时，顶部增加消息切换：
+
+```
+┌───────────────────────────────────────────┐
+│ [消息1] [消息2] [消息3]        [+86] [-12] │
+├───────────────────────────────────────────┤
+│ ...                                       │
+└───────────────────────────────────────────┘
+```
+
+### 架构图渲染失败
+
+Mermaid 渲染失败时显示源码：
+
+```typescript
+async function renderDiagram(code: string): Promise<{ svg: string } | { error: string }> {
+  try {
+    const { svg } = await mermaid.render('diagram-id', code);
+    return { svg };
+  } catch (error) {
+    return { error: error.message };
+  }
+}
+
+// 失败时降级展示
+function DiagramCard({ code }: { code: string }) {
+  const result = await renderDiagram(code);
+
+  if ('error' in result) {
+    return (
+      <div className="diagram-error">
+        <Alert type="warning" message="架构图渲染失败" />
+        <pre className="diagram-source">{code}</pre>
+      </div>
+    );
+  }
+
+  return <div dangerouslySetInnerHTML={{ __html: result.svg }} />;
+}
+```
+
+---
+
+## 响应式设计
+
+### 桌面端（>= 1024px）
+
+- 右侧面板固定宽度 520px
+- 可收起为侧边栏 40px
+- Split Diff 左右并排显示
+
+### 平板端（768px - 1023px）
+
+- 右侧面板宽度调整为 100%
+- 覆盖对话区域，支持滑动手势关闭
+- Split Diff 改为上下堆叠显示
+
+### 移动端（< 768px）
+
+- 右侧面板改为底部抽屉
+- 默认半屏高度，可拖拽调整
+- 文件列表横向滑动
+- Diff 视图全屏展示
+
+```css
+/* 响应式断点 */
+@media (max-width: 1023px) {
+  .code-panel {
+    position: fixed;
+    width: 100%;
+    height: 60vh;
+    bottom: 0;
+    border-radius: 16px 16px 0 0;
+  }
+
+  .split-diff {
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 767px) {
+  .code-panel {
+    height: 70vh;
+  }
+}
+```
+
+---
+
+## 错误处理与加载状态
+
+### 加载状态
+
+```typescript
+// 架构图渲染中
+<Spin tip="渲染中...">
+  <div className="diagram-placeholder" />
+</Spin>
+
+// 代码 Diff 计算中
+<Skeleton active paragraph={{ rows: 10 }} />
+```
+
+### 错误处理
+
+| 场景 | 处理方式 |
+|------|----------|
+| Mermaid 语法错误 | 显示源码 + 错误提示 |
+| 文件读取失败 | 显示"无法获取原始代码"，仅显示变更后内容 |
+| Diff 计算超时 | 显示完整内容，不做对比 |
+| 网络请求失败 | 显示重试按钮 |
