@@ -16,11 +16,13 @@ import (
 	"github.com/anthropic/isdp/internal/repo"
 	"github.com/anthropic/isdp/internal/service/agent"
 	"github.com/anthropic/isdp/internal/service/a2a"
+	"github.com/anthropic/isdp/internal/service/command"
 	"github.com/anthropic/isdp/internal/service/configgen"
 	"github.com/anthropic/isdp/internal/service/knowledge"
 	"github.com/anthropic/isdp/internal/service/merge"
 	"github.com/anthropic/isdp/internal/service/message"
 	"github.com/anthropic/isdp/internal/service/project"
+	"github.com/anthropic/isdp/internal/service/rule"
 	"github.com/anthropic/isdp/internal/service/sandbox"
 	"github.com/anthropic/isdp/internal/service/skill"
 	"github.com/anthropic/isdp/internal/service/subagent"
@@ -109,6 +111,14 @@ func main() {
 	knowledgeRepo := repo.NewKnowledgeBaseRepository(db)
 	subagentRepo := repo.NewSubagentRepository(db)
 	agentSubagentBindingRepo := repo.NewAgentSubagentBindingRepository(db)
+	// Command 和 Rule 相关 Repositories
+	commandRepo := repo.NewCommandRepository(db)
+	ruleRepo := repo.NewRuleRepository(db)
+	commandSkillBindingRepo := repo.NewCommandSkillBindingRepository(db)
+	agentCommandBindingRepo := repo.NewAgentCommandBindingRepository(db)
+	agentRuleBindingRepo := repo.NewAgentRuleBindingRepository(db)
+	subagentSkillBindingRepo := repo.NewSubagentSkillBindingRepository(db)
+	_ = subagentSkillBindingRepo // TODO: 用于未来Subagent-Skill绑定功能
 
 	// 初始化Services
 	projectService := project.NewService(projectRepo, workflowRepo)
@@ -131,6 +141,21 @@ func main() {
 
 	// 创建 Subagent Service
 	subagentSvc := subagent.NewService(subagentRepo, agentSubagentBindingRepo, agentConfigRepo, logger)
+
+	// 创建 Command Service
+	commandSvc := command.NewService(
+		commandRepo, commandSkillBindingRepo, agentCommandBindingRepo,
+		agentConfigRepo, skillRepo,
+		cfg.Command.GetStoragePath(),
+		logger,
+	)
+
+	// 创建 Rule Service
+	ruleSvc := rule.NewService(
+		ruleRepo, agentRuleBindingRepo, agentConfigRepo,
+		cfg.Rule.GetStoragePath(),
+		logger,
+	)
 
 	// 初始化默认基础Agent
 	if err := baseAgentService.InitDefaultAgents(context.Background()); err != nil {
@@ -259,6 +284,14 @@ func main() {
 	// ConfigGen Handler
 	configGenHandler := api.NewConfigGenHandler(configGenService)
 	configGenHandler.RegisterRoutes(v1)
+
+	// Command Handler
+	commandHandler := api.NewCommandHandler(commandSvc, cfg.Command.GetStoragePath(), cfg.Command.GetUploadMaxSize())
+	commandHandler.RegisterRoutes(v1)
+
+	// Rule Handler
+	ruleHandler := api.NewRuleHandler(ruleSvc, cfg.Rule.GetStoragePath(), cfg.Rule.GetUploadMaxSize())
+	ruleHandler.RegisterRoutes(v1)
 
 	// WebSocket
 	wsHandler := ws.NewHandler(wsHub)
