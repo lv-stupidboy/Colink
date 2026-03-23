@@ -48,7 +48,7 @@ import type {
   RuleListQuery,
   RuleListResponse,
   CommandSkillsResponse,
-  RuleAgentsResponse,
+  AgentRulesResponse,
 } from '@/types';
 import {
   transformProjects,
@@ -558,7 +558,7 @@ class APIClient {
     getInstanceRules: (): Promise<Rule[]> =>
       this.request('/rules/instance', 'GET'),
     // Agent 绑定的 Rules
-    getAgentRules: (agentId: string): Promise<RuleAgentsResponse> =>
+    getAgentRules: (agentId: string): Promise<AgentRulesResponse> =>
       this.request(`/agents/${agentId}/rules`, 'GET'),
     bindRulesToAgent: (agentId: string, ruleIds: string[]): Promise<{ message: string }> =>
       this.request(`/agents/${agentId}/rules`, 'POST', { rule_ids: ruleIds }),

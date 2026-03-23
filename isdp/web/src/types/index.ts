@@ -710,8 +710,8 @@ export interface CommandSkillsResponse {
   count: number;
 }
 
-// Rule绑定的Agents响应
-export interface RuleAgentsResponse {
-  agents: AgentConfig[];
+// Agent绑定的Rules响应
+export interface AgentRulesResponse {
+  rules: Rule[];
   count: number;
 }

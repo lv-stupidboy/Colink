@@ -145,7 +145,7 @@ const AgentRoleList: React.FC = () => {
   const loadAgentRules = async (agentId: string) => {
     try {
       const result = await api.rules.getAgentRules(agentId);
-      setSelectedRuleIds(result.agents?.map(a => a.id) || []);
+      setSelectedRuleIds(result.rules?.map(r => r.id) || []);
     } catch (error) {
       console.error('加载Agent绑定的规约失败', error);
       setSelectedRuleIds([]);
@@ -224,14 +224,10 @@ const AgentRoleList: React.FC = () => {
         await api.agents.bindSkills(editingConfig.id, selectedSkillIds);
         // 更新子代理绑定
         await api.agents.bindSubagents(editingConfig.id, selectedSubagentIds);
-        // 更新命令绑定
-        if (selectedCommandIds.length > 0) {
-          await api.commands.bindCommandsToAgent(editingConfig.id, selectedCommandIds);
-        }
-        // 更新规约绑定
-        if (selectedRuleIds.length > 0) {
-          await api.rules.bindRulesToAgent(editingConfig.id, selectedRuleIds);
-        }
+        // 更新命令绑定 - 无论是否为空都调用，以支持清空绑定
+        await api.commands.bindCommandsToAgent(editingConfig.id, selectedCommandIds);
+        // 更新规约绑定 - 无论是否为空都调用，以支持清空绑定
+        await api.rules.bindRulesToAgent(editingConfig.id, selectedRuleIds);
         message.success('更新成功');
       } else {
         const newAgent = await api.agents.create(values);
