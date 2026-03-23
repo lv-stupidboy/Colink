@@ -485,6 +485,13 @@ class APIClient {
       this.request(`/subagents/${id}`, 'PUT', data),
     delete: (id: string): Promise<void> =>
       this.request(`/subagents/${id}`, 'DELETE'),
+    // Subagent-Skill 绑定
+    getSkills: (id: string): Promise<{ skills: Skill[]; count: number }> =>
+      this.request(`/subagents/${id}/skills`, 'GET'),
+    bindSkills: (id: string, skillIds: string[]): Promise<{ message: string }> =>
+      this.request(`/subagents/${id}/skills`, 'POST', { skill_ids: skillIds }),
+    unbindSkill: (id: string, skillId: string): Promise<{ message: string }> =>
+      this.request(`/subagents/${id}/skills/${skillId}`, 'DELETE'),
   };
 
   // Command API

@@ -118,7 +118,6 @@ func main() {
 	agentCommandBindingRepo := repo.NewAgentCommandBindingRepository(db)
 	agentRuleBindingRepo := repo.NewAgentRuleBindingRepository(db)
 	subagentSkillBindingRepo := repo.NewSubagentSkillBindingRepository(db)
-	_ = subagentSkillBindingRepo // TODO: 用于未来Subagent-Skill绑定功能
 
 	// 初始化Services
 	projectService := project.NewService(projectRepo, workflowRepo)
@@ -140,7 +139,7 @@ func main() {
 	)
 
 	// 创建 Subagent Service
-	subagentSvc := subagent.NewService(subagentRepo, agentSubagentBindingRepo, agentConfigRepo, logger)
+	subagentSvc := subagent.NewService(subagentRepo, agentSubagentBindingRepo, subagentSkillBindingRepo, agentConfigRepo, skillRepo, logger)
 
 	// 创建 Command Service
 	commandSvc := command.NewService(
