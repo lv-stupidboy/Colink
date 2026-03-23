@@ -909,19 +909,17 @@ const ThreadView: React.FC = () => {
 
   // 新建任务
   const handleCreateSoloTask = useCallback(() => {
-    setSoloActiveTask(null);
-    setSoloNewTaskPending(true);
-    // 清空当前消息
+    // 1. 清空当前消息和状态
     if (isDebugMode) {
       clearDebugAll();
     }
-    // 清除 URL 中的 threadId
-    if (isDebugMode && agentId) {
-      navigate(`/agents/${agentId}`);
-    } else if (projectId) {
-      navigate(`/projects/${projectId}`);
-    }
-  }, [isDebugMode, agentId, projectId, navigate, clearDebugAll]);
+
+    // 2. 重置活跃任务状态，标记为新任务待创建
+    setSoloActiveTask(null);
+    setSoloNewTaskPending(true);
+
+    // 3. 不再导航跳转，保持在当前页面
+  }, [isDebugMode, clearDebugAll]);
 
   // Solo 模式发送消息（处理新任务命名）
   const handleSoloSend = useCallback(async (content: string) => {
