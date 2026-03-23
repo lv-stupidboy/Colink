@@ -23,6 +23,7 @@ import (
 	"github.com/anthropic/isdp/internal/service/project"
 	"github.com/anthropic/isdp/internal/service/sandbox"
 	"github.com/anthropic/isdp/internal/service/skill"
+	"github.com/anthropic/isdp/internal/service/subagent"
 	"github.com/anthropic/isdp/internal/service/thread"
 	"github.com/anthropic/isdp/internal/service/workflow"
 	"github.com/anthropic/isdp/internal/ws"
@@ -106,6 +107,8 @@ func main() {
 	agentSkillBindingRepo := repo.NewAgentSkillBindingRepository(db)
 	registryRepo := repo.NewSkillRegistryRepository(db)
 	knowledgeRepo := repo.NewKnowledgeBaseRepository(db)
+	subagentRepo := repo.NewSubagentRepository(db)
+	agentSubagentBindingRepo := repo.NewAgentSubagentBindingRepository(db)
 
 	// 初始化Services
 	projectService := project.NewService(projectRepo, workflowRepo)
@@ -119,7 +122,15 @@ func main() {
 	skillService := skill.NewService(skillRepo, agentSkillBindingRepo, agentConfigRepo)
 	registryService := skill.NewRegistryService(registryRepo, skillRepo)
 	knowledgeService := knowledge.NewService(knowledgeRepo)
-	configGenService := configgen.NewService(projectRepo, agentConfigRepo, skillRepo, agentSkillBindingRepo, cfg.Skill.GetStoragePath(), logger)
+	configGenService := configgen.NewService(
+		projectRepo, agentConfigRepo, skillRepo, agentSkillBindingRepo,
+		subagentRepo, agentSubagentBindingRepo,
+		cfg.Skill.GetStoragePath(), cfg.Subagent.GetStoragePath(), cfg.AgentConfig.DataDir,
+		logger,
+	)
+
+	// 创建 Subagent Service
+	subagentSvc := subagent.NewService(subagentRepo, agentSubagentBindingRepo, agentConfigRepo, logger)
 
 	// 初始化默认基础Agent
 	if err := baseAgentService.InitDefaultAgents(context.Background()); err != nil {
@@ -240,6 +251,10 @@ func main() {
 	// Knowledge Handler
 	knowledgeHandler := api.NewKnowledgeHandler(knowledgeService)
 	knowledgeHandler.RegisterRoutes(v1)
+
+	// Subagent Handler
+	subagentHandler := api.NewSubagentHandler(subagentSvc, &cfg.Subagent)
+	subagentHandler.RegisterRoutes(v1)
 
 	// ConfigGen Handler
 	configGenHandler := api.NewConfigGenHandler(configGenService)
@@ -552,6 +567,61 @@ CREATE INDEX IF NOT EXISTS idx_threads_project_id ON threads(project_id);
 CREATE INDEX IF NOT EXISTS idx_messages_thread_id ON messages(thread_id);
 CREATE INDEX IF NOT EXISTS idx_agent_invocations_thread_id ON agent_invocations(thread_id);
 CREATE INDEX IF NOT EXISTS idx_artifacts_thread_id ON artifacts(thread_id);
+
+-- 命令表
+CREATE TABLE IF NOT EXISTS commands (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 规约表
+CREATE TABLE IF NOT EXISTS rules (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT,
+    scope TEXT NOT NULL DEFAULT 'instance',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Agent-Command 绑定表
+CREATE TABLE IF NOT EXISTS agent_command_bindings (
+    id TEXT PRIMARY KEY,
+    agent_role_id TEXT NOT NULL,
+    command_id TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(agent_role_id, command_id)
+);
+
+-- Agent-Rule 绑定表
+CREATE TABLE IF NOT EXISTS agent_rule_bindings (
+    id TEXT PRIMARY KEY,
+    agent_role_id TEXT NOT NULL,
+    rule_id TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(agent_role_id, rule_id)
+);
+
+-- Command-Skill 绑定表
+CREATE TABLE IF NOT EXISTS command_skill_bindings (
+    id TEXT PRIMARY KEY,
+    command_id TEXT NOT NULL,
+    skill_id TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(command_id, skill_id)
+);
+
+-- Subagent-Skill 绑定表
+CREATE TABLE IF NOT EXISTS subagent_skill_bindings (
+    id TEXT PRIMARY KEY,
+    subagent_id TEXT NOT NULL,
+    skill_id TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(subagent_id, skill_id)
+);
 `
 	_, err := db.Exec(schema)
 	if err != nil {
