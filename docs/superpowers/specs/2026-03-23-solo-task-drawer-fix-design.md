@@ -307,5 +307,7 @@ navigate(`/agents/${agentId}?threadId=${newThread.id}`, { replace: true });
 
 ## 影响范围
 
-- Solo 模式（全栈工程师 Agent 调试模式）
-- 不影响工作流模式和其他 Agent 调试模式
+- Solo 模式（所有 Agent 调试模式可用）
+- 全栈工程师 Agent：自动进入 Solo 模式
+- 其他 Agent：可通过顶部 Solo 按钮手动切换进入
+- 不影响非调试模式（工作流模式）
