@@ -13,6 +13,11 @@ import {
   BookOutlined,
   CloudServerOutlined,
   DatabaseOutlined,
+  CodeOutlined,
+  OrderedListOutlined,
+  ApiOutlined,
+  SafetyCertificateOutlined,
+  ControlOutlined,
 } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import ThemeSwitcher from '@/components/ThemeSwitcher';
@@ -25,7 +30,7 @@ const { Title } = Typography;
 const MainLayout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [openKeys, setOpenKeys] = useState<string[]>([]);
 
   /**
    * 导航菜单配置
@@ -47,14 +52,51 @@ const MainLayout: React.FC = () => {
       label: '工作流编排',
     },
     {
-      key: '/agents',
+      key: 'agents',
       icon: <ThunderboltOutlined />,
       label: 'Agent 角色',
-    },
-    {
-      key: '/skills',
-      icon: <BookOutlined />,
-      label: '技能库',
+      children: [
+        {
+          key: '/agents/roles',
+          icon: <RobotOutlined />,
+          label: '角色管理',
+        },
+        {
+          key: '/agents/commands',
+          icon: <CodeOutlined />,
+          label: '命令集',
+        },
+        {
+          key: '/agents/subagents',
+          icon: <ApiOutlined />,
+          label: '子代理',
+        },
+        {
+          key: '/agents/skills',
+          icon: <BookOutlined />,
+          label: '技能库',
+        },
+        {
+          key: '/agents/rules',
+          icon: <SafetyCertificateOutlined />,
+          label: '规约',
+        },
+        {
+          key: '/agents/plugins',
+          icon: <ControlOutlined />,
+          label: '插件',
+        },
+        {
+          key: '/agents/hooks',
+          icon: <OrderedListOutlined />,
+          label: '钩子',
+        },
+        {
+          key: '/agents/settings',
+          icon: <SettingOutlined />,
+          label: '设置',
+        },
+      ],
     },
     {
       key: '/knowledge',
@@ -98,6 +140,16 @@ const MainLayout: React.FC = () => {
     if (path.startsWith('/registries')) return '/registries';
     if (path.startsWith('/sandbox')) return '/sandbox';
     if (path.startsWith('/knowledge')) return '/knowledge';
+    // Agent 角色子菜单路由
+    if (path.startsWith('/agents/roles')) return '/agents/roles';
+    if (path.startsWith('/agents/commands')) return '/agents/commands';
+    if (path.startsWith('/agents/subagents')) return '/agents/subagents';
+    if (path.startsWith('/agents/skills')) return '/agents/skills';
+    if (path.startsWith('/agents/rules')) return '/agents/rules';
+    if (path.startsWith('/agents/plugins')) return '/agents/plugins';
+    if (path.startsWith('/agents/hooks')) return '/agents/hooks';
+    if (path.startsWith('/agents/settings')) return '/agents/settings';
+    if (path.startsWith('/agents')) return '/agents/roles'; // /agents 重定向到 /agents/roles
     if (path.startsWith('/settings')) return location.pathname;
     return path;
   };
@@ -107,6 +159,10 @@ const MainLayout: React.FC = () => {
     const path = location.pathname;
     if (path.startsWith('/settings') || path.startsWith('/registries') || path.startsWith('/sandbox')) {
       return ['settings'];
+    }
+    // Agent 角色子菜单展开
+    if (path.startsWith('/agents') || path.startsWith('/skills') || path.startsWith('/subagents')) {
+      return ['agents'];
     }
     return [];
   };
@@ -118,7 +174,7 @@ const MainLayout: React.FC = () => {
   };
 
   const handleOpenChange: MenuProps['onOpenChange'] = (keys) => {
-    setSettingsOpen(keys.includes('settings'));
+    setOpenKeys(keys as string[]);
   };
 
   return (
@@ -137,7 +193,7 @@ const MainLayout: React.FC = () => {
         <Menu
           mode="inline"
           selectedKeys={[getSelectedKey()]}
-          openKeys={settingsOpen ? ['settings'] : getOpenKeys()}
+          openKeys={openKeys.length > 0 ? openKeys : getOpenKeys()}
           items={menuItems}
           onClick={handleMenuClick}
           onOpenChange={handleOpenChange}

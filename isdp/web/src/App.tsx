@@ -16,6 +16,8 @@ import WorkflowPage from '@/pages/Workflow';
 import SkillLibrary from '@/pages/SkillLibrary';
 import RegistryManagement from '@/pages/RegistryManagement';
 import KnowledgeManagement from '@/pages/KnowledgeManagement';
+import SubagentList from '@/pages/SubagentList';
+import PlaceholderPage from '@/pages/PlaceholderPage';
 import { useThemeStore } from '@/store/themeStore';
 import '@/themes/themeVariables.css';
 
@@ -126,14 +128,28 @@ const App: React.FC = () => {
               {/* 兼容旧路由，重定向到新路由 */}
               <Route path="threads/:threadId" element={<ThreadView />} />
 
-              {/* Agent角色管理 */}
-              <Route path="agents" element={<AgentRoleList />} />
+              {/* Agent角色管理 - 子菜单结构 */}
+              <Route path="agents" element={<Navigate to="/agents/roles" replace />} />
+              <Route path="agents/roles" element={<AgentRoleList />} />
+              <Route path="agents/commands" element={<PlaceholderPage title="命令集管理" description="该功能正在开发中，敬请期待" />} />
+              <Route path="agents/subagents" element={<SubagentList />} />
+              <Route path="agents/skills" element={<SkillLibrary />} />
+              <Route path="agents/rules" element={<PlaceholderPage title="规约管理" description="该功能正在开发中，敬请期待" />} />
+              <Route path="agents/plugins" element={<PlaceholderPage title="插件管理" description="该功能正在开发中，敬请期待" />} />
+              <Route path="agents/hooks" element={<PlaceholderPage title="钩子管理" description="该功能正在开发中，敬请期待" />} />
+              <Route path="agents/settings" element={<PlaceholderPage title="Agent 设置" description="该功能正在开发中，敬请期待" />} />
+
+              {/* Agent 调试路由 */}
               <Route path="agents/:agentId/debug" element={<ThreadView />} />
               {/* 调试模式路由 - 直接使用 ThreadView */}
               <Route path="debug/:agentId" element={<ThreadView />} />
+
+              {/* 兼容旧路由，重定向到新路由 */}
+              <Route path="skills" element={<Navigate to="/agents/skills" replace />} />
+              <Route path="subagents" element={<Navigate to="/agents/subagents" replace />} />
+
               <Route path="workflow" element={<WorkflowPage />} />
               <Route path="sandbox" element={<SandboxPage />} />
-              <Route path="skills" element={<SkillLibrary />} />
               <Route path="registries" element={<RegistryManagement />} />
               <Route path="knowledge" element={<KnowledgeManagement />} />
 
