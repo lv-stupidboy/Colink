@@ -924,11 +924,27 @@ const ThreadView: React.FC = () => {
   // Solo 模式发送消息（处理新任务命名）
   const handleSoloSend = useCallback(async (content: string) => {
     // 如果是新任务，先创建 thread
-    if (soloNewTaskPending && projectId) {
+    if (soloNewTaskPending) {
       try {
         // 用第一条消息的前 30 个字符作为任务名
         const taskName = content.slice(0, 30) + (content.length > 30 ? '...' : '');
-        const newThread = await api.threads.create(projectId, taskName);
+
+        let newThread: Thread;
+
+        if (isDebugMode) {
+          // 调试模式：使用 createDebugThread API（不需要 projectId）
+          const threadResult = await api.agents.createDebugThread(debugProjectPath || undefined);
+          // 更新 thread 名称
+          newThread = await api.threads.get(threadResult.threadId);
+          // 如果需要更新名称，可以调用 updateStatus 或其他 API
+        } else if (projectId) {
+          // 工作流模式：使用 threads.create API
+          newThread = await api.threads.create(projectId, taskName);
+        } else {
+          message.error('无法创建任务：缺少项目信息');
+          return;
+        }
+
         setSoloActiveTask(newThread);
         setSoloNewTaskPending(false);
         // 更新任务列表
@@ -942,7 +958,7 @@ const ThreadView: React.FC = () => {
         // 更新 URL
         if (isDebugMode && agentId) {
           navigate(`/agents/${agentId}?threadId=${newThread.id}`, { replace: true });
-        } else {
+        } else if (projectId) {
           navigate(`/projects/${projectId}/threads/${newThread.id}`, { replace: true });
         }
       } catch (error) {
@@ -958,7 +974,7 @@ const ThreadView: React.FC = () => {
     } else {
       await sendMessage(content);
     }
-  }, [soloNewTaskPending, projectId, isDebugMode, agentId, navigate, setDebugThreadId, handleDebugSend, sendMessage]);
+  }, [soloNewTaskPending, projectId, isDebugMode, agentId, navigate, setDebugThreadId, handleDebugSend, sendMessage, debugProjectPath, connectDebugWebSocket]);
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
