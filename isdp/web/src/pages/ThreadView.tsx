@@ -1503,7 +1503,7 @@ const ThreadView: React.FC = () => {
           {/* 任务抽屉 */}
           <div className={`solo-task-drawer ${!taskDrawerOpen ? 'collapsed' : ''}`}>
             <TaskList
-              projectId={projectId || ''}
+              tasks={soloTasks}
               activeThreadId={soloActiveTask?.id || null}
               onSelectTask={handleSelectSoloTask}
               onCreateTask={handleCreateSoloTask}
