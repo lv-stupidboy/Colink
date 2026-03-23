@@ -88,7 +88,7 @@ CREATE TABLE rules (
 ### 4.2 绑定关系表
 
 ```sql
--- Agent-Command 绑定
+-- Agent-Command 绑定（新增）
 CREATE TABLE agent_command_bindings (
     id VARCHAR(64) PRIMARY KEY,
     agent_role_id VARCHAR(64) NOT NULL,
@@ -97,7 +97,7 @@ CREATE TABLE agent_command_bindings (
     UNIQUE(agent_role_id, command_id)
 );
 
--- Agent-Rule 绑定
+-- Agent-Rule 绑定（新增）
 CREATE TABLE agent_rule_bindings (
     id VARCHAR(64) PRIMARY KEY,
     agent_role_id VARCHAR(64) NOT NULL,
@@ -106,7 +106,7 @@ CREATE TABLE agent_rule_bindings (
     UNIQUE(agent_role_id, rule_id)
 );
 
--- Command-Skill 绑定
+-- Command-Skill 绑定（新增）
 CREATE TABLE command_skill_bindings (
     id VARCHAR(64) PRIMARY KEY,
     command_id VARCHAR(64) NOT NULL,
@@ -115,7 +115,7 @@ CREATE TABLE command_skill_bindings (
     UNIQUE(command_id, skill_id)
 );
 
--- Subagent-Skill 绑定
+-- Subagent-Skill 绑定（新增）
 CREATE TABLE subagent_skill_bindings (
     id VARCHAR(64) PRIMARY KEY,
     subagent_id VARCHAR(64) NOT NULL,
@@ -125,9 +125,32 @@ CREATE TABLE subagent_skill_bindings (
 );
 ```
 
+> **注意**：`agent_subagent_bindings` 表已存在，无需新建。`agent_skill_bindings` 表已存在，本次重构后可考虑移除（Agent 不再直接绑定 Skill）。
+
 ### 4.3 修改现有表
 
-- `subagents` 表：移除 `skill_id` 字段（改用绑定表）
+**`subagents` 表：移除 `skill_id` 字段**
+
+迁移策略：
+
+```sql
+-- 1. 创建 subagent_skill_bindings 表（见 4.2 节）
+
+-- 2. 迁移现有数据：将 subagents.skill_id 迁移到绑定表
+INSERT INTO subagent_skill_bindings (id, subagent_id, skill_id, created_at)
+SELECT
+    UUID() as id,
+    id as subagent_id,
+    skill_id,
+    NOW() as created_at
+FROM subagents
+WHERE skill_id IS NOT NULL AND skill_id != '';
+
+-- 3. 验证迁移成功后，移除 skill_id 字段
+ALTER TABLE subagents DROP COLUMN skill_id;
+```
+
+> **注意**：迁移脚本需要在执行前备份数据，执行后验证数据完整性。
 
 ## 五、前端菜单与路由设计
 
@@ -185,9 +208,30 @@ Agent 角色（一级菜单）
 
 ### 6.2 规约绑定的交互设计
 
-- 公共规约（`scope='public'`）：创建 Agent 时默认全部绑定
-- 实例规约（`scope='instance'`）：需要手动绑定
-- 用户可以取消任何规约绑定（包括公共的）
+**公共规约处理逻辑：**
+
+1. **创建 Agent 时**：自动为所有 `scope='public'` 的规约创建绑定记录（存入 `agent_rule_bindings` 表）
+2. **编辑 Agent 时**：
+   - 公共规约默认显示为已选中，用户可取消
+   - 实例规约（`scope='instance'`）默认未选中，需手动绑定
+3. **配置生成时**：只需查询 `agent_rule_bindings` 表即可获取所有规约
+
+**前端交互：**
+
+```
+绑定规约
+┌─────────────────────────────────────────────────────────┐
+│ [公共规约] - 标签标识                                      │
+│ ☑ code-standards      代码规范（默认选中，可取消）         │
+│ ☑ security-rules      安全规约（默认选中，可取消）         │
+│                                                         │
+│ [实例规约]                                                │
+│ ☐ team-workflow       团队工作流（需手动绑定）            │
+│ ☐ project-specific    项目特定规约                       │
+└─────────────────────────────────────────────────────────┘
+```
+
+> **设计决策**：公共规约也存入绑定表，保持数据模型简单。生成配置时无需额外判断 scope，统一从绑定表查询。
 
 ### 6.3 命令集管理页面
 
