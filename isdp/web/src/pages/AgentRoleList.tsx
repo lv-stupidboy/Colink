@@ -107,13 +107,13 @@ const AgentRoleList: React.FC = () => {
               title: '无法删除',
               content: (
                 <div>
-                  <p>该Agent角色被以下工作流引用，无法删除：</p>
+                  <p>该Agent角色被以下团队引用，无法删除：</p>
                   <ul style={{ marginTop: 8, paddingLeft: 20 }}>
                     {errorData.referenceNames.map((name: string) => (
                       <li key={name}>{name}</li>
                     ))}
                   </ul>
-                  <p style={{ marginTop: 8 }}>请先从工作流中移除该Agent，再进行删除。</p>
+                  <p style={{ marginTop: 8 }}>请先从团队中移除该Agent，再进行删除。</p>
                 </div>
               ),
             });
@@ -170,10 +170,10 @@ const AgentRoleList: React.FC = () => {
       const result = await api.agents.checkReferences(record.id);
       if (result.referenced) {
         Modal.info({
-          title: '工作流引用',
+          title: '团队引用',
           content: (
             <div>
-              <p>该Agent角色被以下 <strong>{result.referenceCount}</strong> 个工作流引用：</p>
+              <p>该Agent角色被以下 <strong>{result.referenceCount}</strong> 个团队引用：</p>
               <ul style={{ marginTop: 8, paddingLeft: 20 }}>
                 {result.referenceNames.map((name: string) => (
                   <li key={name}>{name}</li>
@@ -184,8 +184,8 @@ const AgentRoleList: React.FC = () => {
         });
       } else {
         Modal.info({
-          title: '工作流引用',
-          content: <p>该Agent角色暂未被任何工作流引用</p>,
+          title: '团队引用',
+          content: <p>该Agent角色暂未被任何团队引用</p>,
         });
       }
     } catch (error) {

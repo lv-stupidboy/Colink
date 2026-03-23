@@ -22,7 +22,7 @@ const { Text } = Typography;
 interface SandboxPanelProps {
   // 关闭侧边栏
   onClose?: () => void;
-  // 调试模式还是工作流模式
+  // 调试模式还是团队模式
   isDebugMode: boolean;
   // 是否有工作目录（调试模式需要）
   hasProjectPath: boolean;

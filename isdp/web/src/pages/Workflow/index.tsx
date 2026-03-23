@@ -43,13 +43,13 @@ const { Option } = Select;
 const { TextArea } = Input;
 
 /**
- * 工作流编排页面
+ * Agent团队页面
  * PRD Section 2.2 - 多Agent协同系统
  *
  * 功能要点：
- * - 可视化工作流编辑器
+ * - 可视化团队编辑器
  * - Agent 节点配置
- * - 工作流模板选择
+ * - Agent团队选择
  */
 const WorkflowPage: React.FC = () => {
   const [createModalVisible, setCreateModalVisible] = useState(false);
@@ -75,14 +75,14 @@ const WorkflowPage: React.FC = () => {
       .finally(() => setLoadingAgents(false));
   }, []);
 
-  // 获取工作流模板列表
+  // 获取Agent团队列表
   const fetchWorkflowTemplates = () => {
     setLoadingTemplates(true);
     api.workflows.list()
       .then(setWorkflowTemplates)
       .catch((error) => {
         console.error('Failed to fetch workflow templates:', error);
-        message.error('获取工作流模板失败');
+        message.error('获取Agent团队失败');
       })
       .finally(() => setLoadingTemplates(false));
   };
@@ -91,7 +91,7 @@ const WorkflowPage: React.FC = () => {
     fetchWorkflowTemplates();
   }, []);
 
-  // 创建工作流
+  // 创建团队
   const handleCreateWorkflow = async (values: any) => {
     setSubmitting(true);
     try {
@@ -103,25 +103,25 @@ const WorkflowPage: React.FC = () => {
         checkpoints: values.checkpoints || [],
         estimatedTime: '自定义',
       });
-      message.success('工作流创建成功');
+      message.success('团队创建成功');
       setCreateModalVisible(false);
       form.resetFields();
       fetchWorkflowTemplates();
     } catch (error: any) {
       console.error('Failed to create workflow:', error);
-      message.error(error?.response?.data?.error || '工作流创建失败');
+      message.error(error?.response?.data?.error || '团队创建失败');
     } finally {
       setSubmitting(false);
     }
   };
 
-  // 编辑工作流
+  // 编辑团队
   const handleEditWorkflow = (template: WorkflowTemplate) => {
     setEditingTemplate(template);
     setEditModalVisible(true);
   };
 
-  // 保存工作流配置
+  // 保存团队配置
   const handleSaveWorkflow = async (transitions: Transition[], agentIds: string[]) => {
     if (!editingTemplate) return;
 
@@ -136,35 +136,35 @@ const WorkflowPage: React.FC = () => {
     }
   };
 
-  // 删除工作流
+  // 删除团队
   const handleDeleteWorkflow = async (id: string) => {
     try {
       await api.workflows.delete(id);
-      message.success('工作流删除成功');
+      message.success('团队删除成功');
       fetchWorkflowTemplates();
       if (selectedTemplate?.id === id) {
         setSelectedTemplate(null);
       }
     } catch (error: any) {
       console.error('Failed to delete workflow:', error);
-      message.error(error?.response?.data?.error || '工作流删除失败');
+      message.error(error?.response?.data?.error || '团队删除失败');
     }
   };
 
-  // 设置默认工作流
+  // 设置默认团队
   const handleSetDefault = async (id: string) => {
     try {
       await api.workflows.setDefault(id);
-      message.success('已设置为默认工作流');
+      message.success('已设置为默认团队');
       fetchWorkflowTemplates();
     } catch (error: any) {
       console.error('Failed to set default workflow:', error);
-      message.error(error?.response?.data?.error || '设置默认工作流失败');
+      message.error(error?.response?.data?.error || '设置默认团队失败');
     }
   };
 
   /**
-   * 渲染工作流模板卡片
+   * 渲染Agent团队卡片
    */
   const renderTemplateCard = (template: WorkflowTemplate) => {
     // 根据agentIds获取对应的Agent实例
@@ -219,7 +219,7 @@ const WorkflowPage: React.FC = () => {
             </Button>
             {!template.isSystem && (
               <Popconfirm
-                title="确定删除此工作流？"
+                title="确定删除此团队？"
                 onConfirm={(e) => {
                   e?.stopPropagation();
                   handleDeleteWorkflow(template.id);
@@ -263,7 +263,7 @@ const WorkflowPage: React.FC = () => {
         {/* 转换规则统计 */}
         {transitionStats.total > 0 && (
           <div className="workflow-template-section">
-            <div className="workflow-template-section-title">工作流规则</div>
+            <div className="workflow-template-section-title">编排规则</div>
             <div className="workflow-rule-tags">
               {transitionStats.sequence > 0 && (
                 <span className="workflow-rule-tag sequence">
@@ -387,7 +387,7 @@ const WorkflowPage: React.FC = () => {
       {/* 页面头部 */}
       <div className="workflow-page-header">
         <div>
-          <h2 className="workflow-page-title">工作流编排</h2>
+          <h2 className="workflow-page-title">Agent团队</h2>
           <p className="workflow-page-subtitle">可视化配置 Agent 协作流程，定义任务执行顺序和条件</p>
         </div>
         <div className="workflow-header-actions">
@@ -396,26 +396,26 @@ const WorkflowPage: React.FC = () => {
             onClick={() => setCreateModalVisible(true)}
           >
             <PlusOutlined />
-            新建工作流
+            新建团队
           </button>
         </div>
       </div>
 
       {/* 主内容区 */}
       <div className="workflow-main-content">
-        {/* 左侧：工作流模板选择 */}
+        {/* 左侧：Agent团队选择 */}
         <div className="workflow-templates-panel">
           <div className="workflow-floating-card">
             <div className="workflow-card-header">
               <div className="workflow-card-title">
                 <ApartmentOutlined className="workflow-card-title-icon" />
-                <span>工作流模板</span>
+                <span>Agent团队</span>
                 <Tag color="blue" bordered={false}>{(workflowTemplates || []).length} 个模板</Tag>
               </div>
             </div>
             <div className="workflow-card-content">
               <div className="workflow-empty-hint">
-                选择一个预设模板快速开始，或创建自定义工作流
+                选择一个预设模板快速开始，或创建自定义团队
               </div>
 
               {loadingTemplates ? (
@@ -444,7 +444,7 @@ const WorkflowPage: React.FC = () => {
             </div>
           </div>
 
-          {/* 工作流编排说明 */}
+          {/* Agent团队编排说明 */}
           <div className="workflow-rules-section">
             <div className="workflow-card-header">
               <div className="workflow-card-title">
@@ -469,7 +469,7 @@ const WorkflowPage: React.FC = () => {
                     children: (
                       <>
                         <Paragraph style={{ marginBottom: 8, fontSize: 13 }}>
-                          Agent 按工作流顺序依次执行，前一个完成后下一个自动开始。
+                          Agent 按团队编排顺序依次执行，前一个完成后下一个自动开始。
                         </Paragraph>
                         <div className="workflow-rule-flow">
                           <Tag color="green" bordered={false}>需求分析</Tag>
@@ -587,9 +587,9 @@ const WorkflowPage: React.FC = () => {
         </div>
       )}
 
-      {/* 新建工作流弹窗 */}
+      {/* 新建团队弹窗 */}
       <Modal
-        title="新建工作流"
+        title="新建团队"
         open={createModalVisible}
         onOk={() => form.submit()}
         onCancel={() => {
@@ -601,18 +601,18 @@ const WorkflowPage: React.FC = () => {
         className="workflow-modal"
       >
         <Form form={form} layout="vertical" onFinish={handleCreateWorkflow}>
-          <Form.Item name="name" label="工作流名称" rules={[{ required: true, message: '请输入工作流名称' }]}>
+          <Form.Item name="name" label="团队名称" rules={[{ required: true, message: '请输入团队名称' }]}>
             <Input placeholder="例如：我的自定义流程" />
           </Form.Item>
 
           <Form.Item name="description" label="描述">
-            <TextArea rows={2} placeholder="描述这个工作流的用途" />
+            <TextArea rows={2} placeholder="描述这个团队的用途" />
           </Form.Item>
 
           <Form.Item name="agentIds" label="Agent配置" rules={[{ required: true, message: '请选择至少一个Agent实例' }]}>
             <Select
               mode="multiple"
-              placeholder="选择工作流中的Agent实例"
+              placeholder="选择团队中的Agent实例"
               loading={loadingAgents}
               showSearch
               optionFilterProp="label"
@@ -678,9 +678,9 @@ const WorkflowPage: React.FC = () => {
         </Form>
       </Modal>
 
-      {/* 编辑工作流弹窗 */}
+      {/* 编辑团队弹窗 */}
       <Modal
-        title={`编辑工作流：${editingTemplate?.name || ''}`}
+        title={`编辑团队：${editingTemplate?.name || ''}`}
         open={editModalVisible}
         onCancel={() => {
           setEditModalVisible(false);
@@ -713,7 +713,7 @@ const WorkflowPage: React.FC = () => {
                           <li>从下拉框选择Agent添加到画布</li>
                           <li>拖拽节点底部的连接点，连接到另一个节点的顶部</li>
                           <li>点击连接线可编辑转换规则</li>
-                          <li>配置完成后点击"保存工作流"</li>
+                          <li>配置完成后点击"保存团队"</li>
                         </ul>
                       }
                       style={{ marginBottom: 16 }}
@@ -754,7 +754,7 @@ const WorkflowPage: React.FC = () => {
                         }
                       }}
                     >
-                      <Form.Item name="name" label="工作流名称" rules={[{ required: true }]}>
+                      <Form.Item name="name" label="团队名称" rules={[{ required: true }]}>
                         <Input />
                       </Form.Item>
                       <Form.Item name="description" label="描述">

@@ -42,7 +42,7 @@ interface AppState {
   // 当前项目（包含workflowTemplateId）
   currentProject: Project | null;
 
-  // 当前工作流模板（包含agentIds）
+  // 当前Agent团队（包含agentIds）
   currentWorkflowTemplate: WorkflowTemplate | null;
 
   // 项目上下文加载状态
@@ -53,6 +53,9 @@ interface AppState {
   debugAgentId: string | null;
   debugAgentConfig: AgentConfig | null;
   debugProjectPath: string;
+
+  // Solo 模式状态
+  soloMode: boolean;
 
   // 沙箱状态
   sandboxServer: SandboxServer | null;
@@ -104,16 +107,16 @@ interface AppActions {
   // 清除当前会话消息（用于Solo模式新建对话）
   clearThreadMessages: () => void;
 
-  // 加载项目上下文（项目和工作流模板）
+  // 加载项目上下文（项目和Agent团队）
   loadProjectContext: (projectId: string) => Promise<void>;
 
-  // 加载工作流模板（直接根据templateId）
+  // 加载Agent团队（直接根据templateId）
   loadWorkflowTemplate: (templateId: string) => Promise<void>;
 
   // 清除项目上下文
   clearProjectContext: () => void;
 
-  // 获取过滤后的Agent列表（基于工作流模板）
+  // 获取过滤后的Agent列表（基于Agent团队）
   getFilteredAgents: () => AgentConfig[];
 
   // 更新流式消息（实时输出）
@@ -132,6 +135,9 @@ interface AppActions {
   setDebugMode: (isDebug: boolean, agentId?: string) => void;
   setDebugAgentConfig: (config: AgentConfig | null) => void;
   setDebugProjectPath: (path: string) => void;
+
+  // Solo 模式 actions
+  setSoloMode: (soloMode: boolean) => void;
 
   // 沙箱 actions
   setSandboxServer: (server: SandboxServer | null) => void;
@@ -159,6 +165,8 @@ const initialState: AppState = {
   debugAgentId: null,
   debugAgentConfig: null,
   debugProjectPath: '',
+  // Solo 模式状态
+  soloMode: false,
   // 沙箱状态
   sandboxServer: null,
   sandboxLoading: false,
@@ -495,6 +503,11 @@ export const useAppStore = create<AppState & AppActions>()(
 
     setDebugProjectPath: (path) => {
       set({ debugProjectPath: path });
+    },
+
+    // Solo 模式 actions
+    setSoloMode: (soloMode) => {
+      set({ soloMode });
     },
 
     // 沙箱 actions

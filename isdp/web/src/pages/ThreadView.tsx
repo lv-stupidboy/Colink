@@ -79,7 +79,7 @@ const ThreadView: React.FC = () => {
   // 判断是否为调试模式
   const isDebugMode = Boolean(agentId);
 
-  // 工作流模式的 store
+  // 团队模式的 store
   const {
     currentThread,
     messages: workflowMessages,
@@ -115,6 +115,9 @@ const ThreadView: React.FC = () => {
     setDebugMode,
     setDebugAgentConfig,
     setDebugProjectPath,
+    // Solo 模式状态
+    soloMode,
+    setSoloMode,
     // 沙箱 actions
     setSandboxServer,
     setSandboxLoading,
@@ -145,8 +148,7 @@ const ThreadView: React.FC = () => {
   // 必须在使用之前定义
   const [debugWsConnected, setDebugWsConnected] = useState(false);
 
-  // Solo 模式状态
-  const [soloMode, setSoloMode] = useState(false);
+  // 任务抽屉状态
   const [taskDrawerOpen, setTaskDrawerOpen] = useState(true);
 
   // 根据模式选择使用哪个状态
@@ -157,7 +159,7 @@ const ThreadView: React.FC = () => {
   // 调试模式下，不使用全屏 loading，只在消息区显示加载状态
   // 因为 debugStatus === 'running' 只是表示 Agent 正在执行，不应该阻止用户交互
   const loading = isDebugMode ? false : workflowLoading;
-  // 调试模式使用本地状态，工作流模式使用全局状态
+  // 调试模式使用本地状态，团队模式使用全局状态
   const wsConnected = isDebugMode ? debugWsConnected : workflowWsConnected;
   // 沙箱状态根据模式选择
   const currentSandboxServer = isDebugMode ? debugSandboxServer : sandboxServer;
@@ -332,7 +334,7 @@ const ThreadView: React.FC = () => {
     }
   };
 
-  // 工作流模式 - 加载 thread 和 WebSocket
+  // 团队模式 - 加载 thread 和 WebSocket
   useEffect(() => {
     if (!isDebugMode && threadId) {
       loadThread(threadId);
@@ -424,19 +426,19 @@ const ThreadView: React.FC = () => {
     }
   }, [isDebugMode, debugThreadId]);
 
-  // Load agent configs for @mention dropdown (仅工作流模式)
+  // Load agent configs for @mention dropdown (仅团队模式)
   useEffect(() => {
     if (!isDebugMode) {
       loadAgentConfigs();
     }
   }, [loadAgentConfigs, isDebugMode]);
 
-  // Load workflow template when thread is loaded (仅工作流模式)
+  // Load workflow template when thread is loaded (仅团队模式)
   useEffect(() => {
     if (isDebugMode) return;
 
     const loadWorkflowContext = async () => {
-      // 加载工作流模板（用于获取可用 Agent 列表）
+      // 加载Agent团队（用于获取可用 Agent 列表）
       if (currentThread?.workflowTemplateId) {
         await loadWorkflowTemplate(currentThread.workflowTemplateId);
       }
@@ -731,7 +733,7 @@ const ThreadView: React.FC = () => {
   /**
    * 处理发送消息
    * 调试模式：直接发送给当前 Agent
-   * 工作流模式：支持 @mention 触发特定 Agent
+   * 团队模式：支持 @mention 触发特定 Agent
    */
   const handleSend = async () => {
     if (!inputValue.trim()) return;
@@ -754,7 +756,7 @@ const ThreadView: React.FC = () => {
       return;
     }
 
-    // 工作流模式 - 检查是否是 @mention 命令
+    // 团队模式 - 检查是否是 @mention 命令
     const mentionMatch = content.match(/^@(\S+)\s*(.*)/);
     if (mentionMatch) {
       const agentName = mentionMatch[1].toLowerCase();
@@ -882,7 +884,7 @@ const ThreadView: React.FC = () => {
     if (isDebugMode) {
       clearDebugAll();
     } else {
-      // 工作流模式：清除工作流消息
+      // 团队模式：清除团队消息
       clearThreadMessages();
     }
 
@@ -905,7 +907,7 @@ const ThreadView: React.FC = () => {
       // 连接 WebSocket（函数内部会先关闭现有连接）
       connectDebugWebSocket(task.id);
     } else {
-      // 工作流模式：设置 currentThread + 加载历史消息
+      // 团队模式：设置 currentThread + 加载历史消息
       setCurrentThread(task);
       try {
         const messages = await api.messages.list(task.id);
@@ -930,7 +932,7 @@ const ThreadView: React.FC = () => {
     if (isDebugMode) {
       clearDebugAll();
     } else {
-      // 工作流模式：清除工作流消息
+      // 团队模式：清除团队消息
       clearThreadMessages();
     }
 
@@ -960,7 +962,7 @@ const ThreadView: React.FC = () => {
           newThread = await api.threads.get(threadResult.threadId);
           // 如果需要更新名称，可以调用 updateStatus 或其他 API
         } else if (projectId) {
-          // 工作流模式：使用 threads.create API
+          // 团队模式：使用 threads.create API
           newThread = await api.threads.create(projectId, taskName);
         } else {
           message.error('无法创建任务：缺少项目信息');
@@ -977,7 +979,7 @@ const ThreadView: React.FC = () => {
           // 连接 WebSocket
           connectDebugWebSocket(newThread.id);
         } else {
-          // 工作流模式：设置 currentThread 以便 sendMessage 能正常工作
+          // 团队模式：设置 currentThread 以便 sendMessage 能正常工作
           setCurrentThread(newThread);
         }
         // 更新 URL
@@ -1104,7 +1106,7 @@ const ThreadView: React.FC = () => {
   /**
    * 获取工作目录
    * 调试模式：用户输入
-   * 工作流模式：从项目上下文获取
+   * 团队模式：从项目上下文获取
    */
   const getProjectPath = () => {
     if (isDebugMode) {
@@ -1407,7 +1409,7 @@ const ThreadView: React.FC = () => {
 
   // Get agents available for @mention
   // 调试模式：只显示当前调试的 Agent
-  // 工作流模式：从工作流模板获取
+  // 团队模式：从Agent团队获取
   const mentionableAgents = isDebugMode
     ? (debugAgentConfig ? [debugAgentConfig] : [])
     : getFilteredAgents();
@@ -1465,7 +1467,7 @@ const ThreadView: React.FC = () => {
               icon={<ApartmentOutlined />}
               onClick={() => setSoloMode(false)}
             >
-              工作流模式
+              代码模式
             </Button>
             <Button
               type="text"
@@ -1761,7 +1763,7 @@ const ThreadView: React.FC = () => {
                     {loadingProjectContext ? (
                       <div style={{ padding: 16, textAlign: 'center' }}><Spin size="small" /><span style={{ marginLeft: 8 }}>加载中...</span></div>
                     ) : agentOptions.length === 0 ? (
-                      <div style={{ padding: 16, textAlign: 'center', color: '#999' }}>当前工作流没有可用的 Agent</div>
+                      <div style={{ padding: 16, textAlign: 'center', color: '#999' }}>当前团队没有可用的 Agent</div>
                     ) : (
                       <List size="small" dataSource={agentOptions.filter(opt => !mentionFilter || opt.label.toLowerCase().includes(mentionFilter.toLowerCase()) || opt.role.toLowerCase().includes(mentionFilter.toLowerCase()))}
                         renderItem={(opt) => (

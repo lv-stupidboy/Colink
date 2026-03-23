@@ -12,13 +12,14 @@ import (
 type AgentRole string
 
 const (
-	AgentRoleRequirement  AgentRole = "requirement"
-	AgentRoleArchitect    AgentRole = "architect"
-	AgentRoleDeveloper    AgentRole = "developer"
-	AgentRoleReviewer     AgentRole = "reviewer"
-	AgentRoleTestEngineer AgentRole = "testengineer"
-	AgentRoleDevOps       AgentRole = "devops"
-	AgentRoleCustom       AgentRole = "custom"  // 自定义角色
+	AgentRoleRequirement      AgentRole = "requirement"
+	AgentRoleArchitect        AgentRole = "architect"
+	AgentRoleDeveloper        AgentRole = "developer"
+	AgentRoleReviewer         AgentRole = "reviewer"
+	AgentRoleTestEngineer     AgentRole = "testengineer"
+	AgentRoleDevOps           AgentRole = "devops"
+	AgentRoleFullstackEngineer AgentRole = "fullstack_engineer" // 全栈工程师
+	AgentRoleCustom           AgentRole = "custom"              // 自定义角色
 )
 
 // RoutingConfig 路由配置

@@ -585,14 +585,13 @@
 
 /* ========== Solo 模式样式 ========== */
 
-/* Solo 模式整体容器 - 全屏垂直布局 + 沉浸式背景 */
+/* Solo 模式整体容器 - 垂直布局 + 沉浸式背景 */
 .thread-view-wrapper.solo-mode {
-  position: fixed;
+  position: absolute;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 1000;
   background: linear-gradient(180deg, var(--bg-base) 0%, var(--bg-sidebar) 100%);
   margin: 0;
   display: flex;

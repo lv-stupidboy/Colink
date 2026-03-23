@@ -82,7 +82,7 @@
   overflow: hidden;
 }
 
-/* ========== 左侧面板 - 工作流模板 ========== */
+/* ========== 左侧面板 - Agent团队 ========== */
 .workflow-templates-panel {
   flex: 1;
   min-width: 0;
@@ -150,7 +150,7 @@
   border: 1px solid var(--color-primary-border);
 }
 
-/* ========== 工作流模板卡片 ========== */
+/* ========== Agent团队卡片 ========== */
 .workflow-template-card {
   border-radius: 12px;
   border: 1px solid var(--border-color);

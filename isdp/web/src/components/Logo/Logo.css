@@ -83,6 +83,46 @@
   letter-spacing: 0.3px;
 }
 
+/* 收缩模式 */
+.logo-collapsed {
+  padding: 16px 0;
+  justify-content: center;
+}
+
+.logo-collapsed .logo-icon-wrapper {
+  margin: 0 auto;
+}
+
+/* 收缩/展开按钮 */
+.logo-collapse-btn {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  z-index: 10;
+}
+
+.logo-collapse-btn:hover {
+  background: var(--color-primary-opacity-10);
+  color: var(--color-primary);
+}
+
+.logo-collapsed .logo-collapse-btn {
+  right: 50%;
+  transform: translate(50%, -50%);
+}
+
 /* ============================================
    火焰效果
    ============================================ */

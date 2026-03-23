@@ -1,6 +1,9 @@
 -- ISDP Database Initialization Script for MySQL
--- Version: 2.3
+-- Version: 2.4
 -- Description: ISDP智能软件开发平台数据库初始化脚本
+-- 更新说明:
+--   - v2.4: agent_configs 表增加 is_system 字段和索引
+--   - v2.3: 初始版本
 
 -- 设置字符集
 SET NAMES utf8mb4;
@@ -128,10 +131,12 @@ CREATE TABLE agent_configs (
     dependencies JSON COMMENT 'Agent依赖配置',
     outputs JSON COMMENT 'Agent输出配置',
     is_default TINYINT DEFAULT 0 COMMENT '是否默认配置(0-否,1-是)',
+    is_system TINYINT DEFAULT 0 COMMENT '是否系统预置(0-否,1-是)',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     PRIMARY KEY (id),
     KEY idx_agent_configs_base_agent_id (base_agent_id),
+    KEY idx_agent_configs_is_system (is_system),
     CONSTRAINT fk_agent_configs_base_agent FOREIGN KEY (base_agent_id) REFERENCES base_agents(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent角色配置表';
 

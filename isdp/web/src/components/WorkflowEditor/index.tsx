@@ -313,7 +313,7 @@ const WorkflowEditor: React.FC<WorkflowEditorProps> = ({
     }));
   }, [nodes, readOnly, handleDeleteNode]);
 
-  // 保存工作流
+  // 保存团队
   const handleSave = async () => {
     if (nodes.length === 0) {
       message.warning('请先添加Agent节点');
@@ -338,7 +338,7 @@ const WorkflowEditor: React.FC<WorkflowEditorProps> = ({
     setSaving(true);
     try {
       await onSave(transitions, agentIds);
-      message.success('工作流保存成功');
+      message.success('团队保存成功');
     } catch (error: unknown) {
       const err = error as { message?: string };
       message.error(err?.message || '保存失败');
@@ -408,7 +408,7 @@ const WorkflowEditor: React.FC<WorkflowEditorProps> = ({
                 onClick={handleSave}
                 loading={saving}
               >
-                保存工作流
+                保存团队
               </Button>
             )}
           </Space>
@@ -419,7 +419,7 @@ const WorkflowEditor: React.FC<WorkflowEditorProps> = ({
           <Panel position="top-center">
             <Card size="small" style={{ background: '#f6ffed', border: '1px solid #b7eb8f' }}>
               <Text type="secondary">
-                {!readOnly ? '从右侧下拉框选择Agent添加到画布，然后拖拽连接节点' : '暂无工作流配置'}
+                {!readOnly ? '从右侧下拉框选择Agent添加到画布，然后拖拽连接节点' : '暂无团队配置'}
               </Text>
             </Card>
           </Panel>

@@ -323,7 +323,7 @@ class APIClient {
       this.request('/sandbox/docker/status', 'GET'),
   };
 
-  // 工作流模板 API
+  // Agent团队 API
   workflows = {
     list: (): Promise<WorkflowTemplate[]> => this.request('/workflows', 'GET'),
     get: (id: string): Promise<WorkflowTemplate> => this.request(`/workflows/${id}`, 'GET'),

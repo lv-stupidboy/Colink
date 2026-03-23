@@ -62,7 +62,7 @@ export interface Thread {
   currentAgent?: string;
   depth: number;
   abortToken?: string;
-  workflowTemplateId?: string; // 绑定的工作流模板ID
+  workflowTemplateId?: string; // 绑定的Agent团队ID
   createdAt: string;
   updatedAt: string;
 }
@@ -246,7 +246,7 @@ export interface Transition {
   description?: string;
 }
 
-// 工作流模板
+// Agent团队
 export interface WorkflowTemplate {
   id: string;
   name: string;
