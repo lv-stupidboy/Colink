@@ -32,6 +32,23 @@ import type {
   KnowledgeQueryRequest,
   KnowledgeQueryResult,
   BuiltInTagCategory,
+  Subagent,
+  CreateSubagentRequest,
+  UpdateSubagentRequest,
+  SubagentListQuery,
+  SubagentListResponse,
+  Command,
+  CreateCommandRequest,
+  UpdateCommandRequest,
+  CommandListQuery,
+  CommandListResponse,
+  Rule,
+  CreateRuleRequest,
+  UpdateRuleRequest,
+  RuleListQuery,
+  RuleListResponse,
+  CommandSkillsResponse,
+  RuleAgentsResponse,
 } from '@/types';
 import {
   transformProjects,
@@ -120,7 +137,9 @@ class APIClient {
         } else if (url.includes('/messages')) {
           result = Array.isArray(result) ? transformMessages(result) : transformMessage(result);
         } else if (url.includes('/agents')) {
+          console.log('[DEBUG] Transforming agents response, isArray:', Array.isArray(result), 'sample:', result[0] || result);
           result = Array.isArray(result) ? transformAgentConfigs(result) : transformAgentConfig(result);
+          console.log('[DEBUG] Transformed agents result sample:', result[0] || result);
         } else if (url.includes('/invocations')) {
           result = Array.isArray(result) ? transformAgentInvocations(result) : transformAgentInvocation(result);
         } else if (url.includes('/artifacts')) {
@@ -257,6 +276,24 @@ class APIClient {
       this.request(`/agent-skills/${agentId}`, 'POST', { skill_ids: skillIds }),
     unbindSkill: (agentId: string, skillId: string): Promise<{ message: string }> =>
       this.request(`/agent-skills/${agentId}/${skillId}`, 'DELETE'),
+    // 配置生成相关
+    generateConfig: (id: string, baseAgentType: string, cleanExisting?: boolean): Promise<{
+      message: string;
+      agent_id: string;
+      config_path: string;
+      skills_count: number;
+      subagents_count: number;
+      generated_at: string;
+    }> => this.request(`/agents/${id}/config/generate`, 'POST', {
+      base_agent_type: baseAgentType,
+      clean_existing: cleanExisting || false,
+    }),
+    getSubagents: (id: string): Promise<{ subagents: Subagent[] }> =>
+      this.request(`/agents/${id}/subagents`, 'GET'),
+    bindSubagents: (id: string, subagentIds: string[]): Promise<{ message: string }> =>
+      this.request(`/agents/${id}/subagents`, 'POST', { subagent_ids: subagentIds }),
+    unbindSubagent: (id: string, subagentId: string): Promise<{ message: string }> =>
+      this.request(`/agents/${id}/subagents/${subagentId}`, 'DELETE'),
   };
 
   // 基础Agent API
@@ -427,6 +464,106 @@ class APIClient {
       this.request(`/knowledge/${id}/query`, 'POST', request),
     queryAll: (request: KnowledgeQueryRequest): Promise<{ query: string; results: KnowledgeQueryResult[] }> =>
       this.request('/knowledge/query', 'POST', request),
+  };
+
+  // Subagent API
+  subagents = {
+    list: (query?: SubagentListQuery): Promise<SubagentListResponse> => {
+      const params = new URLSearchParams();
+      if (query?.search) params.append('search', query.search);
+      if (query?.page) params.append('page', query.page.toString());
+      if (query?.pageSize) params.append('page_size', query.pageSize.toString());
+
+      const url = params.toString() ? `/subagents?${params.toString()}` : '/subagents';
+      return this.request(url, 'GET');
+    },
+    get: (id: string): Promise<Subagent> =>
+      this.request(`/subagents/${id}`, 'GET'),
+    create: (data: CreateSubagentRequest): Promise<Subagent> =>
+      this.request('/subagents', 'POST', data),
+    update: (id: string, data: UpdateSubagentRequest): Promise<Subagent> =>
+      this.request(`/subagents/${id}`, 'PUT', data),
+    delete: (id: string): Promise<void> =>
+      this.request(`/subagents/${id}`, 'DELETE'),
+  };
+
+  // Command API
+  commands = {
+    list: (query?: CommandListQuery): Promise<CommandListResponse> => {
+      const params = new URLSearchParams();
+      if (query?.search) params.append('search', query.search);
+      if (query?.page) params.append('page', query.page.toString());
+      if (query?.pageSize) params.append('page_size', query.pageSize.toString());
+
+      const url = params.toString() ? `/commands?${params.toString()}` : '/commands';
+      return this.request(url, 'GET');
+    },
+    get: (id: string): Promise<Command> =>
+      this.request(`/commands/${id}`, 'GET'),
+    create: (data: CreateCommandRequest): Promise<Command> =>
+      this.request('/commands', 'POST', data),
+    update: (id: string, data: UpdateCommandRequest): Promise<Command> =>
+      this.request(`/commands/${id}`, 'PUT', data),
+    delete: (id: string): Promise<void> =>
+      this.request(`/commands/${id}`, 'DELETE'),
+    uploadFile: (formData: FormData): Promise<{ message: string; file_path: string }> => {
+      return this.request('/commands/upload', 'POST', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+    },
+    // Command 绑定的 Skills
+    getSkills: (id: string): Promise<CommandSkillsResponse> =>
+      this.request(`/commands/${id}/skills`, 'GET'),
+    bindSkills: (id: string, skillIds: string[]): Promise<{ message: string }> =>
+      this.request(`/commands/${id}/skills`, 'POST', { skill_ids: skillIds }),
+    unbindSkill: (id: string, skillId: string): Promise<{ message: string }> =>
+      this.request(`/commands/${id}/skills/${skillId}`, 'DELETE'),
+    // Agent 绑定的 Commands
+    getAgentCommands: (agentId: string): Promise<{ commands: Command[]; count: number }> =>
+      this.request(`/agents/${agentId}/commands`, 'GET'),
+    bindCommandsToAgent: (agentId: string, commandIds: string[]): Promise<{ message: string }> =>
+      this.request(`/agents/${agentId}/commands`, 'POST', { command_ids: commandIds }),
+    unbindCommandFromAgent: (agentId: string, commandId: string): Promise<{ message: string }> =>
+      this.request(`/agents/${agentId}/commands/${commandId}`, 'DELETE'),
+  };
+
+  // Rule API
+  rules = {
+    list: (query?: RuleListQuery): Promise<RuleListResponse> => {
+      const params = new URLSearchParams();
+      if (query?.search) params.append('search', query.search);
+      if (query?.scope) params.append('scope', query.scope);
+      if (query?.page) params.append('page', query.page.toString());
+      if (query?.pageSize) params.append('page_size', query.pageSize.toString());
+
+      const url = params.toString() ? `/rules?${params.toString()}` : '/rules';
+      return this.request(url, 'GET');
+    },
+    get: (id: string): Promise<Rule> =>
+      this.request(`/rules/${id}`, 'GET'),
+    create: (data: CreateRuleRequest): Promise<Rule> =>
+      this.request('/rules', 'POST', data),
+    update: (id: string, data: UpdateRuleRequest): Promise<Rule> =>
+      this.request(`/rules/${id}`, 'PUT', data),
+    delete: (id: string): Promise<void> =>
+      this.request(`/rules/${id}`, 'DELETE'),
+    uploadFile: (formData: FormData): Promise<{ message: string; file_path: string }> => {
+      return this.request('/rules/upload', 'POST', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+    },
+    // 公共规约和实例规约
+    getPublicRules: (): Promise<Rule[]> =>
+      this.request('/rules/public', 'GET'),
+    getInstanceRules: (): Promise<Rule[]> =>
+      this.request('/rules/instance', 'GET'),
+    // Agent 绑定的 Rules
+    getAgentRules: (agentId: string): Promise<RuleAgentsResponse> =>
+      this.request(`/agents/${agentId}/rules`, 'GET'),
+    bindRulesToAgent: (agentId: string, ruleIds: string[]): Promise<{ message: string }> =>
+      this.request(`/agents/${agentId}/rules`, 'POST', { rule_ids: ruleIds }),
+    unbindRuleFromAgent: (agentId: string, ruleId: string): Promise<{ message: string }> =>
+      this.request(`/agents/${agentId}/rules/${ruleId}`, 'DELETE'),
   };
 }
 

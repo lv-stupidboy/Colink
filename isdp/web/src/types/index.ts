@@ -115,6 +115,8 @@ export interface AgentConfig {
   temperature: number;
   routingConfig: RoutingConfig;
   isDefault: boolean;
+  configGeneratedAt?: string;
+  configPath?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -577,4 +579,139 @@ export interface KnowledgeQueryResult {
   total: number;
   source: string;
   error?: string;
+}
+
+// ========== Subagent 相关类型 ==========
+
+// Subagent
+export interface Subagent {
+  id: string;
+  name: string;
+  description?: string;
+  content: string;
+  skillId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// 创建Subagent请求
+export interface CreateSubagentRequest {
+  name: string;
+  description?: string;
+  content: string;
+  skillId?: string;
+}
+
+// 更新Subagent请求
+export interface UpdateSubagentRequest {
+  description?: string;
+  content: string;
+}
+
+// Subagent列表查询参数
+export interface SubagentListQuery {
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+// Subagent列表响应
+export interface SubagentListResponse {
+  data: Subagent[];
+  total: number;
+  page: number;
+  size: number;
+}
+
+// ========== Command 相关类型 ==========
+
+// Command
+export interface Command {
+  id: string;
+  name: string;
+  description?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// 创建Command请求
+export interface CreateCommandRequest {
+  name: string;
+  description?: string;
+}
+
+// 更新Command请求
+export interface UpdateCommandRequest {
+  description?: string;
+}
+
+// Command列表查询参数
+export interface CommandListQuery {
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+// Command列表响应
+export interface CommandListResponse {
+  data: Command[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+// ========== Rule 相关类型 ==========
+
+// RuleScope 规约范围
+export type RuleScope = 'public' | 'instance';
+
+// Rule
+export interface Rule {
+  id: string;
+  name: string;
+  description?: string;
+  scope: RuleScope;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// 创建Rule请求
+export interface CreateRuleRequest {
+  name: string;
+  description?: string;
+  scope?: RuleScope;
+}
+
+// 更新Rule请求
+export interface UpdateRuleRequest {
+  description?: string;
+  scope?: RuleScope;
+}
+
+// Rule列表查询参数
+export interface RuleListQuery {
+  search?: string;
+  scope?: RuleScope;
+  page?: number;
+  pageSize?: number;
+}
+
+// Rule列表响应
+export interface RuleListResponse {
+  data: Rule[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+// Command绑定的Skills响应
+export interface CommandSkillsResponse {
+  skills: Skill[];
+  count: number;
+}
+
+// Rule绑定的Agents响应
+export interface RuleAgentsResponse {
+  agents: AgentConfig[];
+  count: number;
 }
