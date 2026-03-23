@@ -134,7 +134,12 @@ func main() {
 	configGenService := configgen.NewService(
 		projectRepo, agentConfigRepo, skillRepo, agentSkillBindingRepo,
 		subagentRepo, agentSubagentBindingRepo,
-		cfg.Skill.GetStoragePath(), cfg.Subagent.GetStoragePath(), cfg.AgentConfig.DataDir,
+		commandRepo, ruleRepo,
+		agentCommandBindingRepo, agentRuleBindingRepo,
+		commandSkillBindingRepo, subagentSkillBindingRepo,
+		cfg.Skill.GetStoragePath(), cfg.Subagent.GetStoragePath(),
+		cfg.Command.GetStoragePath(), cfg.Rule.GetStoragePath(),
+		cfg.AgentConfig.DataDir,
 		logger,
 	)
 
