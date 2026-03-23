@@ -5,6 +5,8 @@
 
 SET NAMES utf8mb4;
 
+START TRANSACTION;
+
 -- ----------------------------
 -- 命令表
 -- ----------------------------
@@ -122,7 +124,13 @@ WHERE skill_id IS NOT NULL AND skill_id != '';
 -- ----------------------------
 -- ALTER TABLE subagents DROP COLUMN skill_id;
 
+COMMIT;
+
 -- 回滚语句（如需回滚执行以下语句）
+-- 回滚数据迁移说明：
+-- 由于数据已从 subagents.skill_id 迁移到 subagent_skill_bindings 表，
+-- 回滚时需要先确认 subagents 表仍保留 skill_id 字段。
+-- 如果已删除 skill_id 字段，需要先恢复该字段再迁移数据回来。
 -- DROP TABLE IF EXISTS subagent_skill_bindings;
 -- DROP TABLE IF EXISTS command_skill_bindings;
 -- DROP TABLE IF EXISTS agent_rule_bindings;

@@ -568,6 +568,18 @@ CREATE INDEX IF NOT EXISTS idx_messages_thread_id ON messages(thread_id);
 CREATE INDEX IF NOT EXISTS idx_agent_invocations_thread_id ON agent_invocations(thread_id);
 CREATE INDEX IF NOT EXISTS idx_artifacts_thread_id ON artifacts(thread_id);
 
+-- Command 和 Rule 相关索引
+CREATE INDEX IF NOT EXISTS idx_commands_name ON commands(name);
+CREATE INDEX IF NOT EXISTS idx_rules_scope ON rules(scope);
+CREATE INDEX IF NOT EXISTS idx_agent_command_bindings_agent_role_id ON agent_command_bindings(agent_role_id);
+CREATE INDEX IF NOT EXISTS idx_agent_command_bindings_command_id ON agent_command_bindings(command_id);
+CREATE INDEX IF NOT EXISTS idx_agent_rule_bindings_agent_role_id ON agent_rule_bindings(agent_role_id);
+CREATE INDEX IF NOT EXISTS idx_agent_rule_bindings_rule_id ON agent_rule_bindings(rule_id);
+CREATE INDEX IF NOT EXISTS idx_command_skill_bindings_command_id ON command_skill_bindings(command_id);
+CREATE INDEX IF NOT EXISTS idx_command_skill_bindings_skill_id ON command_skill_bindings(skill_id);
+CREATE INDEX IF NOT EXISTS idx_subagent_skill_bindings_subagent_id ON subagent_skill_bindings(subagent_id);
+CREATE INDEX IF NOT EXISTS idx_subagent_skill_bindings_skill_id ON subagent_skill_bindings(skill_id);
+
 -- 命令表
 CREATE TABLE IF NOT EXISTS commands (
     id TEXT PRIMARY KEY,
