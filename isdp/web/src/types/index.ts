@@ -6,6 +6,7 @@ export type AgentRole =
   | 'reviewer'
   | 'testengineer'
   | 'devops'
+  | 'fullstack_engineer'
   | 'custom';
 
 // 基础Agent类型
@@ -204,6 +205,7 @@ export const AgentRoleLabels: Record<AgentRole, string> = {
   reviewer: '评审者',
   testengineer: '测试工程师',
   devops: '运维工程师',
+  fullstack_engineer: '全栈工程师',
   custom: '自定义',
 };
 
@@ -579,3 +581,6 @@ export interface KnowledgeQueryResult {
   source: string;
   error?: string;
 }
+
+// 内容类型
+export * from './content';
