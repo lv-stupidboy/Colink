@@ -1462,16 +1462,19 @@ const ThreadView: React.FC = () => {
       {/* Solo 模式下：任务列表 + 消息区 + 沙箱 并排显示 */}
       {soloMode ? (
         /* Solo 模式：任务列表 + 消息区 + 沙箱 并排 */
-        <>
-          {/* 任务列表 */}
-          <TaskList
-            projectId={projectId || ''}
-            activeThreadId={soloActiveTask?.id || null}
-            onSelectTask={handleSelectSoloTask}
-            onCreateTask={handleCreateSoloTask}
-            isRunning={debugStatus === 'running'}
-          />
+        <div className="solo-mode-body">
+          {/* 任务抽屉 */}
+          <div className={`solo-task-drawer ${!taskDrawerOpen ? 'collapsed' : ''}`}>
+            <TaskList
+              projectId={projectId || ''}
+              activeThreadId={soloActiveTask?.id || null}
+              onSelectTask={handleSelectSoloTask}
+              onCreateTask={handleCreateSoloTask}
+              isRunning={debugStatus === 'running'}
+            />
+          </div>
 
+          {/* 消息区 */}
           <div className="solo-mode-content">
             <div className="thread-view">
               {/* 消息区域 */}
@@ -1553,6 +1556,7 @@ const ThreadView: React.FC = () => {
                 <Button type="primary" icon={<SendOutlined />} onClick={handleSend}>发送</Button>
               </Space>
             </div>
+            </div>
           </div>
 
           {/* Solo 模式下的右侧面板 */}
@@ -1582,7 +1586,6 @@ const ThreadView: React.FC = () => {
             </>
           )}
         </div>
-      </>
       ) : (
         /* 非Solo模式：原有结构 */
         <>
