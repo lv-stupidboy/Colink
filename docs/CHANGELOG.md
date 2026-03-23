@@ -4,6 +4,238 @@
 
 ---
 
+## 2026-03-23 消息内容展示优化（视觉内容 + 代码 Diff）
+
+### 背景
+
+消息内容展示优化，将视觉内容（架构图、图表、图片）与代码内容分离展示：
+- 视觉内容直接在气泡内展示，一目了然
+- 代码内容在右侧面板展示，支持 Split Diff 对比和深入操作
+- 右侧面板可收起，不影响对话流畅性
+
+### 目标
+
+1. 实现视觉内容卡片组件，支持 Mermaid 架构图渲染
+2. 实现代码预览入口按钮，点击打开右侧面板
+3. 实现右侧代码面板，包含文件列表和 Split Diff 视图
+4. 支持面板收起/展开，文件列表纵向排列
+
+### 核心变更
+
+#### 前端改动
+
+##### 新增依赖
+- `mermaid` - 架构图渲染
+- `diff-match-patch` - 代码差异计算
+- `@types/diff-match-patch` - TypeScript 类型定义
+
+##### 新增类型定义
+- `types/content.ts` - 内容类型定义（ContentType, ContentBlock, FileChange, CodePanelState）
+
+##### 新增工具函数
+- `utils/contentDetector.ts` - 内容类型检测
+  - `detectContentType()` - 检测代码块内容类型
+  - `parseContentBlocks()` - 解析 Markdown 为内容块列表
+  - `parseCodeFiles()` - 解析代码块为文件变更列表
+
+##### 新增组件
+- `components/thread/ContentCard.tsx` - 视觉内容卡片（架构图、错误日志）
+- `components/thread/CodePreviewButton.tsx` - 代码预览入口按钮
+- `components/thread/CodePanel/index.tsx` - 代码面板容器
+- `components/thread/CodePanel/FileList.tsx` - 文件列表
+- `components/thread/CodePanel/FileItem.tsx` - 文件项
+- `components/thread/CodePanel/SplitDiff.tsx` - Split Diff 视图
+
+##### 组件功能
+- **ContentCard**：Mermaid 架构图渲染、错误日志终端样式、放大/下载功能
+- **CodePreviewButton**：显示代码文件名、变更统计、点击打开面板
+- **CodePanel**：文件列表纵向排列、支持收起/展开、全部应用/复制
+- **SplitDiff**：左右对比视图、新增/删除行高亮、同步滚动
+
+##### Store 改动
+- `store/debugThread.ts` - 添加代码面板状态和方法
+  - `codePanelOpen`, `codePanelCollapsed`, `expandedFiles`, `codeFiles`
+  - `openCodePanel`, `closeCodePanel`, `toggleCodePanelCollapse`, `toggleFileExpand`
+
+##### ThreadView.tsx 改动
+- 根据内容类型选择展示方式
+- 视觉内容在气泡内卡片展示
+- 代码内容通过入口按钮打开右侧面板
+- 集成 CodePanel 到 Solo 模式布局
+
+### 新增文件
+
+| 文件 | 说明 |
+|------|------|
+| `components/thread/ContentCard.tsx` | 视觉内容卡片组件 |
+| `components/thread/ContentCard.css` | 卡片样式 |
+| `components/thread/CodePreviewButton.tsx` | 代码预览入口 |
+| `components/thread/CodePreviewButton.css` | 入口样式 |
+| `components/thread/CodePanel/index.tsx` | 代码面板容器 |
+| `components/thread/CodePanel/FileList.tsx` | 文件列表 |
+| `components/thread/CodePanel/FileItem.tsx` | 文件项 |
+| `components/thread/CodePanel/SplitDiff.tsx` | Diff 视图 |
+| `components/thread/CodePanel/CodePanel.css` | 面板样式 |
+| `types/content.ts` | 内容类型定义 |
+| `utils/contentDetector.ts` | 内容检测工具 |
+
+### 验证方法
+
+1. 发送消息请求生成架构图，验证 ContentCard 正确渲染 Mermaid
+2. 发送消息请求生成代码，验证 CodePreviewButton 正确显示
+3. 点击代码入口，验证 CodePanel 打开
+4. 测试面板收起/展开功能
+5. 测试文件展开/收起功能
+6. 验证 Split Diff 左右对比正确
+
+### 影响范围
+
+- 前端消息渲染逻辑
+- 调试模式状态管理
+- 新增多个 UI 组件
+
+---
+
+## 2026-03-23 消息内容 Markdown 渲染功能
+
+### 背景
+
+对话框中 AI 输出的内容（代码、架构图、图片等）一直以纯文本形式展示，用户体验不佳。需要实现类似 Trae 的富文本渲染效果，支持 Markdown 格式、代码高亮、图片展示等。
+
+### 目标
+
+1. 实现 Markdown 内容渲染（标题、列表、引用、表格等）
+2. 实现代码块语法高亮和复制功能
+3. 支持图片渲染和预览
+4. 保持流式消息的实时渲染
+
+### 核心变更
+
+#### 前端改动
+
+##### 新增依赖
+- `react-markdown` - Markdown 解析渲染
+- `remark-gfm` - GitHub 风格 Markdown（表格、删除线、任务列表）
+- `rehype-highlight` - 代码语法高亮
+- `highlight.js` - 高亮样式（github-dark 主题）
+
+##### 新增组件
+- `components/thread/MessageContent.tsx` - 消息内容渲染组件
+- `components/thread/MessageContent.css` - 组件样式
+
+##### 组件功能
+- 代码块渲染：带语言标识、复制按钮、语法高亮
+- 行内代码：背景高亮、等宽字体
+- 图片渲染：懒加载、居中展示、悬停放大效果
+- 表格渲染：响应式滚动、斑马纹样式
+- 引用块：左侧边框、背景色区分
+- 链接：新窗口打开、悬停下划线
+- 深色主题适配
+
+##### ThreadView.tsx 改动
+- 导入 MessageContent 组件
+- 已完成消息使用 MessageContent 渲染 Markdown
+- 流式消息保持纯文本渲染（避免不完整 Markdown 导致渲染问题）
+
+### 新增文件
+
+| 文件 | 说明 |
+|------|------|
+| `components/thread/MessageContent.tsx` | 消息内容 Markdown 渲染组件 |
+| `components/thread/MessageContent.css` | 组件样式文件 |
+
+### 修改文件
+
+| 文件 | 改动类型 | 说明 |
+|------|----------|------|
+| `package.json` | 新增依赖 | react-markdown, remark-gfm, rehype-highlight, highlight.js |
+| `components/thread/index.ts` | 修改 | 导出 MessageContent |
+| `pages/ThreadView.tsx` | 修改 | 使用 MessageContent 渲染消息内容 |
+
+### 渲染策略
+
+| 消息类型 | 渲染方式 | 原因 |
+|----------|----------|------|
+| 已完成消息 | Markdown 渲染 | 内容完整，可正确解析 |
+| 流式消息 | 纯文本渲染 | 内容可能不完整，避免解析错误 |
+
+### 验证方法
+
+1. 启动前端服务：`cd web && npm run dev`
+2. 打开 Agent 调试页面，发送消息
+3. 验证 AI 回复中的代码块有语法高亮和复制按钮
+4. 验证 Markdown 元素（列表、表格、引用）正确渲染
+5. 验证深色主题下样式正常
+
+### 影响范围
+
+- 前端：消息渲染组件、新增依赖
+- 后端：无改动
+- 数据：不影响现有数据
+
+---
+
+## 2026-03-23 Solo 模式与全栈工程师角色
+
+### 背景
+
+为了提供更纯净的用户体验，参考 Trae 的 Solo 模式，在开发对话框中增加沉浸式工作模式。
+
+### 目标
+
+1. 实现 Solo 模式：只保留消息区和输入框，隐藏其他界面元素
+2. 新增全栈工程师系统预置角色
+3. 全栈工程师角色自动触发 Solo 模式
+4. 简化界面，移除不必要的控制元素
+5. 美化 Solo 模式界面，提升用户体验
+
+### 核心变更
+
+#### 前端改动
+
+##### ThreadView.tsx
+- 新增 `soloMode` 状态控制界面显示模式
+- 新增 Solo 模式顶部切换栏（工作流模式 / Solo 模式标签）
+- Solo 模式下隐藏：左侧文件树、顶部干预控制栏、右侧产物侧边栏
+- Solo 模式下保留：沙箱按钮（右上角）、消息区、输入框
+- 全栈工程师角色进入调试时自动开启 Solo 模式
+- 移除干预控制按钮（暂停/跳过/终止/重做）- 无实际使用场景
+- 移除当前阶段状态显示（需求/设计/开发等阶段标签）
+- Solo 模式顶部布局：左侧为模式切换标签，右侧为沙箱按钮
+- 优化空状态提示样式
+
+##### ThreadView.css
+- 新增 `.solo-mode` 类样式，全屏垂直布局
+- 新增 `.solo-mode-header` 顶部切换栏样式，浮动阴影效果
+- 新增 `.solo-mode-tabs` / `.solo-mode-tab` 标签样式，胶囊式设计
+- 新增 `.solo-mode-actions` / `.solo-mode-action-btn` 操作按钮样式
+- Solo 模式下消息区居中显示，最大宽度 900px
+- 消息气泡优化：更大圆角(16px)、微妙阴影、悬停动效
+- 用户消息渐变背景，Agent 消息保持容器背景
+- 输入框优化：更大圆角、聚焦发光效果、居中布局
+- 新增 `.solo-mode-welcome` 欢迎提示样式
+
+#### 后端改动
+
+##### model/agent_config.go
+- 新增 `AgentRoleFullstackEngineer` 角色常量
+
+##### service/agent/config_service.go
+- 新增 `InitSystemAgents()` 方法初始化系统预置角色
+- 新增全栈工程师系统提示词（涵盖需求分析、架构设计、前后端开发、测试运维）
+
+##### sql-change/migrations/202603230001_insert_fullstack_engineer.sql
+- 新增全栈工程师角色的数据库迁移脚本
+
+### 使用说明
+
+1. **手动切换**：在 ThreadView 页面点击顶部 "Solo" 按钮进入 Solo 模式
+2. **自动触发**：选择"全栈工程师"角色进入调试时自动进入 Solo 模式
+3. **退出 Solo 模式**：点击顶部"退出"按钮或"工作流模式"标签
+4. **沙箱操作**：在 Solo 模式下点击右上角"沙箱"按钮打开/关闭沙箱面板
+
+---
+
 ## 2026-03-21 技能库完整功能实现
 
 ### 背景
