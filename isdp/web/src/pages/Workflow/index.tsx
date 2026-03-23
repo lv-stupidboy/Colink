@@ -30,6 +30,7 @@ import {
   DeleteOutlined,
   EditOutlined,
   EyeOutlined,
+  CrownOutlined,
 } from '@ant-design/icons';
 import { api } from '@/api/client';
 import type { AgentConfig, WorkflowTemplate, Transition } from '@/types';
@@ -294,7 +295,7 @@ const WorkflowPage: React.FC = () => {
   };
 
   /**
-   * 渲染 Agent 实例列表
+   * 渲染 Agent 实例列表（分层显示）
    */
   const renderAgentRoles = () => {
     if (loadingAgents) {
@@ -316,32 +317,88 @@ const WorkflowPage: React.FC = () => {
       );
     }
 
+    // 分组：系统预置和自定义
+    const systemAgents = (agents || []).filter(a => a.isSystem);
+    const customAgents = (agents || []).filter(a => !a.isSystem);
+
     return (
-      <List
-        grid={{ gutter: 16, column: 2 }}
-        dataSource={agents || []}
-        renderItem={(agent) => (
-          <List.Item>
-            <Card
-              hoverable
-              size="small"
-              style={{ textAlign: 'center' }}
-            >
-              <Avatar
-                size={48}
-                style={{ backgroundColor: '#1890ff', marginBottom: 8 }}
-                icon={<UserOutlined />}
-              />
-              <div>
-                <Text strong>{agent.name}</Text>
-              </div>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                {AgentRoleLabels[agent.role]}
-              </Text>
-            </Card>
-          </List.Item>
+      <>
+        {/* 系统预置角色 */}
+        {systemAgents.length > 0 && (
+          <div style={{ marginBottom: 16 }}>
+            <Divider orientation="left" style={{ margin: '12px 0' }}>
+              <Space>
+                <CrownOutlined style={{ color: '#faad14' }} />
+                <span style={{ fontSize: 13 }}>系统预置</span>
+                <Tag color="gold" style={{ marginLeft: 4 }}>{systemAgents.length}</Tag>
+              </Space>
+            </Divider>
+            <List
+              grid={{ gutter: 12, column: 2 }}
+              dataSource={systemAgents}
+              renderItem={(agent) => (
+                <List.Item>
+                  <Card
+                    hoverable
+                    size="small"
+                    style={{ textAlign: 'center' }}
+                  >
+                    <Avatar
+                      size={40}
+                      style={{ backgroundColor: '#faad14', marginBottom: 6 }}
+                      icon={<CrownOutlined />}
+                    />
+                    <div>
+                      <Text strong style={{ fontSize: 13 }}>{agent.name}</Text>
+                    </div>
+                    <Text type="secondary" style={{ fontSize: 11 }}>
+                      {AgentRoleLabels[agent.role] || agent.role}
+                    </Text>
+                  </Card>
+                </List.Item>
+              )}
+            />
+          </div>
         )}
-      />
+
+        {/* 自定义角色 */}
+        {customAgents.length > 0 && (
+          <div>
+            <Divider orientation="left" style={{ margin: '12px 0' }}>
+              <Space>
+                <UserOutlined />
+                <span style={{ fontSize: 13 }}>自定义</span>
+                <Tag color="blue" style={{ marginLeft: 4 }}>{customAgents.length}</Tag>
+              </Space>
+            </Divider>
+            <List
+              grid={{ gutter: 12, column: 2 }}
+              dataSource={customAgents}
+              renderItem={(agent) => (
+                <List.Item>
+                  <Card
+                    hoverable
+                    size="small"
+                    style={{ textAlign: 'center' }}
+                  >
+                    <Avatar
+                      size={40}
+                      style={{ backgroundColor: '#1890ff', marginBottom: 6 }}
+                      icon={<UserOutlined />}
+                    />
+                    <div>
+                      <Text strong style={{ fontSize: 13 }}>{agent.name}</Text>
+                    </div>
+                    <Text type="secondary" style={{ fontSize: 11 }}>
+                      {AgentRoleLabels[agent.role] || agent.role}
+                    </Text>
+                  </Card>
+                </List.Item>
+              )}
+            />
+          </div>
+        )}
+      </>
     );
   };
 
@@ -537,15 +594,46 @@ const WorkflowPage: React.FC = () => {
               placeholder="选择工作流中的Agent实例"
               loading={loadingAgents}
               showSearch
-              filterOption={(input, option) =>
-                (option?.children as unknown as string)?.toLowerCase().includes(input.toLowerCase())
-              }
+              optionFilterProp="label"
             >
-              {(agents || []).map((agent) => (
-                <Option key={agent.id} value={agent.id}>
-                  {agent.name} ({AgentRoleLabels[agent.role]})
-                </Option>
-              ))}
+              {/* 系统预置角色分组 */}
+              {agents.filter(a => a.isSystem).length > 0 && (
+                <Select.OptGroup label={
+                  <Space>
+                    <CrownOutlined style={{ color: '#faad14' }} />
+                    <span>系统预置</span>
+                  </Space>
+                }>
+                  {agents.filter(a => a.isSystem).map((agent) => (
+                    <Option key={agent.id} value={agent.id} label={agent.name}>
+                      <Space>
+                        <CrownOutlined style={{ color: '#faad14' }} />
+                        <span>{agent.name}</span>
+                        <Text type="secondary" style={{ fontSize: 12 }}>({AgentRoleLabels[agent.role] || agent.role})</Text>
+                      </Space>
+                    </Option>
+                  ))}
+                </Select.OptGroup>
+              )}
+              {/* 自定义角色分组 */}
+              {agents.filter(a => !a.isSystem).length > 0 && (
+                <Select.OptGroup label={
+                  <Space>
+                    <UserOutlined />
+                    <span>自定义</span>
+                  </Space>
+                }>
+                  {agents.filter(a => !a.isSystem).map((agent) => (
+                    <Option key={agent.id} value={agent.id} label={agent.name}>
+                      <Space>
+                        <UserOutlined />
+                        <span>{agent.name}</span>
+                        <Text type="secondary" style={{ fontSize: 12 }}>({AgentRoleLabels[agent.role] || agent.role})</Text>
+                      </Space>
+                    </Option>
+                  ))}
+                </Select.OptGroup>
+              )}
             </Select>
           </Form.Item>
 

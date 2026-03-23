@@ -115,6 +115,7 @@ export interface AgentConfig {
   temperature: number;
   routingConfig: RoutingConfig;
   isDefault: boolean;
+  isSystem: boolean;  // 是否为系统预置角色
   createdAt: string;
   updatedAt: string;
 }

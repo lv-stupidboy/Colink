@@ -43,6 +43,7 @@ type AgentRoleConfig struct {
 	Temperature  float64        `json:"temperature"`
 	RoutingConfig RoutingConfig `json:"routing_config"`
 	IsDefault    bool           `json:"is_default"`
+	IsSystem     bool           `json:"is_system"`     // 是否为系统预置角色
 
 	// 能力声明（用于自动编排工作流）
 	Capabilities []string `json:"capabilities"`  // 能力列表：这个 Agent 能做什么
