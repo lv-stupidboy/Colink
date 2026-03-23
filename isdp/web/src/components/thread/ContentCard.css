@@ -1,0 +1,320 @@
+/* isdp/web/src/components/thread/ContentCard.css */
+
+/* ============================================
+   ContentCard - 视觉内容卡片组件
+   设计风格：技术精致
+   ============================================ */
+
+/* 基础卡片容器 */
+.content-card {
+  margin-top: 12px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--bg-container, #fff);
+  border: 1px solid var(--border-light, #e8e8e8);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 2px 4px rgba(0, 0, 0, 0.02);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.content-card:hover {
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.06),
+    0 4px 8px rgba(0, 0, 0, 0.04);
+}
+
+/* 卡片头部 */
+.content-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: linear-gradient(to bottom, #fafafa, #f5f5f5);
+  border-bottom: 1px solid var(--border-light, #e8e8e8);
+}
+
+.content-card__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.content-card__icon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.content-card__label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary, #262626);
+  letter-spacing: -0.01em;
+}
+
+.content-card__actions {
+  display: flex;
+  gap: 2px;
+}
+
+.content-card__action {
+  color: var(--text-secondary, #8c8c8c);
+  border-radius: 6px;
+  transition: all 0.15s ease;
+}
+
+.content-card__action:hover {
+  color: var(--color-primary, #1890ff);
+  background: rgba(24, 144, 255, 0.08);
+}
+
+/* 卡片主体 */
+.content-card__body {
+  padding: 20px;
+  min-height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 加载状态 */
+.content-card__loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 120px;
+}
+
+/* 错误状态 */
+.content-card__error {
+  width: 100%;
+}
+
+.content-card__error .ant-alert {
+  border-radius: 8px;
+}
+
+.error-source {
+  margin-top: 12px;
+  padding: 12px;
+  background: #fafafa;
+  border-radius: 6px;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #666;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ============================================
+   架构图卡片样式
+   ============================================ */
+
+.content-card--diagram .content-card__body {
+  background: linear-gradient(135deg, #fafbfc 0%, #f5f7fa 100%);
+}
+
+.diagram-svg-container {
+  width: 100%;
+  overflow: auto;
+  display: flex;
+  justify-content: center;
+}
+
+.diagram-svg-container svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* 全屏模态框 */
+.diagram-modal .ant-modal-content {
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.diagram-modal__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.diagram-fullscreen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 50vh;
+  max-height: 70vh;
+  overflow: auto;
+  padding: 24px;
+  background: linear-gradient(135deg, #fafbfc 0%, #f5f7fa 100%);
+  border-radius: 8px;
+}
+
+.diagram-fullscreen svg {
+  max-width: 100%;
+  max-height: 65vh;
+}
+
+/* ============================================
+   错误日志卡片样式
+   终端风格设计
+   ============================================ */
+
+.content-card--error {
+  background: #0d1117;
+  border-color: #21262d;
+}
+
+.content-card--error .content-card__header {
+  background: linear-gradient(to bottom, #161b22, #0d1117);
+  border-bottom: 1px solid #21262d;
+}
+
+.content-card--error .content-card__label {
+  color: #e6edf3;
+}
+
+.content-card--error .content-card__action {
+  color: #8b949e;
+}
+
+.content-card--error .content-card__action:hover {
+  color: #f0f6fc;
+  background: rgba(240, 246, 252, 0.1);
+}
+
+.content-card__body--terminal {
+  padding: 0;
+  min-height: auto;
+}
+
+.error-log-content {
+  margin: 0;
+  padding: 16px 20px;
+  font-family: 'SF Mono', 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.7;
+  color: #f85149;
+  background: transparent;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+/* 错误日志中的关键信息高亮 */
+.error-log-content::selection {
+  background: rgba(248, 81, 73, 0.3);
+}
+
+/* ============================================
+   响应式设计
+   ============================================ */
+
+@media (max-width: 767px) {
+  .content-card {
+    border-radius: 10px;
+  }
+
+  .content-card__header {
+    padding: 8px 12px;
+  }
+
+  .content-card__label {
+    font-size: 12px;
+  }
+
+  .content-card__body {
+    padding: 16px;
+    min-height: 100px;
+  }
+
+  .error-log-content {
+    padding: 12px 14px;
+    font-size: 11px;
+    max-height: 300px;
+  }
+
+  .diagram-fullscreen {
+    min-height: 40vh;
+    padding: 16px;
+  }
+}
+
+/* ============================================
+   深色主题适配
+   ============================================ */
+
+[data-theme='dark'] .content-card {
+  background: #1e293b;
+  border-color: #334155;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.2),
+    0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+[data-theme='dark'] .content-card:hover {
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.3),
+    0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+[data-theme='dark'] .content-card__header {
+  background: linear-gradient(to bottom, #1e293b, #0f172a);
+  border-bottom-color: #334155;
+}
+
+[data-theme='dark'] .content-card__label {
+  color: #e2e8f0;
+}
+
+[data-theme='dark'] .content-card__action {
+  color: #94a3b8;
+}
+
+[data-theme='dark'] .content-card__action:hover {
+  color: #60a5fa;
+  background: rgba(96, 165, 250, 0.1);
+}
+
+[data-theme='dark'] .content-card--diagram .content-card__body {
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+}
+
+[data-theme='dark'] .error-source {
+  background: #0f172a;
+  color: #94a3b8;
+}
+
+[data-theme='dark'] .diagram-fullscreen {
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+}
+
+/* Mermaid 主题在深色模式下的适配 */
+[data-theme='dark'] .diagram-svg-container .node rect,
+[data-theme='dark'] .diagram-svg-container .node circle,
+[data-theme='dark'] .diagram-svg-container .node ellipse,
+[data-theme='dark'] .diagram-svg-container .node polygon,
+[data-theme='dark'] .diagram-svg-container .node path {
+  fill: #1e293b;
+  stroke: #60a5fa;
+}
+
+[data-theme='dark'] .diagram-svg-container .edgeLabel {
+  background-color: #1e293b;
+  color: #e2e8f0;
+}
+
+[data-theme='dark'] .diagram-svg-container .label {
+  color: #e2e8f0;
+}
+
+[data-theme='dark'] .diagram-svg-container .edgePath .path {
+  stroke: #94a3b8;
+}

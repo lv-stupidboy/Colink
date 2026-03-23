@@ -34,6 +34,10 @@ interface SandboxPanelProps {
   onRunSandbox: (mode: 'local' | 'docker') => void;
   // 停止沙箱
   onStopSandbox: () => void;
+  // Solo 模式（并排显示）
+  soloMode?: boolean;
+  // 自定义宽度
+  width?: number;
 }
 
 export const SandboxPanel: React.FC<SandboxPanelProps> = ({
@@ -45,6 +49,8 @@ export const SandboxPanel: React.FC<SandboxPanelProps> = ({
   dockerAvailable,
   onRunSandbox,
   onStopSandbox,
+  soloMode = false,
+  width,
 }) => {
   // 刷新预览
   const handleRefresh = () => {
@@ -65,7 +71,10 @@ export const SandboxPanel: React.FC<SandboxPanelProps> = ({
   const canRunSandbox = isDebugMode ? hasProjectPath : true;
 
   return (
-    <div className="right-sidebar sandbox-panel">
+    <div
+      className={`right-sidebar sandbox-panel ${soloMode ? 'solo-mode-panel' : ''}`}
+      style={width ? { width, minWidth: width, maxWidth: width } : undefined}
+    >
       {/* 标题栏 */}
       <div className="right-sidebar-header">
         <span style={{ fontWeight: 500 }}>沙箱预览</span>
