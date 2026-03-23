@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Input,
@@ -43,12 +43,14 @@ import {
 import { useAppStore } from '@/store';
 import { useDebugThreadStore } from '@/store/debugThread';
 import type { Message, Artifact, ReviewIssue, MergeCheckResult, AgentRole, AgentConfig } from '@/types';
+import type { FileChange } from '@/types/content';
 import { AgentRoleLabels, ArtifactTypeLabels } from '@/types';
 import { ReviewReport } from '@/components/ReviewReport';
-import { SandboxPanel, MessageContent, ContentCard, CodePreviewButton, CodePanel } from '@/components/thread';
+import { RightPanel, MessageContent, ContentCard, CodePreviewButton, TaskList } from '@/components/thread';
 import { parseContentBlocks, shouldShowInPanel, shouldShowInBubble, parseCodeFiles } from '@/utils/contentDetector';
 import FileTree from '@/components/FileTree';
 import api from '@/api/client';
+import type { Thread } from '@/types';
 import './ThreadView.css';
 
 const { TextArea } = Input;
@@ -127,11 +129,6 @@ const ThreadView: React.FC = () => {
     status: debugStatus,
     sandboxServer: debugSandboxServer,
     sandboxLoading: debugSandboxLoading,
-    // 代码面板状态
-    codePanelOpen,
-    codePanelCollapsed,
-    codeFiles,
-    expandedFiles,
     setThreadId: setDebugThreadId,
     addMessage: addDebugMessage,
     appendStreamChunk: appendDebugStreamChunk,
@@ -140,11 +137,6 @@ const ThreadView: React.FC = () => {
     clearAll: clearDebugAll,
     setSandboxServer: setDebugSandboxServer,
     setSandboxLoading: setDebugSandboxLoading,
-    // 代码面板操作
-    openCodePanel,
-    closeCodePanel,
-    toggleCodePanelCollapse,
-    toggleFileExpand,
   } = useDebugThreadStore();
 
   // 调试模式的本地 WebSocket 连接状态（避免使用全局状态导致重新渲染）
@@ -153,6 +145,7 @@ const ThreadView: React.FC = () => {
 
   // Solo 模式状态
   const [soloMode, setSoloMode] = useState(false);
+  const [taskDrawerOpen, setTaskDrawerOpen] = useState(true);
 
   // 根据模式选择使用哪个状态
   const messages = isDebugMode ? debugMessages : workflowMessages;
@@ -182,14 +175,47 @@ const ThreadView: React.FC = () => {
   const [mentionFilter, setMentionFilter] = useState('');
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [fileSidebarVisible, setFileSidebarVisible] = useState(true);
-  const [sandboxSidebarVisible, setSandboxSidebarVisible] = useState(false);
   const [artifactsSidebarVisible, setArtifactsSidebarVisible] = useState(false);
 
-  // 沙箱面板宽度（可拖拽调整）
-  const [sandboxWidth, setSandboxWidth] = useState(450);
+  // 右侧面板状态（代码/沙箱统一管理）
+  const [rightPanelVisible, setRightPanelVisible] = useState(false);
+  const [rightPanelActiveTab, setRightPanelActiveTab] = useState<'code' | 'sandbox'>('code');
+  const [rightPanelWidth, setRightPanelWidth] = useState(520);
   const [isResizing, setIsResizing] = useState(false);
   const resizeStartX = useRef(0);
   const resizeStartWidth = useRef(0);
+
+  // 代码文件列表
+  const [codeFiles, setCodeFiles] = useState<FileChange[]>([]);
+  const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
+
+  // Solo 模式任务管理
+  const [soloTasks, setSoloTasks] = useState<Thread[]>([]);
+  const [soloActiveTask, setSoloActiveTask] = useState<Thread | null>(null);
+  const [soloNewTaskPending, setSoloNewTaskPending] = useState(false); // 是否正在创建新任务
+
+  // 打开右侧面板显示代码
+  const openCodePanel = (files: FileChange[]) => {
+    setCodeFiles(files);
+    setRightPanelActiveTab('code');
+    setRightPanelVisible(true);
+  };
+
+  // 关闭右侧面板
+  const closeRightPanel = () => {
+    setRightPanelVisible(false);
+  };
+
+  // 切换文件展开
+  const toggleFileExpand = (fileId: string) => {
+    const newExpanded = new Set(expandedFiles);
+    if (newExpanded.has(fileId)) {
+      newExpanded.delete(fileId);
+    } else {
+      newExpanded.add(fileId);
+    }
+    setExpandedFiles(newExpanded);
+  };
 
   // 调试模式的 WebSocket 连接
   const connectDebugWebSocket = (id: string) => {
@@ -340,6 +366,9 @@ const ThreadView: React.FC = () => {
       }
       wsConnectedRef.current = false;
       setDebugWsConnected(false);
+      // 重置 Solo 模式任务状态
+      setSoloActiveTask(null);
+      setSoloNewTaskPending(true);
       // 加载 Agent 配置
       api.agents.get(agentId).then((config: AgentConfig) => {
         setDebugAgentConfig(config);
@@ -373,6 +402,17 @@ const ThreadView: React.FC = () => {
       wsConnectedRef.current = false;
     };
   }, [isDebugMode, agentId]);
+
+  // Solo 模式 - 处理 URL 中的 threadId
+  useEffect(() => {
+    if (soloMode && threadId && soloTasks.length > 0) {
+      const task = soloTasks.find(t => t.id === threadId);
+      if (task) {
+        setSoloActiveTask(task);
+        setSoloNewTaskPending(false);
+      }
+    }
+  }, [soloMode, threadId, soloTasks]);
 
   // 调试模式 - 当 debugThreadId 变化时连接 WebSocket
   useEffect(() => {
@@ -427,7 +467,7 @@ const ThreadView: React.FC = () => {
       if (!isResizing) return;
       const deltaX = resizeStartX.current - e.clientX;
       const newWidth = Math.max(300, Math.min(800, resizeStartWidth.current + deltaX));
-      setSandboxWidth(newWidth);
+      setRightPanelWidth(newWidth);
     };
 
     const handleMouseUp = () => {
@@ -698,6 +738,12 @@ const ThreadView: React.FC = () => {
     setInputValue('');
     setMentionListVisible(false);
 
+    // Solo 模式 - 使用特殊的发送逻辑（处理新任务创建）
+    if (soloMode) {
+      await handleSoloSend(content);
+      return;
+    }
+
     // 调试模式
     if (isDebugMode) {
       await handleDebugSend(content);
@@ -802,6 +848,96 @@ const ThreadView: React.FC = () => {
       console.error('[Debug] Error:', error);
     }
   };
+
+  // ========== Solo 模式任务管理 ==========
+
+  // 加载 Solo 模式任务列表
+  const loadSoloTasks = useCallback(async () => {
+    if (!projectId) return;
+    try {
+      const data = await api.threads.list(projectId);
+      const sorted = (data || []).sort((a, b) =>
+        new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+      );
+      setSoloTasks(sorted);
+    } catch (error) {
+      console.error('Failed to load solo tasks:', error);
+    }
+  }, [projectId]);
+
+  // Solo 模式 - 加载任务列表
+  useEffect(() => {
+    if (soloMode && projectId) {
+      loadSoloTasks();
+    }
+  }, [soloMode, projectId, loadSoloTasks]);
+
+  // 选择任务
+  const handleSelectSoloTask = useCallback(async (task: Thread) => {
+    setSoloActiveTask(task);
+    setSoloNewTaskPending(false);
+    // 导航到该任务
+    if (isDebugMode && agentId) {
+      navigate(`/agents/${agentId}?threadId=${task.id}`);
+    } else if (projectId) {
+      navigate(`/projects/${projectId}/threads/${task.id}`);
+    }
+  }, [isDebugMode, agentId, projectId, navigate]);
+
+  // 新建任务
+  const handleCreateSoloTask = useCallback(() => {
+    setSoloActiveTask(null);
+    setSoloNewTaskPending(true);
+    // 清空当前消息
+    if (isDebugMode) {
+      clearDebugAll();
+    }
+    // 清除 URL 中的 threadId
+    if (isDebugMode && agentId) {
+      navigate(`/agents/${agentId}`);
+    } else if (projectId) {
+      navigate(`/projects/${projectId}`);
+    }
+  }, [isDebugMode, agentId, projectId, navigate, clearDebugAll]);
+
+  // Solo 模式发送消息（处理新任务命名）
+  const handleSoloSend = useCallback(async (content: string) => {
+    // 如果是新任务，先创建 thread
+    if (soloNewTaskPending && projectId) {
+      try {
+        // 用第一条消息的前 30 个字符作为任务名
+        const taskName = content.slice(0, 30) + (content.length > 30 ? '...' : '');
+        const newThread = await api.threads.create(projectId, taskName);
+        setSoloActiveTask(newThread);
+        setSoloNewTaskPending(false);
+        // 更新任务列表
+        setSoloTasks(prev => [newThread, ...prev]);
+        // 设置 threadId
+        if (isDebugMode) {
+          setDebugThreadId(newThread.id);
+          // 连接 WebSocket
+          connectDebugWebSocket(newThread.id);
+        }
+        // 更新 URL
+        if (isDebugMode && agentId) {
+          navigate(`/agents/${agentId}?threadId=${newThread.id}`, { replace: true });
+        } else {
+          navigate(`/projects/${projectId}/threads/${newThread.id}`, { replace: true });
+        }
+      } catch (error) {
+        console.error('Failed to create new task:', error);
+        message.error('创建任务失败');
+        return;
+      }
+    }
+
+    // 调用原有的发送逻辑
+    if (isDebugMode) {
+      await handleDebugSend(content);
+    } else {
+      await sendMessage(content);
+    }
+  }, [soloNewTaskPending, projectId, isDebugMode, agentId, navigate, setDebugThreadId, handleDebugSend, sendMessage]);
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -1232,16 +1368,16 @@ const ThreadView: React.FC = () => {
       // 进入 Solo 模式时，收起侧边栏
       setFileSidebarVisible(false);
       setArtifactsSidebarVisible(false);
-      setSandboxSidebarVisible(false);
+      setRightPanelVisible(false);
     }
   };
 
-  // 沙箱面板拖拽调整大小
+  // 右侧面板拖拽调整大小
   const handleResizeStart = (e: React.MouseEvent) => {
     e.preventDefault();
     setIsResizing(true);
     resizeStartX.current = e.clientX;
-    resizeStartWidth.current = sandboxWidth;
+    resizeStartWidth.current = rightPanelWidth;
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
   };
@@ -1252,6 +1388,15 @@ const ThreadView: React.FC = () => {
       {soloMode && (
         <div className="solo-mode-header">
           <div className="solo-mode-tabs">
+            {/* 任务抽屉切换按钮 */}
+            <Button
+              type="text"
+              className={`solo-mode-tab ${taskDrawerOpen ? 'active' : ''}`}
+              icon={<UnorderedListOutlined />}
+              onClick={() => setTaskDrawerOpen(!taskDrawerOpen)}
+            >
+              任务
+            </Button>
             <Button
               type="text"
               className="solo-mode-tab"
@@ -1269,11 +1414,11 @@ const ThreadView: React.FC = () => {
             </Button>
           </div>
           <Button
-            className={`solo-mode-action-btn ${currentSandboxServer ? 'primary' : ''}`}
+            className={`solo-mode-action-btn ${rightPanelVisible ? 'primary' : ''}`}
             icon={<DesktopOutlined />}
-            onClick={() => setSandboxSidebarVisible(!sandboxSidebarVisible)}
+            onClick={() => setRightPanelVisible(!rightPanelVisible)}
           >
-            沙箱
+            面板
           </Button>
         </div>
       )}
@@ -1314,13 +1459,23 @@ const ThreadView: React.FC = () => {
         </div>
       )}
 
-      {/* Solo 模式下：消息区 + 沙箱 并排显示 */}
+      {/* Solo 模式下：任务列表 + 消息区 + 沙箱 并排显示 */}
       {soloMode ? (
-        /* Solo 模式：消息区 + 沙箱 并排 */
-        <div className="solo-mode-content">
-          <div className="thread-view">
-            {/* 消息区域 */}
-            <div className="thread-messages">
+        /* Solo 模式：任务列表 + 消息区 + 沙箱 并排 */
+        <>
+          {/* 任务列表 */}
+          <TaskList
+            projectId={projectId || ''}
+            activeThreadId={soloActiveTask?.id || null}
+            onSelectTask={handleSelectSoloTask}
+            onCreateTask={handleCreateSoloTask}
+            isRunning={debugStatus === 'running'}
+          />
+
+          <div className="solo-mode-content">
+            <div className="thread-view">
+              {/* 消息区域 */}
+              <div className="thread-messages">
               {messages.length === 0 && Object.keys(streamingMessages).length === 0 ? (
                 <div className="solo-mode-welcome">
                   <RobotOutlined className="solo-mode-welcome-icon" />
@@ -1400,50 +1555,34 @@ const ThreadView: React.FC = () => {
             </div>
           </div>
 
-          {/* Solo 模式下的沙箱面板 */}
-          {sandboxSidebarVisible && (
+          {/* Solo 模式下的右侧面板 */}
+          {rightPanelVisible && (
             <>
               <div className={`resize-handle ${isResizing ? 'resizing' : ''}`} onMouseDown={handleResizeStart} style={{ width: isResizing ? 3 : 6 }} />
               <div style={{ position: 'relative', display: 'flex' }}>
-                {/* 拖拽时的遮罩层 - 防止iframe捕获鼠标事件 */}
                 {isResizing && <div className="resize-overlay" />}
-                <SandboxPanel
-                  onClose={() => setSandboxSidebarVisible(false)}
-                  isDebugMode={isDebugMode}
-                  hasProjectPath={Boolean(getProjectPath())}
+                <RightPanel
+                  visible={rightPanelVisible}
+                  onClose={closeRightPanel}
+                  activeTab={rightPanelActiveTab}
+                  onTabChange={setRightPanelActiveTab}
+                  codeFiles={codeFiles}
+                  expandedFiles={expandedFiles}
+                  onToggleFile={toggleFileExpand}
                   sandboxServer={currentSandboxServer}
                   sandboxLoading={currentSandboxLoading}
                   dockerAvailable={dockerAvailable}
+                  hasProjectPath={Boolean(getProjectPath())}
+                  isDebugMode={isDebugMode}
                   onRunSandbox={handleRunSandbox}
                   onStopSandbox={handleStopSandbox}
-                  soloMode={true}
-                  width={sandboxWidth}
+                  width={rightPanelWidth}
                 />
               </div>
             </>
           )}
-
-          {/* 代码面板 */}
-          {codePanelOpen && (
-            <CodePanel
-              isOpen={codePanelOpen}
-              isCollapsed={codePanelCollapsed}
-              files={codeFiles}
-              expandedFiles={expandedFiles}
-              onToggleCollapse={toggleCodePanelCollapse}
-              onClose={closeCodePanel}
-              onToggleFile={toggleFileExpand}
-              onApplyAll={() => {
-                message.success('代码已应用');
-              }}
-              onCopyAll={() => {
-                const allCode = codeFiles.map(f => `// ${f.filename}\n${f.modifiedContent}`).join('\n\n');
-                navigator.clipboard.writeText(allCode);
-                message.success('代码已复制到剪贴板');
-              }}
-            />
-          )}
         </div>
+      </>
       ) : (
         /* 非Solo模式：原有结构 */
         <>
@@ -1464,23 +1603,23 @@ const ThreadView: React.FC = () => {
                 </Space>
                 <Space>
                   <Tooltip title="进入 Solo 模式">
-                    <Button icon={<FullscreenOutlined />} onClick={toggleSoloMode} size="small">Solo</Button>
+                    <Button icon={<FullscreenOutlined />} onClick={toggleSoloMode} size="small" type={soloMode ? 'primary' : 'default'}>Solo</Button>
                   </Tooltip>
                   <Tooltip title={artifactsSidebarVisible ? '隐藏产物' : '查看产物列表'}>
                     <Button
                       icon={<UnorderedListOutlined />}
-                      onClick={() => { setArtifactsSidebarVisible(!artifactsSidebarVisible); setSandboxSidebarVisible(false); }}
+                      onClick={() => { setArtifactsSidebarVisible(!artifactsSidebarVisible); setRightPanelVisible(false); }}
                       size="small"
                       type={artifactsSidebarVisible ? 'primary' : 'default'}
                     >产物</Button>
                   </Tooltip>
-                  <Tooltip title={sandboxSidebarVisible ? '隐藏沙箱' : '打开沙箱预览'}>
+                  <Tooltip title={rightPanelVisible ? '隐藏面板' : '打开代码/沙箱面板'}>
                     <Button
                       icon={<DesktopOutlined />}
-                      onClick={() => { setSandboxSidebarVisible(!sandboxSidebarVisible); setArtifactsSidebarVisible(false); setFileSidebarVisible(false); }}
+                      onClick={() => { setRightPanelVisible(!rightPanelVisible); setArtifactsSidebarVisible(false); setFileSidebarVisible(false); }}
                       size="small"
-                      type={currentSandboxServer ? 'primary' : sandboxSidebarVisible ? 'default' : 'default'}
-                    >沙箱</Button>
+                      type={rightPanelVisible || currentSandboxServer ? 'primary' : 'default'}
+                    >面板</Button>
                   </Tooltip>
                 </Space>
               </Space>
@@ -1632,23 +1771,28 @@ const ThreadView: React.FC = () => {
             </div>
           )}
 
-          {/* 沙箱侧边栏 */}
-          {sandboxSidebarVisible && (
+          {/* 右侧面板（代码/沙箱） */}
+          {rightPanelVisible && (
             <>
               <div className={`resize-handle ${isResizing ? 'resizing' : ''}`} onMouseDown={handleResizeStart} style={{ width: isResizing ? 3 : 6 }} />
               <div style={{ position: 'relative', display: 'flex' }}>
                 {isResizing && <div className="resize-overlay" />}
-                <SandboxPanel
-                  onClose={() => setSandboxSidebarVisible(false)}
-                  isDebugMode={isDebugMode}
-                  hasProjectPath={Boolean(getProjectPath())}
+                <RightPanel
+                  visible={rightPanelVisible}
+                  onClose={closeRightPanel}
+                  activeTab={rightPanelActiveTab}
+                  onTabChange={setRightPanelActiveTab}
+                  codeFiles={codeFiles}
+                  expandedFiles={expandedFiles}
+                  onToggleFile={toggleFileExpand}
                   sandboxServer={currentSandboxServer}
                   sandboxLoading={currentSandboxLoading}
                   dockerAvailable={dockerAvailable}
+                  hasProjectPath={Boolean(getProjectPath())}
+                  isDebugMode={isDebugMode}
                   onRunSandbox={handleRunSandbox}
                   onStopSandbox={handleStopSandbox}
-                  soloMode={false}
-                  width={sandboxWidth}
+                  width={rightPanelWidth}
                 />
               </div>
             </>
