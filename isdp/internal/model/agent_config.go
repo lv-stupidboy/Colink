@@ -12,13 +12,14 @@ import (
 type AgentRole string
 
 const (
-	AgentRoleRequirement  AgentRole = "requirement"
-	AgentRoleArchitect    AgentRole = "architect"
-	AgentRoleDeveloper    AgentRole = "developer"
-	AgentRoleReviewer     AgentRole = "reviewer"
-	AgentRoleTestEngineer AgentRole = "testengineer"
-	AgentRoleDevOps       AgentRole = "devops"
-	AgentRoleCustom       AgentRole = "custom"  // 自定义角色
+	AgentRoleRequirement      AgentRole = "requirement"
+	AgentRoleArchitect        AgentRole = "architect"
+	AgentRoleDeveloper        AgentRole = "developer"
+	AgentRoleReviewer         AgentRole = "reviewer"
+	AgentRoleTestEngineer     AgentRole = "testengineer"
+	AgentRoleDevOps           AgentRole = "devops"
+	AgentRoleFullstackEngineer AgentRole = "fullstack_engineer" // 全栈工程师
+	AgentRoleCustom           AgentRole = "custom"              // 自定义角色
 )
 
 // RoutingConfig 路由配置
@@ -43,6 +44,7 @@ type AgentRoleConfig struct {
 	Temperature  float64        `json:"temperature"`
 	RoutingConfig RoutingConfig `json:"routing_config"`
 	IsDefault    bool           `json:"is_default"`
+	IsSystem     bool           `json:"is_system"`     // 是否为系统预置角色
 
 	// 能力声明（用于自动编排工作流）
 	Capabilities []string `json:"capabilities"`  // 能力列表：这个 Agent 能做什么

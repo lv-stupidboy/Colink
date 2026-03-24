@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
-import { Table, Button, Card, Modal, Form, Input, Select, message, Space, Tag, Typography, Tooltip } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, RobotOutlined, BugOutlined, CopyOutlined, ExclamationCircleOutlined, EyeOutlined, SettingOutlined } from '@ant-design/icons';
+import React, { useEffect, useState, useMemo } from 'react';
+import { Table, Button, Card, Modal, Form, Input, Select, message, Space, Tag, Typography, Tooltip, Alert } from 'antd';
+import { PlusOutlined, EditOutlined, DeleteOutlined, RobotOutlined, BugOutlined, CopyOutlined, CrownOutlined, UserOutlined, ExclamationCircleOutlined, EyeOutlined, SettingOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '@/api/client';
 import type { AgentConfig, BaseAgent, Skill, Subagent, Command, Rule } from '@/types';
@@ -196,13 +196,13 @@ const AgentRoleList: React.FC = () => {
               title: '无法删除',
               content: (
                 <div>
-                  <p>该Agent角色被以下工作流引用，无法删除：</p>
+                  <p>该Agent角色被以下团队引用，无法删除：</p>
                   <ul style={{ marginTop: 8, paddingLeft: 20 }}>
                     {errorData.referenceNames.map((name: string) => (
                       <li key={name}>{name}</li>
                     ))}
                   </ul>
-                  <p style={{ marginTop: 8 }}>请先从工作流中移除该Agent，再进行删除。</p>
+                  <p style={{ marginTop: 8 }}>请先从团队中移除该Agent，再进行删除。</p>
                 </div>
               ),
             });
@@ -275,10 +275,10 @@ const AgentRoleList: React.FC = () => {
       const result = await api.agents.checkReferences(record.id);
       if (result.referenced) {
         Modal.info({
-          title: '工作流引用',
+          title: '团队引用',
           content: (
             <div>
-              <p>该Agent角色被以下 <strong>{result.referenceCount}</strong> 个工作流引用：</p>
+              <p>该Agent角色被以下 <strong>{result.referenceCount}</strong> 个团队引用：</p>
               <ul style={{ marginTop: 8, paddingLeft: 20 }}>
                 {result.referenceNames.map((name: string) => (
                   <li key={name}>{name}</li>
@@ -289,8 +289,8 @@ const AgentRoleList: React.FC = () => {
         });
       } else {
         Modal.info({
-          title: '工作流引用',
-          content: <p>该Agent角色暂未被任何工作流引用</p>,
+          title: '团队引用',
+          content: <p>该Agent角色暂未被任何团队引用</p>,
         });
       }
     } catch (error) {
@@ -298,7 +298,7 @@ const AgentRoleList: React.FC = () => {
     }
   };
 
-  const handleGenerateConfig = (record: AgentConfig) => {
+const handleGenerateConfig = (record: AgentConfig) => {
     Modal.confirm({
       title: '生成配置',
       content: (
@@ -322,17 +322,37 @@ const AgentRoleList: React.FC = () => {
     });
   };
 
+  // 分组显示：系统预置和自定义
+  const { systemAgents, customAgents } = useMemo(() => {
+    const system = configs.filter(c => c.isSystem);
+    const custom = configs.filter(c => !c.isSystem);
+    return { systemAgents: system, customAgents: custom };
+  }, [configs]);
+
   const columns = [
     {
       title: '名称',
       dataIndex: 'name',
       key: 'name',
       width: 150,
-      render: (name: string) => (
+      render: (name: string, record: AgentConfig) => (
         <Space>
-          <RobotOutlined />
+          {record.isSystem ? <CrownOutlined style={{ color: '#faad14' }} /> : <RobotOutlined />}
           <span>{name}</span>
         </Space>
+      ),
+    },
+    {
+      title: '类型',
+      dataIndex: 'isSystem',
+      key: 'isSystem',
+      width: 100,
+      render: (isSystem: boolean) => (
+        isSystem ? (
+          <Tag color="gold" icon={<CrownOutlined />}>系统预置</Tag>
+        ) : (
+          <Tag color="blue" icon={<UserOutlined />}>自定义</Tag>
+        )
       ),
     },
     {
@@ -421,16 +441,18 @@ const AgentRoleList: React.FC = () => {
           <Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
             编辑
           </Button>
-          <Button
-            type="link"
-            size="small"
-            danger
-            icon={<DeleteOutlined />}
-            onClick={() => handleDelete(record)}
-            loading={deleteLoading === record.id}
-          >
-            删除
-          </Button>
+          {!record.isSystem && (
+            <Button
+              type="link"
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={() => handleDelete(record)}
+              loading={deleteLoading === record.id}
+            >
+              删除
+            </Button>
+          )}
         </Space>
       ),
     },
@@ -443,19 +465,68 @@ const AgentRoleList: React.FC = () => {
           <Title level={2} style={{ margin: 0 }}>Agent 角色</Title>
           <Text type="secondary">管理不同职责的 Agent 角色配置</Text>
         </div>
-        <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-          新建角色
-        </Button>
       </div>
 
-      <Card>
-        <Table
-          dataSource={configs}
-          columns={columns}
-          rowKey="id"
-          loading={loading}
-          scroll={{ x: 'max-content' }}
-        />
+      {/* 系统预置角色 */}
+      {systemAgents.length > 0 && (
+        <Card
+          title={
+            <Space>
+              <CrownOutlined style={{ color: '#faad14' }} />
+              <span>系统预置角色</span>
+              <Tag color="gold">{systemAgents.length}</Tag>
+            </Space>
+          }
+          style={{ marginBottom: 16 }}
+          extra={
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              系统预置角色不可删除，可复制后修改
+            </Text>
+          }
+        >
+          <Table
+            dataSource={systemAgents}
+            columns={columns}
+            rowKey="id"
+            loading={loading}
+            pagination={false}
+            size="small"
+          />
+        </Card>
+      )}
+
+      {/* 自定义角色 */}
+      <Card
+        title={
+          <Space>
+            <UserOutlined />
+            <span>自定义角色</span>
+            <Tag color="blue">{customAgents.length}</Tag>
+          </Space>
+        }
+        extra={
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
+            新建角色
+          </Button>
+        }
+      >
+        {customAgents.length === 0 ? (
+          <Alert
+            message="暂无自定义角色"
+            description="点击「新建角色」创建您自己的 Agent 角色，或复制系统预置角色进行修改"
+            type="info"
+            showIcon
+          />
+        ) : (
+          <Table
+            dataSource={customAgents}
+            columns={columns}
+            rowKey="id"
+            loading={loading}
+            pagination={false}
+            size="small"
+          />
+        )}
       </Card>
 
       <Modal

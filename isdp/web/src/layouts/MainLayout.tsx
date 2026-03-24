@@ -23,6 +23,7 @@ import type { MenuProps } from 'antd';
 import ThemeSwitcher from '@/components/ThemeSwitcher';
 import Logo from '@/components/Logo';
 import { VERSION, BETA_LABEL } from '@/config/version';
+import { useAppStore } from '@/store';
 
 const { Header, Sider, Content } = Layout;
 const { Title } = Typography;
@@ -31,6 +32,10 @@ const MainLayout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [openKeys, setOpenKeys] = useState<string[]>([]);
+  const [collapsed, setCollapsed] = useState(false);
+
+  // 从 store 读取 soloMode 状态
+  const soloMode = useAppStore((state) => state.soloMode);
 
   /**
    * 导航菜单配置
@@ -49,7 +54,7 @@ const MainLayout: React.FC = () => {
     {
       key: '/workflow',
       icon: <ApartmentOutlined />,
-      label: '工作流编排',
+      label: 'Agent团队',
     },
     {
       key: 'agents',
@@ -184,7 +189,11 @@ const MainLayout: React.FC = () => {
   return (
     <Layout style={{ height: '100vh', overflow: 'hidden' }}>
       <Sider
+        trigger={null}
+        collapsible
+        collapsed={collapsed}
         width={220}
+        collapsedWidth={64}
         theme="light"
         style={{
           background: 'var(--bg-sidebar)',
@@ -193,7 +202,10 @@ const MainLayout: React.FC = () => {
           overflow: 'auto',
         }}
       >
-        <Logo />
+        <Logo
+          collapsed={collapsed}
+          onCollapse={() => setCollapsed(!collapsed)}
+        />
         <Menu
           mode="inline"
           selectedKeys={[getSelectedKey()]}
@@ -207,7 +219,9 @@ const MainLayout: React.FC = () => {
         />
       </Sider>
       <Layout style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
-        <Header
+        {/* Solo 模式下隐藏 Header，因为 ThreadView 有自己的 header */}
+        {!soloMode && (
+          <Header
           style={{
             background: 'var(--bg-container)',
             padding: '0 24px',
@@ -229,14 +243,16 @@ const MainLayout: React.FC = () => {
             <ThemeSwitcher />
           </Space>
         </Header>
+        )}
         <Content
           style={{
             flex: 1,
             margin: 0,
             background: 'var(--bg-container)',
-            padding: 16,
+            padding: soloMode ? 0 : 16,
             boxShadow: 'var(--shadow-sm)',
             overflow: 'auto',
+            position: 'relative',
           }}
         >
           <Outlet />

@@ -41,7 +41,7 @@ const ProjectList: React.FC = () => {
       const data = await api.workflows.list();
       setWorkflowTemplates(data || []);
     } catch (error) {
-      console.error('加载工作流模板失败', error);
+      console.error('加载Agent团队失败', error);
     }
   };
 
@@ -65,7 +65,7 @@ const ProjectList: React.FC = () => {
     setPathSelectorVisible(false);
   };
 
-  // 获取工作流模板名称
+  // 获取Agent团队名称
   const getWorkflowTemplateName = (templateId?: string) => {
     if (!templateId) return '-';
     const template = workflowTemplates.find(t => t.id === templateId);
@@ -117,7 +117,7 @@ const ProjectList: React.FC = () => {
       ),
     },
     {
-      title: '工作流模板',
+      title: 'Agent团队',
       dataIndex: 'workflowTemplateId',
       key: 'workflowTemplateId',
       render: (templateId?: string) => getWorkflowTemplateName(templateId),
@@ -158,7 +158,7 @@ const ProjectList: React.FC = () => {
       <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <Title level={2} style={{ margin: 0 }}>项目管理</Title>
-          <Text type="secondary">管理开发项目，配置工作流和 Agent</Text>
+          <Text type="secondary">管理开发项目，配置团队和 Agent</Text>
         </div>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => setModalVisible(true)}>
           新建项目

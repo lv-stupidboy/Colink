@@ -345,11 +345,33 @@ func (es *ExecutionService) buildDynamicSystemPrompt(ctx context.Context, thread
 		agentNameMap[agent.ID.String()] = agent.Name
 	}
 
-	// 注入工作流触发点提示
-	if len(transitions) > 0 {
-		sb.WriteString("\n\n## 工作流（主动 @ 触发点）\n")
-		for _, t := range transitions {
-			// 将 Agent ID 转换为名称
+	// 分类 Transitions：有条件的自动触发 vs 需要显式 @mention
+	var autoTriggerTransitions []model.Transition
+	var manualTriggerTransitions []model.Transition
+	for _, t := range transitions {
+		if t.Condition != "" {
+			autoTriggerTransitions = append(autoTriggerTransitions, t)
+		} else {
+			manualTriggerTransitions = append(manualTriggerTransitions, t)
+		}
+	}
+
+	// 注入自动触发提示（有条件的 Transition）
+	if len(autoTriggerTransitions) > 0 {
+		sb.WriteString("\n\n## 工作流自动触发（满足条件时自动调用）\n")
+		for _, t := range autoTriggerTransitions {
+			agentName := t.ToAgentID
+			if name, ok := agentNameMap[t.ToAgentID]; ok {
+				agentName = name
+			}
+			sb.WriteString(fmt.Sprintf("- 当输出匹配「%s」时 → 自动调用 @%s\n", t.Condition, agentName))
+		}
+	}
+
+	// 注入手动触发提示（无条件 Transition，需要显式 @）
+	if len(manualTriggerTransitions) > 0 {
+		sb.WriteString("\n\n## 下游协作方（需要时显式 @ 触发）\n")
+		for _, t := range manualTriggerTransitions {
 			agentName := t.ToAgentID
 			if name, ok := agentNameMap[t.ToAgentID]; ok {
 				agentName = name
@@ -541,19 +563,21 @@ func (es *ExecutionService) checkRouting(ctx context.Context, threadID uuid.UUID
 
 // parseMentions 解析@mention
 // 支持: @developer (角色) 或 @前端开发 (实例名称)
+// 可以在行的任意位置出现，如 "- **@前端开发工程师** 请实现..."
 func (es *ExecutionService) parseMentions(content string) []ParsedMention {
 	var mentions []ParsedMention
-	lines := strings.Split(content, "\n")
-	count := 0
+	seen := make(map[string]bool) // 去重
 
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if count >= 2 {
-			break
-		}
-		if strings.HasPrefix(line, "@") {
-			mention := strings.Fields(line[1:])[0]
-			if mention != "" {
+	// 使用正则表达式匹配 @mention
+	// 匹配模式: @后面跟着中文字符、英文字母、数字或下划线
+	re := regexp.MustCompile(`@([\p{Han}a-zA-Z0-9_]+)`)
+
+	matches := re.FindAllStringSubmatch(content, -1)
+	for _, match := range matches {
+		if len(match) > 1 {
+			mention := match[1]
+			if mention != "" && !seen[mention] {
+				seen[mention] = true
 				// 尝试解析为角色
 				role := parseAgentRole(mention)
 
@@ -562,10 +586,18 @@ func (es *ExecutionService) parseMentions(content string) []ParsedMention {
 					AgentName: mention,
 					Raw:       mention,
 				})
-				count++
 			}
 		}
 	}
+
+	logInfo("parseMentions: 解析结果", zap.Int("count", len(mentions)), zap.Strings("mentions", func() []string {
+		var result []string
+		for _, m := range mentions {
+			result = append(result, m.AgentName)
+		}
+		return result
+	}()))
+
 	return mentions
 }
 
@@ -650,6 +682,9 @@ func (es *ExecutionService) findAgentByName(agents []*model.AgentRoleConfig, nam
 // 1. sequence - 顺序执行：触发单个下游 Agent
 // 2. parallel - 并行执行：同时触发多个下游 Agent（分支工作流）
 // 3. merge - 汇聚执行：等待多个上游 Agent 完成后再执行
+//
+// 重要：只有当 Transition.Condition 不为空且匹配时，才会自动触发下一个 Agent
+// 如果 Condition 为空，则需要 Agent 在输出中显式使用 @mention 来触发下游
 func (es *ExecutionService) checkSignalRouting(ctx context.Context, threadID uuid.UUID, config *model.AgentRoleConfig, output string) {
 	// 获取当前 Agent 的 Transitions
 	transitions := es.getTransitionsForAgent(ctx, threadID, config.ID)
@@ -699,8 +734,18 @@ func (es *ExecutionService) checkSignalRouting(ctx context.Context, threadID uui
 
 	// 根据 Transitions 自动路由到下一个 Agent
 	for _, t := range transitions {
+		// 关键变更：如果 Condition 为空，不自动触发
+		// 需要显式使用 @mention 来触发下游 Agent
+		if t.Condition == "" {
+			logInfo("A2A 自动路由跳过：Transition.Condition 为空，需显式 @mention",
+				zap.String("fromAgent", config.Name),
+				zap.String("toAgentId", t.ToAgentID),
+				zap.String("建议", "在 Transition 配置中添加 condition 字段，例如: 'contains:【需求分析完成】'"))
+			continue
+		}
+
 		// 检查条件路由
-		if t.Condition != "" && !es.matchCondition(output, t.Condition) {
+		if !es.matchCondition(output, t.Condition) {
 			logInfo("A2A 条件路由：条件不匹配，跳过",
 				zap.String("condition", t.Condition),
 				zap.String("fromAgent", config.Name))
@@ -920,16 +965,28 @@ func (es *ExecutionService) GetInvocationStatus(ctx context.Context, invocationI
 // 实现message.AgentSpawner接口
 // 使用工作流模板中指定的Agent，而不是根据Phase硬编码选择
 func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, threadID uuid.UUID, userMessage string) error {
+	logInfo("SpawnAgentForUserMessage 被调用", zap.String("threadID", threadID.String()), zap.String("userMessage", userMessage))
+
 	// 检查是否已有Agent在运行
 	es.mu.RLock()
+	runningCount := len(es.runningAgents)
+	var runningInThread bool
 	for _, agent := range es.runningAgents {
 		if agent.ThreadID == threadID {
-			es.mu.RUnlock()
-			// 已有Agent运行，不需要再触发
-			return nil
+			runningInThread = true
+			break
 		}
 	}
 	es.mu.RUnlock()
+
+	logInfo("SpawnAgentForUserMessage: runningAgents 状态",
+		zap.Int("totalRunning", runningCount),
+		zap.Bool("runningInThread", runningInThread))
+
+	if runningInThread {
+		logInfo("SpawnAgentForUserMessage: 已有Agent运行，跳过")
+		return nil
+	}
 
 	// 获取Thread信息
 	thread, err := es.threadRepo.FindByID(ctx, threadID)
@@ -955,23 +1012,74 @@ func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, thread
 		workflowTemplateID = thread.WorkflowTemplateID
 	}
 
-	// 获取工作流模板中的Agent列表
+	logInfo("SpawnAgentForUserMessage: 工作流模板查找结果",
+		zap.Any("workflowTemplateID", workflowTemplateID),
+		zap.Any("threadWorkflowTemplateID", thread.WorkflowTemplateID))
+
+	// 获取工作流模板中的Agent列表和Transitions
 	var agentIDs []string
+	var transitions []model.Transition
 	if workflowTemplateID != nil && es.workflowRepo != nil {
 		workflow, err := es.workflowRepo.FindByID(ctx, *workflowTemplateID)
-		if err == nil && workflow != nil {
+		if err != nil {
+			logError("SpawnAgentForUserMessage: 查找工作流模板失败", zap.Error(err))
+		} else if workflow == nil {
+			logInfo("SpawnAgentForUserMessage: 工作流模板为 nil")
+		} else {
+			logInfo("SpawnAgentForUserMessage: 找到工作流模板",
+				zap.String("name", workflow.Name),
+				zap.Int("agentIDsLen", len(workflow.AgentIDs)))
 			// 解析 agent_ids JSON
 			if len(workflow.AgentIDs) > 0 {
 				if err := json.Unmarshal(workflow.AgentIDs, &agentIDs); err != nil {
 					logError("Failed to parse agent_ids", zap.Error(err))
+				} else {
+					logInfo("SpawnAgentForUserMessage: 解析的 Agent IDs", zap.Strings("agentIDs", agentIDs))
+				}
+			}
+			// 解析 transitions JSON
+			if len(workflow.Transitions) > 0 {
+				if err := json.Unmarshal(workflow.Transitions, &transitions); err != nil {
+					logError("Failed to parse transitions", zap.Error(err))
+				} else {
+					logInfo("SpawnAgentForUserMessage: 解析的 Transitions", zap.Int("count", len(transitions)))
 				}
 			}
 		}
+	} else if workflowTemplateID == nil {
+		logInfo("SpawnAgentForUserMessage: workflowTemplateID 为 nil，无法获取 Agent 列表")
 	}
 
-	// 如果工作流模板中有Agent，使用第一个Agent
+	// 根据Transitions找到入口Agent（没有被其他Agent指向的Agent）
+	entryAgentID := ""
 	if len(agentIDs) > 0 {
-		configID, err := uuid.Parse(agentIDs[0])
+		if len(transitions) > 0 {
+			// 收集所有 to_agent_id（被指向的Agent）
+			targetAgents := make(map[string]bool)
+			for _, t := range transitions {
+				targetAgents[t.ToAgentID] = true
+			}
+
+			// 找到不在 targetAgents 中的 Agent（入口 Agent）
+			for _, id := range agentIDs {
+				if !targetAgents[id] {
+					entryAgentID = id
+					logInfo("SpawnAgentForUserMessage: 找到入口 Agent", zap.String("entryAgentID", entryAgentID))
+					break
+				}
+			}
+
+			// 如果没找到入口 Agent，使用 agent_ids[0]
+			if entryAgentID == "" {
+				logInfo("SpawnAgentForUserMessage: 未找到入口 Agent，使用 agent_ids[0]")
+				entryAgentID = agentIDs[0]
+			}
+		} else {
+			// 没有 Transitions，使用 agent_ids[0]
+			entryAgentID = agentIDs[0]
+		}
+
+		configID, err := uuid.Parse(entryAgentID)
 		if err != nil {
 			return fmt.Errorf("invalid agent id in workflow template: %w", err)
 		}
@@ -982,6 +1090,7 @@ func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, thread
 			logError("Agent config not found, falling back to default", zap.Error(err))
 			// 继续使用回退逻辑
 		} else {
+			logInfo("SpawnAgentForUserMessage: 使用入口 Agent", zap.String("name", config.Name), zap.String("id", config.ID.String()))
 			// 使用工作流模板中指定的Agent
 			_, err = es.SpawnAgent(ctx, &SpawnRequest{
 				ThreadID:    threadID,

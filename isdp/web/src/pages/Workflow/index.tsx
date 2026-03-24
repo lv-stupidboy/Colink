@@ -1,9 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Card,
   Typography,
-  Row,
-  Col,
   Button,
   Space,
   Tag,
@@ -14,12 +11,11 @@ import {
   message,
   Collapse,
   List,
-  Avatar,
-  Divider,
   Alert,
   Spin,
   Popconfirm,
   Tabs,
+  Empty,
 } from 'antd';
 import {
   PlusOutlined,
@@ -30,24 +26,30 @@ import {
   DeleteOutlined,
   EditOutlined,
   EyeOutlined,
+  CrownOutlined,
+  ThunderboltOutlined,
+  BranchesOutlined,
+  MergeCellsOutlined,
+  SafetyOutlined,
 } from '@ant-design/icons';
 import { api } from '@/api/client';
 import type { AgentConfig, WorkflowTemplate, Transition } from '@/types';
 import { AgentRoleLabels } from '@/types';
 import WorkflowEditor from '@/components/WorkflowEditor';
+import './Workflow.css';
 
-const { Title, Text, Paragraph } = Typography;
+const { Text, Paragraph } = Typography;
 const { Option } = Select;
 const { TextArea } = Input;
 
 /**
- * 工作流编排页面
+ * Agent团队页面
  * PRD Section 2.2 - 多Agent协同系统
  *
  * 功能要点：
- * - 可视化工作流编辑器
+ * - 可视化团队编辑器
  * - Agent 节点配置
- * - 工作流模板选择
+ * - Agent团队选择
  */
 const WorkflowPage: React.FC = () => {
   const [createModalVisible, setCreateModalVisible] = useState(false);
@@ -73,14 +75,14 @@ const WorkflowPage: React.FC = () => {
       .finally(() => setLoadingAgents(false));
   }, []);
 
-  // 获取工作流模板列表
+  // 获取Agent团队列表
   const fetchWorkflowTemplates = () => {
     setLoadingTemplates(true);
     api.workflows.list()
       .then(setWorkflowTemplates)
       .catch((error) => {
         console.error('Failed to fetch workflow templates:', error);
-        message.error('获取工作流模板失败');
+        message.error('获取Agent团队失败');
       })
       .finally(() => setLoadingTemplates(false));
   };
@@ -89,7 +91,7 @@ const WorkflowPage: React.FC = () => {
     fetchWorkflowTemplates();
   }, []);
 
-  // 创建工作流
+  // 创建团队
   const handleCreateWorkflow = async (values: any) => {
     setSubmitting(true);
     try {
@@ -101,25 +103,25 @@ const WorkflowPage: React.FC = () => {
         checkpoints: values.checkpoints || [],
         estimatedTime: '自定义',
       });
-      message.success('工作流创建成功');
+      message.success('团队创建成功');
       setCreateModalVisible(false);
       form.resetFields();
       fetchWorkflowTemplates();
     } catch (error: any) {
       console.error('Failed to create workflow:', error);
-      message.error(error?.response?.data?.error || '工作流创建失败');
+      message.error(error?.response?.data?.error || '团队创建失败');
     } finally {
       setSubmitting(false);
     }
   };
 
-  // 编辑工作流
+  // 编辑团队
   const handleEditWorkflow = (template: WorkflowTemplate) => {
     setEditingTemplate(template);
     setEditModalVisible(true);
   };
 
-  // 保存工作流配置
+  // 保存团队配置
   const handleSaveWorkflow = async (transitions: Transition[], agentIds: string[]) => {
     if (!editingTemplate) return;
 
@@ -134,35 +136,35 @@ const WorkflowPage: React.FC = () => {
     }
   };
 
-  // 删除工作流
+  // 删除团队
   const handleDeleteWorkflow = async (id: string) => {
     try {
       await api.workflows.delete(id);
-      message.success('工作流删除成功');
+      message.success('团队删除成功');
       fetchWorkflowTemplates();
       if (selectedTemplate?.id === id) {
         setSelectedTemplate(null);
       }
     } catch (error: any) {
       console.error('Failed to delete workflow:', error);
-      message.error(error?.response?.data?.error || '工作流删除失败');
+      message.error(error?.response?.data?.error || '团队删除失败');
     }
   };
 
-  // 设置默认工作流
+  // 设置默认团队
   const handleSetDefault = async (id: string) => {
     try {
       await api.workflows.setDefault(id);
-      message.success('已设置为默认工作流');
+      message.success('已设置为默认团队');
       fetchWorkflowTemplates();
     } catch (error: any) {
       console.error('Failed to set default workflow:', error);
-      message.error(error?.response?.data?.error || '设置默认工作流失败');
+      message.error(error?.response?.data?.error || '设置默认团队失败');
     }
   };
 
   /**
-   * 渲染工作流模板卡片
+   * 渲染Agent团队卡片
    */
   const renderTemplateCard = (template: WorkflowTemplate) => {
     // 根据agentIds获取对应的Agent实例
@@ -178,128 +180,136 @@ const WorkflowPage: React.FC = () => {
     };
 
     return (
-      <Card
-        hoverable
-        className={`workflow-template-card ${selectedTemplate?.id === template.id ? 'selected' : ''}`}
-        onClick={() => setSelectedTemplate(template)}
-        style={{
-          marginBottom: 16,
-          border: selectedTemplate?.id === template.id ? '2px solid #1890ff' : undefined,
-        }}
-      >
-        <Space direction="vertical" style={{ width: '100%' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Space>
-              <Title level={5} style={{ margin: 0 }}>{template.name}</Title>
-              {template.isDefault && <Tag color="gold">默认</Tag>}
-              {template.isSystem && <Tag color="purple">系统预设</Tag>}
-            </Space>
-            <Space>
-              <Tag color="blue">{template.estimatedTime}</Tag>
-              {!template.isDefault && (
-                <Button
-                  type="link"
-                  size="small"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleSetDefault(template.id);
-                  }}
-                >
-                  设为默认
-                </Button>
-              )}
+      <div
+      className={`workflow-template-card ${selectedTemplate?.id === template.id ? 'selected' : ''}`}
+      onClick={() => setSelectedTemplate(template)}
+    >
+      <div className="workflow-template-inner">
+        {/* 头部 */}
+        <div className="workflow-template-header">
+          <div className="workflow-template-name">
+            <span className="workflow-template-title">{template.name}</span>
+            {template.isDefault && <Tag color="gold" bordered={false}>默认</Tag>}
+            {template.isSystem && <Tag color="purple" bordered={false}>系统预设</Tag>}
+          </div>
+          <div className="workflow-template-actions">
+            <Tag color="blue" bordered={false}>{template.estimatedTime}</Tag>
+            {!template.isDefault && (
               <Button
                 type="link"
                 size="small"
-                icon={<EditOutlined />}
                 onClick={(e) => {
                   e.stopPropagation();
-                  handleEditWorkflow(template);
+                  handleSetDefault(template.id);
                 }}
               >
-                编辑
+                设为默认
               </Button>
-              {!template.isSystem && (
-                <Popconfirm
-                  title="确定删除此工作流？"
-                  onConfirm={(e) => {
-                    e?.stopPropagation();
-                    handleDeleteWorkflow(template.id);
-                  }}
-                  onCancel={(e) => e?.stopPropagation()}
-                >
-                  <Button
-                    type="text"
-                    danger
-                    size="small"
-                    icon={<DeleteOutlined />}
-                    onClick={(e) => e.stopPropagation()}
-                  />
-                </Popconfirm>
-              )}
-            </Space>
+            )}
+            <Button
+              type="link"
+              size="small"
+              icon={<EditOutlined />}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleEditWorkflow(template);
+              }}
+            >
+              编辑
+            </Button>
+            {!template.isSystem && (
+              <Popconfirm
+                title="确定删除此团队？"
+                onConfirm={(e) => {
+                  e?.stopPropagation();
+                  handleDeleteWorkflow(template.id);
+                }}
+                onCancel={(e) => e?.stopPropagation()}
+              >
+                <Button
+                  type="text"
+                  danger
+                  size="small"
+                  icon={<DeleteOutlined />}
+                  onClick={(e) => e.stopPropagation()}
+                />
+              </Popconfirm>
+            )}
           </div>
-          {template.description && (
-            <Text type="secondary">{template.description}</Text>
+        </div>
+
+        {/* 描述 */}
+        {template.description && (
+          <div className="workflow-template-desc">{template.description}</div>
+        )}
+
+        {/* Agent配置 */}
+        <div className="workflow-template-section">
+          <div className="workflow-template-section-title">Agent 配置</div>
+          {templateAgents.length > 0 ? (
+            <div className="workflow-agent-tags">
+              {templateAgents.map((agent) => (
+                <span key={agent.id} className="workflow-agent-tag">
+                  <UserOutlined />
+                  {agent.name}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <Text type="secondary" style={{ fontSize: 12 }}>请在编辑模式下配置Agent</Text>
           )}
+        </div>
 
-          <Divider style={{ margin: '12px 0' }} />
-
-          <div>
-            <Text strong>Agent配置：</Text>
-            <div style={{ marginTop: 8 }}>
-              {templateAgents.length > 0 ? (
-                <Space wrap>
-                  {templateAgents.map((agent) => (
-                    <Tag key={agent.id} color="blue" icon={<UserOutlined />}>
-                      {agent.name}
-                    </Tag>
-                  ))}
-                </Space>
-              ) : (
-                <Text type="secondary">请在编辑模式下配置Agent</Text>
+        {/* 转换规则统计 */}
+        {transitionStats.total > 0 && (
+          <div className="workflow-template-section">
+            <div className="workflow-template-section-title">编排规则</div>
+            <div className="workflow-rule-tags">
+              {transitionStats.sequence > 0 && (
+                <span className="workflow-rule-tag sequence">
+                  <ThunderboltOutlined /> 顺序执行 ×{transitionStats.sequence}
+                </span>
+              )}
+              {transitionStats.parallel > 0 && (
+                <span className="workflow-rule-tag parallel">
+                  <BranchesOutlined /> 并行触发 ×{transitionStats.parallel}
+                </span>
+              )}
+              {transitionStats.merge > 0 && (
+                <span className="workflow-rule-tag merge">
+                  <MergeCellsOutlined /> 汇聚等待 ×{transitionStats.merge}
+                </span>
               )}
             </div>
           </div>
+        )}
 
-          {/* 转换规则统计 */}
-          {transitionStats.total > 0 && (
-            <div>
-              <Text strong>工作流规则：</Text>
-              <Space style={{ marginTop: 8 }} wrap>
-                {transitionStats.sequence > 0 && (
-                  <Tag color="blue">顺序执行 x{transitionStats.sequence}</Tag>
-                )}
-                {transitionStats.parallel > 0 && (
-                  <Tag color="green">并行触发 x{transitionStats.parallel}</Tag>
-                )}
-                {transitionStats.merge > 0 && (
-                  <Tag color="purple">汇聚等待 x{transitionStats.merge}</Tag>
-                )}
-              </Space>
-            </div>
-          )}
-
-          <div>
-            <Text strong>人工检查点：</Text>
-            <div style={{ marginTop: 8 }}>
+        {/* 检查点 */}
+        {(template.checkpoints?.length || 0) > 0 && (
+          <div className="workflow-template-section">
+            <div className="workflow-template-section-title">人工检查点</div>
+            <div className="workflow-checkpoint-tags">
               {template.checkpoints?.map((checkpoint) => (
-                <Tag key={checkpoint} color="orange">{checkpoint}</Tag>
+                <span key={checkpoint} className="workflow-checkpoint-tag">
+                  <SafetyOutlined style={{ marginRight: 4 }} />
+                  {checkpoint}
+                </span>
               ))}
             </div>
           </div>
-        </Space>
-      </Card>
+        )}
+      </div>
+    </div>
     );
   };
 
   /**
-   * 渲染 Agent 实例列表
+   * 渲染 Agent 实例列表（分层显示）
    */
   const renderAgentRoles = () => {
     if (loadingAgents) {
       return (
-        <div style={{ textAlign: 'center', padding: 12 }}>
+        <div className="workflow-loading-container">
           <Spin />
         </div>
       );
@@ -307,212 +317,279 @@ const WorkflowPage: React.FC = () => {
 
     if ((agents || []).length === 0) {
       return (
-        <Alert
-          type="info"
-          message="暂无Agent实例"
-          description="请先在Agent管理页面创建Agent实例"
-          showIcon
+        <Empty
+          description="暂无Agent实例"
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          style={{ padding: 20 }}
         />
       );
     }
 
+    // 分组：系统预置和自定义
+    const systemAgents = (agents || []).filter(a => a.isSystem);
+    const customAgents = (agents || []).filter(a => !a.isSystem);
+
     return (
-      <List
-        grid={{ gutter: 16, column: 2 }}
-        dataSource={agents || []}
-        renderItem={(agent) => (
-          <List.Item>
-            <Card
-              hoverable
-              size="small"
-              style={{ textAlign: 'center' }}
-            >
-              <Avatar
-                size={48}
-                style={{ backgroundColor: '#1890ff', marginBottom: 8 }}
-                icon={<UserOutlined />}
-              />
-              <div>
-                <Text strong>{agent.name}</Text>
-              </div>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                {AgentRoleLabels[agent.role]}
-              </Text>
-            </Card>
-          </List.Item>
+      <>
+        {/* 系统预置角色 */}
+        {systemAgents.length > 0 && (
+          <div>
+            <div className="workflow-agent-group-title">
+              <CrownOutlined style={{ color: '#f59e0b' }} />
+              <span>系统预置</span>
+              <Tag color="gold" bordered={false} style={{ marginLeft: 4, fontSize: 11 }}>{systemAgents.length}</Tag>
+            </div>
+            <div className="workflow-agents-grid">
+              {systemAgents.map((agent) => (
+                <div key={agent.id} className="workflow-agent-card">
+                  <div className="workflow-agent-avatar system">
+                    <CrownOutlined />
+                  </div>
+                  <div className="workflow-agent-name">{agent.name}</div>
+                  <div className="workflow-agent-role">
+                    {AgentRoleLabels[agent.role] || agent.role}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
-      />
+
+        {/* 自定义角色 */}
+        {customAgents.length > 0 && (
+          <div>
+            <div className="workflow-agent-group-title">
+              <UserOutlined />
+              <span>自定义</span>
+              <Tag color="blue" bordered={false} style={{ marginLeft: 4, fontSize: 11 }}>{customAgents.length}</Tag>
+            </div>
+            <div className="workflow-agents-grid">
+              {customAgents.map((agent) => (
+                <div key={agent.id} className="workflow-agent-card">
+                  <div className="workflow-agent-avatar custom">
+                    <UserOutlined />
+                  </div>
+                  <div className="workflow-agent-name">{agent.name}</div>
+                  <div className="workflow-agent-role">
+                    {AgentRoleLabels[agent.role] || agent.role}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </>
     );
   };
 
   return (
-    <div style={{ padding: 12 }}>
-      <div style={{ marginBottom: 12 }}>
-        <Title level={2} style={{ margin: 0 }}>工作流编排</Title>
-        <Text type="secondary">可视化配置 Agent 协作流程，定义任务执行顺序和条件</Text>
+    <div className="workflow-page-wrapper">
+      {/* 页面头部 */}
+      <div className="workflow-page-header">
+        <div>
+          <h2 className="workflow-page-title">Agent团队</h2>
+          <p className="workflow-page-subtitle">可视化配置 Agent 协作流程，定义任务执行顺序和条件</p>
+        </div>
+        <div className="workflow-header-actions">
+          <button
+            className="workflow-action-btn primary"
+            onClick={() => setCreateModalVisible(true)}
+          >
+            <PlusOutlined />
+            新建团队
+          </button>
+        </div>
       </div>
 
-      <Row gutter={24}>
-        {/* 左侧：工作流模板选择 */}
-        <Col xs={24} lg={14}>
-          <Card
-            title={
-              <Space>
-                <span>工作流模板</span>
-                <Tag color="blue">{(workflowTemplates || []).length} 个模板</Tag>
-              </Space>
-            }
-            extra={
-              <Button
-                type="primary"
-                icon={<PlusOutlined />}
-                onClick={() => setCreateModalVisible(true)}
-              >
-                新建工作流
-              </Button>
-            }
-          >
-            <Paragraph type="secondary">
-              选择一个预设模板快速开始，或创建自定义工作流
-            </Paragraph>
-
-            {loadingTemplates ? (
-              <div style={{ textAlign: 'center', padding: 12 }}>
-                <Spin />
+      {/* 主内容区 */}
+      <div className="workflow-main-content">
+        {/* 左侧：Agent团队选择 */}
+        <div className="workflow-templates-panel">
+          <div className="workflow-floating-card">
+            <div className="workflow-card-header">
+              <div className="workflow-card-title">
+                <ApartmentOutlined className="workflow-card-title-icon" />
+                <span>Agent团队</span>
+                <Tag color="blue" bordered={false}>{(workflowTemplates || []).length} 个模板</Tag>
               </div>
-            ) : (
-              (workflowTemplates || []).map(renderTemplateCard)
-            )}
-          </Card>
-        </Col>
+            </div>
+            <div className="workflow-card-content">
+              <div className="workflow-empty-hint">
+                选择一个预设模板快速开始，或创建自定义团队
+              </div>
 
-        {/* 右侧：Agent 实例说明 */}
-        <Col xs={24} lg={10}>
-          <Card title="Agent 实例">
-            <Paragraph type="secondary" style={{ marginBottom: 16 }}>
-              已配置的Agent实例，可在工作流中选择使用
-            </Paragraph>
-            {renderAgentRoles()}
-          </Card>
+              {loadingTemplates ? (
+                <div className="workflow-loading-container">
+                  <Spin />
+                </div>
+              ) : (
+                (workflowTemplates || []).map(renderTemplateCard)
+              )}
+            </div>
+          </div>
+        </div>
 
-          {/* 工作流编排说明 */}
-          <Card style={{ marginTop: 16 }} title="编排规则">
-            <Collapse
-              defaultActiveKey={['1']}
-              items={[
-                {
-                  key: '1',
-                  label: '顺序执行模式',
-                  children: (
-                    <>
-                      <Paragraph>
-                        Agent 按工作流顺序依次执行，前一个完成后下一个自动开始。
-                      </Paragraph>
-                      <Space wrap>
-                        <Tag color="green">需求分析</Tag>
-                        <span>→</span>
-                        <Tag color="purple">架构设计</Tag>
-                        <span>→</span>
-                        <Tag color="blue">代码实现</Tag>
-                        <span>→</span>
-                        <Tag color="orange">代码审查</Tag>
-                      </Space>
-                    </>
-                  ),
-                },
-                {
-                  key: '2',
-                  label: '并行触发模式',
-                  children: (
-                    <>
-                      <Paragraph>
-                        一个Agent完成后，同时触发多个下游Agent并行工作。
-                      </Paragraph>
-                      <Space wrap>
-                        <Tag color="blue">需求分析</Tag>
-                        <span>→</span>
-                        <Tag color="green">前端开发</Tag>
-                        <span>+</span>
-                        <Tag color="purple">后端开发</Tag>
-                      </Space>
-                    </>
-                  ),
-                },
-                {
-                  key: '3',
-                  label: '汇聚等待模式',
-                  children: (
-                    <>
-                      <Paragraph>
-                        等待多个上游Agent都完成后，才触发下游Agent。
-                      </Paragraph>
-                      <Space wrap>
-                        <Tag color="green">前端开发</Tag>
-                        <span>+</span>
-                        <Tag color="purple">后端开发</Tag>
-                        <span>→</span>
-                        <Tag color="orange">测试工程师</Tag>
-                      </Space>
-                    </>
-                  ),
-                },
-                {
-                  key: '4',
-                  label: '人工检查点',
-                  children: (
-                    <>
-                      <Paragraph>
-                        关键节点需要用户确认才能继续执行。
-                      </Paragraph>
-                      <List
-                        size="small"
-                        dataSource={['需求确认', '方案确认', '代码合入', '部署确认']}
-                        renderItem={(item) => (
-                          <List.Item>
-                            <Space>
-                              <CheckCircleOutlined style={{ color: '#52c41a' }} />
-                              <span>{item}</span>
-                            </Space>
-                          </List.Item>
-                        )}
-                      />
-                    </>
-                  ),
-                },
-              ]}
-            />
-          </Card>
-        </Col>
-      </Row>
+        {/* 右侧：Agent 实例说明 + 编排规则 */}
+        <div className="workflow-side-panel">
+          {/* Agent 实例 */}
+          <div className="workflow-agents-section">
+            <div className="workflow-card-header">
+              <div className="workflow-card-title">
+                <UserOutlined className="workflow-card-title-icon" />
+                <span>Agent 实例</span>
+              </div>
+            </div>
+            <div className="workflow-card-content">
+              {renderAgentRoles()}
+            </div>
+          </div>
 
-      {/* 使用选中模板创建任务 */}
+          {/* Agent团队编排说明 */}
+          <div className="workflow-rules-section">
+            <div className="workflow-card-header">
+              <div className="workflow-card-title">
+                <BranchesOutlined className="workflow-card-title-icon" />
+                <span>编排规则</span>
+              </div>
+            </div>
+            <div className="workflow-card-content" style={{ padding: 0 }}>
+              <Collapse
+                className="workflow-rules-collapse"
+                defaultActiveKey={['1']}
+                ghost
+                items={[
+                  {
+                    key: '1',
+                    label: (
+                      <span>
+                        <ThunderboltOutlined style={{ marginRight: 8, color: '#0369a1' }} />
+                        顺序执行模式
+                      </span>
+                    ),
+                    children: (
+                      <>
+                        <Paragraph style={{ marginBottom: 8, fontSize: 13 }}>
+                          Agent 按团队编排顺序依次执行，前一个完成后下一个自动开始。
+                        </Paragraph>
+                        <div className="workflow-rule-flow">
+                          <Tag color="green" bordered={false}>需求分析</Tag>
+                          <span className="arrow">→</span>
+                          <Tag color="purple" bordered={false}>架构设计</Tag>
+                          <span className="arrow">→</span>
+                          <Tag color="blue" bordered={false}>代码实现</Tag>
+                          <span className="arrow">→</span>
+                          <Tag color="orange" bordered={false}>代码审查</Tag>
+                        </div>
+                      </>
+                    ),
+                  },
+                  {
+                    key: '2',
+                    label: (
+                      <span>
+                        <BranchesOutlined style={{ marginRight: 8, color: '#15803d' }} />
+                        并行触发模式
+                      </span>
+                    ),
+                    children: (
+                      <>
+                        <Paragraph style={{ marginBottom: 8, fontSize: 13 }}>
+                          一个Agent完成后，同时触发多个下游Agent并行工作。
+                        </Paragraph>
+                        <div className="workflow-rule-flow">
+                          <Tag color="blue" bordered={false}>需求分析</Tag>
+                          <span className="arrow">→</span>
+                          <Tag color="green" bordered={false}>前端开发</Tag>
+                          <span className="plus">+</span>
+                          <Tag color="purple" bordered={false}>后端开发</Tag>
+                        </div>
+                      </>
+                    ),
+                  },
+                  {
+                    key: '3',
+                    label: (
+                      <span>
+                        <MergeCellsOutlined style={{ marginRight: 8, color: '#7c3aed' }} />
+                        汇聚等待模式
+                      </span>
+                    ),
+                    children: (
+                      <>
+                        <Paragraph style={{ marginBottom: 8, fontSize: 13 }}>
+                          等待多个上游Agent都完成后，才触发下游Agent。
+                        </Paragraph>
+                        <div className="workflow-rule-flow">
+                          <Tag color="green" bordered={false}>前端开发</Tag>
+                          <span className="plus">+</span>
+                          <Tag color="purple" bordered={false}>后端开发</Tag>
+                          <span className="arrow">→</span>
+                          <Tag color="orange" bordered={false}>测试工程师</Tag>
+                        </div>
+                      </>
+                    ),
+                  },
+                  {
+                    key: '4',
+                    label: (
+                      <span>
+                        <SafetyOutlined style={{ marginRight: 8, color: '#c2410c' }} />
+                        人工检查点
+                      </span>
+                    ),
+                    children: (
+                      <>
+                        <Paragraph style={{ marginBottom: 8, fontSize: 13 }}>
+                          关键节点需要用户确认才能继续执行。
+                        </Paragraph>
+                        <List
+                          size="small"
+                          dataSource={['需求确认', '方案确认', '代码合入', '部署确认']}
+                          renderItem={(item) => (
+                            <List.Item style={{ padding: '6px 0', border: 'none' }}>
+                              <Space>
+                                <CheckCircleOutlined style={{ color: '#52c41a' }} />
+                                <span style={{ fontSize: 13 }}>{item}</span>
+                              </Space>
+                            </List.Item>
+                          )}
+                        />
+                      </>
+                    ),
+                  },
+                ]}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 底部操作栏 */}
       {selectedTemplate && (
-        <Card style={{ marginTop: 24 }}>
-          <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-            <Space>
-              <Text strong>已选择模板：</Text>
-              <Tag color="blue">{selectedTemplate.name}</Tag>
-              <Text type="secondary">预计耗时 {selectedTemplate.estimatedTime}</Text>
-            </Space>
-            <Space>
-              <Button onClick={() => setSelectedTemplate(null)}>取消选择</Button>
-              <Button
-                type="primary"
-                icon={<PlayCircleOutlined />}
-                onClick={() => {
-                  message.info('请在项目空间中创建任务开始开发');
-                }}
-              >
-                使用此模板创建任务
-              </Button>
-            </Space>
-          </Space>
-        </Card>
+        <div className="workflow-footer-bar">
+          <div className="workflow-footer-info">
+            <span className="workflow-footer-label">已选择模板：</span>
+            <Tag color="blue" bordered={false}>{selectedTemplate.name}</Tag>
+            <span className="workflow-footer-value">预计耗时 {selectedTemplate.estimatedTime}</span>
+          </div>
+          <div className="workflow-footer-actions">
+            <Button onClick={() => setSelectedTemplate(null)}>取消选择</Button>
+            <Button
+              type="primary"
+              icon={<PlayCircleOutlined />}
+              onClick={() => {
+                message.info('请在项目空间中创建任务开始开发');
+              }}
+            >
+              使用此模板创建任务
+            </Button>
+          </div>
+        </div>
       )}
 
-      {/* 新建工作流弹窗 */}
+      {/* 新建团队弹窗 */}
       <Modal
-        title="新建工作流"
+        title="新建团队"
         open={createModalVisible}
         onOk={() => form.submit()}
         onCancel={() => {
@@ -521,31 +598,63 @@ const WorkflowPage: React.FC = () => {
         }}
         confirmLoading={submitting}
         width={600}
+        className="workflow-modal"
       >
         <Form form={form} layout="vertical" onFinish={handleCreateWorkflow}>
-          <Form.Item name="name" label="工作流名称" rules={[{ required: true, message: '请输入工作流名称' }]}>
+          <Form.Item name="name" label="团队名称" rules={[{ required: true, message: '请输入团队名称' }]}>
             <Input placeholder="例如：我的自定义流程" />
           </Form.Item>
 
           <Form.Item name="description" label="描述">
-            <TextArea rows={2} placeholder="描述这个工作流的用途" />
+            <TextArea rows={2} placeholder="描述这个团队的用途" />
           </Form.Item>
 
           <Form.Item name="agentIds" label="Agent配置" rules={[{ required: true, message: '请选择至少一个Agent实例' }]}>
             <Select
               mode="multiple"
-              placeholder="选择工作流中的Agent实例"
+              placeholder="选择团队中的Agent实例"
               loading={loadingAgents}
               showSearch
-              filterOption={(input, option) =>
-                (option?.children as unknown as string)?.toLowerCase().includes(input.toLowerCase())
-              }
+              optionFilterProp="label"
             >
-              {(agents || []).map((agent) => (
-                <Option key={agent.id} value={agent.id}>
-                  {agent.name} ({AgentRoleLabels[agent.role]})
-                </Option>
-              ))}
+              {/* 系统预置角色分组 */}
+              {agents.filter(a => a.isSystem).length > 0 && (
+                <Select.OptGroup label={
+                  <Space>
+                    <CrownOutlined style={{ color: '#faad14' }} />
+                    <span>系统预置</span>
+                  </Space>
+                }>
+                  {agents.filter(a => a.isSystem).map((agent) => (
+                    <Option key={agent.id} value={agent.id} label={agent.name}>
+                      <Space>
+                        <CrownOutlined style={{ color: '#faad14' }} />
+                        <span>{agent.name}</span>
+                        <Text type="secondary" style={{ fontSize: 12 }}>({AgentRoleLabels[agent.role] || agent.role})</Text>
+                      </Space>
+                    </Option>
+                  ))}
+                </Select.OptGroup>
+              )}
+              {/* 自定义角色分组 */}
+              {agents.filter(a => !a.isSystem).length > 0 && (
+                <Select.OptGroup label={
+                  <Space>
+                    <UserOutlined />
+                    <span>自定义</span>
+                  </Space>
+                }>
+                  {agents.filter(a => !a.isSystem).map((agent) => (
+                    <Option key={agent.id} value={agent.id} label={agent.name}>
+                      <Space>
+                        <UserOutlined />
+                        <span>{agent.name}</span>
+                        <Text type="secondary" style={{ fontSize: 12 }}>({AgentRoleLabels[agent.role] || agent.role})</Text>
+                      </Space>
+                    </Option>
+                  ))}
+                </Select.OptGroup>
+              )}
             </Select>
           </Form.Item>
 
@@ -569,9 +678,9 @@ const WorkflowPage: React.FC = () => {
         </Form>
       </Modal>
 
-      {/* 编辑工作流弹窗 */}
+      {/* 编辑团队弹窗 */}
       <Modal
-        title={`编辑工作流：${editingTemplate?.name || ''}`}
+        title={`编辑团队：${editingTemplate?.name || ''}`}
         open={editModalVisible}
         onCancel={() => {
           setEditModalVisible(false);
@@ -580,6 +689,7 @@ const WorkflowPage: React.FC = () => {
         footer={null}
         width={900}
         styles={{ body: { padding: 0 } }}
+        className="workflow-modal"
       >
         {editingTemplate && (
           <Tabs
@@ -603,7 +713,7 @@ const WorkflowPage: React.FC = () => {
                           <li>从下拉框选择Agent添加到画布</li>
                           <li>拖拽节点底部的连接点，连接到另一个节点的顶部</li>
                           <li>点击连接线可编辑转换规则</li>
-                          <li>配置完成后点击"保存工作流"</li>
+                          <li>配置完成后点击"保存团队"</li>
                         </ul>
                       }
                       style={{ marginBottom: 16 }}
@@ -644,7 +754,7 @@ const WorkflowPage: React.FC = () => {
                         }
                       }}
                     >
-                      <Form.Item name="name" label="工作流名称" rules={[{ required: true }]}>
+                      <Form.Item name="name" label="团队名称" rules={[{ required: true }]}>
                         <Input />
                       </Form.Item>
                       <Form.Item name="description" label="描述">

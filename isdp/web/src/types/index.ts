@@ -6,6 +6,7 @@ export type AgentRole =
   | 'reviewer'
   | 'testengineer'
   | 'devops'
+  | 'fullstack_engineer'
   | 'custom';
 
 // 基础Agent类型
@@ -61,7 +62,7 @@ export interface Thread {
   currentAgent?: string;
   depth: number;
   abortToken?: string;
-  workflowTemplateId?: string; // 绑定的工作流模板ID
+  workflowTemplateId?: string; // 绑定的Agent团队ID
   createdAt: string;
   updatedAt: string;
 }
@@ -115,6 +116,7 @@ export interface AgentConfig {
   temperature: number;
   routingConfig: RoutingConfig;
   isDefault: boolean;
+  isSystem: boolean;  // 是否为系统预置角色
   configGeneratedAt?: string;
   configPath?: string;
   createdAt: string;
@@ -205,6 +207,7 @@ export const AgentRoleLabels: Record<AgentRole, string> = {
   reviewer: '评审者',
   testengineer: '测试工程师',
   devops: '运维工程师',
+  fullstack_engineer: '全栈工程师',
   custom: '自定义',
 };
 
@@ -245,7 +248,7 @@ export interface Transition {
   description?: string;
 }
 
-// 工作流模板
+// Agent团队
 export interface WorkflowTemplate {
   id: string;
   name: string;
@@ -715,3 +718,6 @@ export interface AgentRulesResponse {
   rules: Rule[];
   count: number;
 }
+
+// 内容类型
+export * from './content';

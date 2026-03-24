@@ -1,0 +1,239 @@
+/* isdp/web/src/components/thread/MessageContent.css */
+
+.message-content-wrapper {
+  width: 100%;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-primary);
+  /* 覆盖 message-body 的 pre-wrap，支持 markdown */
+  white-space: normal;
+  word-break: break-word;
+}
+
+/* 段落 */
+.message-paragraph {
+  margin: 0 0 12px 0;
+}
+
+.message-paragraph:last-child {
+  margin-bottom: 0;
+}
+
+/* 标题 */
+.message-h1 {
+  font-size: 22px;
+  font-weight: 600;
+  margin: 16px 0 12px 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.message-h2 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 14px 0 10px 0;
+}
+
+.message-h3 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 12px 0 8px 0;
+}
+
+/* 行内代码 */
+.inline-code {
+  background: var(--bg-sidebar);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 13px;
+  color: var(--color-primary);
+  border: 1px solid var(--border-light);
+}
+
+/* 代码块 */
+.code-block-wrapper {
+  margin: 12px 0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #1e1e1e;
+  border: 1px solid var(--border-color);
+}
+
+.code-block-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: #2d2d2d;
+  border-bottom: 1px solid #3d3d3d;
+}
+
+.code-language {
+  font-size: 12px;
+  color: #8b949e;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.code-copy-btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  background: transparent;
+  border: 1px solid #3d3d3d;
+  border-radius: 4px;
+  color: #8b949e;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.code-copy-btn:hover {
+  background: #3d3d3d;
+  color: #e6edf3;
+}
+
+.code-block {
+  margin: 0 !important;
+  padding: 16px !important;
+  background: #1e1e1e !important;
+  overflow-x: auto;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.code-block code {
+  background: transparent !important;
+  padding: 0 !important;
+  font-family: inherit;
+}
+
+/* 图片 */
+.message-image-wrapper {
+  margin: 12px 0;
+  text-align: center;
+}
+
+.message-image {
+  max-width: 100%;
+  max-height: 400px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.message-image:hover {
+  transform: scale(1.02);
+}
+
+.message-image-caption {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* 链接 */
+.message-link {
+  color: var(--color-primary);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.2s ease;
+}
+
+.message-link:hover {
+  border-bottom-color: var(--color-primary);
+}
+
+/* 引用块 */
+.message-blockquote {
+  margin: 12px 0;
+  padding: 12px 16px;
+  border-left: 4px solid var(--color-primary);
+  background: var(--bg-sidebar);
+  border-radius: 0 8px 8px 0;
+  color: var(--text-secondary);
+}
+
+.message-blockquote p {
+  margin: 0;
+}
+
+/* 列表 */
+.message-list {
+  margin: 8px 0;
+  padding-left: 24px;
+}
+
+.message-list li {
+  margin: 4px 0;
+}
+
+.message-list-ordered {
+  list-style-type: decimal;
+}
+
+/* 表格 */
+.message-table-wrapper {
+  margin: 12px 0;
+  overflow-x: auto;
+}
+
+.message-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.message-table th,
+.message-table td {
+  padding: 8px 12px;
+  border: 1px solid var(--border-light);
+  text-align: left;
+}
+
+.message-table th {
+  background: var(--bg-sidebar);
+  font-weight: 600;
+}
+
+.message-table tr:hover td {
+  background: var(--bg-sidebar);
+}
+
+/* 分隔线 */
+.message-content-wrapper hr {
+  margin: 16px 0;
+  border: none;
+  border-top: 1px solid var(--border-light);
+}
+
+/* 删除线 */
+.message-content-wrapper del {
+  color: var(--text-secondary);
+}
+
+/* 任务列表 */
+.message-content-wrapper input[type="checkbox"] {
+  margin-right: 8px;
+  accent-color: var(--color-primary);
+}
+
+/* 深色主题适配 */
+[data-theme='dark'] .inline-code {
+  background: #2d2d2d;
+  border-color: #3d3d3d;
+}
+
+[data-theme='dark'] .message-blockquote {
+  background: #2d2d2d;
+}
+
+[data-theme='dark'] .message-table th {
+  background: #2d2d2d;
+}
+
+[data-theme='dark'] .message-table tr:hover td {
+  background: #2d2d2d;
+}
+
+/* highlight.js 主题已在 github-dark.css 中定义 */

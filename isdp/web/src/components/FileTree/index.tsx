@@ -34,7 +34,7 @@ interface FileTreeProps {
 /**
  * FileTree component - displays project file structure
  * 支持两种模式：
- * - 工作流模式：projectId 为实际项目ID，使用项目API加载文件
+ * - 团队模式：projectId 为实际项目ID，使用项目API加载文件
  * - 调试模式：projectId 为 'debug'，需要传入 projectPath，使用路径API加载文件
  */
 const FileTree: React.FC<FileTreeProps> = ({ projectId, projectPath, onFileSelect, style }) => {
@@ -111,7 +111,7 @@ const FileTree: React.FC<FileTreeProps> = ({ projectId, projectPath, onFileSelec
         }
         response = await api.projects.browseFiles(projectPath, path);
       } else {
-        // 工作流模式：使用项目API
+        // 团队模式：使用项目API
         response = await api.projects.listFiles(projectId, path);
       }
       return response.files || [];

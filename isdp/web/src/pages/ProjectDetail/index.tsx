@@ -70,7 +70,7 @@ const ProjectDetail: React.FC = () => {
     }
   }, [projectId]);
 
-  // 获取工作流模板列表
+  // 获取Agent团队列表
   const fetchWorkflowTemplates = async () => {
     setLoadingTemplates(true);
     try {
@@ -445,18 +445,18 @@ const ProjectDetail: React.FC = () => {
                 <Descriptions.Item label="开发模式">
                   {projectModeConfig[project.mode || 'new']?.label || project.mode}
                 </Descriptions.Item>
-                <Descriptions.Item label="绑定工作流" span={2}>
+                <Descriptions.Item label="绑定团队" span={2}>
                   <Space direction="vertical" style={{ width: '100%' }}>
                     <Select
                       style={{ width: 300 }}
-                      placeholder="选择工作流模板"
+                      placeholder="选择Agent团队"
                       value={project.workflowTemplateId || undefined}
                       loading={loadingTemplates}
                       allowClear
                       onChange={async (value) => {
                         try {
                           await api.projects.update(projectId!, { workflowTemplateId: value });
-                          message.success('工作流绑定已更新');
+                          message.success('团队绑定已更新');
                           loadProjectData();
                         } catch (error) {
                           message.error('更新失败');
@@ -474,7 +474,7 @@ const ProjectDetail: React.FC = () => {
                         <Text type="secondary">当前绑定：</Text>
                         {(() => {
                           const boundTemplate = workflowTemplates.find(t => t.id === project.workflowTemplateId);
-                          if (!boundTemplate) return <Text type="warning">工作流不存在</Text>;
+                          if (!boundTemplate) return <Text type="warning">团队不存在</Text>;
                           return (
                             <>
                               <Text strong>{boundTemplate.name}</Text>
@@ -490,7 +490,7 @@ const ProjectDetail: React.FC = () => {
                       </Space>
                     ) : (
                       <Text type="secondary">
-                        未绑定工作流，将使用系统默认工作流
+                        未绑定团队，将使用系统默认团队
                         {workflowTemplates.find(t => t.isDefault) && (
                           <>：{workflowTemplates.find(t => t.isDefault)?.name}</>
                         )}
@@ -551,8 +551,8 @@ const ProjectDetail: React.FC = () => {
           <Form.Item name="repositoryUrl" label="仓库地址">
             <Input placeholder="https://github.com/user/repo" />
           </Form.Item>
-          <Form.Item name="workflowTemplateId" label="绑定工作流">
-            <Select placeholder="选择工作流模板" allowClear loading={loadingTemplates}>
+          <Form.Item name="workflowTemplateId" label="绑定团队">
+            <Select placeholder="选择Agent团队" allowClear loading={loadingTemplates}>
               {workflowTemplates.map((t) => (
                 <Option key={t.id} value={t.id}>
                   {t.name} {t.isDefault ? '(默认)' : ''} {t.isSystem ? '[系统]' : ''}
@@ -586,12 +586,12 @@ const ProjectDetail: React.FC = () => {
           </Form.Item>
           <Divider style={{ margin: '12px 0' }} />
           <div>
-            <Text strong>使用工作流：</Text>
+            <Text strong>使用团队：</Text>
             <div style={{ marginTop: 8 }}>
               {project.workflowTemplateId ? (
                 <>
                   <Tag color="blue">
-                    {workflowTemplates.find(t => t.id === project.workflowTemplateId)?.name || '未知工作流'}
+                    {workflowTemplates.find(t => t.id === project.workflowTemplateId)?.name || '未知团队'}
                   </Tag>
                   <Text type="secondary" style={{ marginLeft: 8 }}>（来自项目绑定）</Text>
                 </>
@@ -600,7 +600,7 @@ const ProjectDetail: React.FC = () => {
                   <Tag color="gold">
                     {workflowTemplates.find(t => t.isDefault)?.name || '系统默认'}
                   </Tag>
-                  <Text type="secondary" style={{ marginLeft: 8 }}>（系统默认工作流）</Text>
+                  <Text type="secondary" style={{ marginLeft: 8 }}>（系统默认团队）</Text>
                 </>
               )}
             </div>
