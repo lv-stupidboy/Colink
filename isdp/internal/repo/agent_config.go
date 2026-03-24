@@ -46,17 +46,18 @@ func (r *AgentConfigRepository) Create(ctx context.Context, config *model.AgentR
 // FindByID 根据ID查找
 func (r *AgentConfigRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.AgentRoleConfig, error) {
 	query := `
-		SELECT id, name, role, description, system_prompt, max_tokens, temperature, routing_config, base_agent_id, is_default, capabilities, dependencies, outputs, created_at, updated_at
+		SELECT id, name, role, description, system_prompt, max_tokens, temperature, routing_config, base_agent_id, is_default, capabilities, dependencies, outputs, config_generated_at, config_path, created_at, updated_at
 		FROM agent_configs WHERE id = ?
 	`
 	config := &model.AgentRoleConfig{}
 	var idStr string
 	var routingConfig, capabilities, dependencies, outputs []byte
-	var baseAgentID, description, systemPrompt sql.NullString
+	var baseAgentID, description, systemPrompt, configPath sql.NullString
 	var maxTokens sql.NullInt64
 	var temperature sql.NullFloat64
+	var configGeneratedAt sql.NullTime
 	err := r.db.QueryRowContext(ctx, query, id.String()).Scan(
-		&idStr, &config.Name, &config.Role, &description, &systemPrompt, &maxTokens, &temperature, &routingConfig, &baseAgentID, &config.IsDefault, &capabilities, &dependencies, &outputs, &config.CreatedAt, &config.UpdatedAt,
+		&idStr, &config.Name, &config.Role, &description, &systemPrompt, &maxTokens, &temperature, &routingConfig, &baseAgentID, &config.IsDefault, &capabilities, &dependencies, &outputs, &configGeneratedAt, &configPath, &config.CreatedAt, &config.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find agent config: %w", err)
@@ -77,6 +78,12 @@ func (r *AgentConfigRepository) FindByID(ctx context.Context, id uuid.UUID) (*mo
 	if temperature.Valid {
 		config.Temperature = temperature.Float64
 	}
+	if configGeneratedAt.Valid {
+		config.ConfigGeneratedAt = &configGeneratedAt.Time
+	}
+	if configPath.Valid {
+		config.ConfigPath = configPath.String
+	}
 	json.Unmarshal(routingConfig, &config.RoutingConfig)
 	json.Unmarshal(capabilities, &config.Capabilities)
 	json.Unmarshal(dependencies, &config.Dependencies)
@@ -87,7 +94,7 @@ func (r *AgentConfigRepository) FindByID(ctx context.Context, id uuid.UUID) (*mo
 // FindByRole 根据角色查找
 func (r *AgentConfigRepository) FindByRole(ctx context.Context, role model.AgentRole) ([]*model.AgentRoleConfig, error) {
 	query := `
-		SELECT id, name, role, description, system_prompt, max_tokens, temperature, routing_config, base_agent_id, is_default, capabilities, dependencies, outputs, created_at, updated_at
+		SELECT id, name, role, description, system_prompt, max_tokens, temperature, routing_config, base_agent_id, is_default, capabilities, dependencies, outputs, config_generated_at, config_path, created_at, updated_at
 		FROM agent_configs WHERE role = ? ORDER BY is_default DESC, name
 	`
 	rows, err := r.db.QueryContext(ctx, query, role)
@@ -101,11 +108,12 @@ func (r *AgentConfigRepository) FindByRole(ctx context.Context, role model.Agent
 		config := &model.AgentRoleConfig{}
 		var idStr string
 		var routingConfig, capabilities, dependencies, outputs []byte
-		var baseAgentID, description, systemPrompt sql.NullString
+		var baseAgentID, description, systemPrompt, configPath sql.NullString
 		var maxTokens sql.NullInt64
 		var temperature sql.NullFloat64
+		var configGeneratedAt sql.NullTime
 		err := rows.Scan(
-			&idStr, &config.Name, &config.Role, &description, &systemPrompt, &maxTokens, &temperature, &routingConfig, &baseAgentID, &config.IsDefault, &capabilities, &dependencies, &outputs, &config.CreatedAt, &config.UpdatedAt,
+			&idStr, &config.Name, &config.Role, &description, &systemPrompt, &maxTokens, &temperature, &routingConfig, &baseAgentID, &config.IsDefault, &capabilities, &dependencies, &outputs, &configGeneratedAt, &configPath, &config.CreatedAt, &config.UpdatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan agent config: %w", err)
@@ -125,6 +133,12 @@ func (r *AgentConfigRepository) FindByRole(ctx context.Context, role model.Agent
 		}
 		if temperature.Valid {
 			config.Temperature = temperature.Float64
+		}
+		if configGeneratedAt.Valid {
+			config.ConfigGeneratedAt = &configGeneratedAt.Time
+		}
+		if configPath.Valid {
+			config.ConfigPath = configPath.String
 		}
 		json.Unmarshal(routingConfig, &config.RoutingConfig)
 		json.Unmarshal(capabilities, &config.Capabilities)
@@ -138,7 +152,7 @@ func (r *AgentConfigRepository) FindByRole(ctx context.Context, role model.Agent
 // List 列出所有配置
 func (r *AgentConfigRepository) List(ctx context.Context) ([]*model.AgentRoleConfig, error) {
 	query := `
-		SELECT id, name, role, description, system_prompt, max_tokens, temperature, routing_config, base_agent_id, is_default, capabilities, dependencies, outputs, created_at, updated_at
+		SELECT id, name, role, description, system_prompt, max_tokens, temperature, routing_config, base_agent_id, is_default, capabilities, dependencies, outputs, config_generated_at, config_path, created_at, updated_at
 		FROM agent_configs ORDER BY role, name
 	`
 	rows, err := r.db.QueryContext(ctx, query)
@@ -152,11 +166,12 @@ func (r *AgentConfigRepository) List(ctx context.Context) ([]*model.AgentRoleCon
 		config := &model.AgentRoleConfig{}
 		var idStr string
 		var routingConfig, capabilities, dependencies, outputs []byte
-		var baseAgentID, description, systemPrompt sql.NullString
+		var baseAgentID, description, systemPrompt, configPath sql.NullString
 		var maxTokens sql.NullInt64
 		var temperature sql.NullFloat64
+		var configGeneratedAt sql.NullTime
 		err := rows.Scan(
-			&idStr, &config.Name, &config.Role, &description, &systemPrompt, &maxTokens, &temperature, &routingConfig, &baseAgentID, &config.IsDefault, &capabilities, &dependencies, &outputs, &config.CreatedAt, &config.UpdatedAt,
+			&idStr, &config.Name, &config.Role, &description, &systemPrompt, &maxTokens, &temperature, &routingConfig, &baseAgentID, &config.IsDefault, &capabilities, &dependencies, &outputs, &configGeneratedAt, &configPath, &config.CreatedAt, &config.UpdatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan agent config: %w", err)
@@ -176,6 +191,12 @@ func (r *AgentConfigRepository) List(ctx context.Context) ([]*model.AgentRoleCon
 		}
 		if temperature.Valid {
 			config.Temperature = temperature.Float64
+		}
+		if configGeneratedAt.Valid {
+			config.ConfigGeneratedAt = &configGeneratedAt.Time
+		}
+		if configPath.Valid {
+			config.ConfigPath = configPath.String
 		}
 		json.Unmarshal(routingConfig, &config.RoutingConfig)
 		json.Unmarshal(capabilities, &config.Capabilities)
@@ -214,5 +235,16 @@ func (r *AgentConfigRepository) Update(ctx context.Context, config *model.AgentR
 func (r *AgentConfigRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	query := `DELETE FROM agent_configs WHERE id = ?`
 	_, err := r.db.ExecContext(ctx, query, id.String())
+	return err
+}
+
+// UpdateConfigGeneratedAt 更新配置生成时间和路径
+func (r *AgentConfigRepository) UpdateConfigGeneratedAt(ctx context.Context, id uuid.UUID, configPath string) error {
+	query := `
+		UPDATE agent_configs
+		SET config_generated_at = NOW(), config_path = ?, updated_at = NOW()
+		WHERE id = ?
+	`
+	_, err := r.db.ExecContext(ctx, query, configPath, id.String())
 	return err
 }

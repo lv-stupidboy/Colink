@@ -66,3 +66,30 @@ skill:
   upload_max_size: 5
   # 技能包存储路径，默认 ./skills
   storage_path: "./skills"
+
+# 子代理配置
+subagent:
+  # 子代理文件上传最大大小，单位 MB，默认 2
+  upload_max_size: 2
+  # 子代理文件存储路径，默认 ./subagents
+  storage_path: "./subagents"
+
+# Agent配置相关
+agent_config:
+  # ISDP数据目录，用于存储Agent配置池
+  # 默认值: ./data
+  data_dir: ./data
+
+# 命令配置
+command:
+  # 命令文件上传最大大小，单位 MB，默认 2
+  upload_max_size: 2
+  # 命令文件存储路径，默认 ./commands
+  storage_path: "./commands"
+
+# 规约配置
+rule:
+  # 规约文件上传最大大小，单位 MB，默认 2
+  upload_max_size: 2
+  # 规约文件存储路径，默认 ./rules
+  storage_path: "./rules"

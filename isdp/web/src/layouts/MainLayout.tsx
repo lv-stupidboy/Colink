@@ -54,7 +54,7 @@ const MainLayout: React.FC = () => {
     {
       key: 'agents',
       icon: <ThunderboltOutlined />,
-      label: 'Agent 角色',
+      label: 'Agent 资产',
       children: [
         {
           key: '/agents/roles',
@@ -82,11 +82,6 @@ const MainLayout: React.FC = () => {
           label: '规约',
         },
         {
-          key: '/agents/plugins',
-          icon: <ControlOutlined />,
-          label: '插件',
-        },
-        {
           key: '/agents/hooks',
           icon: <OrderedListOutlined />,
           label: '钩子',
@@ -97,11 +92,6 @@ const MainLayout: React.FC = () => {
           label: '设置',
         },
       ],
-    },
-    {
-      key: '/knowledge',
-      icon: <DatabaseOutlined />,
-      label: '知识库',
     },
     {
       key: 'settings',
@@ -117,6 +107,18 @@ const MainLayout: React.FC = () => {
           key: '/settings/base-agents',
           icon: <RobotOutlined />,
           label: '基础Agent设置',
+        },
+        {
+          key: 'plugins',
+          icon: <ControlOutlined />,
+          label: '插件',
+          children: [
+            {
+              key: '/knowledge',
+              icon: <DatabaseOutlined />,
+              label: '知识库',
+            },
+          ],
         },
         {
           key: '/sandbox',
@@ -140,13 +142,12 @@ const MainLayout: React.FC = () => {
     if (path.startsWith('/registries')) return '/registries';
     if (path.startsWith('/sandbox')) return '/sandbox';
     if (path.startsWith('/knowledge')) return '/knowledge';
-    // Agent 角色子菜单路由
+    // Agent 资产子菜单路由
     if (path.startsWith('/agents/roles')) return '/agents/roles';
     if (path.startsWith('/agents/commands')) return '/agents/commands';
     if (path.startsWith('/agents/subagents')) return '/agents/subagents';
     if (path.startsWith('/agents/skills')) return '/agents/skills';
     if (path.startsWith('/agents/rules')) return '/agents/rules';
-    if (path.startsWith('/agents/plugins')) return '/agents/plugins';
     if (path.startsWith('/agents/hooks')) return '/agents/hooks';
     if (path.startsWith('/agents/settings')) return '/agents/settings';
     if (path.startsWith('/agents')) return '/agents/roles'; // /agents 重定向到 /agents/roles
@@ -160,7 +161,10 @@ const MainLayout: React.FC = () => {
     if (path.startsWith('/settings') || path.startsWith('/registries') || path.startsWith('/sandbox')) {
       return ['settings'];
     }
-    // Agent 角色子菜单展开
+    if (path.startsWith('/knowledge')) {
+      return ['settings', 'plugins'];
+    }
+    // Agent 资产子菜单展开
     if (path.startsWith('/agents') || path.startsWith('/skills') || path.startsWith('/subagents')) {
       return ['agents'];
     }

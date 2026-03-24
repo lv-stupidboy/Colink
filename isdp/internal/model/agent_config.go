@@ -49,6 +49,10 @@ type AgentRoleConfig struct {
 	Dependencies []string `json:"dependencies"`  // 依赖列表：需要什么上游产物
 	Outputs      []string `json:"outputs"`       // 产出列表：产出什么产物
 
+	// 配置生成相关字段
+	ConfigGeneratedAt *time.Time `json:"config_generated_at,omitempty"` // 配置最后生成时间
+	ConfigPath        string     `json:"config_path,omitempty"`         // 配置目录路径
+
 	CreatedAt    time.Time      `json:"created_at"`
 	UpdatedAt    time.Time      `json:"updated_at"`
 }

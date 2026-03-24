@@ -10,16 +10,20 @@ import (
 
 // Config 应用配置
 type Config struct {
-	Server   ServerConfig   `mapstructure:"server"`
-	Database DatabaseConfig `mapstructure:"database"`
-	Redis    RedisConfig    `mapstructure:"redis"`
-	Claude   ClaudeConfig   `mapstructure:"claude"`
-	Sandbox  SandboxConfig  `mapstructure:"sandbox"`
-	Agent    AgentConfig    `mapstructure:"agent"`
-	Logging  LoggingConfig  `mapstructure:"logging"`
-	MCP      MCPConfig      `mapstructure:"mcp"`
-	Auth     AuthConfig     `mapstructure:"auth"`
-	Skill    SkillConfig    `mapstructure:"skill"`
+	Server      ServerConfig      `mapstructure:"server"`
+	Database    DatabaseConfig    `mapstructure:"database"`
+	Redis       RedisConfig       `mapstructure:"redis"`
+	Claude      ClaudeConfig      `mapstructure:"claude"`
+	Sandbox     SandboxConfig     `mapstructure:"sandbox"`
+	Agent       AgentConfig       `mapstructure:"agent"`
+	Logging     LoggingConfig     `mapstructure:"logging"`
+	MCP         MCPConfig         `mapstructure:"mcp"`
+	Auth        AuthConfig        `mapstructure:"auth"`
+	Skill       SkillConfig       `mapstructure:"skill"`
+	Subagent    SubagentConfig    `mapstructure:"subagent"`
+	AgentConfig AgentConfigConfig `mapstructure:"agent_config"`
+	Command     CommandConfig     `mapstructure:"command"`
+	Rule        RuleConfig        `mapstructure:"rule"`
 }
 
 // ServerConfig 服务器配置
@@ -148,6 +152,39 @@ type SkillConfig struct {
 	StoragePath string `mapstructure:"storage_path"`
 }
 
+// SubagentConfig 子代理配置
+type SubagentConfig struct {
+	// UploadMaxSize 子代理文件上传最大大小，单位 MB，默认 2
+	UploadMaxSize int `mapstructure:"upload_max_size"`
+
+	// StoragePath 子代理文件存储路径，默认 ./subagents
+	StoragePath string `mapstructure:"storage_path"`
+}
+
+// AgentConfigConfig Agent配置相关配置
+type AgentConfigConfig struct {
+	// DataDir ISDP数据目录，用于存储Agent配置池
+	DataDir string `mapstructure:"data_dir"`
+}
+
+// CommandConfig 命令配置
+type CommandConfig struct {
+	// UploadMaxSize 命令文件上传最大大小，单位 MB，默认 2
+	UploadMaxSize int `mapstructure:"upload_max_size"`
+
+	// StoragePath 命令文件存储路径，默认 ./commands
+	StoragePath string `mapstructure:"storage_path"`
+}
+
+// RuleConfig 规约配置
+type RuleConfig struct {
+	// UploadMaxSize 规约文件上传最大大小，单位 MB，默认 2
+	UploadMaxSize int `mapstructure:"upload_max_size"`
+
+	// StoragePath 规约文件存储路径，默认 ./rules
+	StoragePath string `mapstructure:"storage_path"`
+}
+
 // GetUseCountUpdateInterval 获取技能使用次数更新间隔
 func (c *SkillConfig) GetUseCountUpdateInterval() time.Duration {
 	if c.UseCountUpdateInterval == "" {
@@ -172,6 +209,54 @@ func (c *SkillConfig) GetUploadMaxSize() int64 {
 func (c *SkillConfig) GetStoragePath() string {
 	if c.StoragePath == "" {
 		return "./skills"
+	}
+	return c.StoragePath
+}
+
+// GetUploadMaxSize 获取子代理上传文件最大大小（字节）
+func (c *SubagentConfig) GetUploadMaxSize() int64 {
+	if c.UploadMaxSize <= 0 {
+		return 2 * 1024 * 1024 // 默认 2MB
+	}
+	return int64(c.UploadMaxSize) * 1024 * 1024
+}
+
+// GetStoragePath 获取子代理文件存储路径
+func (c *SubagentConfig) GetStoragePath() string {
+	if c.StoragePath == "" {
+		return "./subagents"
+	}
+	return c.StoragePath
+}
+
+// GetUploadMaxSize 获取命令文件上传最大大小（字节）
+func (c *CommandConfig) GetUploadMaxSize() int64 {
+	if c.UploadMaxSize <= 0 {
+		return 2 * 1024 * 1024 // 默认 2MB
+	}
+	return int64(c.UploadMaxSize) * 1024 * 1024
+}
+
+// GetStoragePath 获取命令文件存储路径
+func (c *CommandConfig) GetStoragePath() string {
+	if c.StoragePath == "" {
+		return "./commands"
+	}
+	return c.StoragePath
+}
+
+// GetUploadMaxSize 获取规约文件上传最大大小（字节）
+func (c *RuleConfig) GetUploadMaxSize() int64 {
+	if c.UploadMaxSize <= 0 {
+		return 2 * 1024 * 1024 // 默认 2MB
+	}
+	return int64(c.UploadMaxSize) * 1024 * 1024
+}
+
+// GetStoragePath 获取规约文件存储路径
+func (c *RuleConfig) GetStoragePath() string {
+	if c.StoragePath == "" {
+		return "./rules"
 	}
 	return c.StoragePath
 }
@@ -227,4 +312,11 @@ func setDefaults() {
 	viper.SetDefault("skill.use_count_update_interval", "1h")
 	viper.SetDefault("skill.upload_max_size", 5)
 	viper.SetDefault("skill.storage_path", "./skills")
+	viper.SetDefault("subagent.upload_max_size", 2)
+	viper.SetDefault("subagent.storage_path", "./subagents")
+	viper.SetDefault("agent_config.data_dir", "./data")
+	viper.SetDefault("command.upload_max_size", 2)
+	viper.SetDefault("command.storage_path", "./commands")
+	viper.SetDefault("rule.upload_max_size", 2)
+	viper.SetDefault("rule.storage_path", "./rules")
 }

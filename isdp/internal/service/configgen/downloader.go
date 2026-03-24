@@ -6,26 +6,29 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/anthropic/isdp/internal/model"
 	"go.uber.org/zap"
 )
 
-// Downloader Skill 文件下载器
-// 从本地技能存储目录复制技能文件到目标项目目录
+// Downloader Skill/Subagent 文件下载器
+// 从本地存储目录复制文件到目标项目目录
 type Downloader struct {
-	skillStoragePath string
-	maxRetries       int
-	logger           *zap.Logger
+	skillStoragePath    string
+	subagentStoragePath string
+	maxRetries          int
+	logger              *zap.Logger
 }
 
 // NewDownloader 创建下载器
-func NewDownloader(skillStoragePath string, logger *zap.Logger) *Downloader {
+func NewDownloader(skillStoragePath, subagentStoragePath string, logger *zap.Logger) *Downloader {
 	return &Downloader{
-		skillStoragePath: skillStoragePath,
-		maxRetries:       3,
-		logger:           logger,
+		skillStoragePath:    skillStoragePath,
+		subagentStoragePath: subagentStoragePath,
+		maxRetries:          3,
+		logger:              logger,
 	}
 }
 
@@ -180,4 +183,31 @@ func (d *Downloader) CleanConfigDir(targetDir string) error {
 	}
 
 	return nil
+}
+
+// CopySubagentToDir 复制子代理文件到目标目录
+// CopySubagentToDir 复制子代理文件到目标目录
+// 从本地存储目录读取子代理文件，复制到 Agent 配置目录
+func (d *Downloader) CopySubagentToDir(subagent *model.Subagent, targetDir string) error {
+	// 文件名: {name}.md
+	filename := strings.ReplaceAll(subagent.Name, " ", "-") + ".md"
+	targetPath := filepath.Join(targetDir, filename)
+
+	// 优先从存储目录读取文件
+	sourcePath := filepath.Join(d.subagentStoragePath, filename)
+	if content, err := os.ReadFile(sourcePath); err == nil {
+		// 文件存在，直接复制
+		return os.WriteFile(targetPath, content, 0644)
+	}
+
+	// 存储目录没有文件，使用数据库中的 content（兼容旧数据）
+	d.logger.Warn("子代理文件不在存储目录，使用数据库内容",
+		zap.String("subagent", subagent.Name),
+		zap.String("source_path", sourcePath))
+
+	// 构建内容: YAML frontmatter + content
+	content := fmt.Sprintf("---\nname: %s\ndescription: %s\n---\n\n%s",
+		subagent.Name, subagent.Description, subagent.Content)
+
+	return os.WriteFile(targetPath, []byte(content), 0644)
 }

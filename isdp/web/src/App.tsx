@@ -17,6 +17,8 @@ import SkillLibrary from '@/pages/SkillLibrary';
 import RegistryManagement from '@/pages/RegistryManagement';
 import KnowledgeManagement from '@/pages/KnowledgeManagement';
 import SubagentList from '@/pages/SubagentList';
+import CommandList from '@/pages/CommandList';
+import RuleList from '@/pages/RuleList';
 import PlaceholderPage from '@/pages/PlaceholderPage';
 import { useThemeStore } from '@/store/themeStore';
 import '@/themes/themeVariables.css';
@@ -128,13 +130,13 @@ const App: React.FC = () => {
               {/* 兼容旧路由，重定向到新路由 */}
               <Route path="threads/:threadId" element={<ThreadView />} />
 
-              {/* Agent角色管理 - 子菜单结构 */}
+              {/* Agent资产管理 - 子菜单结构 */}
               <Route path="agents" element={<Navigate to="/agents/roles" replace />} />
               <Route path="agents/roles" element={<AgentRoleList />} />
-              <Route path="agents/commands" element={<PlaceholderPage title="命令集管理" description="该功能正在开发中，敬请期待" />} />
+              <Route path="agents/commands" element={<CommandList />} />
               <Route path="agents/subagents" element={<SubagentList />} />
               <Route path="agents/skills" element={<SkillLibrary />} />
-              <Route path="agents/rules" element={<PlaceholderPage title="规约管理" description="该功能正在开发中，敬请期待" />} />
+              <Route path="agents/rules" element={<RuleList />} />
               <Route path="agents/plugins" element={<PlaceholderPage title="插件管理" description="该功能正在开发中，敬请期待" />} />
               <Route path="agents/hooks" element={<PlaceholderPage title="钩子管理" description="该功能正在开发中，敬请期待" />} />
               <Route path="agents/settings" element={<PlaceholderPage title="Agent 设置" description="该功能正在开发中，敬请期待" />} />
