@@ -57,6 +57,7 @@ declare global {
       generateConfig: (config: object) => Promise<{ success: boolean; error?: string }>
       testDatabaseConnection: (config: object) => Promise<{ success: boolean; error?: string }>
       createShortcut: (path: string) => Promise<{ success: boolean }>
+      launchService: (installDir: string) => Promise<{ success: boolean; error?: string }>
       onInstallProgress: (callback: (progress: InstallProgress) => void) => void
     }
   }

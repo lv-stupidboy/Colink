@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   generateConfig: (config: object) => ipcRenderer.invoke('generate-config', config),
   testDatabaseConnection: (config: object) => ipcRenderer.invoke('test-database-connection', config),
   createShortcut: (path: string) => ipcRenderer.invoke('create-shortcut', path),
+  launchService: (installDir: string) => ipcRenderer.invoke('launch-service', installDir),
 
   // 进度回调
   onInstallProgress: (callback: (progress: any) => void) => {

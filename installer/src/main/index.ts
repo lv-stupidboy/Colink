@@ -1,6 +1,7 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron'
 import { join } from 'path'
-import { execSync } from 'child_process'
+import { execSync, spawn } from 'child_process'
+import { existsSync } from 'fs'
 import {
   checkDependency,
   installNpmPackage,
@@ -159,4 +160,36 @@ ipcMain.handle('start-installation', async (_event, config) => {
     ? join(__dirname, '../../resources')
     : process.resourcesPath
   return runInstallation(config, resourcePath, mainWindow!)
+})
+
+// IPC: 启动服务并打开浏览器
+ipcMain.handle('launch-service', async (_event, installDir: string) => {
+  try {
+    const serverPath = join(installDir, 'isdp-server.exe')
+    const launcherPath = join(installDir, 'ISDP-Launcher.exe')
+
+    if (existsSync(launcherPath)) {
+      spawn(launcherPath, ['--launcher'], {
+        detached: true,
+        stdio: 'ignore',
+      })
+    } else {
+      spawn(serverPath, [], {
+        cwd: installDir,
+        detached: true,
+        stdio: 'ignore',
+      })
+
+      setTimeout(() => {
+        shell.openExternal('http://localhost:8080')
+      }, 3000)
+    }
+
+    return { success: true }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : '启动失败',
+    }
+  }
 })
