@@ -4,6 +4,45 @@
 
 ---
 
+## 2026-03-26 Agent资产绑定与Skill使用统计
+
+### 背景
+
+修复调试功能问题，完善Agent复制功能，实现Skill使用次数统计定时任务，清理项目代码。
+
+### 改动内容
+
+**后端改动：**
+- 新增UseCountUpdater定时任务，统计技能被项目使用次数
+- Agent复制时同步复制绑定的Skill/Subagent/Command/Rule
+- WorkflowService添加GetAgentIDs方法支持统计
+- 统一使用zap日志框架
+
+**前端改动：**
+- 修复调试模式WebSocket连接问题（第二个角色不响应）
+- 消息显示优化，正确展示Agent名称而非UUID
+
+**其他：**
+- 更新.gitignore，排除openspec/和playwright-report/
+- 删除废弃的subagent模板文件
+
+---
+
+## 2026-03-25 Solo模式、消息渲染优化、工作流页面优化
+
+### 背景
+
+团队协作开发的功能合并，来自同事的提交。
+
+### 改动内容
+
+**前端改动：**
+- 菜单结构调整：重命名"Agent 角色"为"Agent 资产"，修复路由问题
+- 消息渲染优化：支持Markdown格式、代码高亮、Mermaid架构图
+- 工作流页面优化：应用沙箱沉浸式风格
+
+---
+
 ## 2026-03-24 Agent 资产管理功能实现
 
 ### 背景
@@ -147,6 +186,18 @@ CREATE TABLE subagent_skill_bindings (...);
 - 配置生成服务功能扩展
 - 前端菜单结构调整
 - 新增 6 张数据库表
+
+### 设计文档
+
+- `docs/Agent配置隔离与Subagent融合设计文档.md`
+- `docs/Agent资产管理设计文档.md`
+- `docs/openspec/plans/2026-03-24-agent-assets-management.md`
+
+### 单元测试
+
+- Command Service 名称验证测试（18个测试用例）
+- Rule Service 名称验证测试（18个测试用例）
+- RuleScope 类型测试
 
 ---
 
