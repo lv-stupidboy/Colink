@@ -10,6 +10,14 @@
 
 **Spec:** `docs/superpowers/specs/2026-03-26-windows-installer-design.md`
 
+**执行顺序说明：**
+- Task 1-19: 按顺序执行
+- Task 20-24: 可以并行开发
+- Task 25: 需要在 Task 23 完成后执行
+- Task 28: 最后执行，整合所有构建步骤
+
+**注意：** 部分任务之间存在函数引用关系（如 Task 22 引用 Task 24 的函数），建议使用 Task 28 的构建脚本一次性构建，或按上述顺序执行。
+
 ---
 
 ## 文件结构
@@ -2939,11 +2947,13 @@ git commit -m "feat(installer): add launcher standalone build config"
 
 - [ ] **Step 1: 添加启动服务 IPC handler**
 
-在 `installer/src/main/index.ts` 中添加:
+在 `installer/src/main/index.ts` 中添加 imports 和 handler:
 
 ```typescript
 import { spawn } from 'child_process'
 import { shell } from 'electron'
+import { existsSync } from 'fs'
+import { join } from 'path'
 
 // 启动服务并打开浏览器
 ipcMain.handle('launch-service', async (_event, installDir: string) => {
