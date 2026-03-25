@@ -350,18 +350,8 @@ extraResources:
   done:
 !macroend
 ```
-    RMDir /r "$INSTDIR\agent-assets"
-    RMDir /r "$INSTDIR\repos"
-    Goto done
 
-  keepData:
-    ; 保留配置和数据文件
-
-  done:
-!macroend
-```
-
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add installer/
