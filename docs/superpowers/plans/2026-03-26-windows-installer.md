@@ -2602,9 +2602,9 @@ async function downloadFile(url: string, dest: string, onProgress?: (progress: n
   })
 }
 
-async function runInstaller(filePath: string): Promise<void> {
+async function runInstaller(filePath: string, args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
-    const proc = spawn(filePath, ['/silent', '/norestart'], {
+    const proc = spawn(filePath, args, {
       detached: true,
       stdio: 'ignore',
     })
@@ -2616,11 +2616,32 @@ async function runInstaller(filePath: string): Promise<void> {
   })
 }
 
+// 刷新环境变量（Windows）
+async function refreshEnvironment(): Promise<void> {
+  // 通过 PowerShell 重新加载环境变量
+  const psScript = `
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+  `
+  await execAsync(`powershell -Command "${psScript.replace(/\n/g, ' ')}"`)
+}
+
 export async function installNodejs(onProgress?: (progress: number) => void): Promise<{ success: boolean; error?: string }> {
   try {
+    // 检查是否已安装
+    const check = await checkDependency('nodejs')
+    if (check.installed) {
+      return { success: true } // 已安装，跳过
+    }
+
     const destPath = join(tmpdir(), 'node-installer.msi')
     await downloadFile(DOWNLOAD_URLS.nodejs, destPath, onProgress)
-    await runInstaller(destPath)
+
+    // Node.js MSI 安装器使用 msiexec
+    await runInstaller('msiexec.exe', ['/i', destPath, '/quiet', '/norestart'])
+
+    // 刷新环境变量以便后续使用 npm
+    await refreshEnvironment()
+
     return { success: true }
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : '安装失败' }
@@ -2629,9 +2650,21 @@ export async function installNodejs(onProgress?: (progress: number) => void): Pr
 
 export async function installGit(onProgress?: (progress: number) => void): Promise<{ success: boolean; error?: string }> {
   try {
+    // 检查是否已安装
+    const check = await checkDependency('git')
+    if (check.installed) {
+      return { success: true } // 已安装，跳过
+    }
+
     const destPath = join(tmpdir(), 'git-installer.exe')
     await downloadFile(DOWNLOAD_URLS.git, destPath, onProgress)
-    await runInstaller(destPath)
+
+    // Git 安装器使用 /VERYSILENT 参数
+    await runInstaller(destPath, ['/VERYSILENT', '/NORESTART', '/NOCANCEL'])
+
+    // 刷新环境变量
+    await refreshEnvironment()
+
     return { success: true }
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : '安装失败' }
@@ -2748,7 +2781,27 @@ export default defineConfig({
 })
 ```
 
-- [ ] **Step 3: 更新 package.json scripts**
+- [ ] **Step 3: 创建启动器专用打包配置**
+
+创建文件 `installer/electron-builder.launcher.yml`:
+
+```yaml
+appId: com.isdp.launcher
+productName: ISDP-Launcher
+directories:
+  output: release/${version}
+
+win:
+  target:
+    - target: portable
+      arch: [x64]
+  icon: build/icon.ico
+
+# 启动器不需要NSIS安装器，使用portable格式
+# 只需要一个独立的exe文件
+```
+
+- [ ] **Step 4: 更新 package.json scripts**
 
 在 `installer/package.json` 中添加:
 
@@ -2760,8 +2813,8 @@ export default defineConfig({
   "build:launcher": "electron . --launcher",
   "postinstall": "electron-builder install-app-deps",
   "package": "electron-builder --win",
-  "package:launcher": "electron-builder --win --config.productName=ISDP-Launcher",
-  "package:all": "npm run package && npm run package:launcher"
+  "package:launcher": "electron-builder --win --config electron-builder.launcher.yml",
+  "package:all": "npm run build && npm run package && npm run package:launcher"
 }
 ```
 
