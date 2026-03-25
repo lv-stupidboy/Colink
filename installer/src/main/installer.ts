@@ -1,6 +1,6 @@
 import { exec } from 'child_process'
 import { promisify } from 'util'
-import { copyFile, mkdir, writeFile } from 'fs/promises'
+import { copyFile, mkdir, writeFile, readdir, stat } from 'fs/promises'
 import { join, dirname } from 'path'
 import { app, BrowserWindow, shell } from 'electron'
 
@@ -48,8 +48,30 @@ export async function installNpmPackage(packageName: string): Promise<{ success:
   }
 }
 
+// 递归复制目录
+async function copyDir(src: string, dest: string, onProgress?: (progress: number) => void): Promise<void> {
+  await mkdir(dest, { recursive: true })
+  const entries = await readdir(src, { withFileTypes: true })
+
+  let copied = 0
+  const total = entries.length
+
+  for (const entry of entries) {
+    const srcPath = join(src, entry.name)
+    const destPath = join(dest, entry.name)
+
+    if (entry.isDirectory()) {
+      await copyDir(srcPath, destPath)
+    } else {
+      await copyFile(srcPath, destPath)
+    }
+
+    copied++
+    onProgress?.(Math.round((copied / total) * 100))
+  }
+}
+
 // 复制应用文件
-// 注意：完整实现在 Task 21，这里仅定义接口
 export async function copyApplicationFiles(
   srcDir: string,
   destDir: string,
@@ -57,8 +79,18 @@ export async function copyApplicationFiles(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     await mkdir(destDir, { recursive: true })
-    // Task 21 会完整实现文件复制逻辑
-    onProgress?.(100)
+
+    // 复制服务器可执行文件
+    await copyFile(join(srcDir, 'isdp-server.exe'), join(destDir, 'isdp-server.exe'))
+
+    // 复制前端静态文件
+    const webSrc = join(srcDir, 'web')
+    const webDest = join(destDir, 'web')
+    await copyDir(webSrc, webDest, onProgress)
+
+    // 创建日志目录
+    await mkdir(join(destDir, 'logs'), { recursive: true })
+
     return { success: true }
   } catch (error) {
     return {
