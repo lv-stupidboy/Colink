@@ -1,0 +1,10 @@
+appId: com.isdp.launcher
+productName: ISDP-Launcher
+directories:
+  output: release/${version}
+
+win:
+  target:
+    - target: portable
+      arch: [x64]
+  icon: build/icon.ico
