@@ -199,10 +199,27 @@ export async function generateConfigFile(
 }
 
 // 创建桌面快捷方式
-export async function createDesktopShortcut(targetPath: string): Promise<boolean> {
-  // Windows 创建快捷方式需要使用特殊方法
-  // 可以使用 electron-shell 或者外部工具
-  return true
+export async function createDesktopShortcut(installDir: string): Promise<boolean> {
+  try {
+    const launcherPath = join(installDir, 'ISDP-Launcher.exe')
+
+    const psScript = `
+      $WshShell = New-Object -ComObject WScript.Shell
+      $Shortcut = $WshShell.CreateShortcut("$env:USERPROFILE\\Desktop\\ISDP.lnk")
+      $Shortcut.TargetPath = "${launcherPath.replace(/\\/g, '\\\\')}"
+      $Shortcut.Arguments = "--launcher"
+      $Shortcut.WorkingDirectory = "${installDir.replace(/\\/g, '\\\\')}"
+      $Shortcut.Description = "ISDP 智能开发平台"
+      $Shortcut.Save()
+    `
+
+    await execAsync(`powershell -Command "${psScript.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`)
+
+    return true
+  } catch (error) {
+    console.error('Failed to create shortcut:', error)
+    return false
+  }
 }
 
 // 生成配置文件内容
