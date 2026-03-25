@@ -2679,9 +2679,13 @@ git commit -m "feat(installer): implement launcher service manager and tray"
 在 `installer/src/main/installer.ts` 中添加:
 
 ```typescript
+import { spawn, exec } from 'child_process'
 import { https } from 'follow-redirects'
 import { createWriteStream, existsSync } from 'fs'
 import { tmpdir } from 'os'
+import { join } from 'path'
+
+const execAsync = promisify(exec)
 
 const DOWNLOAD_URLS = {
   nodejs: 'https://nodejs.org/dist/v20.11.0/node-v20.11.0-x64.msi',
@@ -2817,7 +2821,7 @@ git commit -m "feat(installer): implement Node.js and Git installation"
 创建文件 `installer/src/main/launcher-entry.ts`:
 
 ```typescript
-import { app, BrowserWindow } from 'electron'
+import { app, shell } from 'electron'
 import { join } from 'path'
 import { createTray } from './tray'
 import { ServiceManager } from './service-manager'
@@ -2839,17 +2843,17 @@ async function runLauncher() {
   await serviceManager.start()
 
   // 打开浏览器
-  const { shell } = require('electron')
   shell.openExternal('http://localhost:8080')
 }
 
-// 判断运行模式
-const args = process.argv.slice(1)
-const isLauncherMode = args.includes('--launcher')
-
-if (isLauncherMode) {
+// Electron 应用初始化
+app.whenReady().then(() => {
   runLauncher()
-}
+})
+
+app.on('window-all-closed', () => {
+  // 启动器模式下，关闭窗口不应该退出应用
+})
 
 export { runLauncher }
 ```
@@ -3094,15 +3098,68 @@ git commit -m "feat(installer): implement desktop shortcut creation"
 ## Task 28: 构建和发布脚本
 
 **Files:**
+- Create: `installer/build.ps1`
 - Create: `installer/build.sh`
 
-- [ ] **Step 1: 创建完整构建脚本**
+- [ ] **Step 1: 创建 Windows PowerShell 构建脚本**
+
+创建文件 `installer/build.ps1`:
+
+```powershell
+# ISDP 安装器完整构建脚本 (Windows PowerShell)
+
+$ErrorActionPreference = "Stop"
+
+Write-Host "===== ISDP 安装器构建开始 =====" -ForegroundColor Green
+
+# 1. 构建 ISDP 后端
+Write-Host "[1/6] 构建 ISDP 后端..." -ForegroundColor Cyan
+Push-Location ../isdp
+make build
+New-Item -ItemType Directory -Force -Path ../installer/resources/app | Out-Null
+Copy-Item bin/isdp.exe ../installer/resources/app/isdp-server.exe
+Pop-Location
+
+# 2. 构建 ISDP 前端
+Write-Host "[2/6] 构建 ISDP 前端..." -ForegroundColor Cyan
+Push-Location ../isdp/web
+npm run build
+New-Item -ItemType Directory -Force -Path ../../installer/resources/app/web | Out-Null
+Copy-Item -Recurse -Force dist/* ../../installer/resources/app/web/
+Pop-Location
+
+# 3. 安装安装器依赖
+Write-Host "[3/6] 安装安装器依赖..." -ForegroundColor Cyan
+npm install
+
+# 4. 构建安装器代码
+Write-Host "[4/6] 构建安装器代码..." -ForegroundColor Cyan
+npm run build
+
+# 5. 打包启动器（先打包启动器）
+Write-Host "[5/6] 打包启动器..." -ForegroundColor Cyan
+npm run package:launcher
+
+# 复制启动器到 resources 目录
+New-Item -ItemType Directory -Force -Path resources/launcher | Out-Null
+$launcherPath = Get-ChildItem release/*/ISDP-Launcher*.exe | Select-Object -First 1
+Copy-Item $launcherPath.FullName resources/launcher/ISDP-Launcher.exe
+
+# 6. 打包安装器（包含启动器）
+Write-Host "[6/6] 打包安装器..." -ForegroundColor Cyan
+npm run package
+
+Write-Host "===== 构建完成 =====" -ForegroundColor Green
+Write-Host "安装器产物: release/*/ISDP-Setup-*.exe" -ForegroundColor Yellow
+```
+
+- [ ] **Step 2: 创建 Unix Shell 构建脚本（用于开发环境）**
 
 创建文件 `installer/build.sh`:
 
 ```bash
 #!/bin/bash
-# ISDP 安装器完整构建脚本
+# ISDP 安装器完整构建脚本 (Unix/Linux/macOS 开发环境)
 
 set -e
 
@@ -3113,7 +3170,7 @@ echo "[1/6] 构建 ISDP 后端..."
 cd ../isdp
 make build
 mkdir -p ../installer/resources/app
-cp bin/isdp.exe ../installer/resources/app/isdp-server.exe
+cp bin/isdp.exe ../installer/resources/app/isdp-server.exe 2>/dev/null || cp bin/isdp ../installer/resources/app/isdp-server
 
 # 2. 构建 ISDP 前端
 echo "[2/6] 构建 ISDP 前端..."
@@ -3137,7 +3194,7 @@ npm run package:launcher
 
 # 复制启动器到 resources 目录
 mkdir -p resources/launcher
-cp release/*/ISDP-Launcher*.exe resources/launcher/ISDP-Launcher.exe
+cp release/*/ISDP-Launcher*.exe resources/launcher/ISDP-Launcher.exe 2>/dev/null || true
 
 # 6. 打包安装器（包含启动器）
 echo "[6/6] 打包安装器..."
@@ -3147,11 +3204,11 @@ echo "===== 构建完成 ====="
 echo "安装器产物: release/*/ISDP-Setup-*.exe"
 ```
 
-- [ ] **Step 2: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
 git add installer/
-git commit -m "feat(installer): add build script"
+git commit -m "feat(installer): add build scripts for Windows and Unix"
 ```
 
 ---
