@@ -960,7 +960,7 @@ git commit -m "feat(installer): add Welcome page"
 
 - [ ] **Step 1: 创建 DirectorySelect 页面**
 
-创建文件 `installer/src/renderer/src/renderer/src/pages/DirectorySelect.tsx`:
+创建文件 `installer/src/renderer/src/pages/DirectorySelect.tsx`:
 
 ```typescript
 import { Button, Input } from 'antd'
@@ -2033,6 +2033,544 @@ git commit -m "feat(installer): complete build and test"
 
 ---
 
+## Task 20: 目录选择对话框
+
+**Files:**
+- Modify: `installer/src/main/index.ts`
+- Modify: `installer/src/preload/index.ts`
+- Modify: `installer/src/renderer/src/pages/DirectorySelect.tsx`
+
+- [ ] **Step 1: 添加目录选择 IPC**
+
+在 `installer/src/main/index.ts` 中添加:
+
+```typescript
+import { dialog } from 'electron'
+
+// IPC: 选择目录
+ipcMain.handle('select-directory', async () => {
+  const result = await dialog.showOpenDialog(mainWindow!, {
+    properties: ['openDirectory'],
+    defaultPath: 'C:\\Program Files',
+  })
+  if (result.canceled || result.filePaths.length === 0) {
+    return null
+  }
+  return result.filePaths[0]
+})
+```
+
+- [ ] **Step 2: 更新预加载脚本**
+
+在 `installer/src/preload/index.ts` 中添加:
+
+```typescript
+selectDirectory: () => ipcRenderer.invoke('select-directory'),
+```
+
+- [ ] **Step 3: 更新 DirectorySelect 页面**
+
+修改 `installer/src/renderer/src/pages/DirectorySelect.tsx`:
+
+```typescript
+const handleBrowse = async () => {
+  const result = await window.electronAPI.selectDirectory()
+  if (result) {
+    onConfigUpdate({ installDir: result })
+  }
+}
+```
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add installer/
+git commit -m "feat(installer): implement directory selection dialog"
+```
+
+---
+
+## Task 21: 文件复制实现
+
+**Files:**
+- Modify: `installer/src/main/installer.ts`
+
+- [ ] **Step 1: 实现文件复制逻辑**
+
+修改 `installer/src/main/installer.ts` 中的 `copyApplicationFiles` 函数:
+
+```typescript
+import { readdir, stat } from 'fs/promises'
+
+// 递归复制目录
+async function copyDir(src: string, dest: string, onProgress?: (progress: number) => void): Promise<void> {
+  await mkdir(dest, { recursive: true })
+  const entries = await readdir(src, { withFileTypes: true })
+
+  let copied = 0
+  const total = entries.length
+
+  for (const entry of entries) {
+    const srcPath = join(src, entry.name)
+    const destPath = join(dest, entry.name)
+
+    if (entry.isDirectory()) {
+      await copyDir(srcPath, destPath)
+    } else {
+      await copyFile(srcPath, destPath)
+    }
+
+    copied++
+    onProgress?.(Math.round((copied / total) * 100))
+  }
+}
+
+export async function copyApplicationFiles(
+  srcDir: string,
+  destDir: string,
+  onProgress?: (progress: number) => void
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await mkdir(destDir, { recursive: true })
+
+    // 复制服务器可执行文件
+    await copyFile(join(srcDir, 'isdp-server.exe'), join(destDir, 'isdp-server.exe'))
+
+    // 复制前端静态文件
+    const webSrc = join(srcDir, 'web')
+    const webDest = join(destDir, 'web')
+    await copyDir(webSrc, webDest, onProgress)
+
+    // 创建日志目录
+    await mkdir(join(destDir, 'logs'), { recursive: true })
+
+    return { success: true }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : '复制失败',
+    }
+  }
+}
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add installer/
+git commit -m "feat(installer): implement file copy logic"
+```
+
+---
+
+## Task 22: 安装流程实现
+
+**Files:**
+- Modify: `installer/src/main/installer.ts`
+- Modify: `installer/src/renderer/src/pages/Installing.tsx`
+
+- [ ] **Step 1: 添加安装流程主进程逻辑**
+
+在 `installer/src/main/installer.ts` 中添加:
+
+```typescript
+import { BrowserWindow } from 'electron'
+
+export async function runInstallation(
+  config: {
+    installDir: string
+    installMode: string
+    dependencies: Array<{ key: string; installed: boolean }>
+    database: { host: string; port: number; database: string; username: string; password: string }
+  },
+  resourcePath: string,
+  mainWindow: BrowserWindow
+): Promise<{ success: boolean; error?: string }> {
+  const sendProgress = (step: string, status: string, progress?: number) => {
+    mainWindow.webContents.send('install-progress', { step, status, progress })
+  }
+
+  try {
+    // Step 1: 复制文件
+    sendProgress('copy', 'running', 0)
+    const srcDir = join(resourcePath, 'app')
+    const result = await copyApplicationFiles(srcDir, config.installDir, (p) => {
+      sendProgress('copy', 'running', p)
+    })
+    if (!result.success) return result
+    sendProgress('copy', 'success', 100)
+
+    // Step 2: 安装 Claude CLI（如果选择自动安装）
+    if (config.installMode === 'auto') {
+      const claudeMissing = config.dependencies.find(d => d.key === 'claude' && !d.installed)
+      if (claudeMissing) {
+        sendProgress('claude', 'running', 0)
+        const result = await installNpmPackage('@anthropic-ai/claude-cli')
+        if (!result.success) {
+          sendProgress('claude', 'failed', 0)
+          // 可选依赖失败不阻止安装
+        } else {
+          sendProgress('claude', 'success', 100)
+        }
+      }
+    }
+    sendProgress('claude', 'success', 100)
+
+    // Step 3: 安装 OpenCode（如果选择自动安装）
+    if (config.installMode === 'auto') {
+      const opencodeMissing = config.dependencies.find(d => d.key === 'opencode' && !d.installed)
+      if (opencodeMissing) {
+        sendProgress('opencode', 'running', 0)
+        const result = await installNpmPackage('@anthropic-ai/opencode')
+        if (!result.success) {
+          sendProgress('opencode', 'failed', 0)
+        } else {
+          sendProgress('opencode', 'success', 100)
+        }
+      }
+    }
+    sendProgress('opencode', 'success', 100)
+
+    // Step 4: 生成配置文件
+    sendProgress('config', 'running', 0)
+    const configContent = generateConfigYaml(config.database)
+    const configResult = await generateConfigFile(
+      join(config.installDir, 'config.yaml'),
+      configContent
+    )
+    if (!configResult.success) return configResult
+    sendProgress('config', 'success', 100)
+
+    return { success: true }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : '安装失败',
+    }
+  }
+}
+
+function generateConfigYaml(db: any): string {
+  return `server:
+  port: 8080
+  mode: release
+
+database:
+  type: mysql
+  mysql:
+    host: ${db.host}
+    port: ${db.port}
+    database: ${db.database}
+    username: ${db.username}
+    password: ${db.password}
+    charset: utf8mb4
+
+claude:
+  path: claude
+  default_model: claude-sonnet-4-6
+  timeout: 30m
+
+logging:
+  level: info
+  format: json
+`
+}
+```
+
+- [ ] **Step 2: 添加 IPC handler**
+
+在 `installer/src/main/index.ts` 中添加:
+
+```typescript
+import { runInstallation } from './installer'
+
+ipcMain.handle('start-installation', async (_event, config) => {
+  const resourcePath = isDev
+    ? join(__dirname, '../../resources')
+    : process.resourcesPath
+  return runInstallation(config, resourcePath, mainWindow!)
+})
+```
+
+- [ ] **Step 3: 更新 Installing 页面**
+
+修改 `installer/src/renderer/src/pages/Installing.tsx`:
+
+```typescript
+useEffect(() => {
+  // 监听安装进度
+  window.electronAPI.onInstallProgress((progress: InstallProgress) => {
+    setSteps(prev => prev.map(s =>
+      s.step === progress.step
+        ? { ...s, status: progress.status, progress: progress.progress || 0 }
+        : s
+    ))
+
+    if (progress.status === 'success' && progress.step === 'config') {
+      setTimeout(onComplete, 500)
+    }
+  })
+
+  // 启动安装
+  window.electronAPI.startInstallation(config).then(result => {
+    if (!result.success) {
+      console.error('Installation failed:', result.error)
+    }
+  })
+}, [])
+```
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add installer/
+git commit -m "feat(installer): implement installation flow"
+```
+
+---
+
+## Task 23: 启动器实现
+
+**Files:**
+- Create: `installer/src/main/launcher.ts`
+- Create: `installer/src/main/service-manager.ts`
+- Create: `installer/src/main/tray.ts`
+
+- [ ] **Step 1: 创建 service-manager.ts**
+
+创建文件 `installer/src/main/service-manager.ts`:
+
+```typescript
+import { ChildProcess, spawn } from 'child_process'
+import { join } from 'path'
+import { app } from 'electron'
+
+export class ServiceManager {
+  private process: ChildProcess | null = null
+  private installDir: string
+
+  constructor(installDir: string) {
+    this.installDir = installDir
+  }
+
+  async start(): Promise<void> {
+    if (this.process) return
+
+    this.process = spawn(join(this.installDir, 'isdp-server.exe'), [], {
+      cwd: this.installDir,
+      detached: false,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    })
+
+    this.process.stdout?.on('data', (data) => {
+      console.log(`[ISDP] ${data}`)
+    })
+
+    this.process.stderr?.on('data', (data) => {
+      console.error(`[ISDP Error] ${data}`)
+    })
+
+    this.process.on('close', () => {
+      this.process = null
+    })
+
+    // 等待服务就绪
+    await this.waitForReady()
+  }
+
+  async stop(): Promise<void> {
+    if (this.process) {
+      this.process.kill('SIGTERM')
+      this.process = null
+    }
+  }
+
+  async restart(): Promise<void> {
+    await this.stop()
+    await this.start()
+  }
+
+  getStatus(): 'running' | 'stopped' {
+    return this.process ? 'running' : 'stopped'
+  }
+
+  private async waitForReady(): Promise<void> {
+    // 简单的等待策略，实际可以检查 HTTP 端点
+    return new Promise(resolve => setTimeout(resolve, 2000))
+  }
+}
+```
+
+- [ ] **Step 2: 创建 tray.ts**
+
+创建文件 `installer/src/main/tray.ts`:
+
+```typescript
+import { Tray, Menu, nativeImage, app, shell, BrowserWindow } from 'electron'
+import { join } from 'path'
+import { ServiceManager } from './service-manager'
+
+export function createTray(installDir: string, serviceManager: ServiceManager): Tray {
+  const iconPath = join(__dirname, '../../resources/icon.ico')
+  const icon = nativeImage.createFromPath(iconPath)
+
+  const tray = new Tray(icon)
+  tray.setToolTip('ISDP 智能开发平台')
+
+  const updateMenu = () => {
+    const status = serviceManager.getStatus()
+    const contextMenu = Menu.buildFromTemplate([
+      {
+        label: '打开控制台',
+        click: () => shell.openExternal('http://localhost:8080')
+      },
+      {
+        label: `服务状态: ${status === 'running' ? '运行中' : '已停止'}`,
+        enabled: false
+      },
+      { type: 'separator' },
+      {
+        label: '查看日志',
+        click: () => shell.openPath(join(installDir, 'logs'))
+      },
+      {
+        label: '重启服务',
+        click: async () => {
+          await serviceManager.restart()
+          updateMenu()
+        }
+      },
+      { type: 'separator' },
+      {
+        label: '退出',
+        click: async () => {
+          await serviceManager.stop()
+          app.quit()
+        }
+      }
+    ])
+    tray.setContextMenu(contextMenu)
+  }
+
+  updateMenu()
+  return tray
+}
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add installer/
+git commit -m "feat(installer): implement launcher service manager and tray"
+```
+
+---
+
+## Task 24: Node.js 和 Git 安装
+
+**Files:**
+- Modify: `installer/src/main/installer.ts`
+
+- [ ] **Step 1: 添加 Node.js 和 Git 安装逻辑**
+
+在 `installer/src/main/installer.ts` 中添加:
+
+```typescript
+import { https } from 'follow-redirects'
+import { createWriteStream, existsSync } from 'fs'
+import { tmpdir } from 'os'
+
+const DOWNLOAD_URLS = {
+  nodejs: 'https://nodejs.org/dist/v20.11.0/node-v20.11.0-x64.msi',
+  git: 'https://github.com/git-for-windows/git/releases/download/v2.43.0.windows.1/Git-2.43.0-64-bit.exe'
+}
+
+async function downloadFile(url: string, dest: string, onProgress?: (progress: number) => void): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const file = createWriteStream(dest)
+    https.get(url, (response) => {
+      const totalSize = parseInt(response.headers['content-length'] || '0', 10)
+      let downloaded = 0
+
+      response.on('data', (chunk) => {
+        downloaded += chunk.length
+        if (totalSize > 0 && onProgress) {
+          onProgress(Math.round((downloaded / totalSize) * 100))
+        }
+      })
+
+      response.pipe(file)
+      file.on('finish', () => {
+        file.close()
+        resolve()
+      })
+    }).on('error', (err) => {
+      reject(err)
+    })
+  })
+}
+
+async function runInstaller(filePath: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(filePath, ['/silent', '/norestart'], {
+      detached: true,
+      stdio: 'ignore',
+    })
+    proc.on('close', (code) => {
+      if (code === 0) resolve()
+      else reject(new Error(`Installer exited with code ${code}`))
+    })
+    proc.on('error', reject)
+  })
+}
+
+export async function installNodejs(onProgress?: (progress: number) => void): Promise<{ success: boolean; error?: string }> {
+  try {
+    const destPath = join(tmpdir(), 'node-installer.msi')
+    await downloadFile(DOWNLOAD_URLS.nodejs, destPath, onProgress)
+    await runInstaller(destPath)
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : '安装失败' }
+  }
+}
+
+export async function installGit(onProgress?: (progress: number) => void): Promise<{ success: boolean; error?: string }> {
+  try {
+    const destPath = join(tmpdir(), 'git-installer.exe')
+    await downloadFile(DOWNLOAD_URLS.git, destPath, onProgress)
+    await runInstaller(destPath)
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : '安装失败' }
+  }
+}
+```
+
+- [ ] **Step 2: 更新 IPC handlers**
+
+添加新的 IPC handlers:
+
+```typescript
+ipcMain.handle('install-nodejs', async () => {
+  return installNodejs()
+})
+
+ipcMain.handle('install-git', async () => {
+  return installGit()
+})
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add installer/
+git commit -m "feat(installer): implement Node.js and Git installation"
+```
+
+---
+
 ## 验证清单
 
 - [ ] 在全新 Windows 机器上测试安装流程
@@ -2046,8 +2584,8 @@ git commit -m "feat(installer): complete build and test"
 
 ## 后续任务
 
-1. 实现启动器（ISDP-Launcher.exe）独立程序
-2. 添加 Node.js 和 Git 的自动安装逻辑
+1. ~~实现启动器（ISDP-Launcher.exe）独立程序~~ ✅ Task 23
+2. ~~添加 Node.js 和 Git 的自动安装逻辑~~ ✅ Task 24
 3. 完善错误处理和回滚机制
 4. 添加更新检测功能
 5. 支持静默安装模式
