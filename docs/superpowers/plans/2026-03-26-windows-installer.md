@@ -2132,12 +2132,13 @@ git commit -m "feat(installer): complete build and test"
 - Modify: `installer/src/preload/index.ts`
 - Modify: `installer/src/renderer/src/pages/DirectorySelect.tsx`
 
-- [ ] **Step 1: 添加目录选择 IPC**
+- [ ] **Step 1: 添加目录选择和磁盘空间检测 IPC**
 
 在 `installer/src/main/index.ts` 中添加:
 
 ```typescript
 import { dialog } from 'electron'
+import { statvfs } from 'fs/promises'
 
 // IPC: 选择目录
 ipcMain.handle('select-directory', async () => {
@@ -2150,6 +2151,24 @@ ipcMain.handle('select-directory', async () => {
   }
   return result.filePaths[0]
 })
+
+// IPC: 获取磁盘空间
+ipcMain.handle('get-disk-space', async (_event, path: string) => {
+  try {
+    // Windows 使用 child_process 执行 wmic 命令获取磁盘空间
+    const { execSync } = require('child_process')
+    const drive = path.substring(0, 2) // 获取盘符，如 "C:"
+    const output = execSync(`wmic logicaldisk where "DeviceID='${drive}'" get FreeSpace,Size /format:csv`, { encoding: 'utf8' })
+    const lines = output.trim().split('\n')
+    const data = lines[1].split(',')
+    return {
+      free: parseInt(data[1]) || 0,
+      total: parseInt(data[2]) || 0,
+    }
+  } catch {
+    return { free: 0, total: 0 }
+  }
+})
 ```
 
 - [ ] **Step 2: 更新预加载脚本**
@@ -2158,6 +2177,7 @@ ipcMain.handle('select-directory', async () => {
 
 ```typescript
 selectDirectory: () => ipcRenderer.invoke('select-directory'),
+getDiskSpace: (path: string) => ipcRenderer.invoke('get-disk-space', path),
 ```
 
 - [ ] **Step 3: 更新 DirectorySelect 页面**
@@ -2165,11 +2185,66 @@ selectDirectory: () => ipcRenderer.invoke('select-directory'),
 修改 `installer/src/renderer/src/pages/DirectorySelect.tsx`:
 
 ```typescript
-const handleBrowse = async () => {
-  const result = await window.electronAPI.selectDirectory()
-  if (result) {
-    onConfigUpdate({ installDir: result })
+import { useEffect, useState } from 'react'
+import { Button, Input } from 'antd'
+import { FolderOpenOutlined } from '@ant-design/icons'
+import { InstallConfig } from '../types'
+
+interface DirectorySelectProps {
+  config: InstallConfig
+  onConfigUpdate: (updates: Partial<InstallConfig>) => void
+}
+
+export default function DirectorySelect({ config, onConfigUpdate }: DirectorySelectProps) {
+  const [freeSpace, setFreeSpace] = useState<number>(0)
+
+  useEffect(() => {
+    // 获取磁盘空间
+    window.electronAPI.getDiskSpace(config.installDir).then((space: { free: number; total: number }) => {
+      setFreeSpace(space.free)
+    })
+  }, [config.installDir])
+
+  const handleBrowse = async () => {
+    const result = await window.electronAPI.selectDirectory()
+    if (result) {
+      onConfigUpdate({ installDir: result })
+    }
   }
+
+  const formatSize = (bytes: number) => {
+    if (bytes === 0) return '未知'
+    const gb = bytes / (1024 * 1024 * 1024)
+    return `${gb.toFixed(1)} GB`
+  }
+
+  return (
+    <div style={{ flex: 1 }}>
+      <h2 style={{ fontSize: 22, marginBottom: 8, color: '#333' }}>选择安装位置</h2>
+      <p style={{ color: '#666', marginBottom: 30 }}>请选择 ISDP 的安装目录</p>
+
+      <div style={{ marginBottom: 20 }}>
+        <label style={{ display: 'block', fontSize: 13, color: '#666', marginBottom: 8 }}>
+          安装目录
+        </label>
+        <div style={{ display: 'flex', gap: 12 }}>
+          <Input
+            value={config.installDir}
+            onChange={(e) => onConfigUpdate({ installDir: e.target.value })}
+            style={{ flex: 1 }}
+          />
+          <Button icon={<FolderOpenOutlined />} onClick={handleBrowse}>
+            浏览...
+          </Button>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 40, color: '#666', fontSize: 14 }}>
+        <span>所需空间：约 500 MB</span>
+        <span>可用空间：{formatSize(freeSpace)}</span>
+      </div>
+    </div>
+  )
 }
 ```
 
@@ -2283,6 +2358,33 @@ export async function runInstallation(
   }
 
   try {
+    // Step 0: 安装必需依赖（Node.js 和 Git）
+    if (config.installMode === 'auto') {
+      // 安装 Node.js（如果缺失）
+      const nodejsMissing = config.dependencies.find(d => d.key === 'nodejs' && !d.installed)
+      if (nodejsMissing) {
+        sendProgress('nodejs', 'running', 0)
+        const result = await installNodejs((p) => sendProgress('nodejs', 'running', p))
+        if (!result.success) {
+          sendProgress('nodejs', 'failed', 0)
+          return { success: false, error: `Node.js 安装失败: ${result.error}` }
+        }
+        sendProgress('nodejs', 'success', 100)
+      }
+
+      // 安装 Git（如果缺失）
+      const gitMissing = config.dependencies.find(d => d.key === 'git' && !d.installed)
+      if (gitMissing) {
+        sendProgress('git', 'running', 0)
+        const result = await installGit((p) => sendProgress('git', 'running', p))
+        if (!result.success) {
+          sendProgress('git', 'failed', 0)
+          return { success: false, error: `Git 安装失败: ${result.error}` }
+        }
+        sendProgress('git', 'success', 100)
+      }
+    }
+
     // Step 1: 复制文件
     sendProgress('copy', 'running', 0)
     const srcDir = join(resourcePath, 'app')
