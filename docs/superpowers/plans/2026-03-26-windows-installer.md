@@ -105,7 +105,8 @@ mkdir -p D:/00-codes/isdp/isdp/installer
     "mysql2": "^3.9.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "yaml": "^2.3.0"
+    "yaml": "^2.3.0",
+    "follow-redirects": "^1.15.0"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
@@ -378,8 +379,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getResourcePath: () => ipcRenderer.invoke('get-resource-path'),
 
   // 安装相关
+  selectDirectory: () => ipcRenderer.invoke('select-directory'),
   checkDependency: (dep: string) => ipcRenderer.invoke('check-dependency', dep),
   installDependency: (dep: string) => ipcRenderer.invoke('install-dependency', dep),
+  startInstallation: (config: object) => ipcRenderer.invoke('start-installation', config),
   copyFiles: (src: string, dest: string) => ipcRenderer.invoke('copy-files', src, dest),
   generateConfig: (config: object) => ipcRenderer.invoke('generate-config', config),
   testDatabaseConnection: (config: object) => ipcRenderer.invoke('test-database-connection', config),
@@ -461,8 +464,10 @@ declare global {
       closeWindow: () => void
       getAppPath: () => Promise<string>
       getResourcePath: () => Promise<string>
+      selectDirectory: () => Promise<string | null>
       checkDependency: (dep: string) => Promise<{ installed: boolean; version?: string }>
       installDependency: (dep: string) => Promise<{ success: boolean; error?: string }>
+      startInstallation: (config: object) => Promise<{ success: boolean; error?: string }>
       copyFiles: (src: string, dest: string) => Promise<{ success: boolean; error?: string }>
       generateConfig: (config: object) => Promise<{ success: boolean; error?: string }>
       testDatabaseConnection: (config: object) => Promise<{ success: boolean; error?: string }>
