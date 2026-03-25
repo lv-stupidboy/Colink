@@ -67,8 +67,18 @@ ISDP即将进入内测阶段，需要制作Windows平台的安装包，让用户
 |------|------|
 | **安装器** | Electron + React GUI，负责安装向导和依赖管理 |
 | **应用本体** | 后端exe + 前端静态文件，约100MB |
-| **启动器** | 系统托盘程序，管理服务启停 |
+| **启动器** | 安装后生成的独立程序（ISDP-Launcher.exe），提供系统托盘管理服务启停 |
 | **依赖工具** | 可选安装Claude CLI / OpenCode |
+
+### 启动器架构说明
+
+启动器是安装完成后生成的独立可执行文件，与安装器分离：
+
+1. **安装阶段**：安装器（ISDP-Setup.exe）负责安装流程
+2. **安装完成**：安装器在目标目录生成 `ISDP-Launcher.exe` 作为启动器
+3. **日常使用**：用户通过桌面快捷方式启动 `ISDP-Launcher.exe`，该程序提供系统托盘功能
+
+启动器本质上是安装器的精简版，复用Electron的托盘模块，但不需要安装向导的UI组件。
 
 ---
 
@@ -132,6 +142,17 @@ ISDP即将进入内测阶段，需要制作Windows平台的安装包，让用户
 - 可折叠的配置区块，便于后续扩展新配置项
 - 数据库连接测试功能
 
+### 数据库连接测试机制
+
+由于安装阶段后端服务尚未启动，安装器需要内置独立的数据库连接测试模块：
+
+1. **技术方案**：使用 Node.js 的 `mysql2` 库进行连接测试
+2. **测试流程**：
+   - 用户点击"测试连接"按钮
+   - 安装器主进程调用 `mysql2.createConnection()` 尝试连接
+   - 连接成功显示绿色勾号，失败显示错误信息
+3. **依赖**：mysql2 作为安装器的依赖打包，无需用户额外安装
+
 ### Step 6: 安装进度
 
 显示安装进度：
@@ -173,7 +194,7 @@ interface Dependency {
 | **Node.js** | 下载官方msi静默安装 | 检测到已有则跳过 |
 | **Git** | 下载官方exe静默安装 | Windows必需，Claude CLI依赖 |
 | **Claude CLI** | `npm install -g @anthropic-ai/claude-cli` | 需要先有Node.js |
-| **OpenCode** | 待确认安装方式 | npm包还是独立exe |
+| **OpenCode** | `npm install -g @anthropic-ai/opencode` | 需要先有Node.js |
 
 ### 容错机制
 
@@ -307,6 +328,7 @@ installer/
 │   ├── main/
 │   │   ├── index.ts                 # Electron入口
 │   │   ├── installer.ts             # 安装核心逻辑
+│   │   ├── launcher.ts              # 启动器生成逻辑
 │   │   ├── tray.ts                  # 托盘管理
 │   │   └── utils.ts                 # 工具函数
 │   │
@@ -315,32 +337,31 @@ installer/
 │   │
 │   └── renderer/
 │       ├── index.html
-│       ├── src/
-│       │   ├── App.tsx
-│       │   ├── main.tsx
-│       │   ├── pages/
-│       │   │   ├── Welcome.tsx
-│       │   │   ├── DirectorySelect.tsx
-│       │   │   ├── DependencyCheck.tsx
-│       │   │   ├── ModeSelect.tsx
-│       │   │   ├── SystemConfig.tsx
-│       │   │   ├── Installing.tsx
-│       │   │   └── Complete.tsx
-│       │   ├── components/
-│       │   │   ├── Layout.tsx
-│       │   │   ├── StepNav.tsx
-│       │   │   ├── ProgressBar.tsx
-│       │   │   └── ConfigSection.tsx
-│       │   ├── services/
-│       │   │   ├── dependency-checker.ts
-│       │   │   ├── nodejs-installer.ts
-│       │   │   ├── claude-installer.ts
-│       │   │   ├── opencode-installer.ts
-│       │   │   ├── config-generator.ts
-│       │   │   └── database-connector.ts
-│       │   └── styles/
-│       │       └── global.css
-│       └── package.json
+│       └── src/
+│           ├── App.tsx
+│           ├── main.tsx
+│           ├── pages/
+│           │   ├── Welcome.tsx
+│           │   ├── DirectorySelect.tsx
+│           │   ├── DependencyCheck.tsx
+│           │   ├── ModeSelect.tsx
+│           │   ├── SystemConfig.tsx
+│           │   ├── Installing.tsx
+│           │   └── Complete.tsx
+│           ├── components/
+│           │   ├── Layout.tsx
+│           │   ├── StepNav.tsx
+│           │   ├── ProgressBar.tsx
+│           │   └── ConfigSection.tsx
+│           ├── services/
+│           │   ├── dependency-checker.ts
+│           │   ├── nodejs-installer.ts
+│           │   ├── claude-installer.ts
+│           │   ├── opencode-installer.ts
+│           │   ├── config-generator.ts
+│           │   └── database-connector.ts
+│           └── styles/
+│               └── global.css
 │
 ├── resources/
 │   ├── app/                          # 应用本体（构建时复制）
@@ -375,6 +396,29 @@ installer/
 1. 不在安装包中包含敏感信息
 2. 数据库密码在安装时由用户输入
 3. 配置文件权限控制
+
+### 卸载策略
+
+卸载时的清理策略：
+
+| 内容 | 是否删除 | 说明 |
+|------|----------|------|
+| 应用程序文件 | 是 | isdp-server.exe, web/, launcher |
+| 配置文件 | 询问用户 | config.yaml 可选择保留以便重装 |
+| 日志文件 | 是 | logs/ 目录 |
+| 数据库数据 | 否 | 远程数据库不受影响 |
+| 用户数据 | 询问用户 | agent-assets/, repos/ 等用户工作目录 |
+
+### 回滚策略
+
+安装失败时的回滚机制：
+
+1. **文件复制失败**：删除已复制的文件，恢复原始状态
+2. **依赖安装失败**：
+   - 必需依赖失败：提示用户，提供"重试"和"手动安装"选项
+   - 可选依赖失败：警告用户，允许继续安装
+3. **配置生成失败**：提示错误，允许用户修改配置后重试
+4. **整体回滚**：提供"取消安装"选项，清理所有已安装内容
 
 ---
 
