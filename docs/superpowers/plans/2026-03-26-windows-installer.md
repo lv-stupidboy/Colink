@@ -315,12 +315,12 @@ extraResources:
     to: "app"
     filter:
       - "**/*"
-  # 启动器可执行文件（与安装器同构建）
-  - from: "release/${version}/ISDP-Launcher.exe"
+  # 启动器可执行文件（由打包脚本在打包前复制）
+  - from: "resources/launcher/ISDP-Launcher.exe"
     to: "ISDP-Launcher.exe"
 ```
 
-- [ ] **Step 2.5: 创建自定义NSIS脚本**
+- [ ] **Step 3: 创建自定义NSIS脚本**
 
 创建文件 `installer/build/installer.nsh`:
 
@@ -335,11 +335,21 @@ extraResources:
 ; 卸载时清理
 !macro customUnInstall
   ; 询问是否删除配置文件
-  MessageBox MB_YESNO "是否删除配置文件和用户数据？$\n选择'是'将删除所有数据，选择'否'将保留以便重装。" IDYES deleteAll IDNO keepData
+  MessageBox MB_YESNO "Delete configuration and user data?$\nYes = Delete all data$\nNo = Keep for reinstall" IDYES deleteAll IDNO keepData
 
   deleteAll:
     RMDir /r "$INSTDIR\config.yaml"
     RMDir /r "$INSTDIR\logs"
+    RMDir /r "$INSTDIR\agent-assets"
+    RMDir /r "$INSTDIR\repos"
+    Goto done
+
+  keepData:
+    ; 保留配置和数据文件
+
+  done:
+!macroend
+```
     RMDir /r "$INSTDIR\agent-assets"
     RMDir /r "$INSTDIR\repos"
     Goto done
@@ -2970,28 +2980,38 @@ set -e
 echo "===== ISDP 安装器构建开始 ====="
 
 # 1. 构建 ISDP 后端
-echo "[1/5] 构建 ISDP 后端..."
+echo "[1/6] 构建 ISDP 后端..."
 cd ../isdp
 make build
+mkdir -p ../installer/resources/app
 cp bin/isdp.exe ../installer/resources/app/isdp-server.exe
 
 # 2. 构建 ISDP 前端
-echo "[2/5] 构建 ISDP 前端..."
+echo "[2/6] 构建 ISDP 前端..."
 cd web
 npm run build
+mkdir -p ../installer/resources/app/web
 cp -r dist/* ../installer/resources/app/web/
 
 # 3. 安装安装器依赖
-echo "[3/5] 安装安装器依赖..."
+echo "[3/6] 安装安装器依赖..."
 cd ../../installer
 npm install
 
-# 4. 构建安装器
-echo "[4/5] 构建安装器..."
+# 4. 构建安装器代码
+echo "[4/6] 构建安装器代码..."
 npm run build
 
-# 5. 打包
-echo "[5/5] 打包安装器..."
+# 5. 打包启动器（先打包启动器）
+echo "[5/6] 打包启动器..."
+npm run package:launcher
+
+# 复制启动器到 resources 目录
+mkdir -p resources/launcher
+cp release/*/ISDP-Launcher*.exe resources/launcher/ISDP-Launcher.exe
+
+# 6. 打包安装器（包含启动器）
+echo "[6/6] 打包安装器..."
 npm run package
 
 echo "===== 构建完成 ====="
