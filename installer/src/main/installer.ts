@@ -1,10 +1,91 @@
-import { exec } from 'child_process'
+import { exec, spawn } from 'child_process'
 import { promisify } from 'util'
 import { copyFile, mkdir, writeFile, readdir, stat } from 'fs/promises'
+import { createWriteStream, existsSync } from 'fs'
 import { join, dirname } from 'path'
 import { app, BrowserWindow, shell } from 'electron'
+import { tmpdir } from 'os'
+import { https } from 'follow-redirects'
 
 const execAsync = promisify(exec)
+
+const DOWNLOAD_URLS = {
+  nodejs: 'https://nodejs.org/dist/v20.11.0/node-v20.11.0-x64.msi',
+  git: 'https://github.com/git-for-windows/git/releases/download/v2.43.0.windows.1/Git-2.43.0-64-bit.exe'
+}
+
+async function downloadFile(url: string, dest: string, onProgress?: (progress: number) => void): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const file = createWriteStream(dest)
+    https.get(url, (response) => {
+      const totalSize = parseInt(response.headers['content-length'] || '0', 10)
+      let downloaded = 0
+
+      response.on('data', (chunk) => {
+        downloaded += chunk.length
+        if (totalSize > 0 && onProgress) {
+          onProgress(Math.round((downloaded / totalSize) * 100))
+        }
+      })
+
+      response.pipe(file)
+      file.on('finish', () => {
+        file.close()
+        resolve()
+      })
+    }).on('error', (err) => {
+      reject(err)
+    })
+  })
+}
+
+async function runInstaller(filePath: string, args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(filePath, args, {
+      detached: true,
+      stdio: 'ignore',
+    })
+    proc.on('close', (code) => {
+      if (code === 0) resolve()
+      else reject(new Error(`Installer exited with code ${code}`))
+    })
+    proc.on('error', reject)
+  })
+}
+
+export async function installNodejs(onProgress?: (progress: number) => void): Promise<{ success: boolean; error?: string }> {
+  try {
+    const check = await checkDependency('nodejs')
+    if (check.installed) {
+      return { success: true }
+    }
+
+    const destPath = join(tmpdir(), 'node-installer.msi')
+    await downloadFile(DOWNLOAD_URLS.nodejs, destPath, onProgress)
+    await runInstaller('msiexec.exe', ['/i', destPath, '/quiet', '/norestart'])
+
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : '安装失败' }
+  }
+}
+
+export async function installGit(onProgress?: (progress: number) => void): Promise<{ success: boolean; error?: string }> {
+  try {
+    const check = await checkDependency('git')
+    if (check.installed) {
+      return { success: true }
+    }
+
+    const destPath = join(tmpdir(), 'git-installer.exe')
+    await downloadFile(DOWNLOAD_URLS.git, destPath, onProgress)
+    await runInstaller(destPath, ['/VERYSILENT', '/NORESTART', '/NOCANCEL'])
+
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : '安装失败' }
+  }
+}
 
 export interface DependencyCheckResult {
   installed: boolean
