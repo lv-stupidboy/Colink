@@ -1924,18 +1924,15 @@ export async function installNpmPackage(packageName: string): Promise<{ success:
 }
 
 // 复制应用文件
+// 注意：完整实现在 Task 21，这里仅定义接口
 export async function copyApplicationFiles(
   srcDir: string,
   destDir: string,
   onProgress?: (progress: number) => void
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    // 创建目标目录
     await mkdir(destDir, { recursive: true })
-
-    // TODO: 实现文件复制逻辑
-    // 这里需要根据实际文件结构实现
-
+    // Task 21 会完整实现文件复制逻辑
     onProgress?.(100)
     return { success: true }
   } catch (error) {
@@ -1973,11 +1970,11 @@ export async function createDesktopShortcut(targetPath: string): Promise<boolean
 
 - [ ] **Step 2: 更新主进程入口**
 
-在 `installer/src/main/index.ts` 中添加 IPC handlers:
+修改 `installer/src/main/index.ts`，添加 imports 和 IPC handlers:
+
+**2a. 在文件顶部添加 imports:**
 
 ```typescript
-// 在文件末尾添加：
-
 import {
   checkDependency,
   installNpmPackage,
@@ -1986,7 +1983,11 @@ import {
   createDesktopShortcut
 } from './installer'
 import mysql from 'mysql2/promise'
+```
 
+**2b. 在文件末尾添加 IPC handlers:**
+
+```typescript
 // IPC: 依赖检测
 ipcMain.handle('check-dependency', async (_event, key: string) => {
   return checkDependency(key)
@@ -2818,7 +2819,7 @@ win:
 }
 ```
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add installer/
@@ -2881,18 +2882,44 @@ ipcMain.handle('launch-service', async (_event, installDir: string) => {
 
 - [ ] **Step 2: 更新预加载脚本**
 
-在 `installer/src/preload/index.ts` 中添加:
+在 `installer/src/preload/index.ts` 的 `contextBridge.exposeInMainWorld` 中添加新方法:
 
 ```typescript
-launchService: (installDir: string) => ipcRenderer.invoke('launch-service', installDir),
+contextBridge.exposeInMainWorld('electronAPI', {
+  // ... 已有的方法 ...
+
+  // 添加启动服务方法
+  launchService: (installDir: string) => ipcRenderer.invoke('launch-service', installDir),
+})
 ```
 
 - [ ] **Step 3: 更新类型定义**
 
-在 `installer/src/renderer/src/types/index.ts` 中添加:
+在 `installer/src/renderer/src/types/index.ts` 的 `Window` 接口中添加新方法:
 
 ```typescript
-launchService: (installDir: string) => Promise<{ success: boolean; error?: string }>
+declare global {
+  interface Window {
+    electronAPI: {
+      // ... 已有的方法 ...
+      minimizeWindow: () => void
+      closeWindow: () => void
+      getAppPath: () => Promise<string>
+      getResourcePath: () => Promise<string>
+      selectDirectory: () => Promise<string | null>
+      checkDependency: (dep: string) => Promise<{ installed: boolean; version?: string }>
+      installDependency: (dep: string) => Promise<{ success: boolean; error?: string }>
+      startInstallation: (config: object) => Promise<{ success: boolean; error?: string }>
+      copyFiles: (src: string, dest: string) => Promise<{ success: boolean; error?: string }>
+      generateConfig: (config: object) => Promise<{ success: boolean; error?: string }>
+      testDatabaseConnection: (config: object) => Promise<{ success: boolean; error?: string }>
+      createShortcut: (path: string) => Promise<{ success: boolean }>
+      onInstallProgress: (callback: (progress: InstallProgress) => void) => void
+      // 新增：启动服务
+      launchService: (installDir: string) => Promise<{ success: boolean; error?: string }>
+    }
+  }
+}
 ```
 
 - [ ] **Step 4: Commit**
