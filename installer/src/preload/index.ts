@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // 安装相关
   selectDirectory: () => ipcRenderer.invoke('select-directory'),
+  getDiskSpace: (path: string) => ipcRenderer.invoke('get-disk-space', path),
   checkDependency: (dep: string) => ipcRenderer.invoke('check-dependency', dep),
   installDependency: (dep: string) => ipcRenderer.invoke('install-dependency', dep),
   startInstallation: (config: object) => ipcRenderer.invoke('start-installation', config),

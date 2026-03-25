@@ -1,11 +1,13 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join } from 'path'
+import { execSync } from 'child_process'
 import {
   checkDependency,
   installNpmPackage,
   copyApplicationFiles,
   generateConfigFile,
-  createDesktopShortcut
+  createDesktopShortcut,
+  runInstallation
 } from './installer'
 import mysql from 'mysql2/promise'
 
@@ -120,4 +122,41 @@ ipcMain.handle('test-database-connection', async (_event, config: any) => {
 // IPC: 创建快捷方式
 ipcMain.handle('create-shortcut', async (_event, path: string) => {
   return { success: await createDesktopShortcut(path) }
+})
+
+// IPC: 选择目录
+ipcMain.handle('select-directory', async () => {
+  const result = await dialog.showOpenDialog(mainWindow!, {
+    properties: ['openDirectory'],
+    defaultPath: 'C:\\Program Files',
+  })
+  if (result.canceled || result.filePaths.length === 0) {
+    return null
+  }
+  return result.filePaths[0]
+})
+
+// IPC: 获取磁盘空间
+ipcMain.handle('get-disk-space', async (_event, path: string) => {
+  try {
+    // Windows 使用 child_process 执行 wmic 命令获取磁盘空间
+    const drive = path.substring(0, 2) // 获取盘符，如 "C:"
+    const output = execSync(`wmic logicaldisk where "DeviceID='${drive}'" get FreeSpace,Size /format:csv`, { encoding: 'utf8' })
+    const lines = output.trim().split('\n')
+    const data = lines[1].split(',')
+    return {
+      free: parseInt(data[1]) || 0,
+      total: parseInt(data[2]) || 0,
+    }
+  } catch {
+    return { free: 0, total: 0 }
+  }
+})
+
+// IPC: 启动安装流程
+ipcMain.handle('start-installation', async (_event, config) => {
+  const resourcePath = isDev
+    ? join(__dirname, '../../resources')
+    : process.resourcesPath
+  return runInstallation(config, resourcePath, mainWindow!)
 })

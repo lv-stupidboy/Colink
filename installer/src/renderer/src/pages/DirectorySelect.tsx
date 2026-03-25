@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { Button, Input } from 'antd'
 import { FolderOpenOutlined } from '@ant-design/icons'
 import { InstallConfig } from '../types'
@@ -8,10 +9,26 @@ interface DirectorySelectProps {
 }
 
 export default function DirectorySelect({ config, onConfigUpdate }: DirectorySelectProps) {
+  const [freeSpace, setFreeSpace] = useState<number>(0)
+
+  useEffect(() => {
+    // 获取磁盘空间
+    window.electronAPI.getDiskSpace(config.installDir).then((space: { free: number; total: number }) => {
+      setFreeSpace(space.free)
+    })
+  }, [config.installDir])
+
   const handleBrowse = async () => {
-    // TODO: 调用主进程打开目录选择对话框
-    // const result = await window.electronAPI.selectDirectory()
-    // if (result) onConfigUpdate({ installDir: result })
+    const result = await window.electronAPI.selectDirectory()
+    if (result) {
+      onConfigUpdate({ installDir: result })
+    }
+  }
+
+  const formatSize = (bytes: number) => {
+    if (bytes === 0) return '未知'
+    const gb = bytes / (1024 * 1024 * 1024)
+    return `${gb.toFixed(1)} GB`
   }
 
   return (
@@ -37,7 +54,7 @@ export default function DirectorySelect({ config, onConfigUpdate }: DirectorySel
 
       <div style={{ display: 'flex', gap: 40, color: '#666', fontSize: 14 }}>
         <span>所需空间：约 500 MB</span>
-        <span>可用空间：120 GB</span>
+        <span>可用空间：{formatSize(freeSpace)}</span>
       </div>
     </div>
   )
