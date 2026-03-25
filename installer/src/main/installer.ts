@@ -123,3 +123,105 @@ export async function createDesktopShortcut(targetPath: string): Promise<boolean
   // 可以使用 electron-shell 或者外部工具
   return true
 }
+
+// 生成配置文件内容
+function generateConfigYaml(db: { host: string; port: number; database: string; username: string; password: string }): string {
+  return `server:
+  port: 8080
+  mode: release
+
+database:
+  type: mysql
+  mysql:
+    host: ${db.host}
+    port: ${db.port}
+    database: ${db.database}
+    username: ${db.username}
+    password: ${db.password}
+    charset: utf8mb4
+
+claude:
+  path: claude
+  default_model: claude-sonnet-4-6
+  timeout: 30m
+
+logging:
+  level: info
+  format: json
+`
+}
+
+// 运行安装流程
+export async function runInstallation(
+  config: {
+    installDir: string
+    installMode: string
+    dependencies: Array<{ key: string; installed: boolean }>
+    database: { host: string; port: number; database: string; username: string; password: string }
+  },
+  resourcePath: string,
+  mainWindow: BrowserWindow
+): Promise<{ success: boolean; error?: string }> {
+  const sendProgress = (step: string, status: string, progress?: number) => {
+    mainWindow.webContents.send('install-progress', { step, status, progress })
+  }
+
+  try {
+    // Step 1: 复制文件
+    sendProgress('copy', 'running', 0)
+    const srcDir = join(resourcePath, 'app')
+    const result = await copyApplicationFiles(srcDir, config.installDir, (p) => {
+      sendProgress('copy', 'running', p)
+    })
+    if (!result.success) return result
+    sendProgress('copy', 'success', 100)
+
+    // Step 2: 安装 Claude CLI（如果选择自动安装）
+    if (config.installMode === 'auto') {
+      const claudeMissing = config.dependencies.find(d => d.key === 'claude' && !d.installed)
+      if (claudeMissing) {
+        sendProgress('claude', 'running', 0)
+        const result = await installNpmPackage('@anthropic-ai/claude-cli')
+        if (!result.success) {
+          sendProgress('claude', 'failed', 0)
+          // 可选依赖失败不阻止安装
+        } else {
+          sendProgress('claude', 'success', 100)
+        }
+      }
+    }
+    sendProgress('claude', 'success', 100)
+
+    // Step 3: 安装 OpenCode（如果选择自动安装）
+    if (config.installMode === 'auto') {
+      const opencodeMissing = config.dependencies.find(d => d.key === 'opencode' && !d.installed)
+      if (opencodeMissing) {
+        sendProgress('opencode', 'running', 0)
+        const result = await installNpmPackage('@anthropic-ai/opencode')
+        if (!result.success) {
+          sendProgress('opencode', 'failed', 0)
+        } else {
+          sendProgress('opencode', 'success', 100)
+        }
+      }
+    }
+    sendProgress('opencode', 'success', 100)
+
+    // Step 4: 生成配置文件
+    sendProgress('config', 'running', 0)
+    const configContent = generateConfigYaml(config.database)
+    const configResult = await generateConfigFile(
+      join(config.installDir, 'config.yaml'),
+      configContent
+    )
+    if (!configResult.success) return configResult
+    sendProgress('config', 'success', 100)
+
+    return { success: true }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : '安装失败',
+    }
+  }
+}

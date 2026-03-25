@@ -40,9 +40,13 @@ export default function Installing({ config, onComplete }: InstallingProps) {
       }
     })
 
-    // TODO: 触发安装流程
-    // 实际实现中需要调用主进程开始安装
-  }, [onComplete])
+    // 启动安装
+    window.electronAPI.startInstallation(config).then(result => {
+      if (!result.success) {
+        console.error('Installation failed:', result.error)
+      }
+    })
+  }, [config, onComplete])
 
   const getStepIcon = (status: string) => {
     switch (status) {
