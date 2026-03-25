@@ -24,7 +24,8 @@ installer/
 │
 ├── src/
 │   ├── main/                       # 主进程
-│   │   ├── index.ts                # Electron入口
+│   │   ├── index.ts                # 安装器入口
+│   │   ├── launcher.ts             # 启动器入口
 │   │   ├── installer.ts            # 安装核心逻辑
 │   │   ├── service-manager.ts      # 服务管理
 │   │   ├── tray.ts                 # 托盘管理
@@ -33,7 +34,7 @@ installer/
 │   ├── preload/                    # 预加载脚本
 │   │   └── index.ts
 │   │
-│   └── renderer/                   # 渲染进程
+│   └── renderer/                   # 渲染进程（安装向导UI）
 │       ├── index.html
 │       └── src/
 │           ├── main.tsx            # React入口
@@ -61,11 +62,58 @@ installer/
 │               └── global.css
 │
 ├── resources/                      # 资源文件
+│   ├── app/                        # ISDP 应用本体
+│   │   ├── isdp-server.exe         # Go 后端
+│   │   └── web/                    # 前端静态文件
 │   └── icon.ico
 │
 └── build/                          # 构建产物
     └── icon.ico
 ```
+
+**启动器架构说明：**
+
+安装器和启动器共享同一个 Electron 代码库，但通过不同的入口点区分：
+
+1. **ISDP-Setup.exe**：安装向导入口，显示7步安装流程
+2. **ISDP-Launcher.exe**：启动器入口，仅显示系统托盘，管理服务启停
+
+打包时通过 electron-builder 的多目标配置生成两个可执行文件。启动器在安装完成后复制到安装目录。
+
+---
+
+## 前置条件：构建 ISDP 应用
+
+在开始安装器开发之前，需要先构建 ISDP 后端和前端：
+
+- [ ] **Step 1: 构建后端**
+
+```bash
+cd D:/00-codes/isdp/isdp/isdp
+make build
+# 产物: bin/isdp.exe
+```
+
+- [ ] **Step 2: 构建前端**
+
+```bash
+cd D:/00-codes/isdp/isdp/isdp/web
+npm run build
+# 产物: dist/
+```
+
+- [ ] **Step 3: 准备 resources/app 目录**
+
+```bash
+mkdir -p D:/00-codes/isdp/isdp/installer/resources/app
+cp D:/00-codes/isdp/isdp/isdp/bin/isdp.exe D:/00-codes/isdp/isdp/installer/resources/app/isdp-server.exe
+cp -r D:/00-codes/isdp/isdp/isdp/web/dist D:/00-codes/isdp/isdp/installer/resources/app/web
+```
+
+**说明：**
+- `resources/app/isdp-server.exe` - Go 后端可执行文件
+- `resources/app/web/` - React 前端静态文件
+- 这些文件会在打包时通过 `electron-builder.yml` 的 `extraResources` 配置嵌入安装器
 
 ---
 
@@ -101,6 +149,7 @@ mkdir -p D:/00-codes/isdp/isdp/installer
     "package:dir": "electron-builder --win --dir"
   },
   "dependencies": {
+    "@ant-design/icons": "^5.3.0",
     "antd": "^5.15.0",
     "mysql2": "^3.9.0",
     "react": "^18.2.0",
