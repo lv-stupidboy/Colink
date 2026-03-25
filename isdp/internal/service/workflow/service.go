@@ -126,6 +126,32 @@ func (s *Service) GetDefault(ctx context.Context) (*model.WorkflowTemplate, erro
 	return s.repo.GetDefault(ctx)
 }
 
+// GetAgentIDs 获取工作流模板中的 Agent ID 列表
+func (s *Service) GetAgentIDs(ctx context.Context, templateID uuid.UUID) ([]uuid.UUID, error) {
+	template, err := s.repo.FindByID(ctx, templateID)
+	if err != nil {
+		return nil, err
+	}
+
+	var agentIDStrs []string
+	if len(template.AgentIDs) > 0 {
+		if err := json.Unmarshal(template.AgentIDs, &agentIDStrs); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal agent IDs: %w", err)
+		}
+	}
+
+	agentIDs := make([]uuid.UUID, 0, len(agentIDStrs))
+	for _, idStr := range agentIDStrs {
+		id, err := uuid.Parse(idStr)
+		if err != nil {
+			continue
+		}
+		agentIDs = append(agentIDs, id)
+	}
+
+	return agentIDs, nil
+}
+
 // InitSystemTemplates 初始化系统预设模板
 func (s *Service) InitSystemTemplates(ctx context.Context) error {
 	// 先检查是否已有系统模板

@@ -62,9 +62,9 @@ func (s *Skill) TableName() string {
 // AgentSkillBinding Agent与Skill关联
 type AgentSkillBinding struct {
 	ID          uuid.UUID `json:"id"`
-	AgentRoleID uuid.UUID `json:"agent_role_id"`
-	SkillID     uuid.UUID `json:"skill_id"`
-	CreatedAt   time.Time `json:"created_at"`
+	AgentRoleID uuid.UUID `json:"agentRoleId"`
+	SkillID     uuid.UUID `json:"skillId"`
+	CreatedAt   time.Time `json:"createdAt"`
 }
 
 func (a *AgentSkillBinding) TableName() string {
@@ -76,25 +76,25 @@ type CreateSkillRequest struct {
 	Name            string          `json:"name" binding:"required"`
 	Description     string          `json:"description"`
 	Tags            []string        `json:"tags"`
-	SourceType      SkillSourceType `json:"source_type" binding:"required"`
-	SupportedAgents []string        `json:"supported_agents" binding:"required,min=1"`
+	SourceType      SkillSourceType `json:"sourceType" binding:"required"`
+	SupportedAgents []string        `json:"supportedAgents" binding:"required,min=1"`
 	Version         string          `json:"version"`
-	IsPublic        bool            `json:"is_public"` // 仅对 uploaded 类型有效
+	IsPublic        bool            `json:"isPublic"` // 仅对 uploaded 类型有效
 }
 
 // UpdateSkillRequest 更新Skill请求
 type UpdateSkillRequest struct {
 	Description     string   `json:"description"`
 	Tags            []string `json:"tags"`
-	SupportedAgents []string `json:"supported_agents"`
+	SupportedAgents []string `json:"supportedAgents"`
 	Version         string   `json:"version"`
 	Status          string   `json:"status"`
-	IsPublic        bool     `json:"is_public"` // 仅对 uploaded 类型有效
+	IsPublic        bool     `json:"isPublic"` // 仅对 uploaded 类型有效
 }
 
 // BindSkillRequest 绑定Skill请求
 type BindSkillRequest struct {
-	SkillIDs []uuid.UUID `json:"skill_ids" binding:"required"`
+	SkillIDs []uuid.UUID `json:"skillIds" binding:"required"`
 }
 
 // SkillListQuery Skill列表查询参数
@@ -110,7 +110,7 @@ type SkillListQuery struct {
 // SkillWithBindings Skill及其绑定的Agent列表
 type SkillWithBindings struct {
 	*Skill
-	BoundAgents []*AgentRoleConfig `json:"bound_agents,omitempty"`
+	BoundAgents []*AgentRoleConfig `json:"boundAgents,omitempty"`
 }
 
 // ========== Skill Registry Models ==========

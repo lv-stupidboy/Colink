@@ -1,12 +1,12 @@
 package ws
 
 import (
-	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"go.uber.org/zap"
 )
 
 var upgrader = websocket.Upgrader{
@@ -15,6 +15,14 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		return true // 生产环境需要验证来源
 	},
+}
+
+// wsLogger WebSocket 日志记录器
+var wsLogger *zap.Logger
+
+// SetWSLogger 设置 WebSocket 日志记录器
+func SetWSLogger(logger *zap.Logger) {
+	wsLogger = logger
 }
 
 // Handler WebSocket处理器
@@ -32,7 +40,9 @@ func (h *Handler) HandleWebSocket(c *gin.Context) {
 	threadID := c.Query("threadId")
 	userID := c.Query("userId")
 
-	fmt.Printf("[WebSocket] Connection request - threadId: %s, userId: %s\n", threadID, userID)
+	if wsLogger != nil {
+		wsLogger.Info("WebSocket connection request", zap.String("threadId", threadID), zap.String("userId", userID))
+	}
 
 	if threadID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "threadId required"})
@@ -41,11 +51,15 @@ func (h *Handler) HandleWebSocket(c *gin.Context) {
 
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		fmt.Printf("[WebSocket] Upgrade failed: %v\n", err)
+		if wsLogger != nil {
+			wsLogger.Error("WebSocket upgrade failed", zap.Error(err))
+		}
 		return
 	}
 
-	fmt.Printf("[WebSocket] Connection upgraded successfully - threadId: %s\n", threadID)
+	if wsLogger != nil {
+		wsLogger.Info("WebSocket connected", zap.String("threadId", threadID))
+	}
 
 	client := &Client{
 		Hub:      h.hub,

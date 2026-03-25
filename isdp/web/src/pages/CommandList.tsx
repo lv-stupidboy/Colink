@@ -1,7 +1,7 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Card, Button, Modal, Form, Input, message, Space, Typography, Tag,
-  Popconfirm, Empty, Spin, Pagination, Table, Tooltip, Upload, Radio, Select
+  Popconfirm, Empty, Spin, Pagination, Table, Tooltip, Radio, Select
 } from 'antd';
 import {
   PlusOutlined,
@@ -16,6 +16,53 @@ import type { Command, CommandListResponse, Skill } from '@/types';
 
 const { Title, Text, Paragraph } = Typography;
 
+// 解析 .md 文件提取描述
+const parseCommandMD = (content: string): { description: string } => {
+  let description = '';
+
+  // 1. 首先尝试解析 YAML front matter
+  const frontMatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---/);
+  if (frontMatterMatch) {
+    const frontMatter = frontMatterMatch[1];
+    const descMatch = frontMatter.match(/description:\s*(.+)/i);
+    if (descMatch) {
+      description = descMatch[1].trim();
+      // 移除引号
+      description = description.replace(/^["']|["']$/g, '');
+    }
+  }
+
+  // 2. 如果没有从 front matter 获取到，尝试从 ## Description 获取
+  if (!description) {
+    const patterns = [
+      /##\s*(?:Description|描述)\s*\n+([\s\S]*?)(?=\n##|$)/i,
+      /##\s*(?:Description|描述)\s*[:：]?\s*([\s\S]*?)(?=\n##|$)/i,
+    ];
+
+    for (const pattern of patterns) {
+      const descMatch = content.match(pattern);
+      if (descMatch && descMatch[1]) {
+        description = descMatch[1].trim();
+        break;
+      }
+    }
+  }
+
+  return { description };
+};
+
+// 清理名称格式
+const cleanName = (name: string): string => {
+  if (!name) return '';
+  let cleaned = name.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+  cleaned = cleaned.replace(/^-+|-+$/g, '');
+  // 确保以字母开头
+  if (cleaned && !/^[a-z]/.test(cleaned)) {
+    cleaned = 'c-' + cleaned;
+  }
+  return cleaned;
+};
+
 const CommandList: React.FC = () => {
   const [commands, setCommands] = useState<Command[]>([]);
   const [loading, setLoading] = useState(false);
@@ -24,18 +71,20 @@ const CommandList: React.FC = () => {
   const [pageSize, setPageSize] = useState(10);
   const [modalVisible, setModalVisible] = useState(false);
   const [viewModalVisible, setViewModalVisible] = useState(false);
-  const [skillModalVisible, setSkillModalVisible] = useState(false);
   const [editingCommand, setEditingCommand] = useState<Command | null>(null);
   const [viewingCommand, setViewingCommand] = useState<Command | null>(null);
   const [searchText, setSearchText] = useState('');
   const [form] = Form.useForm();
-  const [createMethod, setCreateMethod] = useState<'upload' | 'manual'>('manual');
+  const [createMethod, setCreateMethod] = useState<'upload' | 'manual'>('upload');
   const [isAfterUpload, setIsAfterUpload] = useState(false);
-  const [commandSkills, setCommandSkills] = useState<Skill[]>([]);
   const [allSkills, setAllSkills] = useState<Skill[]>([]);
   const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
-  const [editingSkillCommandId, setEditingSkillCommandId] = useState<string | null>(null);
   const [commandSkillCounts, setCommandSkillCounts] = useState<Record<string, number>>({});
+  const [commandSkillsMap, setCommandSkillsMap] = useState<Record<string, Skill[]>>({});
+
+  // 存储解析后的内容，用户确认后才上传
+  const pendingContentRef = useRef<string>('');
+  const pendingFileNameRef = useRef<string>('');
 
   const loadCommands = useCallback(async () => {
     setLoading(true);
@@ -50,15 +99,19 @@ const CommandList: React.FC = () => {
 
       // 加载每个 command 的关联技能数
       const counts: Record<string, number> = {};
+      const skillsMap: Record<string, Skill[]> = {};
       for (const cmd of result.data || []) {
         try {
           const skillsRes = await api.commands.getSkills(cmd.id);
           counts[cmd.id] = skillsRes.count || 0;
+          skillsMap[cmd.id] = skillsRes.skills || [];
         } catch {
           counts[cmd.id] = 0;
+          skillsMap[cmd.id] = [];
         }
       }
       setCommandSkillCounts(counts);
+      setCommandSkillsMap(skillsMap);
     } catch (error) {
       message.error('加载命令列表失败');
     } finally {
@@ -85,20 +138,32 @@ const CommandList: React.FC = () => {
 
   const handleCreate = () => {
     setEditingCommand(null);
-    setCreateMethod('manual');
+    setCreateMethod('upload');
     setIsAfterUpload(false);
+    pendingContentRef.current = '';
+    pendingFileNameRef.current = '';
+    setSelectedSkillIds([]);
     form.resetFields();
     setModalVisible(true);
   };
 
-  const handleEdit = (record: Command) => {
+  const handleEdit = async (record: Command) => {
     setEditingCommand(record);
     setCreateMethod('manual');
     setIsAfterUpload(false);
+    pendingContentRef.current = '';
+    pendingFileNameRef.current = '';
     form.setFieldsValue({
       name: record.name,
       description: record.description,
     });
+    // 加载已绑定的技能
+    try {
+      const result = await api.commands.getSkills(record.id);
+      setSelectedSkillIds((result.skills || []).map((s: Skill) => s.id));
+    } catch {
+      setSelectedSkillIds([]);
+    }
     setModalVisible(true);
   };
 
@@ -128,12 +193,20 @@ const CommandList: React.FC = () => {
         await api.commands.update(editingCommand.id, {
           description: values.description,
         });
+        // 全量更新技能绑定（传空数组表示清空绑定）
+        await api.commands.bindSkills(editingCommand.id, selectedSkillIds);
         message.success('更新成功');
       } else {
-        await api.commands.create({
+        // 新建时，如果是上传模式，带上 content
+        const newCommand = await api.commands.create({
           name: values.name,
           description: values.description,
+          content: isAfterUpload ? pendingContentRef.current : undefined,
         });
+        // 绑定技能（如果有选择）
+        if (selectedSkillIds.length > 0) {
+          await api.commands.bindSkills(newCommand.id, selectedSkillIds);
+        }
         message.success('创建成功');
       }
       setModalVisible(false);
@@ -153,55 +226,45 @@ const CommandList: React.FC = () => {
     setPage(1);
   };
 
-  // 上传处理
-  const handleUploadSuccess = (response: { message: string; file_path: string }) => {
-    if (response && response.file_path) {
-      // 从文件路径提取名称
-      const fileName = response.file_path.split('/').pop()?.replace('.md', '') || '';
-      form.setFieldsValue({
-        name: fileName,
-        description: '',
-      });
+  // 上传处理 - 前端解析，不直接入库
+  const handleFileSelect = async (file: File) => {
+    // 检查文件格式
+    if (!file.name.endsWith('.md')) {
+      message.error('只支持 .md 格式的文件');
+      return false;
+    }
+    // 检查文件大小
+    if (file.size / 1024 / 1024 > 2) {
+      message.error('文件大小不能超过 2MB');
+      return false;
+    }
+
+    try {
+      // 读取文件内容
+      const content = await file.text();
+      const metadata = parseCommandMD(content);
+
+      // 从文件名提取名称（去掉 .md 后缀）
+      const fileName = file.name.replace(/\.md$/i, '');
+      const name = cleanName(fileName);
+
+      // 存储解析后的内容
+      pendingContentRef.current = content;
+      pendingFileNameRef.current = name;
+
+      // 设置表单值，显示给用户确认
       setIsAfterUpload(true);
-      message.success('命令文件上传成功，请补充完整信息后保存');
-    }
-  };
+      form.setFieldsValue({
+        name: name,
+        description: metadata.description,
+        content: content,
+      });
 
-  const handleUpload = (info: any) => {
-    if (info.file.status === 'done') {
-      handleUploadSuccess(info.file.response);
-    } else if (info.file.status === 'error') {
-      const errorData = info.file.response;
-      message.error(errorData?.error || '上传失败');
-    }
-  };
-
-  // 技能绑定相关
-  const handleManageSkills = async (commandId: string) => {
-    setEditingSkillCommandId(commandId);
-    try {
-      const result = await api.commands.getSkills(commandId);
-      setCommandSkills(result.skills || []);
-      setSelectedSkillIds((result.skills || []).map((s: Skill) => s.id));
-      setSkillModalVisible(true);
+      message.success('文件解析成功，请确认后保存');
+      return false; // 阻止 Upload 组件的自动上传
     } catch (error) {
-      message.error('加载关联技能失败');
-    }
-  };
-
-  const handleSkillSelect = (skillIds: string[]) => {
-    setSelectedSkillIds(skillIds);
-  };
-
-  const handleSaveSkills = async () => {
-    if (!editingSkillCommandId) return;
-    try {
-      await api.commands.bindSkills(editingSkillCommandId, selectedSkillIds);
-      message.success('技能绑定成功');
-      setSkillModalVisible(false);
-      loadCommands();
-    } catch (error: any) {
-      message.error(error.response?.data?.error || '技能绑定失败');
+      message.error('读取文件失败');
+      return false;
     }
   };
 
@@ -211,7 +274,7 @@ const CommandList: React.FC = () => {
       title: '名称',
       dataIndex: 'name',
       key: 'name',
-      width: 200,
+      width: 180,
       render: (name: string) => (
         <Space>
           <CodeOutlined style={{ color: 'var(--ant-color-primary)', fontSize: 16 }} />
@@ -223,10 +286,13 @@ const CommandList: React.FC = () => {
       title: '描述',
       dataIndex: 'description',
       key: 'description',
+      width: 200,
       ellipsis: true,
       render: (description: string) => (
-        <Tooltip title={description}>
-          <Text type="secondary">{description || '暂无描述'}</Text>
+        <Tooltip title={description} placement="topLeft">
+          <Text type="secondary" style={{ maxWidth: 180, display: 'inline-block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {description || '暂无描述'}
+          </Text>
         </Tooltip>
       ),
     },
@@ -234,13 +300,19 @@ const CommandList: React.FC = () => {
       title: '关联技能',
       dataIndex: 'id',
       key: 'skillCount',
-      width: 120,
+      width: 200,
       render: (id: string) => {
         const count = commandSkillCounts[id] || 0;
+        const skills = commandSkillsMap[id] || [];
+        if (count === 0) {
+          return <Tag>0 个</Tag>;
+        }
         return (
-          <Tag color={count > 0 ? 'blue' : 'default'}>
-            {count} 个技能
-          </Tag>
+          <Tooltip title={skills.map(s => s.name).join('、')}>
+            <Tag color="blue" style={{ cursor: 'pointer' }}>
+              {count} 个技能
+            </Tag>
+          </Tooltip>
         );
       },
     },
@@ -248,7 +320,7 @@ const CommandList: React.FC = () => {
       title: '创建时间',
       dataIndex: 'createdAt',
       key: 'createdAt',
-      width: 180,
+      width: 160,
       render: (date: string) => (
         <Text type="secondary" style={{ fontSize: 12 }}>
           {date ? new Date(date).toLocaleString('zh-CN') : '-'}
@@ -259,33 +331,25 @@ const CommandList: React.FC = () => {
       title: '操作',
       key: 'action',
       width: 220,
+      fixed: 'right' as const,
       render: (_: any, record: Command) => (
         <Space size="small">
-          <Tooltip title="查看详情">
-            <Button
-              type="text"
-              size="small"
-              icon={<EyeOutlined />}
-              onClick={() => handleView(record)}
-            />
-          </Tooltip>
-          <Tooltip title="编辑">
-            <Button
-              type="text"
-              size="small"
-              icon={<EditOutlined />}
-              onClick={() => handleEdit(record)}
-            />
-          </Tooltip>
-          <Tooltip title="绑定技能">
-            <Button
-              type="text"
-              size="small"
-              onClick={() => handleManageSkills(record.id)}
-            >
-              技能
-            </Button>
-          </Tooltip>
+          <Button
+            type="link"
+            size="small"
+            icon={<EyeOutlined />}
+            onClick={() => handleView(record)}
+          >
+            查看
+          </Button>
+          <Button
+            type="link"
+            size="small"
+            icon={<EditOutlined />}
+            onClick={() => handleEdit(record)}
+          >
+            编辑
+          </Button>
           <Popconfirm
             title="确定要删除这个命令吗？"
             description="删除后将无法恢复"
@@ -293,14 +357,14 @@ const CommandList: React.FC = () => {
             okText="确定"
             cancelText="取消"
           >
-            <Tooltip title="删除">
-              <Button
-                type="text"
-                size="small"
-                danger
-                icon={<DeleteOutlined />}
-              />
-            </Tooltip>
+            <Button
+              type="link"
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+            >
+              删除
+            </Button>
           </Popconfirm>
         </Space>
       ),
@@ -354,22 +418,20 @@ const CommandList: React.FC = () => {
         </Spin>
 
         {/* 分页 */}
-        {total > 0 && (
-          <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end' }}>
-            <Pagination
-              current={page}
-              pageSize={pageSize}
-              total={total}
-              onChange={(p, ps) => {
-                setPage(p);
-                setPageSize(ps);
-              }}
-              showSizeChanger
-              showTotal={(t) => `共 ${t} 条`}
-              pageSizeOptions={['10', '20', '50']}
-            />
-          </div>
-        )}
+        <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end' }}>
+          <Pagination
+            current={page}
+            pageSize={pageSize}
+            total={total}
+            onChange={(p, ps) => {
+              setPage(p);
+              setPageSize(ps);
+            }}
+            showSizeChanger
+            showTotal={(t) => `共 ${t} 条`}
+            pageSizeOptions={['10', '20', '50']}
+          />
+        </div>
       </Card>
 
       {/* 新建/编辑弹窗 */}
@@ -405,35 +467,39 @@ const CommandList: React.FC = () => {
 
               {createMethod === 'upload' && (
                 <div style={{ marginTop: 12 }}>
-                  <Upload.Dragger
-                    name="file"
-                    action="/api/v1/commands/upload"
+                  <input
+                    type="file"
                     accept=".md"
-                    onChange={handleUpload}
-                    multiple={false}
-                    showUploadList={false}
-                    beforeUpload={(file) => {
-                      const isValid = file.name.endsWith('.md');
-                      if (!isValid) {
-                        message.error('只支持 .md 格式的文件');
-                        return Upload.LIST_IGNORE;
+                    style={{ display: 'none' }}
+                    id="command-file-input"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        handleFileSelect(file);
                       }
-                      const isLt2M = file.size / 1024 / 1024 < 2;
-                      if (!isLt2M) {
-                        message.error('文件大小不能超过 2MB');
-                        return Upload.LIST_IGNORE;
-                      }
-                      return true;
+                      // 重置 input，允许选择相同文件
+                      e.target.value = '';
                     }}
+                  />
+                  <div
+                    onClick={() => document.getElementById('command-file-input')?.click()}
+                    style={{
+                      border: '1px dashed var(--ant-color-border)',
+                      borderRadius: 8,
+                      padding: 24,
+                      textAlign: 'center',
+                      cursor: 'pointer',
+                      transition: 'border-color 0.3s',
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.borderColor = 'var(--ant-color-primary)'}
+                    onMouseLeave={(e) => e.currentTarget.style.borderColor = 'var(--ant-color-border)'}
                   >
-                    <p className="ant-upload-drag-icon">
-                      <CloudUploadOutlined style={{ fontSize: 32, color: 'var(--ant-color-primary)' }} />
-                    </p>
-                    <p className="ant-upload-text">点击或拖拽文件到此区域上传</p>
-                    <p className="ant-upload-hint" style={{ fontSize: 12, color: 'var(--ant-color-text-secondary)' }}>
+                    <CloudUploadOutlined style={{ fontSize: 32, color: 'var(--ant-color-primary)' }} />
+                    <p style={{ marginTop: 8 }}>点击或拖拽文件到此区域上传</p>
+                    <p style={{ fontSize: 12, color: 'var(--ant-color-text-secondary)' }}>
                       支持 .md 格式，最大 2MB
                     </p>
-                  </Upload.Dragger>
+                  </div>
                 </div>
               )}
             </div>
@@ -461,6 +527,43 @@ const CommandList: React.FC = () => {
             <Input.TextArea
               rows={3}
               placeholder="简要描述这个命令的用途"
+            />
+          </Form.Item>
+
+          <Form.Item
+            name="content"
+            label="命令内容"
+            extra="命令的具体内容，保存在文件中"
+          >
+            <Input.TextArea
+              rows={10}
+              placeholder="输入命令的具体内容..."
+              style={{ fontFamily: 'monospace' }}
+              disabled={isAfterUpload}
+            />
+          </Form.Item>
+
+          <Form.Item label="绑定技能">
+            <Select
+              mode="multiple"
+              placeholder="选择要绑定的技能"
+              value={selectedSkillIds}
+              onChange={setSelectedSkillIds}
+              style={{ width: '100%' }}
+              optionLabelProp="label"
+              options={allSkills.map(s => ({
+                label: s.name,
+                value: s.id,
+                desc: s.description || '暂无描述',
+              }))}
+              optionRender={(option) => (
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <span style={{ fontWeight: 500 }}>{option.label}</span>
+                  <span style={{ fontSize: 12, color: '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 400 }}>
+                    {option.data.desc}
+                  </span>
+                </div>
+              )}
             />
           </Form.Item>
         </Form>
@@ -510,6 +613,24 @@ const CommandList: React.FC = () => {
               <Text type="secondary">{viewingCommand.description || '暂无描述'}</Text>
             </Paragraph>
 
+            <Paragraph>
+              <Text strong>命令内容：</Text>
+            </Paragraph>
+            <div
+              style={{
+                background: 'var(--ant-color-bg-container)',
+                border: '1px solid var(--ant-color-border)',
+                borderRadius: 8,
+                padding: 12,
+                maxHeight: 400,
+                overflow: 'auto',
+              }}
+            >
+              <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'monospace', fontSize: 13 }}>
+                {viewingCommand.content || '暂无内容'}
+              </pre>
+            </div>
+
             <div style={{ marginTop: 16, color: 'var(--ant-color-text-secondary)', fontSize: 12 }}>
               <Text type="secondary">
                 创建时间：{viewingCommand.createdAt ? new Date(viewingCommand.createdAt).toLocaleString('zh-CN') : '-'}
@@ -518,43 +639,6 @@ const CommandList: React.FC = () => {
               <Text type="secondary">
                 更新时间：{viewingCommand.updatedAt ? new Date(viewingCommand.updatedAt).toLocaleString('zh-CN') : '-'}
               </Text>
-            </div>
-          </div>
-        )}
-      </Modal>
-
-      {/* 技能绑定弹窗 */}
-      <Modal
-        title="绑定技能"
-        open={skillModalVisible}
-        onOk={handleSaveSkills}
-        onCancel={() => setSkillModalVisible(false)}
-        width={600}
-        okText="保存"
-      >
-        <div style={{ marginBottom: 16 }}>
-          <Text type="secondary">选择要绑定到此命令的技能：</Text>
-        </div>
-        <Select
-          mode="multiple"
-          style={{ width: '100%' }}
-          placeholder="选择技能"
-          value={selectedSkillIds}
-          onChange={handleSkillSelect}
-          options={allSkills.map((skill) => ({
-            label: skill.name,
-            value: skill.id,
-          }))}
-        />
-        {commandSkills.length > 0 && (
-          <div style={{ marginTop: 16 }}>
-            <Text strong>已绑定技能：</Text>
-            <div style={{ marginTop: 8 }}>
-              {commandSkills.map((skill) => (
-                <Tag key={skill.id} color="blue" style={{ marginBottom: 4 }}>
-                  {skill.name}
-                </Tag>
-              ))}
             </div>
           </div>
         )}

@@ -17,22 +17,23 @@ import (
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/service/skill"
-	"github.com/anthropic/isdp/pkg/config"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
 // SkillHandler Skill API处理器
 type SkillHandler struct {
-	skillSvc *skill.Service
-	config   *config.SkillConfig
+	skillSvc    *skill.Service
+	storagePath string
+	uploadMax   int64
 }
 
 // NewSkillHandler 创建SkillHandler
-func NewSkillHandler(skillSvc *skill.Service, cfg *config.SkillConfig) *SkillHandler {
+func NewSkillHandler(skillSvc *skill.Service, storagePath string, uploadMax int64) *SkillHandler {
 	return &SkillHandler{
-		skillSvc: skillSvc,
-		config:   cfg,
+		skillSvc:    skillSvc,
+		storagePath: storagePath,
+		uploadMax:   uploadMax,
 	}
 }
 
@@ -131,27 +132,10 @@ func (h *SkillHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	// 先获取技能信息，用于删除对应的文件
-	skillRecord, err := h.skillSvc.GetByID(c.Request.Context(), id)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "skill not found"})
-		return
-	}
-
-	// 删除数据库记录
+	// 删除技能（Service层会检查绑定关系并删除文件）
 	if err := h.skillSvc.Delete(c.Request.Context(), id); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
-	}
-
-	// 删除对应的zip文件
-	storagePath := h.config.GetStoragePath()
-	zipPath := filepath.Join(storagePath, skillRecord.Name+".zip")
-	if _, err := os.Stat(zipPath); err == nil {
-		if err := os.Remove(zipPath); err != nil {
-			// 文件删除失败只记录日志，不影响删除操作结果
-			fmt.Printf("删除技能文件失败: %v\n", err)
-		}
 	}
 
 	c.Status(http.StatusNoContent)
@@ -232,7 +216,10 @@ func (h *SkillHandler) GetAgentSkills(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, skills)
+	c.JSON(http.StatusOK, gin.H{
+		"skills": skills,
+		"count":  len(skills),
+	})
 }
 
 // GetTags 获取所有标签
@@ -255,8 +242,8 @@ func (h *SkillHandler) GetBuiltInTags(c *gin.Context) {
 // Upload 上传技能包
 func (h *SkillHandler) Upload(c *gin.Context) {
 	// 获取配置
-	maxSize := h.config.GetUploadMaxSize()
-	storagePath := h.config.GetStoragePath()
+	maxSize := h.uploadMax
+	storagePath := h.storagePath
 
 	// 获取 source_type 参数（默认为 personal）
 	sourceTypeStr := c.PostForm("source_type")
@@ -268,6 +255,12 @@ func (h *SkillHandler) Upload(c *gin.Context) {
 			sourceType = model.SkillSourcePersonal
 		}
 	}
+
+	// 获取 directory_name 参数（目录名作为技能名称）
+	directoryName := c.PostForm("directory_name")
+
+	// 获取 description 参数（前端解析的描述，优先使用）
+	frontendDescription := c.PostForm("description")
 
 	// 检查文件大小（在读取前检查）
 	if c.Request.ContentLength > maxSize {
@@ -309,40 +302,62 @@ func (h *SkillHandler) Upload(c *gin.Context) {
 		return
 	}
 
-	// 查找 skill.md 文件
+	// 查找 SKILL.md 或 skill.md 文件
 	var skillMDContent string
+	var rootDir string // 检测根目录层级
+
+	// 首先查找 SKILL.md 文件，同时检测是否在根目录
 	for _, f := range reader.File {
-		if strings.HasSuffix(f.Name, "skill.md") {
+		// 跳过目录
+		if f.FileInfo().IsDir() {
+			continue
+		}
+
+		// 获取文件名
+		parts := strings.Split(f.Name, "/")
+
+		// 检查是否是 SKILL.md（大小写不敏感）
+		fileName := parts[len(parts)-1]
+		if strings.ToLower(fileName) == "skill.md" {
 			rc, err := f.Open()
 			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "读取 skill.md 失败"})
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "读取 SKILL.md 失败"})
 				return
 			}
 			content, err := io.ReadAll(rc)
 			rc.Close()
 			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "读取 skill.md 内容失败"})
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "读取 SKILL.md 内容失败"})
 				return
 			}
 			skillMDContent = string(content)
+
+			// 如果 SKILL.md 不在根目录（路径有多级），则记录根目录
+			if len(parts) > 1 {
+				rootDir = parts[0]
+			}
 			break
 		}
 	}
 
 	if skillMDContent == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "未找到 skill.md 文件"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "未找到 SKILL.md 文件"})
 		return
 	}
 
-	// 解析 skill.md 提取元数据
-	metadata := parseSkillMD(skillMDContent)
+	// 确定技能名称：只能从目录名获取
+	skillName := directoryName
+	if skillName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "目录名不能为空"})
+		return
+	}
 
-	// 创建技能记录（仅填充从 skill.md 提取的名称和描述）
+	// 创建技能记录（使用前端解析的描述）
 	req := &model.CreateSkillRequest{
-		Name:        metadata.Name,
-		Description: metadata.Description,
+		Name:        skillName,
+		Description: frontendDescription,
 		SourceType:  sourceType,
-		IsPublic:    sourceType == model.SkillSourcePersonal, // 只有个人类型默认私有
+		IsPublic:    sourceType != model.SkillSourcePersonal, // 个人类型私有，其他类型公开
 	}
 
 	skillRecord, err := h.skillSvc.Create(c.Request.Context(), req)
@@ -351,18 +366,67 @@ func (h *SkillHandler) Upload(c *gin.Context) {
 		return
 	}
 
-	// 保存技能包文件到本地
+	// 保存技能文件到本地（解压为目录）
 	// 确保存储目录存在
 	if err := os.MkdirAll(storagePath, 0755); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建存储目录失败"})
 		return
 	}
 
-	// 使用技能名称作为文件名
-	savePath := filepath.Join(storagePath, skillRecord.Name+".zip")
-	if err := os.WriteFile(savePath, fileBytes, 0644); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存文件失败"})
+	// 使用技能名称作为目录名
+	skillDir := filepath.Join(storagePath, skillRecord.Name)
+	if err := os.MkdirAll(skillDir, 0755); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建技能目录失败"})
 		return
+	}
+
+	// 解压 zip 文件到技能目录
+	for _, f := range reader.File {
+		// 跳过目录
+		if f.FileInfo().IsDir() {
+			continue
+		}
+
+		// 获取文件名（去掉可能的根目录前缀）
+		fileName := f.Name
+		if rootDir != "" {
+			fileName = strings.TrimPrefix(fileName, rootDir+"/")
+		}
+		if fileName == "" {
+			continue
+		}
+
+		// 创建目标文件路径
+		destPath := filepath.Join(skillDir, fileName)
+
+		// 确保父目录存在
+		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "创建子目录失败"})
+			return
+		}
+
+		// 解压文件
+		rc, err := f.Open()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "解压文件失败"})
+			return
+		}
+
+		destFile, err := os.Create(destPath)
+		if err != nil {
+			rc.Close()
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "创建文件失败"})
+			return
+		}
+
+		_, err = io.Copy(destFile, rc)
+		destFile.Close()
+		rc.Close()
+
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "写入文件失败"})
+			return
+		}
 	}
 
 	c.JSON(http.StatusCreated, skillRecord)
@@ -400,7 +464,7 @@ func parseSkillMD(content string) SkillMetadata {
 // ImportFromRepo 从 Git 仓库导入技能
 func (h *SkillHandler) ImportFromRepo(c *gin.Context) {
 	var req struct {
-		RepoURL string `json:"repo_url" binding:"required"`
+		RepoURL string `json:"repoUrl" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请输入仓库地址"})
@@ -413,8 +477,7 @@ func (h *SkillHandler) ImportFromRepo(c *gin.Context) {
 		return
 	}
 
-	storagePath := h.config.GetStoragePath()
-	tempDir := filepath.Join(storagePath, ".temp", uuid.New().String())
+	tempDir := filepath.Join(h.storagePath, ".temp", uuid.New().String())
 
 	// 确保临时目录存在
 	if err := os.MkdirAll(tempDir, 0755); err != nil {
@@ -434,10 +497,17 @@ func (h *SkillHandler) ImportFromRepo(c *gin.Context) {
 		return
 	}
 
-	// 查找 skill.md 文件
-	skillMDPath := filepath.Join(tempDir, "skill.md")
-	if _, err := os.Stat(skillMDPath); os.IsNotExist(err) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "仓库根目录未找到 skill.md 文件"})
+	// 查找 SKILL.md 或 skill.md 文件
+	var skillMDPath string
+	skillMDPathLower := filepath.Join(tempDir, "skill.md")
+	skillMDPathUpper := filepath.Join(tempDir, "SKILL.md")
+
+	if _, err := os.Stat(skillMDPathUpper); err == nil {
+		skillMDPath = skillMDPathUpper
+	} else if _, err := os.Stat(skillMDPathLower); err == nil {
+		skillMDPath = skillMDPathLower
+	} else {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "仓库根目录未找到 SKILL.md 文件"})
 		return
 	}
 
@@ -466,15 +536,15 @@ func (h *SkillHandler) ImportFromRepo(c *gin.Context) {
 	}
 
 	// 创建存储目录
-	if err := os.MkdirAll(storagePath, 0755); err != nil {
+	if err := os.MkdirAll(h.storagePath, 0755); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建存储目录失败"})
 		return
 	}
 
-	// 打包为 zip 文件，使用技能名称作为文件名
-	zipPath := filepath.Join(storagePath, skillRecord.Name+".zip")
-	if err := zipDirectory(tempDir, zipPath); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("打包技能失败: %v", err)})
+	// 复制整个目录到技能存储目录
+	skillDir := filepath.Join(h.storagePath, skillRecord.Name)
+	if err := copyDirectory(tempDir, skillDir); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("复制技能目录失败: %v", err)})
 		return
 	}
 
@@ -484,8 +554,8 @@ func (h *SkillHandler) ImportFromRepo(c *gin.Context) {
 // ImportFromFederated 从联邦源导入技能
 func (h *SkillHandler) ImportFromFederated(c *gin.Context) {
 	var req struct {
-		RegistryID string `json:"registry_id" binding:"required"`
-		SkillName  string `json:"skill_name"` // 可选，不指定则列出可用技能
+		RegistryID string `json:"registryId" binding:"required"`
+		SkillName  string `json:"skillName"` // 可选，不指定则列出可用技能
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请选择联邦源"})
@@ -528,16 +598,16 @@ func (h *SkillHandler) ImportFromFederated(c *gin.Context) {
 		return
 	}
 
-	// 保存技能包
-	storagePath := h.config.GetStoragePath()
-	if err := os.MkdirAll(storagePath, 0755); err != nil {
+	// 创建技能目录
+	if err := os.MkdirAll(h.storagePath, 0755); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建存储目录失败"})
 		return
 	}
 
-	zipPath := filepath.Join(storagePath, skillRecord.Name+".zip")
-	if err := os.WriteFile(zipPath, skillData.ZipContent, 0644); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存技能包失败"})
+	// 解压 zip 内容到技能目录
+	skillDir := filepath.Join(h.storagePath, skillRecord.Name)
+	if err := extractZipToDirectory(skillData.ZipContent, skillDir); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("解压技能包失败: %v", err)})
 		return
 	}
 
@@ -600,6 +670,119 @@ func zipDirectory(sourceDir, zipPath string) error {
 		_, err = io.Copy(writer, file)
 		return err
 	})
+}
+
+// copyDirectory 复制整个目录
+func copyDirectory(src, dst string) error {
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// 跳过 .git 目录
+		if strings.Contains(path, ".git") {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		relPath, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		dstPath := filepath.Join(dst, relPath)
+
+		if info.IsDir() {
+			return os.MkdirAll(dstPath, info.Mode())
+		}
+
+		// 复制文件
+		srcFile, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer srcFile.Close()
+
+		dstFile, err := os.OpenFile(dstPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, info.Mode())
+		if err != nil {
+			return err
+		}
+		defer dstFile.Close()
+
+		_, err = io.Copy(dstFile, srcFile)
+		return err
+	})
+}
+
+// extractZipToDirectory 将 zip 内容解压到目录
+func extractZipToDirectory(zipContent []byte, destDir string) error {
+	reader, err := zip.NewReader(bytes.NewReader(zipContent), int64(len(zipContent)))
+	if err != nil {
+		return err
+	}
+
+	// 检测是否有根目录（嵌套结构）
+	var rootDir string
+	for _, f := range reader.File {
+		if f.FileInfo().IsDir() {
+			continue
+		}
+		parts := strings.Split(f.Name, "/")
+		if len(parts) > 1 {
+			rootDir = parts[0]
+			break
+		}
+	}
+
+	// 创建目标目录
+	if err := os.MkdirAll(destDir, 0755); err != nil {
+		return err
+	}
+
+	// 解压文件
+	for _, f := range reader.File {
+		if f.FileInfo().IsDir() {
+			continue
+		}
+
+		// 获取文件名（去掉可能的根目录前缀）
+		fileName := f.Name
+		if rootDir != "" {
+			fileName = strings.TrimPrefix(fileName, rootDir+"/")
+		}
+		if fileName == "" {
+			continue
+		}
+
+		destPath := filepath.Join(destDir, fileName)
+
+		// 确保父目录存在
+		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+			return err
+		}
+
+		rc, err := f.Open()
+		if err != nil {
+			return err
+		}
+
+		destFile, err := os.Create(destPath)
+		if err != nil {
+			rc.Close()
+			return err
+		}
+
+		_, err = io.Copy(destFile, rc)
+		destFile.Close()
+		rc.Close()
+
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // FederatedSkillData 联邦技能数据

@@ -331,12 +331,13 @@ func (o *Orchestrator) SpawnDebugAgent(ctx context.Context, req *SpawnRequest) (
 		return nil, fmt.Errorf("agent config not found: %w", err)
 	}
 
-	// 获取基础Agent
-	baseAgent, err := o.baseAgentSvc.GetByID(ctx, config.BaseAgentID)
+	// 获取基础Agent（直接从repo获取，包含ApiToken）
+	baseAgent, err := o.baseAgentRepo.FindByID(ctx, config.BaseAgentID)
 	if err != nil {
 		o.debugThreadMgr.SetStatus(req.ThreadID, DebugThreadStatusIdle)
 		return nil, fmt.Errorf("base agent not found: %w", err)
 	}
+	logInfo("SpawnDebugAgent: got baseAgent", zap.String("id", baseAgent.ID.String()), zap.String("name", baseAgent.Name), zap.Bool("hasApiToken", baseAgent.ApiToken != ""), zap.String("apiUrl", baseAgent.ApiURL))
 
 	// 创建适配器
 	adapter := NewAdapter(baseAgent)
@@ -390,6 +391,7 @@ func (o *Orchestrator) executeDebugAgent(
 		WorkDir:   req.ProjectPath,
 		Config:    config,
 		BaseAgent: baseAgent,
+		ConfigDir: config.ConfigPath, // 使用生成的配置目录
 		Context: &ContextLayers{
 			Layer0: config.SystemPrompt,
 		},
@@ -407,6 +409,7 @@ func (o *Orchestrator) executeDebugAgent(
 		outputBuilder.WriteString(chunk.Content)
 		chunkCount++
 		// 广播流式输出
+		logInfo("executeDebugAgent: calling BroadcastChunk", zap.Int("chunkNum", chunkCount), zap.String("type", string(chunk.Type)), zap.Int("contentLen", len(chunk.Content)))
 		o.debugThreadMgr.BroadcastChunk(threadID.String(), invocationID, agentID, agentName, chunk.Content)
 	})
 

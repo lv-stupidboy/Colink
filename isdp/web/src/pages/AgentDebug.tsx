@@ -61,6 +61,8 @@ const AgentDebugPage: React.FC = () => {
   // 加载Agent信息
   useEffect(() => {
     if (agentId) {
+      // 切换角色时清除旧的调试会话
+      clearAll();
       api.agents.get(agentId).then(setAgent).catch(err => {
         message.error('加载Agent失败');
         console.error(err);
@@ -103,6 +105,7 @@ const AgentDebugPage: React.FC = () => {
           threadId: threadIdRef.current || '',
           role: 'agent',
           agentId: msg.payload.agentId as string,
+          agentName: msg.payload.agentName as string,
           content: msg.payload.content as string,
           messageType: 'text',
           createdAt: msg.timestamp ? new Date(msg.timestamp * 1000).toISOString() : new Date().toISOString(),
@@ -403,7 +406,7 @@ const AgentDebugPage: React.FC = () => {
                   <MessageCard
                     key={msg.id || idx}
                     message={msg}
-                    agentName={msg.agentId}
+                    agentName={msg.agentName || msg.agentId}
                     isStreaming={false}
                   />
                 ))}

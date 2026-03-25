@@ -20,14 +20,14 @@ const (
 
 // Artifact 产物模型
 type Artifact struct {
-	ID        uuid.UUID          `json:"id"`
-	ThreadID  uuid.UUID          `json:"thread_id"`
-	Type      ArtifactType       `json:"type"`
-	Name      string             `json:"name"`
-	Path      string             `json:"path,omitempty"`
-	Content   string             `json:"content,omitempty"`
+	ID        uuid.UUID              `json:"id"`
+	ThreadID  uuid.UUID              `json:"threadId"`
+	Type      ArtifactType           `json:"type"`
+	Name      string                 `json:"name"`
+	Path      string                 `json:"path,omitempty"`
+	Content   string                 `json:"content,omitempty"`
 	Metadata  map[string]interface{} `json:"metadata,omitempty"`
-	CreatedAt time.Time          `json:"created_at"`
+	CreatedAt time.Time              `json:"createdAt"`
 }
 
 func (a *Artifact) TableName() string {

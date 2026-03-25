@@ -29,16 +29,16 @@ const (
 type KnowledgeBase struct {
 	ID            uuid.UUID          `json:"id"`
 	Name          string             `json:"name"`
-	DisplayName   string             `json:"display_name,omitempty"`
+	DisplayName   string             `json:"displayName,omitempty"`
 	Description   string             `json:"description,omitempty"`
 	Type          KnowledgeBaseType  `json:"type"`
 	Config        map[string]string  `json:"config,omitempty"` // 加密存储
-	QueryEndpoint string             `json:"query_endpoint,omitempty"`
+	QueryEndpoint string             `json:"queryEndpoint,omitempty"`
 	Status        KnowledgeBaseStatus `json:"status"`
-	LastQueryAt   *time.Time         `json:"last_query_at,omitempty"`
-	QueryCount    int                `json:"query_count"`
-	CreatedAt     time.Time          `json:"created_at"`
-	UpdatedAt     time.Time          `json:"updated_at"`
+	LastQueryAt   *time.Time         `json:"lastQueryAt,omitempty"`
+	QueryCount    int                `json:"queryCount"`
+	CreatedAt     time.Time          `json:"createdAt"`
+	UpdatedAt     time.Time          `json:"updatedAt"`
 }
 
 func (k *KnowledgeBase) TableName() string {
@@ -48,19 +48,19 @@ func (k *KnowledgeBase) TableName() string {
 // CreateKnowledgeBaseRequest 创建知识库请求
 type CreateKnowledgeBaseRequest struct {
 	Name          string            `json:"name" binding:"required"`
-	DisplayName   string            `json:"display_name"`
+	DisplayName   string            `json:"displayName"`
 	Description   string            `json:"description"`
 	Type          KnowledgeBaseType `json:"type" binding:"required"`
 	Config        map[string]string `json:"config"`
-	QueryEndpoint string            `json:"query_endpoint"`
+	QueryEndpoint string            `json:"queryEndpoint"`
 }
 
 // UpdateKnowledgeBaseRequest 更新知识库请求
 type UpdateKnowledgeBaseRequest struct {
-	DisplayName   string            `json:"display_name"`
-	Description   string            `json:"description"`
-	Config        map[string]string `json:"config"`
-	QueryEndpoint string            `json:"query_endpoint"`
+	DisplayName   string             `json:"displayName"`
+	Description   string             `json:"description"`
+	Config        map[string]string  `json:"config"`
+	QueryEndpoint string             `json:"queryEndpoint"`
 	Status        KnowledgeBaseStatus `json:"status"`
 }
 

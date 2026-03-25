@@ -13,10 +13,10 @@ type Subagent struct {
 	ID          uuid.UUID `json:"id"`
 	Name        string    `json:"name"`
 	Description string    `json:"description,omitempty"`
-	Content     string    `json:"content"`            // Markdown内容
-	SkillID     uuid.UUID `json:"skill_id,omitempty"` // 所属技能包ID（可选）
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	Content     string    `json:"content"`           // Markdown内容
+	SkillID     uuid.UUID `json:"skillId,omitempty"` // 所属技能包ID（可选）
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
 func (s *Subagent) TableName() string {
@@ -26,9 +26,9 @@ func (s *Subagent) TableName() string {
 // AgentSubagentBinding Agent角色与子代理绑定
 type AgentSubagentBinding struct {
 	ID          uuid.UUID `json:"id"`
-	AgentRoleID uuid.UUID `json:"agent_role_id"`
-	SubagentID  uuid.UUID `json:"subagent_id"`
-	CreatedAt   time.Time `json:"created_at"`
+	AgentRoleID uuid.UUID `json:"agentRoleId"`
+	SubagentID  uuid.UUID `json:"subagentId"`
+	CreatedAt   time.Time `json:"createdAt"`
 }
 
 func (a *AgentSubagentBinding) TableName() string {
@@ -40,7 +40,7 @@ type CreateSubagentRequest struct {
 	Name        string    `json:"name" binding:"required"`
 	Description string    `json:"description"`
 	Content     string    `json:"content" binding:"required"`
-	SkillID     uuid.UUID `json:"skill_id"`
+	SkillID     uuid.UUID `json:"skillId"`
 }
 
 // UpdateSubagentRequest 更新Subagent请求
@@ -58,15 +58,15 @@ type SubagentListQuery struct {
 
 // BindSubagentRequest 绑定Subagent请求
 type BindSubagentRequest struct {
-	SubagentIDs []uuid.UUID `json:"subagent_ids" binding:"required"`
+	SubagentIDs []uuid.UUID `json:"subagentIds" binding:"required"`
 }
 
 // SubagentSkillBinding 子代理与技能绑定
 type SubagentSkillBinding struct {
 	ID         uuid.UUID `json:"id"`
-	SubagentID uuid.UUID `json:"subagent_id"`
-	SkillID    uuid.UUID `json:"skill_id"`
-	CreatedAt  time.Time `json:"created_at"`
+	SubagentID uuid.UUID `json:"subagentId"`
+	SkillID    uuid.UUID `json:"skillId"`
+	CreatedAt  time.Time `json:"createdAt"`
 }
 
 func (s *SubagentSkillBinding) TableName() string {
@@ -75,5 +75,5 @@ func (s *SubagentSkillBinding) TableName() string {
 
 // BindSkillsToSubagentRequest 绑定技能到Subagent请求
 type BindSkillsToSubagentRequest struct {
-	SkillIDs []uuid.UUID `json:"skill_ids" binding:"required"`
+	SkillIDs []uuid.UUID `json:"skillIds" binding:"required"`
 }

@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
@@ -18,6 +19,11 @@ type AgentHandler struct {
 	threadRepo      *repo.ThreadRepository
 	debugThreadMgr  *agent.DebugThreadManager // 调试线程管理器
 	workflowRepo    *repo.WorkflowTemplateRepository
+	// 绑定关系 repository
+	agentSkillBindingRepo    *repo.AgentSkillBindingRepository
+	agentSubagentBindingRepo *repo.AgentSubagentBindingRepository
+	agentCommandBindingRepo  *repo.AgentCommandBindingRepository
+	agentRuleBindingRepo     *repo.AgentRuleBindingRepository
 }
 
 // NewAgentHandler 创建处理器
@@ -28,14 +34,22 @@ func NewAgentHandler(
 	threadRepo *repo.ThreadRepository,
 	debugThreadMgr *agent.DebugThreadManager, // 新增
 	workflowRepo *repo.WorkflowTemplateRepository,
+	agentSkillBindingRepo *repo.AgentSkillBindingRepository,
+	agentSubagentBindingRepo *repo.AgentSubagentBindingRepository,
+	agentCommandBindingRepo *repo.AgentCommandBindingRepository,
+	agentRuleBindingRepo *repo.AgentRuleBindingRepository,
 ) *AgentHandler {
 	return &AgentHandler{
-		configSvc:      configSvc,
-		baseAgentSvc:   baseAgentSvc,
-		orchestrator:   orchestrator,
-		threadRepo:     threadRepo,
-		debugThreadMgr: debugThreadMgr,
-		workflowRepo:   workflowRepo,
+		configSvc:                configSvc,
+		baseAgentSvc:             baseAgentSvc,
+		orchestrator:             orchestrator,
+		threadRepo:               threadRepo,
+		debugThreadMgr:           debugThreadMgr,
+		workflowRepo:             workflowRepo,
+		agentSkillBindingRepo:    agentSkillBindingRepo,
+		agentSubagentBindingRepo: agentSubagentBindingRepo,
+		agentCommandBindingRepo:  agentCommandBindingRepo,
+		agentRuleBindingRepo:     agentRuleBindingRepo,
 	}
 }
 
@@ -212,14 +226,83 @@ func (h *AgentHandler) Copy(c *gin.Context) {
 		return
 	}
 
+	// 复制绑定关系
+	ctx := c.Request.Context()
+	newID := copy.ID
+	now := time.Now()
+
+	// 1. 复制 Skill 绑定
+	if h.agentSkillBindingRepo != nil {
+		skillIDs, err := h.agentSkillBindingRepo.FindByAgentRoleID(ctx, id)
+		if err == nil {
+			for _, skillID := range skillIDs {
+				binding := &model.AgentSkillBinding{
+					ID:          uuid.New(),
+					AgentRoleID: newID,
+					SkillID:     skillID,
+					CreatedAt:   now,
+				}
+				h.agentSkillBindingRepo.Create(ctx, binding)
+			}
+		}
+	}
+
+	// 2. 复制 Subagent 绑定
+	if h.agentSubagentBindingRepo != nil {
+		subagentIDs, err := h.agentSubagentBindingRepo.FindByAgentRoleID(ctx, id)
+		if err == nil {
+			for _, subagentID := range subagentIDs {
+				binding := &model.AgentSubagentBinding{
+					ID:          uuid.New(),
+					AgentRoleID: newID,
+					SubagentID:  subagentID,
+					CreatedAt:   now,
+				}
+				h.agentSubagentBindingRepo.Create(ctx, binding)
+			}
+		}
+	}
+
+	// 3. 复制 Command 绑定
+	if h.agentCommandBindingRepo != nil {
+		commandIDs, err := h.agentCommandBindingRepo.FindByAgentRoleID(ctx, id)
+		if err == nil {
+			for _, commandID := range commandIDs {
+				binding := &model.AgentCommandBinding{
+					ID:          uuid.New(),
+					AgentRoleID: newID,
+					CommandID:   commandID,
+					CreatedAt:   now,
+				}
+				h.agentCommandBindingRepo.Create(ctx, binding)
+			}
+		}
+	}
+
+	// 4. 复制 Rule 绑定
+	if h.agentRuleBindingRepo != nil {
+		ruleIDs, err := h.agentRuleBindingRepo.FindByAgentRoleID(ctx, id)
+		if err == nil {
+			for _, ruleID := range ruleIDs {
+				binding := &model.AgentRuleBinding{
+					ID:          uuid.New(),
+					AgentRoleID: newID,
+					RuleID:      ruleID,
+					CreatedAt:   now,
+				}
+				h.agentRuleBindingRepo.Create(ctx, binding)
+			}
+		}
+	}
+
 	c.JSON(http.StatusCreated, copy)
 }
 
 // DebugRequest 调试请求
 type DebugRequest struct {
 	Input       string `json:"input" binding:"required"`
-	ProjectPath string `json:"project_path"`
-	ThreadID    string `json:"thread_id"` // 前端传入的预创建threadId，用于WebSocket已连接的场景
+	ProjectPath string `json:"projectPath"`
+	ThreadID    string `json:"threadId"` // 前端传入的预创建threadId，用于WebSocket已连接的场景
 }
 
 // DebugResponse 调试响应

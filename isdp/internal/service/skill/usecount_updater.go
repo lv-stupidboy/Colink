@@ -2,12 +2,12 @@ package skill
 
 import (
 	"context"
-	"log"
 	"time"
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
 
 // UseCountUpdater 技能使用次数更新器
@@ -19,6 +19,7 @@ type UseCountUpdater struct {
 		GetAgentIDs(ctx context.Context, templateID uuid.UUID) ([]uuid.UUID, error)
 	}
 	stopChan chan struct{}
+	logger   *zap.Logger
 }
 
 // NewUseCountUpdater 创建使用次数更新器
@@ -32,6 +33,14 @@ func NewUseCountUpdater(
 		projectRepo: projectRepo,
 		bindingRepo: bindingRepo,
 		stopChan:    make(chan struct{}),
+		logger:      zap.NewNop(),
+	}
+}
+
+// SetLogger 设置日志记录器
+func (u *UseCountUpdater) SetLogger(logger *zap.Logger) {
+	if logger != nil {
+		u.logger = logger
 	}
 }
 
@@ -66,24 +75,24 @@ func (u *UseCountUpdater) Start(interval time.Duration) {
 		}
 	}()
 
-	log.Printf("[SkillUseCount] 定时更新器已启动，更新间隔: %v", interval)
+	u.logger.Info("[SkillUseCount] 定时更新器已启动", zap.Duration("interval", interval))
 }
 
 // Stop 停止定时更新
 func (u *UseCountUpdater) Stop() {
 	close(u.stopChan)
-	log.Println("[SkillUseCount] 定时更新器已停止")
+	u.logger.Info("[SkillUseCount] 定时更新器已停止")
 }
 
 // UpdateAll 更新所有技能的使用次数
 func (u *UseCountUpdater) UpdateAll(ctx context.Context) {
 	startTime := time.Now()
-	log.Println("[SkillUseCount] 开始更新技能使用次数...")
+	u.logger.Info("[SkillUseCount] 开始更新技能使用次数...")
 
 	// 1. 获取所有项目
 	projects, err := u.projectRepo.ListAll(ctx)
 	if err != nil {
-		log.Printf("[SkillUseCount] 获取项目列表失败: %v", err)
+		u.logger.Error("[SkillUseCount] 获取项目列表失败", zap.Error(err))
 		return
 	}
 
@@ -98,7 +107,9 @@ func (u *UseCountUpdater) UpdateAll(ctx context.Context) {
 		// 获取工作流模板中的 Agent ID 列表
 		agentIDs, err := u.getAgentIDsFromWorkflow(ctx, *project.WorkflowTemplateID)
 		if err != nil {
-			log.Printf("[SkillUseCount] 获取工作流 %s 的 Agent 列表失败: %v", project.WorkflowTemplateID, err)
+			u.logger.Warn("[SkillUseCount] 获取工作流的 Agent 列表失败",
+				zap.String("workflowId", project.WorkflowTemplateID.String()),
+				zap.Error(err))
 			continue
 		}
 
@@ -124,7 +135,9 @@ func (u *UseCountUpdater) UpdateAll(ctx context.Context) {
 	updatedCount := 0
 	for skillID, count := range skillUseCount {
 		if err := u.skillRepo.UpdateUseCount(ctx, skillID, count); err != nil {
-			log.Printf("[SkillUseCount] 更新技能 %s 使用次数失败: %v", skillID, err)
+			u.logger.Error("[SkillUseCount] 更新技能使用次数失败",
+				zap.String("skillId", skillID),
+				zap.Error(err))
 		} else {
 			updatedCount++
 		}
@@ -140,8 +153,10 @@ func (u *UseCountUpdater) UpdateAll(ctx context.Context) {
 		}
 	}
 
-	log.Printf("[SkillUseCount] 更新完成，耗时 %v，共处理 %d 个项目，更新了 %d 个技能",
-		time.Since(startTime), len(projects), updatedCount)
+	u.logger.Info("[SkillUseCount] 更新完成",
+		zap.Duration("duration", time.Since(startTime)),
+		zap.Int("projectCount", len(projects)),
+		zap.Int("updatedCount", updatedCount))
 }
 
 // getAgentIDsFromWorkflow 从工作流模板获取 Agent ID 列表

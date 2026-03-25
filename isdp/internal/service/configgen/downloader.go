@@ -41,36 +41,37 @@ type DownloadResult struct {
 }
 
 // DownloadSkill 下载 Skill 文件到指定目录
-// 从本地技能存储目录复制技能文件到目标项目目录
+// 从本地技能存储目录复制技能目录到目标项目目录
 // agentType: "claude_code" 或 "open_code"
 // targetDir: 目标目录（如 .claude/ 或 .opencode/）
 func (d *Downloader) DownloadSkill(ctx context.Context, skill *model.Skill, agentType, targetDir string) (string, error) {
-	// 确定源文件路径（本地存储的技能 zip 包）
-	sourcePath := filepath.Join(d.skillStoragePath, skill.Name+".zip")
-	if _, err := os.Stat(sourcePath); os.IsNotExist(err) {
-		return "", fmt.Errorf("技能文件不存在: %s", skill.Name)
+	// 技能源目录: {skillStoragePath}/{skillName}/
+	sourceDir := filepath.Join(d.skillStoragePath, skill.Name)
+
+	// 检查目录是否存在
+	if stat, err := os.Stat(sourceDir); err != nil || !stat.IsDir() {
+		return "", fmt.Errorf("技能目录不存在: %s", skill.Name)
 	}
 
-	// 确定目标文件路径
-	fileName := d.getFileName(skill, agentType)
-	targetPath := filepath.Join(targetDir, "skills", fileName)
+	// 目标目录: {targetDir}/skills/{skillName}/
+	targetSkillDir := filepath.Join(targetDir, "skills", skill.Name)
 
-	// 创建目标目录
-	if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+	// 创建目标目录的父目录
+	if err := os.MkdirAll(filepath.Dir(targetSkillDir), 0755); err != nil {
 		return "", fmt.Errorf("创建目录失败: %w", err)
 	}
 
-	// 复制文件
-	if err := d.copyFileWithRetry(ctx, sourcePath, targetPath); err != nil {
-		return "", fmt.Errorf("复制失败: %w", err)
+	// 复制整个目录
+	if err := d.copyDirWithRetry(ctx, sourceDir, targetSkillDir); err != nil {
+		return "", fmt.Errorf("复制目录失败: %w", err)
 	}
 
-	d.logger.Info("Skill 复制完成",
+	d.logger.Info("Skill 目录复制完成",
 		zap.String("skill", skill.Name),
-		zap.String("source", sourcePath),
-		zap.String("target", targetPath))
+		zap.String("source", sourceDir),
+		zap.String("target", targetSkillDir))
 
-	return targetPath, nil
+	return targetSkillDir, nil
 }
 
 // DownloadSkills 批量下载 Skills
@@ -88,13 +89,6 @@ func (d *Downloader) DownloadSkills(ctx context.Context, skills []*model.Skill, 
 	}
 
 	return results
-}
-
-// getFileName 获取保存的文件名
-func (d *Downloader) getFileName(skill *model.Skill, agentType string) string {
-	// 使用 skill 名称作为文件名
-	// OpenCode 可能使用 .ts 扩展名，但这里统一使用 .md
-	return skill.Name + ".md"
 }
 
 // copyFileWithRetry 带重试的文件复制
@@ -124,8 +118,52 @@ func (d *Downloader) copyFileWithRetry(ctx context.Context, sourcePath, targetPa
 	return fmt.Errorf("复制失败，已重试 %d 次: %w", d.maxRetries, lastErr)
 }
 
+// copyDirWithRetry 带重试的目录复制
+func (d *Downloader) copyDirWithRetry(ctx context.Context, sourceDir, targetDir string) error {
+	// 如果目标目录已存在，先删除
+	if _, err := os.Stat(targetDir); err == nil {
+		if err := os.RemoveAll(targetDir); err != nil {
+			return fmt.Errorf("清理目标目录失败: %w", err)
+		}
+	}
+
+	// 创建目标目录
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		return fmt.Errorf("创建目标目录失败: %w", err)
+	}
+
+	// 遍历源目录
+	return filepath.Walk(sourceDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// 计算相对路径
+		relPath, err := filepath.Rel(sourceDir, path)
+		if err != nil {
+			return err
+		}
+
+		// 目标路径
+		targetPath := filepath.Join(targetDir, relPath)
+
+		if info.IsDir() {
+			// 创建目录
+			return os.MkdirAll(targetPath, info.Mode())
+		}
+
+		// 复制文件
+		return d.copyFileOnce(ctx, path, targetPath)
+	})
+}
+
 // copyFileOnce 执行一次文件复制
 func (d *Downloader) copyFileOnce(ctx context.Context, sourcePath, targetPath string) error {
+	// 确保目标文件的父目录存在
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+		return fmt.Errorf("创建父目录失败: %w", err)
+	}
+
 	// 打开源文件
 	sourceFile, err := os.Open(sourcePath)
 	if err != nil {
@@ -133,9 +171,8 @@ func (d *Downloader) copyFileOnce(ctx context.Context, sourcePath, targetPath st
 	}
 	defer sourceFile.Close()
 
-	// 创建临时文件
-	tempPath := targetPath + ".tmp"
-	targetFile, err := os.Create(tempPath)
+	// 直接创建目标文件（不使用临时文件，简化逻辑）
+	targetFile, err := os.Create(targetPath)
 	if err != nil {
 		return fmt.Errorf("创建目标文件失败: %w", err)
 	}
@@ -144,20 +181,13 @@ func (d *Downloader) copyFileOnce(ctx context.Context, sourcePath, targetPath st
 	// 复制内容
 	_, err = io.Copy(targetFile, sourceFile)
 	if err != nil {
-		os.Remove(tempPath)
+		os.Remove(targetPath)
 		return fmt.Errorf("复制内容失败: %w", err)
 	}
 
 	// 确保数据写入磁盘
 	if err := targetFile.Sync(); err != nil {
-		os.Remove(tempPath)
 		return fmt.Errorf("同步文件失败: %w", err)
-	}
-
-	// 原子性重命名
-	if err := os.Rename(tempPath, targetPath); err != nil {
-		os.Remove(tempPath)
-		return fmt.Errorf("重命名文件失败: %w", err)
 	}
 
 	return nil

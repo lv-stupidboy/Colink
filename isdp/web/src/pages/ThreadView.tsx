@@ -284,6 +284,7 @@ const ThreadView: React.FC = () => {
           threadId: debugThreadId || '',
           role: 'agent',
           agentId: data.payload.agentId as string,
+          agentName: data.payload.agentName as string,
           content: data.payload.content as string,
           messageType: 'text',
           createdAt: new Date().toISOString(),
@@ -798,6 +799,11 @@ const ThreadView: React.FC = () => {
       return;
     }
 
+    // 判断是否需要创建新会话
+    // soloNewTaskPending 为 true 表示用户明确要新建任务
+    // 或者 debugThreadId 为空表示还没有会话
+    const needNewSession = soloNewTaskPending || !debugThreadId;
+
     // 添加用户消息
     const userMsg: Message = {
       id: Date.now().toString(),
@@ -811,22 +817,38 @@ const ThreadView: React.FC = () => {
     setDebugStatus('running');
 
     try {
-      if (debugThreadId && wsConnectedRef.current) {
-        // 已有会话，继续发送
+      if (!needNewSession && debugThreadId && wsConnectedRef.current) {
+        // 已有会话且 WebSocket 已连接，继续发送
+        console.log('[handleDebugSend] Continuing session:', debugThreadId);
         await api.agents.continueDebug(debugThreadId, content);
       } else {
         // 新会话：创建 thread -> 连接 WebSocket -> 调用 debug
+        console.log('[handleDebugSend] Creating new session, needNewSession:', needNewSession);
+
+        // 先关闭旧连接
+        if (wsRef.current) {
+          wsRef.current.close();
+          wsRef.current = null;
+        }
+        wsConnectedRef.current = false;
+        setDebugWsConnected(false);
+
         const threadResult = await api.agents.createDebugThread(debugProjectPath || undefined);
         const newThreadId = threadResult.threadId;
-        console.log('[Debug] Created thread:', newThreadId);
+        console.log('[handleDebugSend] Created thread:', newThreadId);
 
         setDebugThreadId(newThreadId);
+        setSoloNewTaskPending(false);
+
+        // 主动连接 WebSocket（不依赖 useEffect）
+        connectDebugWebSocket(newThreadId);
 
         // 等待 WebSocket 连接
         await new Promise<void>((resolve, reject) => {
           const startTime = Date.now();
           const check = () => {
             if (wsConnectedRef.current) {
+              console.log('[handleDebugSend] WebSocket connected');
               resolve();
             } else if (Date.now() - startTime > 5000) {
               reject(new Error('WebSocket connection timeout'));
@@ -838,6 +860,7 @@ const ThreadView: React.FC = () => {
         });
 
         // 调用 debug API
+        console.log('[handleDebugSend] Calling debug API with threadId:', newThreadId);
         await api.agents.debug(debugAgentConfig.id, content, debugProjectPath || undefined, newThreadId);
       }
     } catch (error: any) {
@@ -978,6 +1001,38 @@ const ThreadView: React.FC = () => {
           setDebugThreadId(newThread.id);
           // 连接 WebSocket
           connectDebugWebSocket(newThread.id);
+
+          // 添加用户消息
+          const userMsg: Message = {
+            id: Date.now().toString(),
+            threadId: newThread.id,
+            role: 'user',
+            content,
+            messageType: 'text',
+            createdAt: new Date().toISOString(),
+          };
+          addDebugMessage(userMsg);
+          setDebugStatus('running');
+
+          // 等待 WebSocket 连接
+          await new Promise<void>((resolve, reject) => {
+            const startTime = Date.now();
+            const check = () => {
+              if (wsConnectedRef.current) {
+                resolve();
+              } else if (Date.now() - startTime > 5000) {
+                reject(new Error('WebSocket connection timeout'));
+              } else {
+                setTimeout(check, 100);
+              }
+            };
+            check();
+          });
+
+          // 直接调用 debug API，使用 newThread.id 而不是依赖 state
+          if (debugAgentConfig) {
+            await api.agents.debug(debugAgentConfig.id, content, debugProjectPath || undefined, newThread.id);
+          }
         } else {
           // 团队模式：设置 currentThread 以便 sendMessage 能正常工作
           setCurrentThread(newThread);
@@ -993,15 +1048,15 @@ const ThreadView: React.FC = () => {
         message.error('创建任务失败');
         return;
       }
-    }
-
-    // 调用原有的发送逻辑
-    if (isDebugMode) {
-      await handleDebugSend(content);
     } else {
-      await sendMessage(content);
+      // 不是新任务，调用原有的发送逻辑
+      if (isDebugMode) {
+        await handleDebugSend(content);
+      } else {
+        await sendMessage(content);
+      }
     }
-  }, [soloNewTaskPending, projectId, isDebugMode, agentId, navigate, setDebugThreadId, handleDebugSend, sendMessage, debugProjectPath, connectDebugWebSocket, setCurrentThread]);
+  }, [soloNewTaskPending, projectId, isDebugMode, agentId, navigate, setDebugThreadId, handleDebugSend, sendMessage, debugProjectPath, connectDebugWebSocket, setCurrentThread, debugAgentConfig, addDebugMessage, setDebugStatus]);
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -1208,8 +1263,9 @@ const ThreadView: React.FC = () => {
       const hasArtifact = Boolean(msg.metadata?.artifact);
       const hasReview = Boolean(msg.metadata?.reviewReport);
 
-      // 优先使用 metadata 中的 agentName，其次尝试用 agentRole 映射，最后 fallback 到 agentId
-      const agentName = (msg.metadata?.agentName as string) ||
+      // 优先使用消息的 agentName 字段，其次 metadata 中的 agentName，最后 fallback 到 agentId
+      const agentName = msg.agentName ||
+        (msg.metadata?.agentName as string) ||
         AgentRoleLabels[(msg.metadata?.agentRole as keyof typeof AgentRoleLabels)] ||
         AgentRoleLabels[msg.agentId as keyof typeof AgentRoleLabels] ||
         msg.agentId ||

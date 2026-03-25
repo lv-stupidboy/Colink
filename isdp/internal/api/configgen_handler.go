@@ -114,13 +114,40 @@ func (h *ConfigGenHandler) GenerateAgentConfig(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":        "Agent配置生成成功",
-		"agentId":        result.AgentID,
-		"configPath":     result.ConfigPath,
-		"skillsCount":    result.SkillsCount,
-		"subagentsCount": result.SubagentsCount,
-		"generatedAt":    result.GeneratedAt,
+		"message":         "Agent配置生成成功",
+		"agent_id":        result.AgentID,
+		"config_path":     result.ConfigPath,
+		"skills_count":    result.SkillsCount,
+		"subagents_count": result.SubagentsCount,
+		"commands_count":  result.CommandsCount,
+		"rules_count":     result.RulesCount,
+		"generated_at":    result.GeneratedAt,
 	})
+}
+
+// PreviewAgentConfig 预览Agent角色配置（生成前）
+// GET /agents/:id/config/preview
+func (h *ConfigGenHandler) PreviewAgentConfig(c *gin.Context) {
+	agentID := c.Param("id")
+	if agentID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "缺少 Agent ID"})
+		return
+	}
+
+	// 解析 agentID 为 uuid
+	agentUUID, err := uuid.Parse(agentID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的 Agent ID 格式"})
+		return
+	}
+
+	result, err := h.configGenSvc.PreviewAgentConfig(c.Request.Context(), agentUUID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
 }
 
 // RegisterRoutes 注册路由
@@ -134,6 +161,7 @@ func (h *ConfigGenHandler) RegisterRoutes(r *gin.RouterGroup) {
 	// Agent级配置生成（新增）
 	agents := r.Group("/agents")
 	{
+		agents.GET("/:id/config/preview", h.PreviewAgentConfig)
 		agents.POST("/:id/config/generate", h.GenerateAgentConfig)
 	}
 }

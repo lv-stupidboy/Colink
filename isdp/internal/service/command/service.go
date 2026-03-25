@@ -1,4 +1,3 @@
-// 文件路径: isdp/internal/service/command/service.go
 package command
 
 import (
@@ -6,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/anthropic/isdp/internal/model"
@@ -124,20 +125,27 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, req *model.UpdateCom
 
 // Delete 删除Command
 func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
-	// 检查是否有Agent绑定
+	// 先获取命令信息（用于删除文件）
+	command, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return fmt.Errorf("命令不存在: %w", err)
+	}
+
+	// 检查是否有Agent绑定，获取绑定的Agent名称
 	agentRoleIDs, err := s.agentBindingRepo.FindByCommandID(ctx, id)
 	if err != nil {
 		return fmt.Errorf("检查绑定关系失败: %w", err)
 	}
 	if len(agentRoleIDs) > 0 {
-		return fmt.Errorf("无法删除命令：该命令已被 %d 个Agent绑定", len(agentRoleIDs))
-	}
-
-	// 删除文件
-	command, err := s.repo.FindByID(ctx, id)
-	if err == nil && command != nil {
-		filePath := fmt.Sprintf("%s/%s.md", s.storagePath, command.Name)
-		os.Remove(filePath) // 忽略错误
+		// 获取Agent名称列表
+		agentNames := make([]string, 0, len(agentRoleIDs))
+		for _, agentID := range agentRoleIDs {
+			agent, err := s.agentRepo.FindByID(ctx, agentID)
+			if err == nil {
+				agentNames = append(agentNames, agent.Name)
+			}
+		}
+		return fmt.Errorf("无法删除命令：该命令已被以下Agent绑定：%s", strings.Join(agentNames, "、"))
 	}
 
 	// 删除技能绑定
@@ -145,23 +153,29 @@ func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
 		s.logger.Warn("删除技能绑定失败", zap.Error(err))
 	}
 
+	// 删除数据库记录
 	if err := s.repo.Delete(ctx, id); err != nil {
 		return fmt.Errorf("删除命令失败: %w", err)
 	}
 
-	s.logger.Info("删除命令成功",
-		zap.String("id", id.String()),
-	)
+	// 删除对应的文件
+	if s.storagePath != "" && command != nil {
+		filePath := filepath.Join(s.storagePath, command.Name+".md")
+		if _, err := os.Stat(filePath); err == nil {
+			if err := os.Remove(filePath); err != nil {
+				s.logger.Warn("删除命令文件失败", zap.String("path", filePath), zap.Error(err))
+			} else {
+				s.logger.Info("删除命令文件成功", zap.String("path", filePath))
+			}
+		}
+	}
 
+	s.logger.Info("删除命令成功", zap.String("id", id.String()), zap.String("name", command.Name))
 	return nil
 }
 
-// BindSkills 绑定技能到Command
+// BindSkills 绑定技能到Command（全量替换）
 func (s *Service) BindSkills(ctx context.Context, commandID uuid.UUID, skillIDs []uuid.UUID) error {
-	if len(skillIDs) == 0 {
-		return errors.New("技能ID列表不能为空")
-	}
-
 	// 验证Command是否存在
 	_, err := s.repo.FindByID(ctx, commandID)
 	if err != nil {
@@ -176,16 +190,13 @@ func (s *Service) BindSkills(ctx context.Context, commandID uuid.UUID, skillIDs 
 		}
 	}
 
-	// 创建绑定
-	for _, skillID := range skillIDs {
-		exists, err := s.skillBindingRepo.ExistsBinding(ctx, commandID, skillID)
-		if err != nil {
-			return err
-		}
-		if exists {
-			continue
-		}
+	// 先删除所有现有绑定
+	if err := s.skillBindingRepo.DeleteByCommandID(ctx, commandID); err != nil {
+		return fmt.Errorf("清理旧绑定失败: %w", err)
+	}
 
+	// 创建新的绑定
+	for _, skillID := range skillIDs {
 		binding := &model.CommandSkillBinding{
 			ID:        uuid.New(),
 			CommandID: commandID,
@@ -232,13 +243,8 @@ func (s *Service) UnbindSkill(ctx context.Context, commandID, skillID uuid.UUID)
 	return nil
 }
 
-// BindCommandsToAgent 绑定Commands到Agent
+// BindCommandsToAgent 绑定Commands到Agent（全量替换）
 func (s *Service) BindCommandsToAgent(ctx context.Context, agentRoleID uuid.UUID, commandIDs []uuid.UUID) error {
-	// 空切片检查
-	if len(commandIDs) == 0 {
-		return errors.New("命令ID列表不能为空")
-	}
-
 	// 验证Agent是否存在
 	_, err := s.agentRepo.FindByID(ctx, agentRoleID)
 	if err != nil {
@@ -253,17 +259,13 @@ func (s *Service) BindCommandsToAgent(ctx context.Context, agentRoleID uuid.UUID
 		}
 	}
 
-	// 创建绑定
-	for _, commandID := range commandIDs {
-		// 检查是否已存在绑定
-		exists, err := s.agentBindingRepo.ExistsBinding(ctx, agentRoleID, commandID)
-		if err != nil {
-			return err
-		}
-		if exists {
-			continue // 已存在绑定，跳过
-		}
+	// 先删除所有现有绑定
+	if err := s.agentBindingRepo.DeleteByAgentRoleID(ctx, agentRoleID); err != nil {
+		return fmt.Errorf("清理旧绑定失败: %w", err)
+	}
 
+	// 创建新的绑定
+	for _, commandID := range commandIDs {
 		binding := &model.AgentCommandBinding{
 			ID:          uuid.New(),
 			AgentRoleID: agentRoleID,

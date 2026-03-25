@@ -112,7 +112,7 @@ func (a *OpenCodeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionR
 	}
 
 	// 设置环境变量
-	env := a.buildEnv()
+	env := a.buildEnv(req)
 	cmd.Env = env
 
 	// 获取 stdout 和 stderr 管道
@@ -310,7 +310,7 @@ func (a *OpenCodeAdapter) buildPromptFromRequest(req *ExecutionRequest) string {
 // OpenCode CLI 使用 ~/.local/share/opencode/auth.json 管理 Provider 凭证
 // API Token 不支持通过环境变量设置，需在 auth.json 中配置
 // API URL 仅私有部署模型需要配置
-func (a *OpenCodeAdapter) buildEnv() []string {
+func (a *OpenCodeAdapter) buildEnv(req *ExecutionRequest) []string {
 	env := os.Environ()
 	// API URL: 仅私有部署模型需要配置
 	if a.apiURL != "" {
@@ -319,6 +319,10 @@ func (a *OpenCodeAdapter) buildEnv() []string {
 	// Git-Bash 路径: Windows 下需要
 	if a.gitBashPath != "" {
 		env = append(env, fmt.Sprintf("OPENCODE_GIT_BASH_PATH=%s", a.gitBashPath))
+	}
+	// 设置配置目录
+	if req.ConfigDir != "" {
+		env = append(env, fmt.Sprintf("OPENCODE_CONFIG_DIR=%s", req.ConfigDir))
 	}
 	// 注意: API Token 不支持环境变量，需配置 auth.json
 	return env
@@ -399,7 +403,7 @@ func (a *OpenCodeAdapter) CheckHealth(ctx context.Context) error {
 		cmd = exec.CommandContext(ctx, a.cliPath, args...)
 
 		// 设置环境变量，和正常执行流程一致
-		cmd.Env = a.buildEnv()
+		cmd.Env = a.buildEnv(&ExecutionRequest{})
 
 		// 通过stdin传递prompt
 		cmd.Stdin = strings.NewReader("reply with ok only")

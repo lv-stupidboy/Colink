@@ -1,7 +1,7 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Card, Button, Modal, Form, Input, Select, message, Space, Tag, Typography,
-  Popconfirm, Empty, Spin, Divider, Upload, Tooltip, Radio, Pagination
+  Popconfirm, Empty, Spin, Divider, Tooltip, Radio, Pagination
 } from 'antd';
 import {
   PlusOutlined,
@@ -10,8 +10,10 @@ import {
   DeleteOutlined,
   LinkOutlined,
   CloudUploadOutlined,
-  CloudDownloadOutlined
+  CloudDownloadOutlined,
+  FolderOpenOutlined
 } from '@ant-design/icons';
+import JSZip from 'jszip';
 import api from '@/api/client';
 import type { Skill, SkillSourceType, BuiltInTagCategory, SkillRegistry } from '@/types';
 
@@ -101,7 +103,7 @@ const SkillLibrary: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [pageSize] = useState(20);
+  const [pageSize, setPageSize] = useState(10);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingSkill, setEditingSkill] = useState<Skill | null>(null);
   const [searchText, setSearchText] = useState('');
@@ -117,7 +119,43 @@ const SkillLibrary: React.FC = () => {
   const [repoUrl, setRepoUrl] = useState('');
   const [selectedRegistryId, setSelectedRegistryId] = useState<string>('');
   const [importing, setImporting] = useState(false);
-  const [isAfterUpload, setIsAfterUpload] = useState(false); // 上传后补充信息模式
+  const [isAfterUpload, setIsAfterUpload] = useState(false);
+  const directoryInputRef = useRef<HTMLInputElement>(null);
+  const pendingZipBlobRef = useRef<Blob | null>(null); // 待上传的 zip blob
+  const renderDirectoryUpload = () => (
+    <>
+      {/* 隐藏的目录选择 input */}
+      <input
+        ref={directoryInputRef}
+        type="file"
+        style={{ display: 'none' }}
+        onChange={handleDirectoryChange}
+        multiple
+        // @ts-ignore webkitdirectory 属性
+        webkitdirectory=""
+        directory=""
+      />
+      <div
+        onClick={handleDirectorySelect}
+        style={{
+          border: '1px dashed var(--ant-color-border)',
+          borderRadius: 8,
+          padding: '24px 0',
+          textAlign: 'center',
+          cursor: 'pointer',
+          transition: 'border-color 0.3s',
+        }}
+      >
+        <p>
+          <FolderOpenOutlined style={{ fontSize: 32, color: 'var(--ant-color-primary)' }} />
+        </p>
+        <p style={{ color: 'var(--ant-color-text)' }}>点击选择技能目录</p>
+        <p style={{ fontSize: 12, color: 'var(--ant-color-text-secondary)' }}>
+          目录需包含 SKILL.md 文件，最大 5MB
+        </p>
+      </div>
+    </>
+  );
 
   // Agent 类型选项
   const agentTypeOptions = [
@@ -177,6 +215,7 @@ const SkillLibrary: React.FC = () => {
     setRepoUrl('');
     setSelectedRegistryId('');
     setIsAfterUpload(false);
+    pendingZipBlobRef.current = null;
     form.resetFields();
     form.setFieldsValue({ sourceType: 'personal', tags: [], isPublic: true, version: '', supportedAgents: [] });
     setModalVisible(true);
@@ -186,6 +225,7 @@ const SkillLibrary: React.FC = () => {
     setEditingSkill(record);
     setSourceType(record.sourceType);
     setIsAfterUpload(false);
+    pendingZipBlobRef.current = null;
     form.setFieldsValue({
       name: record.name,
       description: record.description,
@@ -221,18 +261,56 @@ const SkillLibrary: React.FC = () => {
     }
 
     try {
-      if (editingSkill) {
+      if (isAfterUpload && pendingZipBlobRef.current) {
+        // 新上传：上传 zip 文件创建记录
+        message.loading({ content: '正在创建技能...', key: 'uploading' });
+
+        const formData = new FormData();
+        formData.append('file', pendingZipBlobRef.current, 'skill.zip');
+        formData.append('source_type', values.sourceType || sourceType);
+        formData.append('directory_name', values.name);
+        formData.append('description', values.description || ''); // 传递前端解析的描述
+
+        const response = await fetch('/api/v1/skills/upload', {
+          method: 'POST',
+          body: formData,
+        });
+
+        const result = await response.json();
+        message.destroy('uploading');
+
+        if (!response.ok) {
+          throw new Error(result.error || '上传失败');
+        }
+
+        // 更新额外字段（如果有）
+        if (values.tags?.length || values.version || values.supportedAgents?.length) {
+          await api.skills.update(result.id, {
+            tags: values.tags,
+            version: values.version,
+            supportedAgents: values.supportedAgents,
+          });
+        }
+
+        pendingZipBlobRef.current = null;
+        setIsAfterUpload(false);
+        message.success('创建成功');
+      } else if (editingSkill?.id) {
+        // 编辑现有记录
         await api.skills.update(editingSkill.id, values);
         message.success('更新成功');
       } else {
+        // 手动创建
         await api.skills.create(values);
         message.success('创建成功');
       }
       setModalVisible(false);
       loadSkills();
       loadTags();
-    } catch (error) {
-      message.error('操作失败');
+    } catch (error: any) {
+      message.destroy('uploading');
+      const errorMsg = error.message || error.response?.data?.error || '操作失败';
+      message.error(errorMsg);
     }
   };
 
@@ -296,33 +374,156 @@ const SkillLibrary: React.FC = () => {
   );
 
   // 上传成功后自动填充表单
-  const handleUploadSuccess = (response: any) => {
-    if (response && response.id) {
-      // 上传后端已创建记录，设置为编辑模式
-      setEditingSkill(response);
-      setIsAfterUpload(true); // 标记为上传后补充信息模式
-      // 后端现在返回驼峰命名
-      setSourceType(response.sourceType);
-      form.setFieldsValue({
-        name: response.name,
-        description: response.description || '',
-        tags: response.tags || [],
-        sourceType: response.sourceType,
-        version: response.version || '',
-        supportedAgents: response.supportedAgents || [],
-        isPublic: response.isPublic !== undefined ? response.isPublic : true,
-      });
-      message.success('技能包上传成功，请补充完整信息后保存');
-    }
+  // 目录上传处理
+  const handleDirectorySelect = () => {
+    directoryInputRef.current?.click();
   };
 
-  const handleUpload = (info: any) => {
-    if (info.file.status === 'done') {
-      handleUploadSuccess(info.file.response);
-    } else if (info.file.status === 'error') {
-      const errorData = info.file.response;
-      message.error(errorData?.error || '上传失败');
+  // 解析 SKILL.md 内容提取描述
+  const parseSkillMD = (content: string): { name: string; description: string } => {
+    let name = '';
+    let description = '';
+
+    // 1. 首先尝试解析 YAML front matter
+    const frontMatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---/);
+    if (frontMatterMatch) {
+      const frontMatter = frontMatterMatch[1];
+      // 提取 description
+      const descMatch = frontMatter.match(/description:\s*(.+)/i);
+      if (descMatch) {
+        description = descMatch[1].trim();
+        // 移除引号
+        description = description.replace(/^["']|["']$/g, '');
+      }
+      // 提取 name
+      const nameMatch = frontMatter.match(/name:\s*(.+)/i);
+      if (nameMatch) {
+        name = nameMatch[1].trim();
+        // 移除引号
+        name = name.replace(/^["']|["']$/g, '');
+      }
     }
+
+    // 2. 如果没有从 front matter 获取到 name，尝试从标题获取
+    if (!name) {
+      const titleMatch = content.match(/^#\s+(.+)$/m);
+      if (titleMatch) {
+        name = titleMatch[1].trim();
+      }
+    }
+
+    // 3. 如果没有从 front matter 获取到 description，尝试从 ## Description 获取
+    if (!description) {
+      const patterns = [
+        /##\s*(?:Description|描述)\s*\n+([\s\S]*?)(?=\n##|$)/i,
+        /##\s*(?:Description|描述)\s*[:：]?\s*([\s\S]*?)(?=\n##|$)/i,
+      ];
+
+      for (const pattern of patterns) {
+        const descMatch = content.match(pattern);
+        if (descMatch && descMatch[1]) {
+          description = descMatch[1].trim();
+          break;
+        }
+      }
+    }
+
+    return { name, description };
+  };
+
+  // 清理名称格式
+  const cleanName = (name: string): string => {
+    if (!name) return '';
+    // 只保留小写字母、数字、中划线
+    let cleaned = name.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+    cleaned = cleaned.replace(/^-+|-+$/g, '');
+    // 确保以字母开头
+    if (cleaned && !/^[a-z]/.test(cleaned)) {
+      cleaned = 's-' + cleaned;
+    }
+    return cleaned;
+  };
+
+  const handleDirectoryChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    // 获取目录名
+    const firstFile = files[0];
+    const pathParts = firstFile.webkitRelativePath.split('/');
+    const directoryName = cleanName(pathParts[0]);
+
+    if (!directoryName) {
+      message.error('目录名格式无效');
+      return;
+    }
+
+    // 检查是否包含 SKILL.md
+    const skillMdFile = Array.from(files).find(f => {
+      const parts = f.webkitRelativePath.split('/');
+      return parts[parts.length - 1].toLowerCase() === 'skill.md';
+    });
+
+    if (!skillMdFile) {
+      message.error('目录中未找到 SKILL.md 文件');
+      return;
+    }
+
+    // 检查总大小
+    const totalSize = Array.from(files).reduce((sum, f) => sum + f.size, 0);
+    if (totalSize > 5 * 1024 * 1024) {
+      message.error('目录总大小不能超过 5MB');
+      return;
+    }
+
+    try {
+      // 解析 SKILL.md 获取描述
+      const skillMdContent = await skillMdFile.text();
+      const metadata = parseSkillMD(skillMdContent);
+
+      // 打包 zip（保存起来等用户确认后上传）
+      message.loading({ content: '正在解析目录...', key: 'packing' });
+
+      const zip = new JSZip();
+      for (const file of Array.from(files)) {
+        const parts = file.webkitRelativePath.split('/');
+        const relativePath = parts.slice(1).join('/');
+        if (relativePath) {
+          const content = await file.arrayBuffer();
+          zip.file(relativePath, content);
+        }
+      }
+
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      pendingZipBlobRef.current = zipBlob;
+
+      message.destroy('packing');
+
+      // 展示表单让用户确认（不创建记录）
+      setEditingSkill({
+        id: '',
+        name: directoryName,
+        description: metadata.description,
+        sourceType: sourceType,
+        isPublic: sourceType !== 'personal', // 个人类型私有，其他类型公开
+      } as any);
+      setIsAfterUpload(true);
+      form.setFieldsValue({
+        name: directoryName,
+        description: metadata.description || '',
+        tags: [],
+        sourceType: sourceType,
+        version: '',
+        supportedAgents: [],
+        isPublic: sourceType !== 'personal', // 个人类型私有，其他类型公开
+      });
+      setModalVisible(true);
+    } catch (error: any) {
+      message.destroy('packing');
+      message.error('解析目录失败');
+    }
+
+    e.target.value = '';
   };
 
   // 仓库导入
@@ -406,9 +607,6 @@ const SkillLibrary: React.FC = () => {
               if (e.target.value !== 'personal') {
                 form.setFieldValue('isPublic', true);
               }
-              if (e.target.value === 'federated') {
-                setCreateMethod('repo');
-              }
             }}
             disabled={isAfterUpload}
           >
@@ -419,24 +617,42 @@ const SkillLibrary: React.FC = () => {
         </div>
 
         {sourceType === 'federated' ? (
-          // 联邦源选择
+          // 联邦源选择或本地上传
           <div>
             <Text type="secondary" style={{ marginBottom: 8, display: 'block' }}>
-              从联邦技能源下载技能
+              从联邦技能源下载或本地上传
             </Text>
-            <Space.Compact style={{ width: '100%' }}>
-              <Select
-                style={{ width: 'calc(100% - 80px)' }}
-                placeholder="选择联邦技能源"
-                value={selectedRegistryId || undefined}
-                onChange={setSelectedRegistryId}
-                options={registries.map(r => ({ label: r.name, value: r.id }))}
-                disabled={isAfterUpload}
-              />
-              <Button type="primary" onClick={handleFederatedImport} loading={importing} disabled={isAfterUpload}>
-                导入
-              </Button>
-            </Space.Compact>
+            <Radio.Group
+              value={createMethod}
+              onChange={(e) => setCreateMethod(e.target.value)}
+              style={{ marginBottom: 12 }}
+              disabled={isAfterUpload}
+            >
+              <Radio.Button value="upload">
+                <CloudUploadOutlined /> 本地上传
+              </Radio.Button>
+              <Radio.Button value="repo">
+                <CloudDownloadOutlined /> 联邦源下载
+              </Radio.Button>
+            </Radio.Group>
+
+            {createMethod === 'upload' && renderDirectoryUpload()}
+
+            {createMethod === 'repo' && (
+              <Space.Compact style={{ width: '100%' }}>
+                <Select
+                  style={{ width: 'calc(100% - 80px)' }}
+                  placeholder="选择联邦技能源"
+                  value={selectedRegistryId || undefined}
+                  onChange={setSelectedRegistryId}
+                  options={registries.map(r => ({ label: r.name, value: r.id }))}
+                  disabled={isAfterUpload}
+                />
+                <Button type="primary" onClick={handleFederatedImport} loading={importing} disabled={isAfterUpload}>
+                  导入
+                </Button>
+              </Space.Compact>
+            )}
           </div>
         ) : (
           // 平台/个人的创建方式选择
@@ -458,39 +674,7 @@ const SkillLibrary: React.FC = () => {
               </Radio.Button>
             </Radio.Group>
 
-            {createMethod === 'upload' && (
-              <Upload.Dragger
-                name="file"
-                action="/api/v1/skills/upload"
-                accept=".zip"
-                onChange={handleUpload}
-                multiple={false}
-                showUploadList={false}
-                disabled={isAfterUpload}
-                data={() => ({ source_type: sourceType })}
-                beforeUpload={(file) => {
-                  const isZip = file.name.endsWith('.zip');
-                  if (!isZip) {
-                    message.error('只支持 .zip 格式的文件');
-                    return Upload.LIST_IGNORE;
-                  }
-                  const isLt5M = file.size / 1024 / 1024 < 5;
-                  if (!isLt5M) {
-                    message.error('文件大小不能超过 5MB');
-                    return Upload.LIST_IGNORE;
-                  }
-                  return true;
-                }}
-              >
-                <p className="ant-upload-drag-icon">
-                  <CloudUploadOutlined style={{ fontSize: 32, color: 'var(--ant-color-primary)' }} />
-                </p>
-                <p className="ant-upload-text">点击或拖拽文件到此区域上传</p>
-                <p className="ant-upload-hint" style={{ fontSize: 12, color: 'var(--ant-color-text-secondary)' }}>
-                  仅支持 .zip 格式，最大 5MB
-                </p>
-              </Upload.Dragger>
-            )}
+            {createMethod === 'upload' && renderDirectoryUpload()}
 
             {createMethod === 'repo' && (
               <Space.Compact style={{ width: '100%' }}>
@@ -709,12 +893,8 @@ const SkillLibrary: React.FC = () => {
                   </Tag>
                 }
                 actions={[
-                  <Tooltip key="view" title="查看详情">
-                    <EyeOutlined style={{ fontSize: 16 }} onClick={() => message.info('详情功能开发中')} />
-                  </Tooltip>,
-                  <Tooltip key="edit" title="编辑">
-                    <EditOutlined style={{ fontSize: 16 }} onClick={() => handleEdit(skill)} />
-                  </Tooltip>,
+                  <EyeOutlined key="view" style={{ fontSize: 16 }} onClick={() => message.info('详情功能开发中')} />,
+                  <EditOutlined key="edit" style={{ fontSize: 16 }} onClick={() => handleEdit(skill)} />,
                   <Popconfirm
                     key="delete"
                     title="确定要删除这个技能吗？"
@@ -722,9 +902,7 @@ const SkillLibrary: React.FC = () => {
                     okText="确定"
                     cancelText="取消"
                   >
-                    <Tooltip title="删除">
-                      <DeleteOutlined style={{ fontSize: 16, color: '#ff4d4f' }} />
-                    </Tooltip>
+                    <DeleteOutlined style={{ fontSize: 16, color: '#ff4d4f' }} />
                   </Popconfirm>,
                 ]}
               >
@@ -785,18 +963,20 @@ const SkillLibrary: React.FC = () => {
       </Spin>
 
       {/* 分页 */}
-      {total > 0 && (
-        <div style={{ marginTop: 16, display: 'flex', justifyContent: 'center' }}>
-          <Pagination
-            current={page}
-            pageSize={pageSize}
-            total={total}
-            onChange={(p) => setPage(p)}
-            showSizeChanger={false}
-            showTotal={(t) => `共 ${t} 条`}
-          />
-        </div>
-      )}
+      <div style={{ marginTop: 16, display: 'flex', justifyContent: 'center' }}>
+        <Pagination
+          current={page}
+          pageSize={pageSize}
+          total={total}
+          onChange={(p, ps) => {
+            setPage(p);
+            setPageSize(ps);
+          }}
+          showSizeChanger
+          showTotal={(t) => `共 ${t} 条`}
+          pageSizeOptions={['10', '20', '50']}
+        />
+      </div>
 
       {/* 新建/编辑弹窗 */}
       <Modal

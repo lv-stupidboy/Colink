@@ -24,8 +24,8 @@ const (
 
 // RoutingConfig 路由配置
 type RoutingConfig struct {
-	CanRouteTo    []AgentRole `json:"can_route_to"`
-	RouteOnSignal []string    `json:"route_on_signal"`
+	CanRouteTo    []AgentRole `json:"canRouteTo"`
+	RouteOnSignal []string    `json:"routeOnSignal"`
 }
 
 // AgentConfig Agent配置模型（保留兼容性，现已改名为AgentRole）
@@ -37,14 +37,14 @@ type AgentRoleConfig struct {
 	ID           uuid.UUID      `json:"id"`
 	Name         string         `json:"name"`
 	Role         AgentRole      `json:"role"`
-	BaseAgentID  uuid.UUID      `json:"base_agent_id,omitempty"`
+	BaseAgentID  uuid.UUID      `json:"baseAgentId,omitempty"`
 	Description  string         `json:"description"`
-	SystemPrompt string         `json:"system_prompt"`
-	MaxTokens    int            `json:"max_tokens"`
+	SystemPrompt string         `json:"systemPrompt"`
+	MaxTokens    int            `json:"maxTokens"`
 	Temperature  float64        `json:"temperature"`
-	RoutingConfig RoutingConfig `json:"routing_config"`
-	IsDefault    bool           `json:"is_default"`
-	IsSystem     bool           `json:"is_system"`     // 是否为系统预置角色
+	RoutingConfig RoutingConfig `json:"routingConfig"`
+	IsDefault    bool           `json:"isDefault"`
+	IsSystem     bool           `json:"isSystem"`     // 是否为系统预置角色
 
 	// 能力声明（用于自动编排工作流）
 	Capabilities []string `json:"capabilities"`  // 能力列表：这个 Agent 能做什么
@@ -52,11 +52,11 @@ type AgentRoleConfig struct {
 	Outputs      []string `json:"outputs"`       // 产出列表：产出什么产物
 
 	// 配置生成相关字段
-	ConfigGeneratedAt *time.Time `json:"config_generated_at,omitempty"` // 配置最后生成时间
-	ConfigPath        string     `json:"config_path,omitempty"`         // 配置目录路径
+	ConfigGeneratedAt *time.Time `json:"configGeneratedAt,omitempty"` // 配置最后生成时间
+	ConfigPath        string     `json:"configPath,omitempty"`         // 配置目录路径
 
-	CreatedAt    time.Time      `json:"created_at"`
-	UpdatedAt    time.Time      `json:"updated_at"`
+	CreatedAt    time.Time      `json:"createdAt"`
+	UpdatedAt    time.Time      `json:"updatedAt"`
 }
 
 func (a *AgentRoleConfig) TableName() string {
@@ -67,13 +67,13 @@ func (a *AgentRoleConfig) TableName() string {
 type CreateAgentRequest struct {
 	Name         string         `json:"name" binding:"required"`
 	Role         AgentRole      `json:"role"`  // 可选，默认为 custom
-	BaseAgentID  uuid.UUID      `json:"base_agent_id"`
+	BaseAgentID  uuid.UUID      `json:"baseAgentId"`
 	Description  string         `json:"description"`
-	SystemPrompt string         `json:"system_prompt" binding:"required"`
-	MaxTokens    int            `json:"max_tokens"`
+	SystemPrompt string         `json:"systemPrompt" binding:"required"`
+	MaxTokens    int            `json:"maxTokens"`
 	Temperature  float64        `json:"temperature"`
-	RoutingConfig *RoutingConfig `json:"routing_config"`
-	IsDefault    bool           `json:"is_default"`
+	RoutingConfig *RoutingConfig `json:"routingConfig"`
+	IsDefault    bool           `json:"isDefault"`
 
 	// 能力声明
 	Capabilities []string `json:"capabilities"`

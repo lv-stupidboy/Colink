@@ -1,11 +1,31 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { Table, Button, Card, Modal, Form, Input, Select, message, Space, Tag, Typography, Tooltip, Alert } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, RobotOutlined, BugOutlined, CopyOutlined, CrownOutlined, UserOutlined, ExclamationCircleOutlined, EyeOutlined, SettingOutlined } from '@ant-design/icons';
+import { Table, Button, Card, Modal, Form, Input, Select, message, Space, Tag, Typography, Tooltip, Alert, Spin, Collapse } from 'antd';
+import { PlusOutlined, EditOutlined, DeleteOutlined, RobotOutlined, BugOutlined, CopyOutlined, CrownOutlined, UserOutlined, ExclamationCircleOutlined, EyeOutlined, SettingOutlined, BookOutlined, ApiOutlined, CodeOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '@/api/client';
 import type { AgentConfig, BaseAgent, Skill, Subagent, Command, Rule } from '@/types';
 
 const { Title, Text } = Typography;
+
+// 预览结果类型
+interface PreviewItem {
+  id: string;
+  name: string;
+  description: string;
+}
+
+interface ConfigPreview {
+  agentId: string;
+  agentName: string;
+  skills: PreviewItem[];
+  commands: PreviewItem[];
+  subagents: PreviewItem[];
+  rules: PreviewItem[];
+  skillsCount: number;
+  commandsCount: number;
+  subagentsCount: number;
+  rulesCount: number;
+}
 
 // 截断文本并添加省略号
 const truncateText = (text: string, maxLength: number = 50): string => {
@@ -32,6 +52,9 @@ const AgentRoleList: React.FC = () => {
   const [editingConfig, setEditingConfig] = useState<AgentConfig | null>(null);
   const [deleteLoading, setDeleteLoading] = useState<string | null>(null);
   const [generateLoading, setGenerateLoading] = useState<string | null>(null);
+  const [previewVisible, setPreviewVisible] = useState(false);
+  const [previewData, setPreviewData] = useState<ConfigPreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [form] = Form.useForm();
 
   useEffect(() => {
@@ -131,7 +154,7 @@ const AgentRoleList: React.FC = () => {
     try {
       const [publicResult, instanceResult] = await Promise.all([
         api.rules.getPublicRules(),
-        api.rules.getInstanceRules(),
+        api.rules.getPrivateRules(),
       ]);
       setPublicRules(publicResult || []);
       setInstanceRules(instanceResult || []);
@@ -298,28 +321,36 @@ const AgentRoleList: React.FC = () => {
     }
   };
 
-const handleGenerateConfig = (record: AgentConfig) => {
-    Modal.confirm({
-      title: '生成配置',
-      content: (
-        <div>
-          <p>确定要为Agent「{record.name}」生成配置吗？</p>
-          <p>这将创建独立的配置目录，包含绑定的技能和子代理。</p>
-        </div>
-      ),
-      onOk: async () => {
-        setGenerateLoading(record.id);
-        try {
-          const result = await api.agents.generateConfig(record.id, 'claude_code');
-          message.success(`配置生成成功，包含 ${result.commands_count} 个命令、${result.subagents_count} 个子代理、${result.skills_count} 个技能、${result.rules_count} 个规约`);
-          loadConfigs();
-        } catch (error) {
-          message.error('配置生成失败');
-        } finally {
-          setGenerateLoading(null);
-        }
-      },
-    });
+// 预览配置
+  const handlePreviewConfig = async (record: AgentConfig) => {
+    setPreviewLoading(true);
+    setPreviewVisible(true);
+    try {
+      const result = await api.agents.previewConfig(record.id);
+      setPreviewData(result);
+    } catch (error) {
+      message.error('获取配置预览失败');
+      setPreviewVisible(false);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  // 确认生成配置
+  const handleConfirmGenerate = async () => {
+    if (!previewData) return;
+    setGenerateLoading(previewData.agentId);
+    try {
+      const result = await api.agents.generateConfig(previewData.agentId, 'claude_code');
+      message.success(`配置生成成功，包含 ${result.commandsCount} 个命令、${result.subagentsCount} 个子代理、${result.skillsCount} 个技能、${result.rulesCount} 个规约`);
+      setPreviewVisible(false);
+      setPreviewData(null);
+      loadConfigs();
+    } catch (error) {
+      message.error('配置生成失败');
+    } finally {
+      setGenerateLoading(null);
+    }
   };
 
   // 分组显示：系统预置和自定义
@@ -343,19 +374,6 @@ const handleGenerateConfig = (record: AgentConfig) => {
       ),
     },
     {
-      title: '类型',
-      dataIndex: 'isSystem',
-      key: 'isSystem',
-      width: 100,
-      render: (isSystem: boolean) => (
-        isSystem ? (
-          <Tag color="gold" icon={<CrownOutlined />}>系统预置</Tag>
-        ) : (
-          <Tag color="blue" icon={<UserOutlined />}>自定义</Tag>
-        )
-      ),
-    },
-    {
       title: '基础Agent',
       dataIndex: 'baseAgentId',
       key: 'baseAgentId',
@@ -368,18 +386,6 @@ const handleGenerateConfig = (record: AgentConfig) => {
           </Tag>
         ) : <Tag>默认</Tag>;
       },
-    },
-    {
-      title: '描述',
-      dataIndex: 'description',
-      key: 'description',
-      width: 200,
-      ellipsis: true,
-      render: (desc?: string) => (
-        <Tooltip title={desc} placement="topLeft">
-          {desc || '-'}
-        </Tooltip>
-      ),
     },
     {
       title: '配置状态',
@@ -416,7 +422,7 @@ const handleGenerateConfig = (record: AgentConfig) => {
     {
       title: '操作',
       key: 'actions',
-      width: 280,
+      width: 360,
       fixed: 'right' as const,
       render: (_: unknown, record: AgentConfig) => (
         <Space size="small">
@@ -424,14 +430,21 @@ const handleGenerateConfig = (record: AgentConfig) => {
             type="link"
             size="small"
             icon={<SettingOutlined />}
-            onClick={() => handleGenerateConfig(record)}
-            loading={generateLoading === record.id}
+            onClick={() => handlePreviewConfig(record)}
           >
             生成配置
           </Button>
-          <Button type="link" size="small" icon={<BugOutlined />} onClick={() => handleDebug(record)}>
-            调试
-          </Button>
+          <Tooltip title={!record.configPath ? '请先生成配置' : ''}>
+            <Button
+              type="link"
+              size="small"
+              icon={<BugOutlined />}
+              disabled={!record.configPath}
+              onClick={() => handleDebug(record)}
+            >
+              调试
+            </Button>
+          </Tooltip>
           <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => handleViewRefs(record)}>
             引用
           </Button>
@@ -462,7 +475,7 @@ const handleGenerateConfig = (record: AgentConfig) => {
     <div style={{ padding: 12 }}>
       <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <Title level={2} style={{ margin: 0 }}>Agent 角色</Title>
+          <Title level={2} style={{ margin: 0 }}>Agent角色</Title>
           <Text type="secondary">管理不同职责的 Agent 角色配置</Text>
         </div>
       </div>
@@ -489,8 +502,14 @@ const handleGenerateConfig = (record: AgentConfig) => {
             columns={columns}
             rowKey="id"
             loading={loading}
-            pagination={false}
+            pagination={{
+              pageSize: 5,
+              showSizeChanger: true,
+              pageSizeOptions: ['5', '10', '20'],
+              showTotal: (total) => `共 ${total} 条`,
+            }}
             size="small"
+            scroll={{ x: 1130 }}
           />
         </Card>
       )}
@@ -523,8 +542,14 @@ const handleGenerateConfig = (record: AgentConfig) => {
             columns={columns}
             rowKey="id"
             loading={loading}
-            pagination={false}
+            pagination={{
+              pageSize: 5,
+              showSizeChanger: true,
+              pageSizeOptions: ['5', '10', '20'],
+              showTotal: (total) => `共 ${total} 条`,
+            }}
             size="small"
+            scroll={{ x: 1130 }}
           />
         )}
       </Card>
@@ -699,6 +724,130 @@ const handleGenerateConfig = (record: AgentConfig) => {
             </div>
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* 配置预览弹窗 */}
+      <Modal
+        className="config-preview-modal"
+        title={
+          <Space>
+            <SettingOutlined style={{ color: 'var(--color-primary)' }} />
+            <span>配置预览 - {previewData?.agentName}</span>
+          </Space>
+        }
+        open={previewVisible}
+        onCancel={() => {
+          setPreviewVisible(false);
+          setPreviewData(null);
+        }}
+        footer={[
+          <Button key="cancel" onClick={() => {
+            setPreviewVisible(false);
+            setPreviewData(null);
+          }}>
+            取消
+          </Button>,
+          <Button
+            key="generate"
+            type="primary"
+            loading={generateLoading !== null}
+            onClick={handleConfirmGenerate}
+          >
+            确认生成配置
+          </Button>,
+        ]}
+        width={700}
+        styles={{ body: { padding: '16px 24px' } }}
+      >
+        {previewLoading ? (
+          <div style={{ textAlign: 'center', padding: 40 }}>
+            <Spin size="large" />
+          </div>
+        ) : previewData ? (
+          <div>
+            <Alert
+              type="info"
+              message="即将生成以下资产配置"
+              description="配置将包含角色直接绑定的资产，以及命令、子代理关联的技能"
+              style={{ marginBottom: 16 }}
+              showIcon
+            />
+
+            <Collapse
+              defaultActiveKey={['commands', 'subagents', 'skills', 'rules']}
+              items={[
+                {
+                  key: 'commands',
+                  label: (
+                    <Space>
+                      <CodeOutlined style={{ color: '#1890ff' }} />
+                      <span>Commands</span>
+                      <Tag color="blue">{previewData.commandsCount}</Tag>
+                    </Space>
+                  ),
+                  children: previewData.commands.length > 0 ? (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 16px' }}>
+                      {previewData.commands.map((item) => (
+                        <Tag key={item.id} color="default">{item.name}</Tag>
+                      ))}
+                    </div>
+                  ) : <Text type="secondary">暂无绑定的命令</Text>,
+                },
+                {
+                  key: 'subagents',
+                  label: (
+                    <Space>
+                      <ApiOutlined style={{ color: '#52c41a' }} />
+                      <span>Subagents</span>
+                      <Tag color="green">{previewData.subagentsCount}</Tag>
+                    </Space>
+                  ),
+                  children: previewData.subagents.length > 0 ? (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 16px' }}>
+                      {previewData.subagents.map((item) => (
+                        <Tag key={item.id} color="default">{item.name}</Tag>
+                      ))}
+                    </div>
+                  ) : <Text type="secondary">暂无绑定的子代理</Text>,
+                },
+                {
+                  key: 'skills',
+                  label: (
+                    <Space>
+                      <BookOutlined style={{ color: '#722ed1' }} />
+                      <span>Skills（含命令/子代理关联）</span>
+                      <Tag color="purple">{previewData.skillsCount}</Tag>
+                    </Space>
+                  ),
+                  children: previewData.skills.length > 0 ? (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 16px' }}>
+                      {previewData.skills.map((item) => (
+                        <Tag key={item.id} color="default">{item.name}</Tag>
+                      ))}
+                    </div>
+                  ) : <Text type="secondary">暂无关联的技能</Text>,
+                },
+                {
+                  key: 'rules',
+                  label: (
+                    <Space>
+                      <SafetyCertificateOutlined style={{ color: '#fa8c16' }} />
+                      <span>Rules</span>
+                      <Tag color="orange">{previewData.rulesCount}</Tag>
+                    </Space>
+                  ),
+                  children: previewData.rules.length > 0 ? (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 16px' }}>
+                      {previewData.rules.map((item) => (
+                        <Tag key={item.id} color="default">{item.name}</Tag>
+                      ))}
+                    </div>
+                  ) : <Text type="secondary">暂无绑定的规约</Text>,
+                },
+              ]}
+            />
+          </div>
+        ) : null}
       </Modal>
     </div>
   );

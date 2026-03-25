@@ -170,8 +170,8 @@ const WorkflowPage: React.FC = () => {
     // 根据agentIds获取对应的Agent实例
     const templateAgents = (agents || []).filter(a => (template.agentIds || []).includes(a.id));
 
-    // 统计转换规则
-    const transitions = template.transitions || [];
+    // 统计转换规则 - 确保 transitions 是数组
+    const transitions = Array.isArray(template.transitions) ? template.transitions : [];
     const transitionStats = {
       total: transitions.length,
       parallel: transitions.filter(t => t.type === 'parallel').length,
@@ -626,7 +626,7 @@ const WorkflowPage: React.FC = () => {
                   </Space>
                 }>
                   {agents.filter(a => a.isSystem).map((agent) => (
-                    <Option key={agent.id} value={agent.id} label={agent.name}>
+                    <Option key={agent.id} value={agent.id} label={agent.name} disabled={!agent.configPath} title={!agent.configPath ? '请先为该角色生成配置' : undefined}>
                       <Space>
                         <CrownOutlined style={{ color: '#faad14' }} />
                         <span>{agent.name}</span>
@@ -645,7 +645,7 @@ const WorkflowPage: React.FC = () => {
                   </Space>
                 }>
                   {agents.filter(a => !a.isSystem).map((agent) => (
-                    <Option key={agent.id} value={agent.id} label={agent.name}>
+                    <Option key={agent.id} value={agent.id} label={agent.name} disabled={!agent.configPath} title={!agent.configPath ? '请先为该角色生成配置' : undefined}>
                       <Space>
                         <UserOutlined />
                         <span>{agent.name}</span>
@@ -721,7 +721,7 @@ const WorkflowPage: React.FC = () => {
                     />
                     <WorkflowEditor
                       agents={agents}
-                      initialTransitions={editingTemplate.transitions || []}
+                      initialTransitions={Array.isArray(editingTemplate.transitions) ? editingTemplate.transitions : []}
                       onSave={handleSaveWorkflow}
                     />
                   </div>
@@ -790,7 +790,7 @@ const WorkflowPage: React.FC = () => {
                   <div style={{ padding: 16 }}>
                     <WorkflowEditor
                       agents={agents}
-                      initialTransitions={editingTemplate.transitions || []}
+                      initialTransitions={Array.isArray(editingTemplate.transitions) ? editingTemplate.transitions : []}
                       onSave={async () => {}}
                       readOnly
                     />

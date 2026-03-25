@@ -2,8 +2,9 @@ package subagent
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -18,12 +19,13 @@ var ErrSubagentNameExists = fmt.Errorf("subagent name already exists")
 
 // Service Subagent业务服务
 type Service struct {
-	repo            *repo.SubagentRepository
-	bindingRepo     *repo.AgentSubagentBindingRepository
+	repo             *repo.SubagentRepository
+	bindingRepo      *repo.AgentSubagentBindingRepository
 	skillBindingRepo *repo.SubagentSkillBindingRepository
-	agentRepo       *repo.AgentConfigRepository
-	skillRepo       *repo.SkillRepository
-	logger          *zap.Logger
+	agentRepo        *repo.AgentConfigRepository
+	skillRepo        *repo.SkillRepository
+	storagePath      string
+	logger           *zap.Logger
 }
 
 // NewService 创建Subagent Service
@@ -33,15 +35,17 @@ func NewService(
 	skillBindingRepo *repo.SubagentSkillBindingRepository,
 	agentRepo *repo.AgentConfigRepository,
 	skillRepo *repo.SkillRepository,
+	storagePath string,
 	logger *zap.Logger,
 ) *Service {
 	return &Service{
-		repo:            subagentRepo,
-		bindingRepo:     bindingRepo,
+		repo:             subagentRepo,
+		bindingRepo:      bindingRepo,
 		skillBindingRepo: skillBindingRepo,
-		agentRepo:       agentRepo,
-		skillRepo:       skillRepo,
-		logger:          logger,
+		agentRepo:        agentRepo,
+		skillRepo:        skillRepo,
+		storagePath:      storagePath,
+		logger:           logger,
 	}
 }
 
@@ -121,33 +125,57 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, req *model.UpdateSub
 
 // Delete 删除Subagent
 func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
-	// 检查是否有Agent绑定
+	// 先获取子代理信息（用于删除文件）
+	subagent, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return fmt.Errorf("子代理不存在: %w", err)
+	}
+
+	// 检查是否有Agent绑定，获取绑定的Agent名称
 	agentRoleIDs, err := s.bindingRepo.FindBySubagentID(ctx, id)
 	if err != nil {
 		return fmt.Errorf("检查绑定关系失败: %w", err)
 	}
 	if len(agentRoleIDs) > 0 {
-		return fmt.Errorf("无法删除子代理：该子代理已被 %d 个Agent绑定", len(agentRoleIDs))
+		// 获取Agent名称列表
+		agentNames := make([]string, 0, len(agentRoleIDs))
+		for _, agentID := range agentRoleIDs {
+			agent, err := s.agentRepo.FindByID(ctx, agentID)
+			if err == nil {
+				agentNames = append(agentNames, agent.Name)
+			}
+		}
+		return fmt.Errorf("无法删除子代理：该子代理已被以下Agent绑定：%s", strings.Join(agentNames, "、"))
 	}
 
+	// 删除技能绑定
+	if err := s.skillBindingRepo.DeleteBySubagentID(ctx, id); err != nil {
+		s.logger.Warn("删除技能绑定失败", zap.Error(err))
+	}
+
+	// 删除数据库记录
 	if err := s.repo.Delete(ctx, id); err != nil {
 		return fmt.Errorf("删除子代理失败: %w", err)
 	}
 
-	s.logger.Info("删除子代理成功",
-		zap.String("id", id.String()),
-	)
+	// 删除对应的文件
+	if s.storagePath != "" && subagent != nil {
+		filePath := filepath.Join(s.storagePath, subagent.Name+".md")
+		if _, err := os.Stat(filePath); err == nil {
+			if err := os.Remove(filePath); err != nil {
+				s.logger.Warn("删除子代理文件失败", zap.String("path", filePath), zap.Error(err))
+			} else {
+				s.logger.Info("删除子代理文件成功", zap.String("path", filePath))
+			}
+		}
+	}
 
+	s.logger.Info("删除子代理成功", zap.String("id", id.String()), zap.String("name", subagent.Name))
 	return nil
 }
 
-// BindSubagents 绑定Subagents到Agent
+// BindSubagents 绑定Subagents到Agent（全量替换）
 func (s *Service) BindSubagents(ctx context.Context, agentRoleID uuid.UUID, subagentIDs []uuid.UUID) error {
-	// 空切片检查
-	if len(subagentIDs) == 0 {
-		return errors.New("子代理ID列表不能为空")
-	}
-
 	// 验证Agent是否存在
 	_, err := s.agentRepo.FindByID(ctx, agentRoleID)
 	if err != nil {
@@ -162,17 +190,13 @@ func (s *Service) BindSubagents(ctx context.Context, agentRoleID uuid.UUID, suba
 		}
 	}
 
-	// 创建绑定
-	for _, subagentID := range subagentIDs {
-		// 检查是否已存在绑定
-		exists, err := s.bindingRepo.ExistsBinding(ctx, agentRoleID, subagentID)
-		if err != nil {
-			return err
-		}
-		if exists {
-			continue // 已存在绑定，跳过
-		}
+	// 先删除所有现有绑定
+	if err := s.bindingRepo.DeleteByAgentRoleID(ctx, agentRoleID); err != nil {
+		return fmt.Errorf("清理旧绑定失败: %w", err)
+	}
 
+	// 创建新的绑定
+	for _, subagentID := range subagentIDs {
 		binding := &model.AgentSubagentBinding{
 			ID:          uuid.New(),
 			AgentRoleID: agentRoleID,

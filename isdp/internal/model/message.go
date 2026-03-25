@@ -28,13 +28,13 @@ const (
 // Message 消息模型
 type Message struct {
 	ID          uuid.UUID       `json:"id"`
-	ThreadID    uuid.UUID       `json:"thread_id"`
+	ThreadID    uuid.UUID       `json:"threadId"`
 	Role        MessageRole     `json:"role"`
-	AgentID     string          `json:"agent_id,omitempty"`
+	AgentID     string          `json:"agentId,omitempty"`
 	Content     string          `json:"content"`
-	MessageType MessageType     `json:"message_type"`
+	MessageType MessageType     `json:"messageType"`
 	Metadata    json.RawMessage `json:"metadata,omitempty"`
-	CreatedAt   time.Time       `json:"created_at"`
+	CreatedAt   time.Time       `json:"createdAt"`
 }
 
 func (m *Message) TableName() string {

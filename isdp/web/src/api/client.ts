@@ -65,7 +65,6 @@ import {
   transformArtifact,
   transformWorkflowTemplates,
   transformWorkflowTemplate,
-  camelToSnake,
 } from './transform';
 
 class APIClient {
@@ -80,7 +79,7 @@ class APIClient {
       },
     });
 
-    // 请求拦截器 - 转换 camelCase 为 snake_case
+    // 请求拦截器
     this.client.interceptors.request.use(
       (config) => {
         // 添加认证 token
@@ -88,12 +87,7 @@ class APIClient {
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
         }
-        // 转换请求数据
-        if (config.data && typeof config.data === 'object') {
-          const originalData = config.data;
-          config.data = camelToSnake(config.data);
-          console.log('[DEBUG] Request interceptor - original:', originalData, 'transformed:', config.data);
-        }
+        // 后端 JSON 字段使用 camelCase，无需转换
         return config;
       },
       (error) => Promise.reject(error)
@@ -273,27 +267,39 @@ class APIClient {
     getSkills: (agentId: string): Promise<AgentSkillsResponse> =>
       this.request(`/agent-skills/${agentId}`, 'GET'),
     bindSkills: (agentId: string, skillIds: string[]): Promise<{ message: string }> =>
-      this.request(`/agent-skills/${agentId}`, 'POST', { skill_ids: skillIds }),
+      this.request(`/agent-skills/${agentId}`, 'POST', { skillIds: skillIds }),
     unbindSkill: (agentId: string, skillId: string): Promise<{ message: string }> =>
       this.request(`/agent-skills/${agentId}/${skillId}`, 'DELETE'),
     // 配置生成相关
+    previewConfig: (id: string): Promise<{
+      agentId: string;
+      agentName: string;
+      skills: Array<{ id: string; name: string; description: string }>;
+      commands: Array<{ id: string; name: string; description: string }>;
+      subagents: Array<{ id: string; name: string; description: string }>;
+      rules: Array<{ id: string; name: string; description: string }>;
+      skillsCount: number;
+      commandsCount: number;
+      subagentsCount: number;
+      rulesCount: number;
+    }> => this.request(`/agents/${id}/config/preview`, 'GET'),
     generateConfig: (id: string, baseAgentType: string, cleanExisting?: boolean): Promise<{
       message: string;
-      agent_id: string;
-      config_path: string;
-      skills_count: number;
-      subagents_count: number;
-      commands_count: number;
-      rules_count: number;
-      generated_at: string;
+      agentId: string;
+      configPath: string;
+      skillsCount: number;
+      subagentsCount: number;
+      commandsCount: number;
+      rulesCount: number;
+      generatedAt: string;
     }> => this.request(`/agents/${id}/config/generate`, 'POST', {
-      base_agent_type: baseAgentType,
-      clean_existing: cleanExisting || false,
+      baseAgentType: baseAgentType,
+      cleanExisting: cleanExisting || false,
     }),
     getSubagents: (id: string): Promise<{ subagents: Subagent[] }> =>
       this.request(`/agents/${id}/subagents`, 'GET'),
     bindSubagents: (id: string, subagentIds: string[]): Promise<{ message: string }> =>
-      this.request(`/agents/${id}/subagents`, 'POST', { subagent_ids: subagentIds }),
+      this.request(`/agents/${id}/subagents`, 'POST', { subagentIds: subagentIds }),
     unbindSubagent: (id: string, subagentId: string): Promise<{ message: string }> =>
       this.request(`/agents/${id}/subagents/${subagentId}`, 'DELETE'),
   };
@@ -405,11 +411,11 @@ class APIClient {
       this.request('/skills/tags/builtin', 'GET'),
     // 从仓库导入
     importRepo: (repoUrl: string): Promise<Skill> =>
-      this.request('/skills/import/repo', 'POST', { repo_url: repoUrl }),
+      this.request('/skills/import/repo', 'POST', { repoUrl: repoUrl }),
     // 从联邦源导入
     importFederated: (registryId: string, skillName?: string): Promise<Skill | { skills: any[] }> => {
-      const body: any = { registry_id: registryId };
-      if (skillName) body.skill_name = skillName;
+      const body: any = { registryId: registryId };
+      if (skillName) body.skillName = skillName;
       return this.request('/skills/import/federated', 'POST', body);
     },
   };
@@ -491,7 +497,7 @@ class APIClient {
     getSkills: (id: string): Promise<{ skills: Skill[]; count: number }> =>
       this.request(`/subagents/${id}/skills`, 'GET'),
     bindSkills: (id: string, skillIds: string[]): Promise<{ message: string }> =>
-      this.request(`/subagents/${id}/skills`, 'POST', { skill_ids: skillIds }),
+      this.request(`/subagents/${id}/skills`, 'POST', { skillIds: skillIds }),
     unbindSkill: (id: string, skillId: string): Promise<{ message: string }> =>
       this.request(`/subagents/${id}/skills/${skillId}`, 'DELETE'),
   };
@@ -524,14 +530,14 @@ class APIClient {
     getSkills: (id: string): Promise<CommandSkillsResponse> =>
       this.request(`/commands/${id}/skills`, 'GET'),
     bindSkills: (id: string, skillIds: string[]): Promise<{ message: string }> =>
-      this.request(`/commands/${id}/skills`, 'POST', { skill_ids: skillIds }),
+      this.request(`/commands/${id}/skills`, 'POST', { skillIds: skillIds }),
     unbindSkill: (id: string, skillId: string): Promise<{ message: string }> =>
       this.request(`/commands/${id}/skills/${skillId}`, 'DELETE'),
     // Agent 绑定的 Commands
     getAgentCommands: (agentId: string): Promise<{ commands: Command[]; count: number }> =>
       this.request(`/agents/${agentId}/commands`, 'GET'),
     bindCommandsToAgent: (agentId: string, commandIds: string[]): Promise<{ message: string }> =>
-      this.request(`/agents/${agentId}/commands`, 'POST', { command_ids: commandIds }),
+      this.request(`/agents/${agentId}/commands`, 'POST', { commandIds: commandIds }),
     unbindCommandFromAgent: (agentId: string, commandId: string): Promise<{ message: string }> =>
       this.request(`/agents/${agentId}/commands/${commandId}`, 'DELETE'),
   };
@@ -541,7 +547,7 @@ class APIClient {
     list: (query?: RuleListQuery): Promise<RuleListResponse> => {
       const params = new URLSearchParams();
       if (query?.search) params.append('search', query.search);
-      if (query?.scope) params.append('scope', query.scope);
+      if (query?.visibility) params.append('visibility', query.visibility);
       if (query?.page) params.append('page', query.page.toString());
       if (query?.pageSize) params.append('page_size', query.pageSize.toString());
 
@@ -561,16 +567,16 @@ class APIClient {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
     },
-    // 公共规约和实例规约
+    // 公开规约和私有规约
     getPublicRules: (): Promise<Rule[]> =>
-      this.request('/rules/public', 'GET'),
-    getInstanceRules: (): Promise<Rule[]> =>
-      this.request('/rules/instance', 'GET'),
+      this.request<{ rules: Rule[] }>('/rules/public', 'GET').then(res => res.rules || []),
+    getPrivateRules: (): Promise<Rule[]> =>
+      this.request<{ rules: Rule[] }>('/rules/private', 'GET').then(res => res.rules || []),
     // Agent 绑定的 Rules
     getAgentRules: (agentId: string): Promise<AgentRulesResponse> =>
       this.request(`/agents/${agentId}/rules`, 'GET'),
     bindRulesToAgent: (agentId: string, ruleIds: string[]): Promise<{ message: string }> =>
-      this.request(`/agents/${agentId}/rules`, 'POST', { rule_ids: ruleIds }),
+      this.request(`/agents/${agentId}/rules`, 'POST', { ruleIds: ruleIds }),
     unbindRuleFromAgent: (agentId: string, ruleId: string): Promise<{ message: string }> =>
       this.request(`/agents/${agentId}/rules/${ruleId}`, 'DELETE'),
   };

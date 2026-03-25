@@ -61,20 +61,21 @@ const AgentNode: React.FC<any> = ({ data, selected }) => {
 
   return (
     <div
+      className="agent-node-card"
       style={{
         padding: '12px 16px',
         borderRadius: 8,
-        background: '#fff',
-        border: `2px solid ${selected ? '#1890ff' : roleColors[agent.role] || '#d9d9d9'}`,
+        background: 'var(--bg-container)',
+        border: `2px solid ${selected ? 'var(--color-primary)' : roleColors[agent.role] || 'var(--border-color)'}`,
         minWidth: 160,
-        boxShadow: selected ? '0 4px 12px rgba(24, 144, 255, 0.3)' : '0 2px 8px rgba(0,0,0,0.1)',
+        boxShadow: selected ? '0 4px 12px var(--color-primary-opacity-30)' : '0 2px 8px rgba(0,0,0,0.1)',
       }}
     >
-      <Handle type="target" position={Position.Top} style={{ background: '#1890ff' }} />
+      <Handle type="target" position={Position.Top} style={{ background: 'var(--color-primary)' }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <UserOutlined style={{ color: roleColors[agent.role] || '#8c8c8c', fontSize: 16 }} />
+        <UserOutlined style={{ color: roleColors[agent.role] || 'var(--text-secondary)', fontSize: 16 }} />
         <div>
-          <Text strong style={{ fontSize: 14 }}>{agent.name}</Text>
+          <Text strong style={{ fontSize: 14, color: 'var(--text-primary)' }}>{agent.name}</Text>
           <br />
           <Tag color={roleColors[agent.role]} style={{ margin: 0, fontSize: 11 }}>
             {agent.role}
@@ -96,7 +97,7 @@ const AgentNode: React.FC<any> = ({ data, selected }) => {
           />
         </Tooltip>
       )}
-      <Handle type="source" position={Position.Bottom} style={{ background: '#52c41a' }} />
+      <Handle type="source" position={Position.Bottom} style={{ background: 'var(--color-primary-hover)' }} />
     </div>
   );
 };
@@ -354,7 +355,7 @@ const WorkflowEditor: React.FC<WorkflowEditorProps> = ({
   }, [agents, nodes]);
 
   return (
-    <div style={{ height: 500, border: '1px solid #d9d9d9', borderRadius: 8, overflow: 'hidden' }}>
+    <div className="workflow-editor-container" style={{ height: 500, border: '1px solid var(--border-color)', borderRadius: 8, overflow: 'hidden' }}>
       <ReactFlow
         nodes={updatedNodes}
         edges={edges}
@@ -398,7 +399,19 @@ const WorkflowEditor: React.FC<WorkflowEditorProps> = ({
                 options={availableAgents.map((agent) => ({
                   value: agent.id,
                   label: agent.name,
+                  disabled: !agent.configPath,
+                  title: !agent.configPath ? '请先为该角色生成配置' : undefined,
                 }))}
+                optionRender={(option) => (
+                  <Tooltip
+                    title={!option.data.disabled ? '' : '请先为该角色生成配置'}
+                    placement="right"
+                  >
+                    <span style={{ opacity: option.data.disabled ? 0.5 : 1 }}>
+                      {option.label}
+                    </span>
+                  </Tooltip>
+                )}
               />
             )}
             {!readOnly && (
@@ -417,7 +430,7 @@ const WorkflowEditor: React.FC<WorkflowEditorProps> = ({
         {/* 提示信息 */}
         {nodes.length === 0 && (
           <Panel position="top-center">
-            <Card size="small" style={{ background: '#f6ffed', border: '1px solid #b7eb8f' }}>
+            <Card size="small" style={{ background: 'var(--color-primary-light)', border: '1px solid var(--color-primary-border)' }}>
               <Text type="secondary">
                 {!readOnly ? '从右侧下拉框选择Agent添加到画布，然后拖拽连接节点' : '暂无团队配置'}
               </Text>

@@ -147,7 +147,7 @@ func (h *InvocationHandler) ListByThread(c *gin.Context) {
 
 // SpawnRequest 启动请求
 type SpawnRequest struct {
-	ConfigID string          `json:"config_id"`
+	ConfigID string          `json:"configId"`
 	Role     model.AgentRole `json:"role" binding:"required"`
 	Input    string          `json:"input" binding:"required"`
 }

@@ -21,14 +21,14 @@ const (
 // Sandbox 沙箱容器模型
 type Sandbox struct {
 	ID          uuid.UUID     `json:"id"`
-	ThreadID    uuid.UUID     `json:"thread_id"`
+	ThreadID    uuid.UUID     `json:"threadId"`
 	Name        string        `json:"name"`
 	Image       string        `json:"image"`
 	Status      SandboxStatus `json:"status"`
-	ContainerID string        `json:"container_id"`
+	ContainerID string        `json:"containerId"`
 	Port        int           `json:"port"`
-	CreatedAt   time.Time     `json:"created_at"`
-	EndedAt     *time.Time    `json:"ended_at,omitempty"`
+	CreatedAt   time.Time     `json:"createdAt"`
+	EndedAt     *time.Time    `json:"endedAt,omitempty"`
 }
 
 func (s *Sandbox) TableName() string {

@@ -172,6 +172,7 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 		Context:   contextLayers,
 		Input:     req.Input,
 		WorkDir:   req.ProjectPath,
+		ConfigDir: config.ConfigPath, // 使用生成的配置目录
 	}
 
 	// 使用流式执行，实时广播输出
@@ -270,8 +271,8 @@ func (es *ExecutionService) getAdapter(ctx context.Context, config *model.AgentR
 	}
 
 	// 如果配置了BaseAgentID但没有传入baseAgent，尝试获取
-	if config.BaseAgentID != uuid.Nil && es.baseAgentSvc != nil {
-		ba, err := es.baseAgentSvc.GetByID(ctx, config.BaseAgentID)
+	if config.BaseAgentID != uuid.Nil && es.baseAgentRepo != nil {
+		ba, err := es.baseAgentRepo.FindByID(ctx, config.BaseAgentID)
 		if err == nil {
 			adapter := NewAdapter(ba)
 			if adapter != nil {

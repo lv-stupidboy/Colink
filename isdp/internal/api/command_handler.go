@@ -1,13 +1,9 @@
 package api
 
 import (
-	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
-	"regexp"
-	"strings"
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/service/command"
@@ -75,6 +71,14 @@ func (h *CommandHandler) Get(c *gin.Context) {
 		return
 	}
 
+	// 读取文件内容
+	if h.storagePath != "" && cmd.Name != "" {
+		filePath := filepath.Join(h.storagePath, cmd.Name+".md")
+		if content, err := os.ReadFile(filePath); err == nil {
+			cmd.Content = string(content)
+		}
+	}
+
 	c.JSON(http.StatusOK, cmd)
 }
 
@@ -100,6 +104,14 @@ func (h *CommandHandler) Create(c *gin.Context) {
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+
+	// 如果提供了内容，保存到文件
+	if req.Content != "" && h.storagePath != "" {
+		if err := os.MkdirAll(h.storagePath, 0755); err == nil {
+			filePath := filepath.Join(h.storagePath, cmd.Name+".md")
+			os.WriteFile(filePath, []byte(req.Content), 0644)
+		}
 	}
 
 	c.JSON(http.StatusCreated, cmd)
@@ -144,108 +156,6 @@ func (h *CommandHandler) Delete(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
-// Upload 上传命令文件
-func (h *CommandHandler) Upload(c *gin.Context) {
-	// 检查文件大小（在读取前检查）
-	if c.Request.ContentLength > h.maxSize {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("文件大小超过限制，最大允许 %dMB", h.maxSize/1024/1024)})
-		return
-	}
-
-	file, header, err := c.Request.FormFile("file")
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请选择要上传的文件"})
-		return
-	}
-	defer file.Close()
-
-	// 再次检查文件大小（以实际大小为准）
-	if header.Size > h.maxSize {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("文件大小超过限制，最大允许 %dMB", h.maxSize/1024/1024)})
-		return
-	}
-
-	// 检查文件扩展名 - 只支持 .md
-	ext := strings.ToLower(filepath.Ext(header.Filename))
-	if ext != ".md" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "只支持 .md 格式的文件"})
-		return
-	}
-
-	// 读取文件内容
-	fileBytes, err := io.ReadAll(file)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "读取文件失败"})
-		return
-	}
-
-	content := string(fileBytes)
-	metadata := parseCommandMD(content)
-
-	// 如果没有从 markdown 中提取到名称，从文件名提取
-	name := metadata.Name
-	if name == "" {
-		name = strings.TrimSuffix(header.Filename, ext)
-	}
-
-	// 统一清理名称：只保留小写字母、数字和中划线
-	re := regexp.MustCompile(`[^a-z0-9-]`)
-	name = strings.ToLower(re.ReplaceAllString(name, "-"))
-	name = strings.Trim(name, "-")
-	if name == "" {
-		name = "command-" + uuid.New().String()[:8]
-	}
-
-	// 确保名称以字母开头
-	if len(name) > 0 && (name[0] < 'a' || name[0] > 'z') {
-		name = "c-" + name
-	}
-
-	// 校验名称格式
-	if !isValidCommandName(name) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "名称只能包含小写字母、数字和中划线，且必须以字母开头"})
-		return
-	}
-
-	// 创建命令记录
-	req := &model.CreateCommandRequest{
-		Name:        name,
-		Description: metadata.Description,
-	}
-
-	cmd, err := h.svc.Create(c.Request.Context(), req)
-	if err != nil {
-		if err == command.ErrCommandNameExists {
-			c.JSON(http.StatusConflict, gin.H{"error": "命令名称已存在"})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	// 保存文件到本地
-	// 确保存储目录存在
-	if err := os.MkdirAll(h.storagePath, 0755); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建存储目录失败"})
-		return
-	}
-
-	// 使用命令名称作为文件名，保存为 .md 文件
-	savePath := filepath.Join(h.storagePath, cmd.Name+".md")
-	if err := os.WriteFile(savePath, fileBytes, 0644); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存文件失败"})
-		return
-	}
-
-	c.JSON(http.StatusCreated, cmd)
-}
-
-// CommandMetadata 命令元数据
-type CommandMetadata struct {
-	Name        string
-	Description string
-}
-
 // isValidCommandName 校验命令名称格式
 // 规则：只能包含小写字母、数字和中划线，且必须以字母开头
 func isValidCommandName(name string) bool {
@@ -263,28 +173,6 @@ func isValidCommandName(name string) bool {
 		}
 	}
 	return true
-}
-
-// parseCommandMD 解析命令 Markdown 文件提取元数据
-func parseCommandMD(content string) CommandMetadata {
-	metadata := CommandMetadata{}
-
-	// 提取标题 (第一个 # 标题)
-	titleRegex := regexp.MustCompile(`(?m)^#\s+(.+)$`)
-	if matches := titleRegex.FindStringSubmatch(content); len(matches) > 1 {
-		metadata.Name = strings.TrimSpace(matches[1])
-	}
-
-	// 提取描述 (## Description 或 ## 描述 下的内容，直到下一个 ## 标题)
-	descRegex := regexp.MustCompile(`(?s)##\s*(?:Description|描述)\s*\n+(.+?)(?:\n##|$)`)
-	if matches := descRegex.FindStringSubmatch(content); len(matches) > 1 {
-		desc := strings.TrimSpace(matches[1])
-		// 移除末尾的空行
-		desc = strings.TrimRight(desc, "\n")
-		metadata.Description = desc
-	}
-
-	return metadata
 }
 
 // GetSkills 获取Command绑定的技能
@@ -422,7 +310,6 @@ func (h *CommandHandler) RegisterRoutes(r *gin.RouterGroup) {
 	{
 		commands.GET("", h.List)
 		commands.POST("", h.Create)
-		commands.POST("/upload", h.Upload)
 		commands.GET("/:id", h.Get)
 		commands.PUT("/:id", h.Update)
 		commands.DELETE("/:id", h.Delete)

@@ -127,31 +127,52 @@ code {
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* 主菜单样式覆盖 - 确保子菜单父项与其他菜单项对齐 */
-.main-menu > .ant-menu-submenu {
-  margin: 0 !important;
-  padding: 0 !important;
+/* ============ 多级菜单缩进优化 ============ */
+
+/* 一级菜单项（顶级菜单）- 无缩进 */
+.main-menu > .ant-menu-item {
+  padding-left: 16px !important;
 }
 
+/* 一级子菜单标题（如 Agent团队、设置、规划板块）- 无缩进 */
 .main-menu > .ant-menu-submenu > .ant-menu-submenu-title {
-  border-radius: 12px !important;
+  padding-left: 16px !important;
   margin: 4px 8px !important;
+  border-radius: 12px !important;
 }
 
-/* 子菜单箭头图标位置 */
-.main-menu .ant-menu-submenu-arrow {
-  right: 16px !important;
-}
-
-/* 子菜单列表 */
-.ant-menu-sub {
+/* 二级菜单容器（一级子菜单展开后的列表）*/
+.main-menu > .ant-menu-submenu > .ant-menu-sub {
   padding-left: 0 !important;
 }
 
-/* 子菜单内的菜单项 - 缩进显示 */
-.main-menu .ant-menu-sub .ant-menu-item {
-  padding-left: 48px !important;
+/* 二级菜单项（如 团队管理、角色管理）- 缩进一级 */
+.main-menu > .ant-menu-submenu > .ant-menu-sub > .ant-menu-item {
+  padding-left: 40px !important;
   margin: 4px 8px !important;
+}
+
+/* 二级子菜单标题（如 角色资产）- 缩进一级 */
+.main-menu > .ant-menu-submenu > .ant-menu-sub > .ant-menu-submenu > .ant-menu-submenu-title {
+  padding-left: 40px !important;
+  margin: 4px 8px !important;
+  border-radius: 12px !important;
+}
+
+/* 三级菜单容器（二级子菜单展开后的列表）*/
+.main-menu > .ant-menu-submenu > .ant-menu-sub > .ant-menu-submenu > .ant-menu-sub {
+  padding-left: 0 !important;
+}
+
+/* 三级菜单项（如 Commands、Subagents）- 缩进二级 */
+.main-menu > .ant-menu-submenu > .ant-menu-sub > .ant-menu-submenu > .ant-menu-sub > .ant-menu-item {
+  padding-left: 56px !important;
+  margin: 4px 8px !important;
+}
+
+/* 子菜单箭头图标位置统一 */
+.main-menu .ant-menu-submenu-arrow {
+  right: 16px !important;
 }
 
 .ant-menu-item:hover {
@@ -595,4 +616,114 @@ code {
 [data-theme='dark'] .ant-input-search .ant-input-group-addon {
   background: transparent;
   border-color: var(--border-color);
+}
+
+/* 深色模式下配置预览对话框 */
+[data-theme='dark'] .config-preview-modal .ant-modal-content {
+  background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+  border: 1px solid var(--color-primary-opacity-20);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 0 60px var(--color-primary-opacity-10);
+}
+
+[data-theme='dark'] .config-preview-modal .ant-modal-header {
+  background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+  border-bottom-color: var(--color-primary-opacity-20);
+}
+
+[data-theme='dark'] .config-preview-modal .ant-modal-title {
+  color: var(--text-primary);
+}
+
+[data-theme='dark'] .config-preview-modal .ant-modal-close {
+  color: var(--text-secondary);
+}
+
+[data-theme='dark'] .config-preview-modal .ant-modal-close:hover {
+  color: var(--color-primary);
+}
+
+[data-theme='dark'] .config-preview-modal .ant-collapse {
+  background: transparent;
+  border-color: var(--color-primary-opacity-20);
+}
+
+[data-theme='dark'] .config-preview-modal .ant-collapse-header {
+  background: rgba(30, 41, 59, 0.8);
+  color: var(--text-primary) !important;
+  border-color: var(--color-primary-opacity-20);
+}
+
+[data-theme='dark'] .config-preview-modal .ant-collapse-content {
+  background: rgba(15, 23, 42, 0.6);
+  border-color: var(--color-primary-opacity-20);
+}
+
+[data-theme='dark'] .config-preview-modal .ant-collapse-content p,
+[data-theme='dark'] .config-preview-modal .ant-collapse-content span {
+  color: var(--text-secondary);
+}
+
+[data-theme='dark'] .config-preview-modal .ant-list-item {
+  border-bottom-color: var(--color-primary-opacity-10);
+}
+
+[data-theme='dark'] .config-preview-modal .ant-statistic-title {
+  color: var(--text-secondary);
+}
+
+[data-theme='dark'] .config-preview-modal .ant-statistic-content {
+  color: var(--color-primary);
+}
+
+[data-theme='dark'] .config-preview-modal .ant-divider {
+  border-color: var(--color-primary-opacity-20);
+}
+
+/* 深色模式下工作流编辑器 */
+[data-theme='dark'] .workflow-editor-container {
+  background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
+}
+
+[data-theme='dark'] .workflow-editor-container .react-flow__background {
+  background: #0f172a;
+}
+
+[data-theme='dark'] .workflow-editor-container .react-flow__minimap {
+  background: #1e293b;
+  border: 1px solid #334155;
+}
+
+[data-theme='dark'] .workflow-editor-container .react-flow__controls {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 8px;
+}
+
+[data-theme='dark'] .workflow-editor-container .react-flow__controls-button {
+  background: #1e293b;
+  border-bottom: 1px solid #334155;
+  color: var(--text-secondary);
+}
+
+[data-theme='dark'] .workflow-editor-container .react-flow__controls-button:hover {
+  background: #334155;
+  color: var(--color-primary);
+}
+
+[data-theme='dark'] .workflow-editor-container .agent-node-card {
+  background: #1e293b;
+  border-color: #334155;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme='dark'] .workflow-editor-container .agent-node-card:hover {
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+}
+
+[data-theme='dark'] .workflow-editor-container .react-flow__edge-path {
+  stroke: var(--color-primary);
+}
+
+[data-theme='dark'] .workflow-editor-container .react-flow__edge.selected .react-flow__edge-path {
+  stroke: var(--color-primary-hover);
 }

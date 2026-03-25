@@ -1,7 +1,7 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
-  Card, Button, Modal, Form, Input, message, Space, Typography,
-  Popconfirm, Empty, Spin, Pagination, Table, Tooltip, Upload, Radio, Select
+  Card, Button, Modal, Form, Input, message, Space, Typography, Tag,
+  Popconfirm, Empty, Spin, Pagination, Table, Tooltip, Radio, Select
 } from 'antd';
 import {
   PlusOutlined,
@@ -16,6 +16,53 @@ import type { Subagent, SubagentListResponse, Skill } from '@/types';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
+
+// 解析 .md 文件提取描述
+const parseSubagentMD = (content: string): { description: string } => {
+  let description = '';
+
+  // 1. 首先尝试解析 YAML front matter
+  const frontMatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---/);
+  if (frontMatterMatch) {
+    const frontMatter = frontMatterMatch[1];
+    const descMatch = frontMatter.match(/description:\s*(.+)/i);
+    if (descMatch) {
+      description = descMatch[1].trim();
+      // 移除引号
+      description = description.replace(/^["']|["']$/g, '');
+    }
+  }
+
+  // 2. 如果没有从 front matter 获取到，尝试从 ## Description 获取
+  if (!description) {
+    const patterns = [
+      /##\s*(?:Description|描述)\s*\n+([\s\S]*?)(?=\n##|$)/i,
+      /##\s*(?:Description|描述)\s*[:：]?\s*([\s\S]*?)(?=\n##|$)/i,
+    ];
+
+    for (const pattern of patterns) {
+      const descMatch = content.match(pattern);
+      if (descMatch && descMatch[1]) {
+        description = descMatch[1].trim();
+        break;
+      }
+    }
+  }
+
+  return { description };
+};
+
+// 清理名称格式
+const cleanName = (name: string): string => {
+  if (!name) return '';
+  let cleaned = name.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+  cleaned = cleaned.replace(/^-+|-+$/g, '');
+  // 确保以字母开头
+  if (cleaned && !/^[a-z]/.test(cleaned)) {
+    cleaned = 's-' + cleaned;
+  }
+  return cleaned;
+};
 
 // 根据子代理名称生成头像
 const generateAvatar = (name: string): { initials: string; color: string } => {
@@ -78,11 +125,16 @@ const SubagentList: React.FC = () => {
   const [viewingSubagent, setViewingSubagent] = useState<Subagent | null>(null);
   const [searchText, setSearchText] = useState('');
   const [form] = Form.useForm();
-  const [createMethod, setCreateMethod] = useState<'upload' | 'manual'>('manual');
+  const [createMethod, setCreateMethod] = useState<'upload' | 'manual'>('upload');
   const [isAfterUpload, setIsAfterUpload] = useState(false);
   // 技能绑定相关
   const [skills, setSkills] = useState<Skill[]>([]);
   const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
+  const [subagentSkillCounts, setSubagentSkillCounts] = useState<Record<string, number>>({});
+  const [subagentSkillsMap, setSubagentSkillsMap] = useState<Record<string, Skill[]>>({});
+
+  // 存储解析后的内容，用户确认后才上传
+  const pendingContentRef = useRef<string>('');
 
   const loadSubagents = useCallback(async () => {
     setLoading(true);
@@ -94,6 +146,22 @@ const SubagentList: React.FC = () => {
       });
       setSubagents(result.data || []);
       setTotal(result.total || 0);
+
+      // 加载每个子代理的关联技能
+      const counts: Record<string, number> = {};
+      const skillsMap: Record<string, Skill[]> = {};
+      for (const sub of result.data || []) {
+        try {
+          const skillsRes = await api.subagents.getSkills(sub.id);
+          counts[sub.id] = skillsRes.count || 0;
+          skillsMap[sub.id] = skillsRes.skills || [];
+        } catch {
+          counts[sub.id] = 0;
+          skillsMap[sub.id] = [];
+        }
+      }
+      setSubagentSkillCounts(counts);
+      setSubagentSkillsMap(skillsMap);
     } catch (error) {
       message.error('加载子代理列表失败');
     } finally {
@@ -134,8 +202,9 @@ const SubagentList: React.FC = () => {
 
   const handleCreate = () => {
     setEditingSubagent(null);
-    setCreateMethod('manual');
+    setCreateMethod('upload');
     setIsAfterUpload(false);
+    pendingContentRef.current = '';
     setSelectedSkillIds([]);
     form.resetFields();
     setModalVisible(true);
@@ -145,6 +214,7 @@ const SubagentList: React.FC = () => {
     setEditingSubagent(record);
     setCreateMethod('manual');
     setIsAfterUpload(false);
+    pendingContentRef.current = '';
     form.setFieldsValue({
       name: record.name,
       description: record.description,
@@ -186,10 +256,12 @@ const SubagentList: React.FC = () => {
         await api.subagents.bindSkills(editingSubagent.id, selectedSkillIds);
         message.success('更新成功');
       } else {
+        // 新建时，使用 pendingContentRef 或表单中的 content
+        const content = isAfterUpload ? pendingContentRef.current : values.content;
         const newSubagent = await api.subagents.create({
           name: values.name,
           description: values.description,
-          content: values.content,
+          content: content,
         });
         // 为新创建的子代理绑定技能
         if (selectedSkillIds.length > 0) {
@@ -214,26 +286,52 @@ const SubagentList: React.FC = () => {
     setPage(1);
   };
 
-  // 上传处理
-  const handleUploadSuccess = (response: Subagent) => {
-    if (response && response.id) {
-      setEditingSubagent(response);
-      setIsAfterUpload(true);
-      form.setFieldsValue({
-        name: response.name,
-        description: response.description || '',
-        content: response.content,
-      });
-      message.success('子代理文件上传成功，请补充完整信息后保存');
+  // 上传处理 - 前端解析，不直接入库
+  const handleFileSelect = async (file: File) => {
+    // 检查文件格式
+    const isValid = file.name.endsWith('.md') || file.name.endsWith('.zip');
+    if (!isValid) {
+      message.error('只支持 .md 和 .zip 格式的文件');
+      return false;
     }
-  };
+    // 检查文件大小
+    if (file.size / 1024 / 1024 > 2) {
+      message.error('文件大小不能超过 2MB');
+      return false;
+    }
 
-  const handleUpload = (info: any) => {
-    if (info.file.status === 'done') {
-      handleUploadSuccess(info.file.response);
-    } else if (info.file.status === 'error') {
-      const errorData = info.file.response;
-      message.error(errorData?.error || '上传失败');
+    try {
+      // 目前只处理 .md 文件
+      if (file.name.endsWith('.md')) {
+        // 读取文件内容
+        const content = await file.text();
+        const metadata = parseSubagentMD(content);
+
+        // 从文件名提取名称（去掉 .md 后缀）
+        const fileName = file.name.replace(/\.md$/i, '');
+        const name = cleanName(fileName);
+
+        // 存储解析后的内容
+        pendingContentRef.current = content;
+
+        // 设置表单值，显示给用户确认
+        setIsAfterUpload(true);
+        form.setFieldsValue({
+          name: name,
+          description: metadata.description,
+          content: content,
+        });
+
+        message.success('文件解析成功，请确认后保存');
+      } else {
+        // .zip 文件暂不支持前端解析，提示用户
+        message.warning('.zip 格式暂不支持预览解析，请使用手动填写');
+        return false;
+      }
+      return false;
+    } catch (error) {
+      message.error('读取文件失败');
+      return false;
     }
   };
 
@@ -243,7 +341,7 @@ const SubagentList: React.FC = () => {
       title: '名称',
       dataIndex: 'name',
       key: 'name',
-      width: 200,
+      width: 180,
       render: (name: string) => (
         <Space>
           <SubagentAvatar name={name} />
@@ -255,18 +353,41 @@ const SubagentList: React.FC = () => {
       title: '描述',
       dataIndex: 'description',
       key: 'description',
+      width: 200,
       ellipsis: true,
       render: (description: string) => (
-        <Tooltip title={description}>
-          <Text type="secondary">{description || '暂无描述'}</Text>
+        <Tooltip title={description} placement="topLeft">
+          <Text type="secondary" style={{ maxWidth: 180, display: 'inline-block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {description || '暂无描述'}
+          </Text>
         </Tooltip>
       ),
+    },
+    {
+      title: '关联技能',
+      dataIndex: 'id',
+      key: 'skillCount',
+      width: 200,
+      render: (id: string) => {
+        const count = subagentSkillCounts[id] || 0;
+        const skillList = subagentSkillsMap[id] || [];
+        if (count === 0) {
+          return <Tag>0 个</Tag>;
+        }
+        return (
+          <Tooltip title={skillList.map(s => s.name).join('、')}>
+            <Tag color="blue" style={{ cursor: 'pointer' }}>
+              {count} 个技能
+            </Tag>
+          </Tooltip>
+        );
+      },
     },
     {
       title: '创建时间',
       dataIndex: 'createdAt',
       key: 'createdAt',
-      width: 180,
+      width: 160,
       render: (date: string) => (
         <Text type="secondary" style={{ fontSize: 12 }}>
           {date ? new Date(date).toLocaleString('zh-CN') : '-'}
@@ -276,25 +397,26 @@ const SubagentList: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      width: 150,
+      width: 220,
+      fixed: 'right' as const,
       render: (_: any, record: Subagent) => (
         <Space size="small">
-          <Tooltip title="查看详情">
-            <Button
-              type="text"
-              size="small"
-              icon={<EyeOutlined />}
-              onClick={() => handleView(record)}
-            />
-          </Tooltip>
-          <Tooltip title="编辑">
-            <Button
-              type="text"
-              size="small"
-              icon={<EditOutlined />}
-              onClick={() => handleEdit(record)}
-            />
-          </Tooltip>
+          <Button
+            type="link"
+            size="small"
+            icon={<EyeOutlined />}
+            onClick={() => handleView(record)}
+          >
+            查看
+          </Button>
+          <Button
+            type="link"
+            size="small"
+            icon={<EditOutlined />}
+            onClick={() => handleEdit(record)}
+          >
+            编辑
+          </Button>
           <Popconfirm
             title="确定要删除这个子代理吗？"
             description="删除后将无法恢复"
@@ -302,14 +424,14 @@ const SubagentList: React.FC = () => {
             okText="确定"
             cancelText="取消"
           >
-            <Tooltip title="删除">
-              <Button
-                type="text"
-                size="small"
-                danger
-                icon={<DeleteOutlined />}
-              />
-            </Tooltip>
+            <Button
+              type="link"
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+            >
+              删除
+            </Button>
           </Popconfirm>
         </Space>
       ),
@@ -363,22 +485,20 @@ const SubagentList: React.FC = () => {
         </Spin>
 
         {/* 分页 */}
-        {total > 0 && (
-          <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end' }}>
-            <Pagination
-              current={page}
-              pageSize={pageSize}
-              total={total}
-              onChange={(p, ps) => {
-                setPage(p);
-                setPageSize(ps);
-              }}
-              showSizeChanger
-              showTotal={(t) => `共 ${t} 条`}
-              pageSizeOptions={['10', '20', '50']}
-            />
-          </div>
-        )}
+        <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end' }}>
+          <Pagination
+            current={page}
+            pageSize={pageSize}
+            total={total}
+            onChange={(p, ps) => {
+              setPage(p);
+              setPageSize(ps);
+            }}
+            showSizeChanger
+            showTotal={(t) => `共 ${t} 条`}
+            pageSizeOptions={['10', '20', '50']}
+          />
+        </div>
       </Card>
 
       {/* 新建/编辑弹窗 */}
@@ -414,35 +534,39 @@ const SubagentList: React.FC = () => {
 
               {createMethod === 'upload' && (
                 <div style={{ marginTop: 12 }}>
-                  <Upload.Dragger
-                    name="file"
-                    action="/api/v1/subagents/upload"
+                  <input
+                    type="file"
                     accept=".md,.zip"
-                    onChange={handleUpload}
-                    multiple={false}
-                    showUploadList={false}
-                    beforeUpload={(file) => {
-                      const isValid = file.name.endsWith('.md') || file.name.endsWith('.zip');
-                      if (!isValid) {
-                        message.error('只支持 .md 和 .zip 格式的文件');
-                        return Upload.LIST_IGNORE;
+                    style={{ display: 'none' }}
+                    id="subagent-file-input"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        handleFileSelect(file);
                       }
-                      const isLt2M = file.size / 1024 / 1024 < 2;
-                      if (!isLt2M) {
-                        message.error('文件大小不能超过 2MB');
-                        return Upload.LIST_IGNORE;
-                      }
-                      return true;
+                      // 重置 input，允许选择相同文件
+                      e.target.value = '';
                     }}
+                  />
+                  <div
+                    onClick={() => document.getElementById('subagent-file-input')?.click()}
+                    style={{
+                      border: '1px dashed var(--ant-color-border)',
+                      borderRadius: 8,
+                      padding: 24,
+                      textAlign: 'center',
+                      cursor: 'pointer',
+                      transition: 'border-color 0.3s',
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.borderColor = 'var(--ant-color-primary)'}
+                    onMouseLeave={(e) => e.currentTarget.style.borderColor = 'var(--ant-color-border)'}
                   >
-                    <p className="ant-upload-drag-icon">
-                      <CloudUploadOutlined style={{ fontSize: 32, color: 'var(--ant-color-primary)' }} />
+                    <CloudUploadOutlined style={{ fontSize: 32, color: 'var(--ant-color-primary)' }} />
+                    <p style={{ marginTop: 8 }}>点击或拖拽文件到此区域上传</p>
+                    <p style={{ fontSize: 12, color: 'var(--ant-color-text-secondary)' }}>
+                      支持 .md 格式，最大 2MB
                     </p>
-                    <p className="ant-upload-text">点击或拖拽文件到此区域上传</p>
-                    <p className="ant-upload-hint" style={{ fontSize: 12, color: 'var(--ant-color-text-secondary)' }}>
-                      支持 .md 和 .zip 格式，最大 2MB
-                    </p>
-                  </Upload.Dragger>
+                  </div>
                 </div>
               )}
             </div>

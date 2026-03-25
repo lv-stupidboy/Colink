@@ -13,8 +13,9 @@ type Command struct {
 	ID          uuid.UUID `json:"id"`
 	Name        string    `json:"name"`
 	Description string    `json:"description,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	Content     string    `json:"content,omitempty"` // 文件内容（上传或查看时返回）
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
 func (c *Command) TableName() string {
@@ -24,9 +25,9 @@ func (c *Command) TableName() string {
 // AgentCommandBinding Agent角色与命令绑定
 type AgentCommandBinding struct {
 	ID          uuid.UUID `json:"id"`
-	AgentRoleID uuid.UUID `json:"agent_role_id"`
-	CommandID   uuid.UUID `json:"command_id"`
-	CreatedAt   time.Time `json:"created_at"`
+	AgentRoleID uuid.UUID `json:"agentRoleId"`
+	CommandID   uuid.UUID `json:"commandId"`
+	CreatedAt   time.Time `json:"createdAt"`
 }
 
 func (a *AgentCommandBinding) TableName() string {
@@ -36,9 +37,9 @@ func (a *AgentCommandBinding) TableName() string {
 // CommandSkillBinding 命令与技能绑定
 type CommandSkillBinding struct {
 	ID        uuid.UUID `json:"id"`
-	CommandID uuid.UUID `json:"command_id"`
-	SkillID   uuid.UUID `json:"skill_id"`
-	CreatedAt time.Time `json:"created_at"`
+	CommandID uuid.UUID `json:"commandId"`
+	SkillID   uuid.UUID `json:"skillId"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 func (c *CommandSkillBinding) TableName() string {
@@ -49,6 +50,7 @@ func (c *CommandSkillBinding) TableName() string {
 type CreateCommandRequest struct {
 	Name        string `json:"name" binding:"required"`
 	Description string `json:"description"`
+	Content     string `json:"content"` // 命令内容（可选，传入则保存文件）
 }
 
 // UpdateCommandRequest 更新Command请求
@@ -65,10 +67,10 @@ type CommandListQuery struct {
 
 // BindCommandRequest 绑定Command请求
 type BindCommandRequest struct {
-	CommandIDs []uuid.UUID `json:"command_ids" binding:"required"`
+	CommandIDs []uuid.UUID `json:"commandIds" binding:"required"`
 }
 
 // BindSkillsToCommandRequest 绑定技能到Command请求
 type BindSkillsToCommandRequest struct {
-	SkillIDs []uuid.UUID `json:"skill_ids" binding:"required"`
+	SkillIDs []uuid.UUID `json:"skillIds" binding:"required"`
 }

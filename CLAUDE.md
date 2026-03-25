@@ -99,6 +99,83 @@ skill:
 - **模板与本地同步**：新增配置项时，两个文件都要更新
 - **默认值在代码中设置**：确保未配置时有合理默认值
 
+## API 命名规范
+
+### JSON 字段命名
+
+**统一使用 camelCase**，与 JavaScript/TypeScript 生态保持一致。
+
+### 后端模型 (Go)
+
+在 `internal/model/` 下的结构体中，JSON 标签必须使用 camelCase：
+
+```go
+// ✅ 正确
+type AgentConfig struct {
+    ID           uuid.UUID `json:"id"`
+    Name         string    `json:"name"`
+    BaseAgentID  uuid.UUID `json:"baseAgentId"`
+    SystemPrompt string    `json:"systemPrompt"`
+    MaxTokens    int       `json:"maxTokens"`
+    IsSystem     bool      `json:"isSystem"`
+    CreatedAt    time.Time `json:"createdAt"`
+}
+
+// ❌ 错误
+type AgentConfig struct {
+    BaseAgentID  uuid.UUID `json:"base_agent_id"`  // 不要用 snake_case
+    SystemPrompt string    `json:"system_prompt"`
+    MaxTokens    int       `json:"max_tokens"`
+    IsSystem     bool      `json:"is_system"`
+    CreatedAt    time.Time `json:"created_at"`
+}
+```
+
+### 前端类型 (TypeScript)
+
+在 `web/src/types/` 下的接口定义使用 camelCase：
+
+```typescript
+// ✅ 正确
+interface AgentConfig {
+  id: string;
+  baseAgentId?: string;
+  systemPrompt: string;
+  maxTokens: number;
+  isSystem: boolean;
+  createdAt: string;
+}
+```
+
+### 常见字段映射
+
+| 数据库字段 (snake_case) | JSON/API 字段 (camelCase) |
+|------------------------|--------------------------|
+| `agent_id` | `agentId` |
+| `is_system` | `isSystem` |
+| `is_default` | `isDefault` |
+| `created_at` | `createdAt` |
+| `updated_at` | `updatedAt` |
+| `max_tokens` | `maxTokens` |
+| `system_prompt` | `systemPrompt` |
+| `base_agent_id` | `baseAgentId` |
+| `config_path` | `configPath` |
+| `estimated_time` | `estimatedTime` |
+
+### 空值处理
+
+- **空数组**：返回 `[]` 而非 `{}` 或 `null`
+- **空对象**：可选字段返回 `null` 或省略
+- **前端防御**：使用 `Array.isArray()` 检查数组类型
+
+```typescript
+// ✅ 正确：防御性检查
+const transitions = Array.isArray(template.transitions) ? template.transitions : [];
+
+// ❌ 错误：空对象 {} 会导致数组方法报错
+const transitions = template.transitions || [];
+```
+
 ## 服务端口
 
 - **后端**: 8080

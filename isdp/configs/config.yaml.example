@@ -57,6 +57,12 @@ auth:
   # 访问邀请码，为空则不启用验证
   invite_code: ""
 
+# Agent资产配置
+agent_assets:
+  # 资产存储基础路径，所有资产类型都在此目录下
+  # 默认值: ./agent-assets
+  base_path: ./agent-assets
+
 # 技能配置
 skill:
   # 技能使用次数统计更新间隔，默认 1h
@@ -64,32 +70,24 @@ skill:
   use_count_update_interval: "1h"
   # 技能包上传最大大小，单位 MB，默认 5
   upload_max_size: 5
-  # 技能包存储路径，默认 ./skills
-  storage_path: "./skills"
 
 # 子代理配置
 subagent:
   # 子代理文件上传最大大小，单位 MB，默认 2
   upload_max_size: 2
-  # 子代理文件存储路径，默认 ./subagents
-  storage_path: "./subagents"
-
-# Agent配置相关
-agent_config:
-  # ISDP数据目录，用于存储Agent配置池
-  # 默认值: ./data
-  data_dir: ./data
 
 # 命令配置
 command:
   # 命令文件上传最大大小，单位 MB，默认 2
   upload_max_size: 2
-  # 命令文件存储路径，默认 ./commands
-  storage_path: "./commands"
 
 # 规约配置
 rule:
   # 规约文件上传最大大小，单位 MB，默认 2
   upload_max_size: 2
-  # 规约文件存储路径，默认 ./rules
-  storage_path: "./rules"
+
+# Agent配置相关
+agent_config:
+  # Agent配置输出目录
+  # 默认值: ./agent-configs
+  data_dir: ./agent-configs

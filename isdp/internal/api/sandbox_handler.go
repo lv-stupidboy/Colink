@@ -24,8 +24,8 @@ func NewSandboxHandler(sandboxSvc *sandbox.SandboxService) *SandboxHandler {
 // RunProject 运行项目到沙箱
 func (h *SandboxHandler) RunProject(c *gin.Context) {
 	var req struct {
-		ThreadID    string `json:"thread_id"`
-		ProjectPath string `json:"project_path"`
+		ThreadID    string `json:"threadId"`
+		ProjectPath string `json:"projectPath"`
 		Mode        string `json:"mode"`
 	}
 
@@ -34,7 +34,7 @@ func (h *SandboxHandler) RunProject(c *gin.Context) {
 		return
 	}
 
-	fmt.Printf("[RunProject] Request: thread_id=%s, project_path=%s, mode=%s\n", req.ThreadID, req.ProjectPath, req.Mode)
+	fmt.Printf("[RunProject] Request: threadId=%s, projectPath=%s, mode=%s\n", req.ThreadID, req.ProjectPath, req.Mode)
 
 	// threadId 是可选的，没有时生成一个新的
 	var threadID uuid.UUID

@@ -2,13 +2,13 @@
 package agent
 
 import (
-	"fmt"
 	"sync"
 	"time"
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/ws"
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
 
 // DebugThread 状态常量
@@ -221,7 +221,7 @@ func (m *DebugThreadManager) DeleteThread(id uuid.UUID) {
 // Broadcast 向线程广播消息（WebSocket集成）
 func (m *DebugThreadManager) Broadcast(threadID uuid.UUID, msgType string, payload map[string]interface{}) {
 	if m.wsHub == nil {
-		fmt.Printf("[Broadcast] wsHub is nil, cannot broadcast msgType=%s\n", msgType)
+		logError("Broadcast: wsHub is nil", zap.String("threadID", threadID.String()), zap.String("msgType", msgType))
 		return
 	}
 
@@ -233,7 +233,7 @@ func (m *DebugThreadManager) Broadcast(threadID uuid.UUID, msgType string, paylo
 	}
 
 	clientCount := m.wsHub.GetClientCount(threadID.String())
-	fmt.Printf("[Broadcast] threadID=%s, msgType=%s, clientCount=%d\n", threadID.String(), msgType, clientCount)
+	logInfo("Broadcast", zap.String("threadID", threadID.String()), zap.String("msgType", msgType), zap.Int("clientCount", clientCount))
 
 	m.wsHub.BroadcastToThread(threadID.String(), msg)
 }
@@ -242,10 +242,10 @@ func (m *DebugThreadManager) Broadcast(threadID uuid.UUID, msgType string, paylo
 func (m *DebugThreadManager) BroadcastChunk(threadID, invocationID, agentID, agentName, chunk string) {
 	id, err := uuid.Parse(threadID)
 	if err != nil {
-		fmt.Printf("[BroadcastChunk] Invalid threadID: %s, error: %v\n", threadID, err)
+		logError("BroadcastChunk: Invalid threadID", zap.String("threadID", threadID), zap.Error(err))
 		return
 	}
-	fmt.Printf("[BroadcastChunk] threadID=%s, chunkLen=%d, wsHubNil=%v\n", threadID, len(chunk), m.wsHub == nil)
+	logInfo("BroadcastChunk", zap.String("threadID", threadID), zap.Int("chunkLen", len(chunk)), zap.Bool("wsHubNil", m.wsHub == nil))
 	m.Broadcast(id, "agent_output_chunk", map[string]interface{}{
 		"chunk":        chunk,
 		"invocationId": invocationID,

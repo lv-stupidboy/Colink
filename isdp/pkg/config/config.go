@@ -10,20 +10,21 @@ import (
 
 // Config 应用配置
 type Config struct {
-	Server      ServerConfig      `mapstructure:"server"`
-	Database    DatabaseConfig    `mapstructure:"database"`
-	Redis       RedisConfig       `mapstructure:"redis"`
-	Claude      ClaudeConfig      `mapstructure:"claude"`
-	Sandbox     SandboxConfig     `mapstructure:"sandbox"`
-	Agent       AgentConfig       `mapstructure:"agent"`
-	Logging     LoggingConfig     `mapstructure:"logging"`
-	MCP         MCPConfig         `mapstructure:"mcp"`
-	Auth        AuthConfig        `mapstructure:"auth"`
-	Skill       SkillConfig       `mapstructure:"skill"`
-	Subagent    SubagentConfig    `mapstructure:"subagent"`
-	AgentConfig AgentConfigConfig `mapstructure:"agent_config"`
-	Command     CommandConfig     `mapstructure:"command"`
-	Rule        RuleConfig        `mapstructure:"rule"`
+	Server       ServerConfig       `mapstructure:"server"`
+	Database     DatabaseConfig     `mapstructure:"database"`
+	Redis        RedisConfig        `mapstructure:"redis"`
+	Claude       ClaudeConfig       `mapstructure:"claude"`
+	Sandbox      SandboxConfig      `mapstructure:"sandbox"`
+	Agent        AgentConfig        `mapstructure:"agent"`
+	Logging      LoggingConfig      `mapstructure:"logging"`
+	MCP          MCPConfig          `mapstructure:"mcp"`
+	Auth         AuthConfig         `mapstructure:"auth"`
+	AgentAssets  AgentAssetsConfig  `mapstructure:"agent_assets"`
+	Skill        SkillConfig        `mapstructure:"skill"`
+	Subagent     SubagentConfig     `mapstructure:"subagent"`
+	AgentConfig  AgentConfigConfig  `mapstructure:"agent_config"`
+	Command      CommandConfig      `mapstructure:"command"`
+	Rule         RuleConfig         `mapstructure:"rule"`
 }
 
 // ServerConfig 服务器配置
@@ -139,6 +140,21 @@ type AuthConfig struct {
 	InviteCode string `mapstructure:"invite_code"` // 访问邀请码，为空则不启用验证
 }
 
+// AgentAssetsConfig Agent资产配置
+type AgentAssetsConfig struct {
+	// BasePath 资产存储基础路径，所有资产类型都在此目录下
+	// 默认值: ./agent-assets
+	BasePath string `mapstructure:"base_path"`
+}
+
+// GetBasePath 获取资产基础路径
+func (c *AgentAssetsConfig) GetBasePath() string {
+	if c.BasePath == "" {
+		return "./agent-assets"
+	}
+	return c.BasePath
+}
+
 // SkillConfig 技能配置
 type SkillConfig struct {
 	// UseCountUpdateInterval 技能使用次数更新间隔，默认 1 小时
@@ -147,18 +163,12 @@ type SkillConfig struct {
 
 	// UploadMaxSize 技能包上传最大大小，单位 MB，默认 5
 	UploadMaxSize int `mapstructure:"upload_max_size"`
-
-	// StoragePath 技能包存储路径，默认 ./skills
-	StoragePath string `mapstructure:"storage_path"`
 }
 
 // SubagentConfig 子代理配置
 type SubagentConfig struct {
 	// UploadMaxSize 子代理文件上传最大大小，单位 MB，默认 2
 	UploadMaxSize int `mapstructure:"upload_max_size"`
-
-	// StoragePath 子代理文件存储路径，默认 ./subagents
-	StoragePath string `mapstructure:"storage_path"`
 }
 
 // AgentConfigConfig Agent配置相关配置
@@ -171,18 +181,12 @@ type AgentConfigConfig struct {
 type CommandConfig struct {
 	// UploadMaxSize 命令文件上传最大大小，单位 MB，默认 2
 	UploadMaxSize int `mapstructure:"upload_max_size"`
-
-	// StoragePath 命令文件存储路径，默认 ./commands
-	StoragePath string `mapstructure:"storage_path"`
 }
 
 // RuleConfig 规约配置
 type RuleConfig struct {
 	// UploadMaxSize 规约文件上传最大大小，单位 MB，默认 2
 	UploadMaxSize int `mapstructure:"upload_max_size"`
-
-	// StoragePath 规约文件存储路径，默认 ./rules
-	StoragePath string `mapstructure:"storage_path"`
 }
 
 // GetUseCountUpdateInterval 获取技能使用次数更新间隔
@@ -205,28 +209,12 @@ func (c *SkillConfig) GetUploadMaxSize() int64 {
 	return int64(c.UploadMaxSize) * 1024 * 1024
 }
 
-// GetStoragePath 获取技能包存储路径
-func (c *SkillConfig) GetStoragePath() string {
-	if c.StoragePath == "" {
-		return "./skills"
-	}
-	return c.StoragePath
-}
-
 // GetUploadMaxSize 获取子代理上传文件最大大小（字节）
 func (c *SubagentConfig) GetUploadMaxSize() int64 {
 	if c.UploadMaxSize <= 0 {
 		return 2 * 1024 * 1024 // 默认 2MB
 	}
 	return int64(c.UploadMaxSize) * 1024 * 1024
-}
-
-// GetStoragePath 获取子代理文件存储路径
-func (c *SubagentConfig) GetStoragePath() string {
-	if c.StoragePath == "" {
-		return "./subagents"
-	}
-	return c.StoragePath
 }
 
 // GetUploadMaxSize 获取命令文件上传最大大小（字节）
@@ -237,14 +225,6 @@ func (c *CommandConfig) GetUploadMaxSize() int64 {
 	return int64(c.UploadMaxSize) * 1024 * 1024
 }
 
-// GetStoragePath 获取命令文件存储路径
-func (c *CommandConfig) GetStoragePath() string {
-	if c.StoragePath == "" {
-		return "./commands"
-	}
-	return c.StoragePath
-}
-
 // GetUploadMaxSize 获取规约文件上传最大大小（字节）
 func (c *RuleConfig) GetUploadMaxSize() int64 {
 	if c.UploadMaxSize <= 0 {
@@ -253,12 +233,24 @@ func (c *RuleConfig) GetUploadMaxSize() int64 {
 	return int64(c.UploadMaxSize) * 1024 * 1024
 }
 
-// GetStoragePath 获取规约文件存储路径
-func (c *RuleConfig) GetStoragePath() string {
-	if c.StoragePath == "" {
-		return "./rules"
-	}
-	return c.StoragePath
+// GetSkillStoragePath 获取技能包存储路径
+func (c *Config) GetSkillStoragePath() string {
+	return c.AgentAssets.GetBasePath() + "/skills"
+}
+
+// GetSubagentStoragePath 获取子代理存储路径
+func (c *Config) GetSubagentStoragePath() string {
+	return c.AgentAssets.GetBasePath() + "/subagents"
+}
+
+// GetCommandStoragePath 获取命令存储路径
+func (c *Config) GetCommandStoragePath() string {
+	return c.AgentAssets.GetBasePath() + "/commands"
+}
+
+// GetRuleStoragePath 获取规约存储路径
+func (c *Config) GetRuleStoragePath() string {
+	return c.AgentAssets.GetBasePath() + "/rules"
 }
 
 // Load 加载配置文件
@@ -309,14 +301,11 @@ func setDefaults() {
 	viper.SetDefault("logging.format", "json")
 	viper.SetDefault("mcp.base_url", "http://localhost:8080/api/v1/mcp")
 	viper.SetDefault("mcp.token_ttl", "30m")
+	viper.SetDefault("agent_assets.base_path", "./agent-assets")
 	viper.SetDefault("skill.use_count_update_interval", "1h")
 	viper.SetDefault("skill.upload_max_size", 5)
-	viper.SetDefault("skill.storage_path", "./skills")
 	viper.SetDefault("subagent.upload_max_size", 2)
-	viper.SetDefault("subagent.storage_path", "./subagents")
 	viper.SetDefault("agent_config.data_dir", "./data")
 	viper.SetDefault("command.upload_max_size", 2)
-	viper.SetDefault("command.storage_path", "./commands")
 	viper.SetDefault("rule.upload_max_size", 2)
-	viper.SetDefault("rule.storage_path", "./rules")
 }

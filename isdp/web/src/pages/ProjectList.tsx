@@ -61,7 +61,7 @@ const ProjectList: React.FC = () => {
 
   // 处理路径选择
   const handlePathSelect = (path: string) => {
-    form.setFieldsValue({ local_path: path });
+    form.setFieldsValue({ localPath: path });
     setPathSelectorVisible(false);
   };
 
@@ -185,7 +185,7 @@ const ProjectList: React.FC = () => {
             <Input placeholder="请输入项目名称" autoComplete="off" />
           </Form.Item>
           <Form.Item
-            name="local_path"
+            name="localPath"
             label="本地路径"
             rules={[{ required: true, message: '请选择本地路径' }]}
           >
@@ -215,7 +215,7 @@ const ProjectList: React.FC = () => {
               <Option value="enhance">功能增强</Option>
             </Select>
           </Form.Item>
-          <Form.Item name="existing_repo_url" label="现有仓库 URL">
+          <Form.Item name="existingRepoUrl" label="现有仓库 URL">
             <Input placeholder="https://github.com/user/repo" />
           </Form.Item>
         </Form>

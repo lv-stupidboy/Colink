@@ -115,6 +115,27 @@ type GenerateAgentConfigResult struct {
 	GeneratedAt    time.Time `json:"generatedAt"`
 }
 
+// PreviewAgentConfigResult Agent配置预览结果
+type PreviewAgentConfigResult struct {
+	AgentID      string                      `json:"agent_id"`
+	AgentName    string                      `json:"agent_name"`
+	Skills       []PreviewAssetItem          `json:"skills"`
+	Commands     []PreviewAssetItem          `json:"commands"`
+	Subagents    []PreviewAssetItem          `json:"subagents"`
+	Rules        []PreviewAssetItem          `json:"rules"`
+	SkillsCount  int                         `json:"skills_count"`
+	CommandsCount int                        `json:"commands_count"`
+	SubagentsCount int                       `json:"subagents_count"`
+	RulesCount   int                         `json:"rules_count"`
+}
+
+// PreviewAssetItem 预览资产项
+type PreviewAssetItem struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
 // GenerateConfig 生成项目配置（项目级，保留兼容）
 func (s *Service) GenerateConfig(ctx context.Context, req *GenerateConfigRequest) (*GenerateConfigResult, error) {
 	// 解析项目 ID
@@ -238,8 +259,15 @@ func (s *Service) GenerateAgentConfig(ctx context.Context, req *GenerateAgentCon
 		return nil, fmt.Errorf("Agent角色不存在: %w", err)
 	}
 
-	// 2. 确定配置目录: {dataDir}/agents/{agentID}/.claude
-	configPath := filepath.Join(s.dataDir, "agents", req.AgentRoleID.String(), s.getConfigDirName(req.BaseAgentType))
+	// 2. 确定配置目录: {dataDir}/{agentID}/
+	configPath := filepath.Join(s.dataDir, req.AgentRoleID.String())
+
+	// 转换为绝对路径
+	absConfigPath, err := filepath.Abs(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("获取配置目录绝对路径失败: %w", err)
+	}
+	configPath = absConfigPath
 
 	s.logger.Info("开始生成Agent配置",
 		zap.String("agent_id", req.AgentRoleID.String()),
@@ -534,4 +562,147 @@ func (s *Service) copyRuleFile(rule *model.Rule, targetDir string) error {
 
 	// 写入目标文件
 	return os.WriteFile(targetPath, content, 0644)
+}
+
+// PreviewAgentConfig 预览Agent配置（生成前）
+func (s *Service) PreviewAgentConfig(ctx context.Context, agentRoleID uuid.UUID) (*PreviewAgentConfigResult, error) {
+	// 1. 获取Agent角色
+	agent, err := s.agentRepo.FindByID(ctx, agentRoleID)
+	if err != nil {
+		return nil, fmt.Errorf("Agent角色不存在: %w", err)
+	}
+
+	result := &PreviewAgentConfigResult{
+		AgentID:   agentRoleID.String(),
+		AgentName: agent.Name,
+		Skills:    []PreviewAssetItem{},
+		Commands:  []PreviewAssetItem{},
+		Subagents: []PreviewAssetItem{},
+		Rules:     []PreviewAssetItem{},
+	}
+
+	// 用于收集所有 Skill（去重）
+	skillMap := make(map[uuid.UUID]*PreviewAssetItem)
+
+	// 2. 获取直接绑定的技能
+	directSkillIDs, err := s.bindingRepo.FindByAgentRoleID(ctx, agentRoleID)
+	if err != nil {
+		s.logger.Warn("获取绑定的Skill失败", zap.Error(err))
+	}
+	for _, skillID := range directSkillIDs {
+		skill, err := s.skillRepo.FindByID(ctx, skillID)
+		if err != nil {
+			s.logger.Warn("获取Skill失败", zap.String("skill_id", skillID.String()), zap.Error(err))
+			continue
+		}
+		skillMap[skillID] = &PreviewAssetItem{
+			ID:          skillID.String(),
+			Name:        skill.Name,
+			Description: skill.Description,
+		}
+	}
+
+	// 3. 获取绑定的Commands及其关联Skills
+	commandIDs, err := s.agentCommandBindingRepo.FindByAgentRoleID(ctx, agentRoleID)
+	if err != nil {
+		s.logger.Warn("获取绑定的Command失败", zap.Error(err))
+	}
+	for _, commandID := range commandIDs {
+		command, err := s.commandRepo.FindByID(ctx, commandID)
+		if err != nil {
+			s.logger.Warn("获取Command失败", zap.String("command_id", commandID.String()), zap.Error(err))
+			continue
+		}
+		result.Commands = append(result.Commands, PreviewAssetItem{
+			ID:          commandID.String(),
+			Name:        command.Name,
+			Description: command.Description,
+		})
+
+		// 收集Command关联的Skill
+		commandSkillIDs, err := s.commandSkillBindingRepo.FindByCommandID(ctx, commandID)
+		if err != nil {
+			s.logger.Warn("获取Command关联的Skill失败", zap.Error(err))
+			continue
+		}
+		for _, skillID := range commandSkillIDs {
+			if _, exists := skillMap[skillID]; !exists {
+				skill, err := s.skillRepo.FindByID(ctx, skillID)
+				if err != nil {
+					s.logger.Warn("获取Skill失败", zap.String("skill_id", skillID.String()), zap.Error(err))
+					continue
+				}
+				skillMap[skillID] = &PreviewAssetItem{
+					ID:          skillID.String(),
+					Name:        skill.Name,
+					Description: skill.Description,
+				}
+			}
+		}
+	}
+
+	// 4. 获取绑定的Subagents及其关联Skills
+	subagents, err := s.agentSubagentBindingRepo.FindSubagentsByAgentRoleID(ctx, agentRoleID)
+	if err != nil {
+		s.logger.Warn("获取绑定的Subagent失败", zap.Error(err))
+	}
+	for _, subagent := range subagents {
+		result.Subagents = append(result.Subagents, PreviewAssetItem{
+			ID:          subagent.ID.String(),
+			Name:        subagent.Name,
+			Description: subagent.Description,
+		})
+
+		// 收集Subagent关联的Skill
+		subagentSkillIDs, err := s.subagentSkillBindingRepo.FindBySubagentID(ctx, subagent.ID)
+		if err != nil {
+			s.logger.Warn("获取Subagent关联的Skill失败", zap.Error(err))
+			continue
+		}
+		for _, skillID := range subagentSkillIDs {
+			if _, exists := skillMap[skillID]; !exists {
+				skill, err := s.skillRepo.FindByID(ctx, skillID)
+				if err != nil {
+					s.logger.Warn("获取Skill失败", zap.String("skill_id", skillID.String()), zap.Error(err))
+					continue
+				}
+				skillMap[skillID] = &PreviewAssetItem{
+					ID:          skillID.String(),
+					Name:        skill.Name,
+					Description: skill.Description,
+				}
+			}
+		}
+	}
+
+	// 5. 获取绑定的Rules
+	ruleIDs, err := s.agentRuleBindingRepo.FindByAgentRoleID(ctx, agentRoleID)
+	if err != nil {
+		s.logger.Warn("获取绑定的Rule失败", zap.Error(err))
+	}
+	for _, ruleID := range ruleIDs {
+		rule, err := s.ruleRepo.FindByID(ctx, ruleID)
+		if err != nil {
+			s.logger.Warn("获取Rule失败", zap.String("rule_id", ruleID.String()), zap.Error(err))
+			continue
+		}
+		result.Rules = append(result.Rules, PreviewAssetItem{
+			ID:          ruleID.String(),
+			Name:        rule.Name,
+			Description: rule.Description,
+		})
+	}
+
+	// 6. 转换skillMap为列表
+	for _, skill := range skillMap {
+		result.Skills = append(result.Skills, *skill)
+	}
+
+	// 7. 设置计数
+	result.SkillsCount = len(result.Skills)
+	result.CommandsCount = len(result.Commands)
+	result.SubagentsCount = len(result.Subagents)
+	result.RulesCount = len(result.Rules)
+
+	return result, nil
 }

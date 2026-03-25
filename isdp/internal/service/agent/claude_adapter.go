@@ -85,11 +85,10 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionReq
 		"--no-session-persistence", // 禁用 CLI 会话持久化，由 ISDP 管理记忆（避免多 Agent 间记忆干扰）
 	}
 
-	if req.BaseAgent != nil && req.BaseAgent.DefaultModel != "" {
-		args = append(args, "--model", req.BaseAgent.DefaultModel)
-	}
+	// 注意: --model 参数不需要，模型通过配置或环境变量指定
+	// 注意: --add-dir 参数不需要，配置目录通过 CLAUDE_CONFIG_DIR 环境变量指定
 
-	logInfo("Claude: Starting execution", zap.String("workDir", req.WorkDir), zap.String("model", req.BaseAgent.DefaultModel), zap.Strings("args", args))
+	logDebug("Claude: Starting execution", zap.String("workDir", req.WorkDir), zap.String("configDir", req.ConfigDir))
 
 	cmd := exec.CommandContext(ctx, a.cliPath, args...)
 	cmd.Stdin = strings.NewReader(prompt)
@@ -98,7 +97,7 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionReq
 		cmd.Dir = req.WorkDir
 	}
 
-	env := a.buildEnv()
+	env := a.buildEnv(req)
 	cmd.Env = env
 
 	stdout, err := cmd.StdoutPipe()
@@ -398,7 +397,7 @@ func (a *ClaudeAdapter) parseStreamJSONLine(line string, isStreaming bool) []Chu
 }
 
 // buildEnv 构建环境变量
-func (a *ClaudeAdapter) buildEnv() []string {
+func (a *ClaudeAdapter) buildEnv(req *ExecutionRequest) []string {
 	env := os.Environ()
 	env = append(env, "CLAUDE_NO_INTERACTIVE=1")
 	if a.apiURL != "" {
@@ -409,6 +408,10 @@ func (a *ClaudeAdapter) buildEnv() []string {
 	}
 	if a.gitBashPath != "" {
 		env = append(env, fmt.Sprintf("CLAUDE_CODE_GIT_BASH_PATH=%s", a.gitBashPath))
+	}
+	// 设置配置目录
+	if req.ConfigDir != "" {
+		env = append(env, fmt.Sprintf("CLAUDE_CONFIG_DIR=%s", req.ConfigDir))
 	}
 	return env
 }
@@ -448,7 +451,7 @@ func (a *ClaudeAdapter) CheckHealth(ctx context.Context) error {
 	cmd := exec.CommandContext(ctx, a.cliPath, args...)
 
 	// 设置环境变量，和正常执行流程一致
-	cmd.Env = a.buildEnv()
+	cmd.Env = a.buildEnv(&ExecutionRequest{})
 
 	// 通过stdin传递prompt
 	cmd.Stdin = strings.NewReader("reply with ok only")

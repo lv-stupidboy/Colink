@@ -137,9 +137,10 @@ const App: React.FC = () => {
               <Route path="agents/subagents" element={<SubagentList />} />
               <Route path="agents/skills" element={<SkillLibrary />} />
               <Route path="agents/rules" element={<RuleList />} />
-              <Route path="agents/plugins" element={<PlaceholderPage title="插件管理" description="该功能正在开发中，敬请期待" />} />
               <Route path="agents/hooks" element={<PlaceholderPage title="钩子管理" description="该功能正在开发中，敬请期待" />} />
               <Route path="agents/settings" element={<PlaceholderPage title="Agent 设置" description="该功能正在开发中，敬请期待" />} />
+              <Route path="agents/plugins" element={<PlaceholderPage title="插件管理" description="该功能正在开发中，敬请期待" />} />
+              <Route path="agents/knowledge" element={<KnowledgeManagement />} />
 
               {/* Agent 调试路由 */}
               <Route path="agents/:agentId/debug" element={<ThreadView />} />
@@ -153,7 +154,7 @@ const App: React.FC = () => {
               <Route path="workflow" element={<WorkflowPage />} />
               <Route path="sandbox" element={<SandboxPage />} />
               <Route path="registries" element={<RegistryManagement />} />
-              <Route path="knowledge" element={<KnowledgeManagement />} />
+              <Route path="knowledge" element={<Navigate to="/agents/knowledge" replace />} />
 
               {/* 设置页面 - 二级菜单 */}
               <Route path="settings" element={<SettingsLayout />}>

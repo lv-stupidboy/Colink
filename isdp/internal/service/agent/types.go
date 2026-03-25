@@ -35,6 +35,7 @@ type ExecutionRequest struct {
 	Context   *ContextLayers
 	Input     string
 	WorkDir   string
+	ConfigDir string // Agent配置目录路径（使用生成的配置）
 }
 
 // ExecutionResult 执行结果

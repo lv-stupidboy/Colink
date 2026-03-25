@@ -73,6 +73,7 @@ export interface Message {
   threadId: string;
   role: MessageRole;
   agentId?: string;
+  agentName?: string;
   content: string;
   messageType: MessageType;
   metadata?: Record<string, unknown>;
@@ -633,6 +634,7 @@ export interface Command {
   id: string;
   name: string;
   description?: string;
+  content?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -641,6 +643,7 @@ export interface Command {
 export interface CreateCommandRequest {
   name: string;
   description?: string;
+  content?: string; // 命令内容（可选，传入则保存文件）
 }
 
 // 更新Command请求
@@ -665,15 +668,16 @@ export interface CommandListResponse {
 
 // ========== Rule 相关类型 ==========
 
-// RuleScope 规约范围
-export type RuleScope = 'public' | 'instance';
+// RuleVisibility 规约可见性
+export type RuleVisibility = 'public' | 'private';
 
 // Rule
 export interface Rule {
   id: string;
   name: string;
   description?: string;
-  scope: RuleScope;
+  content?: string;
+  visibility: RuleVisibility;
   createdAt: string;
   updatedAt: string;
 }
@@ -682,19 +686,20 @@ export interface Rule {
 export interface CreateRuleRequest {
   name: string;
   description?: string;
-  scope?: RuleScope;
+  visibility?: RuleVisibility;
+  content?: string; // 规约内容（可选，传入则保存文件）
 }
 
 // 更新Rule请求
 export interface UpdateRuleRequest {
   description?: string;
-  scope?: RuleScope;
+  visibility?: RuleVisibility;
 }
 
 // Rule列表查询参数
 export interface RuleListQuery {
   search?: string;
-  scope?: RuleScope;
+  visibility?: RuleVisibility;
   page?: number;
   pageSize?: number;
 }

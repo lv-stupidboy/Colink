@@ -29,14 +29,14 @@ CREATE TABLE IF NOT EXISTS rules (
     id VARCHAR(64) NOT NULL COMMENT '规约唯一标识符',
     name VARCHAR(255) NOT NULL COMMENT '规约名称(唯一标识)',
     description TEXT COMMENT '规约描述',
-    scope VARCHAR(20) NOT NULL DEFAULT 'instance' COMMENT '作用域: public / instance',
+    visibility VARCHAR(20) NOT NULL DEFAULT 'private' COMMENT '可见性: public / private',
 
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
 
     PRIMARY KEY (id),
     UNIQUE KEY uk_rules_name (name),
-    KEY idx_rules_scope (scope)
+    KEY idx_rules_visibility (visibility)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='规约表';
 
 -- ----------------------------
@@ -127,10 +127,6 @@ WHERE skill_id IS NOT NULL AND skill_id != '';
 COMMIT;
 
 -- 回滚语句（如需回滚执行以下语句）
--- 回滚数据迁移说明：
--- 由于数据已从 subagents.skill_id 迁移到 subagent_skill_bindings 表，
--- 回滚时需要先确认 subagents 表仍保留 skill_id 字段。
--- 如果已删除 skill_id 字段，需要先恢复该字段再迁移数据回来。
 -- DROP TABLE IF EXISTS subagent_skill_bindings;
 -- DROP TABLE IF EXISTS command_skill_bindings;
 -- DROP TABLE IF EXISTS agent_rule_bindings;

@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
 
 // BuiltInTagCategory 内置标签分类
@@ -74,17 +77,39 @@ var builtInTagCategories = []BuiltInTagCategory{
 
 // Service Skill业务服务
 type Service struct {
-	skillRepo   *repo.SkillRepository
-	bindingRepo *repo.AgentSkillBindingRepository
-	agentRepo   *repo.AgentConfigRepository
+	skillRepo            *repo.SkillRepository
+	bindingRepo          *repo.AgentSkillBindingRepository
+	agentRepo            *repo.AgentConfigRepository
+	subagentSkillBinding *repo.SubagentSkillBindingRepository
+	commandSkillBinding  *repo.CommandSkillBindingRepository
+	subagentRepo         *repo.SubagentRepository
+	commandRepo          *repo.CommandRepository
+	storagePath          string
+	logger               *zap.Logger
 }
 
 // NewService 创建Skill Service
-func NewService(skillRepo *repo.SkillRepository, bindingRepo *repo.AgentSkillBindingRepository, agentRepo *repo.AgentConfigRepository) *Service {
+func NewService(
+	skillRepo *repo.SkillRepository,
+	bindingRepo *repo.AgentSkillBindingRepository,
+	agentRepo *repo.AgentConfigRepository,
+	subagentSkillBinding *repo.SubagentSkillBindingRepository,
+	commandSkillBinding *repo.CommandSkillBindingRepository,
+	subagentRepo *repo.SubagentRepository,
+	commandRepo *repo.CommandRepository,
+	storagePath string,
+	logger *zap.Logger,
+) *Service {
 	return &Service{
-		skillRepo:   skillRepo,
-		bindingRepo: bindingRepo,
-		agentRepo:   agentRepo,
+		skillRepo:            skillRepo,
+		bindingRepo:          bindingRepo,
+		agentRepo:            agentRepo,
+		subagentSkillBinding: subagentSkillBinding,
+		commandSkillBinding:  commandSkillBinding,
+		subagentRepo:         subagentRepo,
+		commandRepo:          commandRepo,
+		storagePath:          storagePath,
+		logger:               logger,
 	}
 }
 
@@ -183,28 +208,98 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, req *model.UpdateSki
 
 // Delete 删除Skill
 func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
-	// 检查是否有Agent绑定
-	agentRoleIDs, err := s.bindingRepo.FindBySkillID(ctx, id)
+	// 先获取技能信息（用于删除文件）
+	skillRecord, err := s.skillRepo.FindByID(ctx, id)
 	if err != nil {
-		return fmt.Errorf("检查绑定关系失败: %w", err)
-	}
-	if len(agentRoleIDs) > 0 {
-		return fmt.Errorf("无法删除技能：该技能已被 %d 个Agent绑定", len(agentRoleIDs))
+		return fmt.Errorf("技能不存在: %w", err)
 	}
 
+	// 检查是否有Agent绑定，获取绑定的Agent名称
+	agentRoleIDs, err := s.bindingRepo.FindBySkillID(ctx, id)
+	if err != nil {
+		return fmt.Errorf("检查Agent绑定关系失败: %w", err)
+	}
+	if len(agentRoleIDs) > 0 {
+		// 获取Agent名称列表
+		agentNames := make([]string, 0, len(agentRoleIDs))
+		for _, agentID := range agentRoleIDs {
+			agent, err := s.agentRepo.FindByID(ctx, agentID)
+			if err == nil {
+				agentNames = append(agentNames, agent.Name)
+			}
+		}
+		return fmt.Errorf("无法删除技能：该技能已被以下Agent绑定：%s", strings.Join(agentNames, "、"))
+	}
+
+	// 检查是否有Subagent绑定，获取绑定的子代理名称
+	if s.subagentSkillBinding != nil {
+		subagentIDs, err := s.subagentSkillBinding.FindBySkillID(ctx, id)
+		if err != nil {
+			return fmt.Errorf("检查Subagent绑定关系失败: %w", err)
+		}
+		if len(subagentIDs) > 0 {
+			// 获取子代理名称列表
+			subagentNames := make([]string, 0, len(subagentIDs))
+			for _, subagentID := range subagentIDs {
+				if s.subagentRepo != nil {
+					subagent, err := s.subagentRepo.FindByID(ctx, subagentID)
+					if err == nil {
+						subagentNames = append(subagentNames, subagent.Name)
+						continue
+					}
+				}
+				subagentNames = append(subagentNames, subagentID.String()[:8])
+			}
+			return fmt.Errorf("无法删除技能：该技能已被以下子代理绑定：%s", strings.Join(subagentNames, "、"))
+		}
+	}
+
+	// 检查是否有Command绑定，获取绑定的命令名称
+	if s.commandSkillBinding != nil {
+		commandIDs, err := s.commandSkillBinding.FindBySkillID(ctx, id)
+		if err != nil {
+			return fmt.Errorf("检查Command绑定关系失败: %w", err)
+		}
+		if len(commandIDs) > 0 {
+			// 获取命令名称列表
+			commandNames := make([]string, 0, len(commandIDs))
+			for _, commandID := range commandIDs {
+				if s.commandRepo != nil {
+					command, err := s.commandRepo.FindByID(ctx, commandID)
+					if err == nil {
+						commandNames = append(commandNames, command.Name)
+						continue
+					}
+				}
+				commandNames = append(commandNames, commandID.String()[:8])
+			}
+			return fmt.Errorf("无法删除技能：该技能已被以下命令绑定：%s", strings.Join(commandNames, "、"))
+		}
+	}
+
+	// 删除数据库记录
 	if err := s.skillRepo.Delete(ctx, id); err != nil {
 		return fmt.Errorf("删除技能失败: %w", err)
 	}
+
+	// 删除对应的技能目录
+	if s.storagePath != "" && skillRecord != nil {
+		skillDir := filepath.Join(s.storagePath, skillRecord.Name)
+		if _, err := os.Stat(skillDir); err == nil {
+			if err := os.RemoveAll(skillDir); err != nil {
+				s.logger.Warn("删除技能目录失败", zap.String("path", skillDir), zap.Error(err))
+			} else {
+				s.logger.Info("删除技能目录成功", zap.String("path", skillDir))
+			}
+		}
+	}
+
+	s.logger.Info("删除技能成功", zap.String("id", id.String()), zap.String("name", skillRecord.Name))
 	return nil
 }
 
-// BindSkills 绑定Skills到Agent
+// BindSkills 绑定Skills到Agent（全量替换）
 func (s *Service) BindSkills(ctx context.Context, agentRoleID uuid.UUID, skillIDs []uuid.UUID) error {
-	// 空切片检查
-	if len(skillIDs) == 0 {
-		return errors.New("技能ID列表不能为空")
-	}
-
 	// 验证Agent是否存在
 	_, err := s.agentRepo.FindByID(ctx, agentRoleID)
 	if err != nil {
@@ -219,17 +314,13 @@ func (s *Service) BindSkills(ctx context.Context, agentRoleID uuid.UUID, skillID
 		}
 	}
 
-	// 创建绑定
-	for _, skillID := range skillIDs {
-		// 检查是否已存在绑定
-		exists, err := s.bindingRepo.ExistsBinding(ctx, agentRoleID, skillID)
-		if err != nil {
-			return err
-		}
-		if exists {
-			continue // 已存在绑定，跳过
-		}
+	// 先删除所有现有绑定
+	if err := s.bindingRepo.DeleteByAgentRoleID(ctx, agentRoleID); err != nil {
+		return fmt.Errorf("清理旧绑定失败: %w", err)
+	}
 
+	// 创建新的绑定
+	for _, skillID := range skillIDs {
 		binding := &model.AgentSkillBinding{
 			ID:          uuid.New(),
 			AgentRoleID: agentRoleID,

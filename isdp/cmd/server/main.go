@@ -89,6 +89,7 @@ func main() {
 	// 初始化WebSocket Hub
 	wsHub := ws.NewHub()
 	go wsHub.Run()
+	ws.SetWSLogger(logger) // 设置 WebSocket 日志记录器
 
 	// 初始化调试线程管理器
 	debugThreadMgr := agent.NewDebugThreadManager(wsHub)
@@ -128,7 +129,12 @@ func main() {
 	workflowEngine := agent.NewWorkflowEngine(threadRepo, messageRepo, configService)
 	workflowService := workflow.NewService(workflowRepo)
 	mcpAuthService := a2a.NewMCPAuthService(cfg.MCP.TokenTTL)
-	skillService := skill.NewService(skillRepo, agentSkillBindingRepo, agentConfigRepo)
+	skillService := skill.NewService(
+		skillRepo, agentSkillBindingRepo, agentConfigRepo,
+		subagentSkillBindingRepo, commandSkillBindingRepo,
+		subagentRepo, commandRepo,
+		cfg.GetSkillStoragePath(), logger,
+	)
 	registryService := skill.NewRegistryService(registryRepo, skillRepo)
 	knowledgeService := knowledge.NewService(knowledgeRepo)
 	configGenService := configgen.NewService(
@@ -137,29 +143,47 @@ func main() {
 		commandRepo, ruleRepo,
 		agentCommandBindingRepo, agentRuleBindingRepo,
 		commandSkillBindingRepo, subagentSkillBindingRepo,
-		cfg.Skill.GetStoragePath(), cfg.Subagent.GetStoragePath(),
-		cfg.Command.GetStoragePath(), cfg.Rule.GetStoragePath(),
+		cfg.GetSkillStoragePath(), cfg.GetSubagentStoragePath(),
+		cfg.GetCommandStoragePath(), cfg.GetRuleStoragePath(),
 		cfg.AgentConfig.DataDir,
 		logger,
 	)
 
 	// 创建 Subagent Service
-	subagentSvc := subagent.NewService(subagentRepo, agentSubagentBindingRepo, subagentSkillBindingRepo, agentConfigRepo, skillRepo, logger)
+	subagentSvc := subagent.NewService(
+		subagentRepo, agentSubagentBindingRepo, subagentSkillBindingRepo,
+		agentConfigRepo, skillRepo,
+		cfg.GetSubagentStoragePath(),
+		logger,
+	)
 
 	// 创建 Command Service
 	commandSvc := command.NewService(
 		commandRepo, commandSkillBindingRepo, agentCommandBindingRepo,
 		agentConfigRepo, skillRepo,
-		cfg.Command.GetStoragePath(),
+		cfg.GetCommandStoragePath(),
 		logger,
 	)
 
 	// 创建 Rule Service
 	ruleSvc := rule.NewService(
 		ruleRepo, agentRuleBindingRepo, agentConfigRepo,
-		cfg.Rule.GetStoragePath(),
+		cfg.GetRuleStoragePath(),
 		logger,
 	)
+
+	// 初始化 UseCountUpdater（技能使用次数统计）
+	useCountUpdater := skill.NewUseCountUpdater(skillRepo, projectRepo, agentSkillBindingRepo)
+	useCountUpdater.SetWorkflowService(workflowService)
+	useCountUpdater.SetLogger(logger)
+
+	// 启动技能使用次数统计定时任务
+	updateInterval, err := time.ParseDuration(cfg.Skill.UseCountUpdateInterval)
+	if err != nil {
+		updateInterval = time.Hour // 默认 1 小时
+	}
+	useCountUpdater.Start(updateInterval)
+	defer useCountUpdater.Stop()
 
 	// 初始化默认基础Agent
 	if err := baseAgentService.InitDefaultAgents(context.Background()); err != nil {
@@ -263,7 +287,8 @@ func main() {
 	messageHandler := api.NewMessageHandler(messageService)
 	messageHandler.RegisterRoutes(v1)
 
-	agentHandler := api.NewAgentHandler(configService, baseAgentService, orchestrator, threadRepo, debugThreadMgr, workflowRepo)
+	agentHandler := api.NewAgentHandler(configService, baseAgentService, orchestrator, threadRepo, debugThreadMgr, workflowRepo,
+		agentSkillBindingRepo, agentSubagentBindingRepo, agentCommandBindingRepo, agentRuleBindingRepo)
 	agentHandler.RegisterRoutes(v1)
 
 	// 基础Agent Handler
@@ -275,7 +300,7 @@ func main() {
 	workflowHandler.RegisterRoutes(v1)
 
 	// Skill Handler
-	skillHandler := api.NewSkillHandler(skillService, &cfg.Skill)
+	skillHandler := api.NewSkillHandler(skillService, cfg.GetSkillStoragePath(), cfg.Skill.GetUploadMaxSize())
 	skillHandler.RegisterRoutes(v1)
 
 	// Registry Handler
@@ -287,7 +312,7 @@ func main() {
 	knowledgeHandler.RegisterRoutes(v1)
 
 	// Subagent Handler
-	subagentHandler := api.NewSubagentHandler(subagentSvc, &cfg.Subagent)
+	subagentHandler := api.NewSubagentHandler(subagentSvc, cfg.GetSubagentStoragePath(), cfg.Subagent.GetUploadMaxSize())
 	subagentHandler.RegisterRoutes(v1)
 
 	// ConfigGen Handler
@@ -295,11 +320,11 @@ func main() {
 	configGenHandler.RegisterRoutes(v1)
 
 	// Command Handler
-	commandHandler := api.NewCommandHandler(commandSvc, cfg.Command.GetStoragePath(), cfg.Command.GetUploadMaxSize())
+	commandHandler := api.NewCommandHandler(commandSvc, cfg.GetCommandStoragePath(), cfg.Command.GetUploadMaxSize())
 	commandHandler.RegisterRoutes(v1)
 
 	// Rule Handler
-	ruleHandler := api.NewRuleHandler(ruleSvc, cfg.Rule.GetStoragePath(), cfg.Rule.GetUploadMaxSize())
+	ruleHandler := api.NewRuleHandler(ruleSvc, cfg.GetRuleStoragePath(), cfg.Rule.GetUploadMaxSize())
 	ruleHandler.RegisterRoutes(v1)
 
 	// WebSocket

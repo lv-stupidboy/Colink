@@ -1,4 +1,3 @@
-// 文件路径: isdp/internal/service/rule/service.go
 package rule
 
 import (
@@ -6,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/anthropic/isdp/internal/model"
@@ -57,16 +58,16 @@ func (s *Service) Create(ctx context.Context, req *model.CreateRuleRequest) (*mo
 		return nil, ErrRuleNameExists
 	}
 
-	// 验证Scope
-	if req.Scope != model.RuleScopePublic && req.Scope != model.RuleScopeInstance {
-		return nil, errors.New("scope 必须是 public 或 instance")
+	// 验证Visibility
+	if req.Visibility != model.RuleVisibilityPublic && req.Visibility != model.RuleVisibilityPrivate {
+		return nil, errors.New("visibility 必须是 public 或 private")
 	}
 
 	rule := &model.Rule{
 		ID:          uuid.New(),
 		Name:        req.Name,
 		Description: req.Description,
-		Scope:       req.Scope,
+		Visibility:  req.Visibility,
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
 	}
@@ -78,7 +79,7 @@ func (s *Service) Create(ctx context.Context, req *model.CreateRuleRequest) (*mo
 	s.logger.Info("创建规约成功",
 		zap.String("id", rule.ID.String()),
 		zap.String("name", rule.Name),
-		zap.String("scope", string(rule.Scope)),
+		zap.String("visibility", string(rule.Visibility)),
 	)
 
 	return rule, nil
@@ -109,11 +110,11 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, req *model.UpdateRul
 	if req.Description != "" {
 		rule.Description = req.Description
 	}
-	if req.Scope != "" {
-		if req.Scope != model.RuleScopePublic && req.Scope != model.RuleScopeInstance {
-			return nil, errors.New("scope 必须是 public 或 instance")
+	if req.Visibility != "" {
+		if req.Visibility != model.RuleVisibilityPublic && req.Visibility != model.RuleVisibilityPrivate {
+			return nil, errors.New("visibility 必须是 public 或 private")
 		}
-		rule.Scope = req.Scope
+		rule.Visibility = req.Visibility
 	}
 	rule.UpdatedAt = time.Now()
 
@@ -131,40 +132,52 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, req *model.UpdateRul
 
 // Delete 删除Rule
 func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
-	// 检查是否有Agent绑定
+	// 先获取规约信息（用于删除文件）
+	rule, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return fmt.Errorf("规约不存在: %w", err)
+	}
+
+	// 检查是否有Agent绑定，获取绑定的Agent名称
 	agentRoleIDs, err := s.agentBindingRepo.FindByRuleID(ctx, id)
 	if err != nil {
 		return fmt.Errorf("检查绑定关系失败: %w", err)
 	}
 	if len(agentRoleIDs) > 0 {
-		return fmt.Errorf("无法删除规约：该规约已被 %d 个Agent绑定", len(agentRoleIDs))
+		// 获取Agent名称列表
+		agentNames := make([]string, 0, len(agentRoleIDs))
+		for _, agentID := range agentRoleIDs {
+			agent, err := s.agentRepo.FindByID(ctx, agentID)
+			if err == nil {
+				agentNames = append(agentNames, agent.Name)
+			}
+		}
+		return fmt.Errorf("无法删除规约：该规约已被以下Agent绑定：%s", strings.Join(agentNames, "、"))
 	}
 
-	// 删除文件
-	rule, err := s.repo.FindByID(ctx, id)
-	if err == nil && rule != nil {
-		filePath := fmt.Sprintf("%s/%s.md", s.storagePath, rule.Name)
-		os.Remove(filePath) // 忽略错误
-	}
-
+	// 删除数据库记录
 	if err := s.repo.Delete(ctx, id); err != nil {
 		return fmt.Errorf("删除规约失败: %w", err)
 	}
 
-	s.logger.Info("删除规约成功",
-		zap.String("id", id.String()),
-	)
+	// 删除对应的文件
+	if s.storagePath != "" && rule != nil {
+		filePath := filepath.Join(s.storagePath, rule.Name+".md")
+		if _, err := os.Stat(filePath); err == nil {
+			if err := os.Remove(filePath); err != nil {
+				s.logger.Warn("删除规约文件失败", zap.String("path", filePath), zap.Error(err))
+			} else {
+				s.logger.Info("删除规约文件成功", zap.String("path", filePath))
+			}
+		}
+	}
 
+	s.logger.Info("删除规约成功", zap.String("id", id.String()), zap.String("name", rule.Name))
 	return nil
 }
 
-// BindRulesToAgent 绑定Rules到Agent
+// BindRulesToAgent 绑定Rules到Agent（全量替换）
 func (s *Service) BindRulesToAgent(ctx context.Context, agentRoleID uuid.UUID, ruleIDs []uuid.UUID) error {
-	// 空切片检查
-	if len(ruleIDs) == 0 {
-		return errors.New("规约ID列表不能为空")
-	}
-
 	// 验证Agent是否存在
 	_, err := s.agentRepo.FindByID(ctx, agentRoleID)
 	if err != nil {
@@ -179,17 +192,13 @@ func (s *Service) BindRulesToAgent(ctx context.Context, agentRoleID uuid.UUID, r
 		}
 	}
 
-	// 创建绑定
-	for _, ruleID := range ruleIDs {
-		// 检查是否已存在绑定
-		exists, err := s.agentBindingRepo.ExistsBinding(ctx, agentRoleID, ruleID)
-		if err != nil {
-			return err
-		}
-		if exists {
-			continue // 已存在绑定，跳过
-		}
+	// 先删除所有现有绑定
+	if err := s.agentBindingRepo.DeleteByAgentRoleID(ctx, agentRoleID); err != nil {
+		return fmt.Errorf("清理旧绑定失败: %w", err)
+	}
 
+	// 创建新的绑定
+	for _, ruleID := range ruleIDs {
 		binding := &model.AgentRuleBinding{
 			ID:          uuid.New(),
 			AgentRoleID: agentRoleID,
@@ -209,7 +218,7 @@ func (s *Service) BindRulesToAgent(ctx context.Context, agentRoleID uuid.UUID, r
 	return nil
 }
 
-// BindPublicRulesToAgent 自动绑定所有公共规约到Agent
+// BindPublicRulesToAgent 自动绑定所有公开规约到Agent
 func (s *Service) BindPublicRulesToAgent(ctx context.Context, agentRoleID uuid.UUID) error {
 	// 验证Agent是否存在
 	_, err := s.agentRepo.FindByID(ctx, agentRoleID)
@@ -217,20 +226,20 @@ func (s *Service) BindPublicRulesToAgent(ctx context.Context, agentRoleID uuid.U
 		return fmt.Errorf("Agent角色不存在: %w", err)
 	}
 
-	// 获取所有公共规约
-	publicRules, err := s.repo.FindByScope(ctx, model.RuleScopePublic)
+	// 获取所有公开规约
+	publicRules, err := s.repo.FindByVisibility(ctx, model.RuleVisibilityPublic)
 	if err != nil {
-		return fmt.Errorf("获取公共规约失败: %w", err)
+		return fmt.Errorf("获取公开规约失败: %w", err)
 	}
 
 	if len(publicRules) == 0 {
-		s.logger.Info("没有公共规约需要绑定",
+		s.logger.Info("没有公开规约需要绑定",
 			zap.String("agent_role_id", agentRoleID.String()),
 		)
 		return nil
 	}
 
-	// 绑定所有公共规约
+	// 绑定所有公开规约
 	boundCount := 0
 	for _, rule := range publicRules {
 		// 检查是否已存在绑定
@@ -264,7 +273,7 @@ func (s *Service) BindPublicRulesToAgent(ctx context.Context, agentRoleID uuid.U
 		boundCount++
 	}
 
-	s.logger.Info("自动绑定公共规约到Agent成功",
+	s.logger.Info("自动绑定公开规约到Agent成功",
 		zap.String("agent_role_id", agentRoleID.String()),
 		zap.Int("bound_count", boundCount),
 		zap.Int("total_public_rules", len(publicRules)),
@@ -301,14 +310,14 @@ func (s *Service) UnbindRuleFromAgent(ctx context.Context, agentRoleID, ruleID u
 	return nil
 }
 
-// GetPublicRules 获取所有公共规约
+// GetPublicRules 获取所有公开规约
 func (s *Service) GetPublicRules(ctx context.Context) ([]*model.Rule, error) {
-	return s.repo.FindByScope(ctx, model.RuleScopePublic)
+	return s.repo.FindByVisibility(ctx, model.RuleVisibilityPublic)
 }
 
-// GetInstanceRules 获取所有实例规约
-func (s *Service) GetInstanceRules(ctx context.Context) ([]*model.Rule, error) {
-	return s.repo.FindByScope(ctx, model.RuleScopeInstance)
+// GetPrivateRules 获取所有私有规约
+func (s *Service) GetPrivateRules(ctx context.Context) ([]*model.Rule, error) {
+	return s.repo.FindByVisibility(ctx, model.RuleVisibilityPrivate)
 }
 
 // isValidName 校验名称格式

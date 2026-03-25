@@ -18,18 +18,18 @@ const (
 
 // BaseAgent 基础Agent配置模型
 type BaseAgent struct {
-	ID            uuid.UUID     `json:"id"`
-	Name          string        `json:"name"`
-	Type          BaseAgentType `json:"type"`
-	ApiURL        string        `json:"api_url,omitempty"`
-	ApiToken      string        `json:"api_token,omitempty"` // 加密存储，返回时隐藏
-	DefaultModel  string        `json:"default_model"`
-	CliPath       string        `json:"cli_path"`
-	GitBashPath   string        `json:"git_bash_path,omitempty"` // Windows下git-bash路径，用于Claude CLI
-	MaxTokens     int           `json:"max_tokens"`
-	TimeoutMinutes int          `json:"timeout_minutes"`
-	CreatedAt     time.Time     `json:"created_at"`
-	UpdatedAt     time.Time     `json:"updated_at"`
+	ID             uuid.UUID     `json:"id"`
+	Name           string        `json:"name"`
+	Type           BaseAgentType `json:"type"`
+	ApiURL         string        `json:"apiUrl,omitempty"`
+	ApiToken       string        `json:"apiToken,omitempty"` // 加密存储，返回时隐藏
+	DefaultModel   string        `json:"defaultModel"`
+	CliPath        string        `json:"cliPath"`
+	GitBashPath    string        `json:"gitBashPath,omitempty"` // Windows下git-bash路径，用于Claude CLI
+	MaxTokens      int           `json:"maxTokens"`
+	TimeoutMinutes int           `json:"timeoutMinutes"`
+	CreatedAt      time.Time     `json:"createdAt"`
+	UpdatedAt      time.Time     `json:"updatedAt"`
 }
 
 func (b *BaseAgent) TableName() string {
@@ -38,28 +38,28 @@ func (b *BaseAgent) TableName() string {
 
 // CreateBaseAgentRequest 创建基础Agent请求
 type CreateBaseAgentRequest struct {
-	Name          string        `json:"name" binding:"required"`
-	Type          BaseAgentType `json:"type" binding:"required"`
-	ApiURL        string        `json:"api_url"`
-	ApiToken      string        `json:"api_token"`
-	DefaultModel  string        `json:"default_model"`
-	CliPath       string        `json:"cli_path"`
-	GitBashPath   string        `json:"git_bash_path"`
-	MaxTokens     int           `json:"max_tokens"`
-	TimeoutMinutes int          `json:"timeout_minutes"`
+	Name           string        `json:"name" binding:"required"`
+	Type           BaseAgentType `json:"type" binding:"required"`
+	ApiURL         string        `json:"apiUrl"`
+	ApiToken       string        `json:"apiToken"`
+	DefaultModel   string        `json:"defaultModel"`
+	CliPath        string        `json:"cliPath"`
+	GitBashPath    string        `json:"gitBashPath"`
+	MaxTokens      int           `json:"maxTokens"`
+	TimeoutMinutes int           `json:"timeoutMinutes"`
 }
 
 // UpdateBaseAgentRequest 更新基础Agent请求
 type UpdateBaseAgentRequest struct {
-	Name          string        `json:"name"`
-	Type          BaseAgentType `json:"type"`
-	ApiURL        string        `json:"api_url"`
-	ApiToken      string        `json:"api_token"`
-	DefaultModel  string        `json:"default_model"`
-	CliPath       string        `json:"cli_path"`
-	GitBashPath   string        `json:"git_bash_path"`
-	MaxTokens     int           `json:"max_tokens"`
-	TimeoutMinutes int          `json:"timeout_minutes"`
+	Name           string        `json:"name"`
+	Type           BaseAgentType `json:"type"`
+	ApiURL         string        `json:"apiUrl"`
+	ApiToken       string        `json:"apiToken"`
+	DefaultModel   string        `json:"defaultModel"`
+	CliPath        string        `json:"cliPath"`
+	GitBashPath    string        `json:"gitBashPath"`
+	MaxTokens      int           `json:"maxTokens"`
+	TimeoutMinutes int           `json:"timeoutMinutes"`
 }
 
 // BaseAgentTypeInfo 基础Agent类型信息

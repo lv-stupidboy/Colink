@@ -1,7 +1,7 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Card, Button, Modal, Form, Input, message, Space, Typography, Tag,
-  Popconfirm, Empty, Spin, Pagination, Table, Tooltip, Upload, Radio, Select
+  Popconfirm, Empty, Spin, Pagination, Table, Tooltip, Radio, Select
 } from 'antd';
 import {
   PlusOutlined,
@@ -12,9 +12,56 @@ import {
   CloudUploadOutlined
 } from '@ant-design/icons';
 import api from '@/api/client';
-import type { Rule, RuleListResponse, RuleScope } from '@/types';
+import type { Rule, RuleListResponse, RuleVisibility } from '@/types';
 
 const { Title, Text, Paragraph } = Typography;
+
+// 解析 .md 文件提取描述
+const parseRuleMD = (content: string): { description: string } => {
+  let description = '';
+
+  // 1. 首先尝试解析 YAML front matter
+  const frontMatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---/);
+  if (frontMatterMatch) {
+    const frontMatter = frontMatterMatch[1];
+    const descMatch = frontMatter.match(/description:\s*(.+)/i);
+    if (descMatch) {
+      description = descMatch[1].trim();
+      // 移除引号
+      description = description.replace(/^["']|["']$/g, '');
+    }
+  }
+
+  // 2. 如果没有从 front matter 获取到，尝试从 ## Description 获取
+  if (!description) {
+    const patterns = [
+      /##\s*(?:Description|描述)\s*\n+([\s\S]*?)(?=\n##|$)/i,
+      /##\s*(?:Description|描述)\s*[:：]?\s*([\s\S]*?)(?=\n##|$)/i,
+    ];
+
+    for (const pattern of patterns) {
+      const descMatch = content.match(pattern);
+      if (descMatch && descMatch[1]) {
+        description = descMatch[1].trim();
+        break;
+      }
+    }
+  }
+
+  return { description };
+};
+
+// 清理名称格式
+const cleanName = (name: string): string => {
+  if (!name) return '';
+  let cleaned = name.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+  cleaned = cleaned.replace(/^-+|-+$/g, '');
+  // 确保以字母开头
+  if (cleaned && !/^[a-z]/.test(cleaned)) {
+    cleaned = 'r-' + cleaned;
+  }
+  return cleaned;
+};
 
 const RuleList: React.FC = () => {
   const [rules, setRules] = useState<Rule[]>([]);
@@ -27,17 +74,20 @@ const RuleList: React.FC = () => {
   const [editingRule, setEditingRule] = useState<Rule | null>(null);
   const [viewingRule, setViewingRule] = useState<Rule | null>(null);
   const [searchText, setSearchText] = useState('');
-  const [scopeFilter, setScopeFilter] = useState<RuleScope | ''>('');
+  const [visibilityFilter, setVisibilityFilter] = useState<RuleVisibility | ''>('');
   const [form] = Form.useForm();
-  const [createMethod, setCreateMethod] = useState<'upload' | 'manual'>('manual');
+  const [createMethod, setCreateMethod] = useState<'upload' | 'manual'>('upload');
   const [isAfterUpload, setIsAfterUpload] = useState(false);
+
+  // 存储解析后的内容，用户确认后才上传
+  const pendingContentRef = useRef<string>('');
 
   const loadRules = useCallback(async () => {
     setLoading(true);
     try {
       const result: RuleListResponse = await api.rules.list({
         search: searchText,
-        scope: scopeFilter || undefined,
+        visibility: visibilityFilter || undefined,
         page,
         pageSize,
       });
@@ -48,7 +98,7 @@ const RuleList: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, searchText, scopeFilter]);
+  }, [page, pageSize, searchText, visibilityFilter]);
 
   useEffect(() => {
     loadRules();
@@ -56,8 +106,9 @@ const RuleList: React.FC = () => {
 
   const handleCreate = () => {
     setEditingRule(null);
-    setCreateMethod('manual');
+    setCreateMethod('upload');
     setIsAfterUpload(false);
+    pendingContentRef.current = '';
     form.resetFields();
     setModalVisible(true);
   };
@@ -66,10 +117,11 @@ const RuleList: React.FC = () => {
     setEditingRule(record);
     setCreateMethod('manual');
     setIsAfterUpload(false);
+    pendingContentRef.current = '';
     form.setFieldsValue({
       name: record.name,
       description: record.description,
-      scope: record.scope,
+      visibility: record.visibility,
     });
     setModalVisible(true);
   };
@@ -99,14 +151,16 @@ const RuleList: React.FC = () => {
       if (editingRule) {
         await api.rules.update(editingRule.id, {
           description: values.description,
-          scope: values.scope,
+          visibility: values.visibility,
         });
         message.success('更新成功');
       } else {
+        // 新建时，如果是上传模式，带上 content
         await api.rules.create({
           name: values.name,
           description: values.description,
-          scope: values.scope,
+          visibility: values.visibility,
+          content: isAfterUpload ? pendingContentRef.current : undefined,
         });
         message.success('创建成功');
       }
@@ -127,41 +181,58 @@ const RuleList: React.FC = () => {
     setPage(1);
   };
 
-  const handleScopeFilter = (value: RuleScope | '') => {
-    setScopeFilter(value);
+  const handleVisibilityFilter = (value: RuleVisibility | '') => {
+    setVisibilityFilter(value);
     setPage(1);
   };
 
-  // 上传处理
-  const handleUploadSuccess = (response: { message: string; file_path: string }) => {
-    if (response && response.file_path) {
-      // 从文件路径提取名称
-      const fileName = response.file_path.split('/').pop()?.replace('.md', '') || '';
-      form.setFieldsValue({
-        name: fileName,
-        description: '',
-        scope: 'public',
-      });
+  // 上传处理 - 前端解析，不直接入库
+  const handleFileSelect = async (file: File) => {
+    // 检查文件格式
+    if (!file.name.endsWith('.md')) {
+      message.error('只支持 .md 格式的文件');
+      return false;
+    }
+    // 检查文件大小
+    if (file.size / 1024 / 1024 > 2) {
+      message.error('文件大小不能超过 2MB');
+      return false;
+    }
+
+    try {
+      // 读取文件内容
+      const content = await file.text();
+      const metadata = parseRuleMD(content);
+
+      // 从文件名提取名称（去掉 .md 后缀）
+      const fileName = file.name.replace(/\.md$/i, '');
+      const name = cleanName(fileName);
+
+      // 存储解析后的内容
+      pendingContentRef.current = content;
+
+      // 设置表单值，显示给用户确认
       setIsAfterUpload(true);
-      message.success('规约文件上传成功，请补充完整信息后保存');
+      form.setFieldsValue({
+        name: name,
+        description: metadata.description,
+        content: content,
+      });
+
+      message.success('文件解析成功，请确认后保存');
+      return false;
+    } catch (error) {
+      message.error('读取文件失败');
+      return false;
     }
   };
 
-  const handleUpload = (info: any) => {
-    if (info.file.status === 'done') {
-      handleUploadSuccess(info.file.response);
-    } else if (info.file.status === 'error') {
-      const errorData = info.file.response;
-      message.error(errorData?.error || '上传失败');
+  // Visibility 标签颜色
+  const getVisibilityTag = (visibility: RuleVisibility) => {
+    if (visibility === 'public') {
+      return <Tag color="blue">公开</Tag>;
     }
-  };
-
-  // Scope 标签颜色
-  const getScopeTag = (scope: RuleScope) => {
-    if (scope === 'public') {
-      return <Tag color="blue">公共规约</Tag>;
-    }
-    return <Tag color="green">实例规约</Tag>;
+    return <Tag color="default">私有</Tag>;
   };
 
   // 表格列定义
@@ -170,7 +241,7 @@ const RuleList: React.FC = () => {
       title: '名称',
       dataIndex: 'name',
       key: 'name',
-      width: 200,
+      width: 180,
       render: (name: string) => (
         <Space>
           <SafetyOutlined style={{ color: 'var(--ant-color-primary)', fontSize: 16 }} />
@@ -182,25 +253,28 @@ const RuleList: React.FC = () => {
       title: '描述',
       dataIndex: 'description',
       key: 'description',
+      width: 200,
       ellipsis: true,
       render: (description: string) => (
-        <Tooltip title={description}>
-          <Text type="secondary">{description || '暂无描述'}</Text>
+        <Tooltip title={description} placement="topLeft">
+          <Text type="secondary" style={{ maxWidth: 180, display: 'inline-block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {description || '暂无描述'}
+          </Text>
         </Tooltip>
       ),
     },
     {
-      title: '范围',
-      dataIndex: 'scope',
-      key: 'scope',
-      width: 120,
-      render: (scope: RuleScope) => getScopeTag(scope),
+      title: '可见性',
+      dataIndex: 'visibility',
+      key: 'visibility',
+      width: 110,
+      render: (visibility: RuleVisibility) => getVisibilityTag(visibility),
     },
     {
       title: '创建时间',
       dataIndex: 'createdAt',
       key: 'createdAt',
-      width: 180,
+      width: 160,
       render: (date: string) => (
         <Text type="secondary" style={{ fontSize: 12 }}>
           {date ? new Date(date).toLocaleString('zh-CN') : '-'}
@@ -210,25 +284,26 @@ const RuleList: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      width: 150,
+      width: 220,
+      fixed: 'right' as const,
       render: (_: any, record: Rule) => (
         <Space size="small">
-          <Tooltip title="查看详情">
-            <Button
-              type="text"
-              size="small"
-              icon={<EyeOutlined />}
-              onClick={() => handleView(record)}
-            />
-          </Tooltip>
-          <Tooltip title="编辑">
-            <Button
-              type="text"
-              size="small"
-              icon={<EditOutlined />}
-              onClick={() => handleEdit(record)}
-            />
-          </Tooltip>
+          <Button
+            type="link"
+            size="small"
+            icon={<EyeOutlined />}
+            onClick={() => handleView(record)}
+          >
+            查看
+          </Button>
+          <Button
+            type="link"
+            size="small"
+            icon={<EditOutlined />}
+            onClick={() => handleEdit(record)}
+          >
+            编辑
+          </Button>
           <Popconfirm
             title="确定要删除这个规约吗？"
             description="删除后将无法恢复"
@@ -236,14 +311,14 @@ const RuleList: React.FC = () => {
             okText="确定"
             cancelText="取消"
           >
-            <Tooltip title="删除">
-              <Button
-                type="text"
-                size="small"
-                danger
-                icon={<DeleteOutlined />}
-              />
-            </Tooltip>
+            <Button
+              type="link"
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+            >
+              删除
+            </Button>
           </Popconfirm>
         </Space>
       ),
@@ -278,14 +353,14 @@ const RuleList: React.FC = () => {
           />
           <Select
             style={{ width: 150 }}
-            placeholder="选择范围"
+            placeholder="选择可见性"
             allowClear
-            value={scopeFilter || undefined}
-            onChange={handleScopeFilter}
+            value={visibilityFilter || undefined}
+            onChange={handleVisibilityFilter}
             options={[
-              { label: '全部范围', value: '' },
-              { label: '公共规约', value: 'public' },
-              { label: '实例规约', value: 'instance' },
+              { label: '全部', value: '' },
+              { label: '公开', value: 'public' },
+              { label: '私有', value: 'private' },
             ]}
           />
         </Space>
@@ -311,22 +386,20 @@ const RuleList: React.FC = () => {
         </Spin>
 
         {/* 分页 */}
-        {total > 0 && (
-          <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end' }}>
-            <Pagination
-              current={page}
-              pageSize={pageSize}
-              total={total}
-              onChange={(p, ps) => {
-                setPage(p);
-                setPageSize(ps);
-              }}
-              showSizeChanger
-              showTotal={(t) => `共 ${t} 条`}
-              pageSizeOptions={['10', '20', '50']}
-            />
-          </div>
-        )}
+        <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end' }}>
+          <Pagination
+            current={page}
+            pageSize={pageSize}
+            total={total}
+            onChange={(p, ps) => {
+              setPage(p);
+              setPageSize(ps);
+            }}
+            showSizeChanger
+            showTotal={(t) => `共 ${t} 条`}
+            pageSizeOptions={['10', '20', '50']}
+          />
+        </div>
       </Card>
 
       {/* 新建/编辑弹窗 */}
@@ -343,7 +416,7 @@ const RuleList: React.FC = () => {
           form={form}
           layout="vertical"
           onFinish={handleSubmit}
-          initialValues={{ scope: 'public' }}
+          initialValues={{ visibility: 'private' }}
         >
           {/* 创建方式选择 - 仅新建时显示 */}
           {!editingRule && !isAfterUpload && (
@@ -363,35 +436,39 @@ const RuleList: React.FC = () => {
 
               {createMethod === 'upload' && (
                 <div style={{ marginTop: 12 }}>
-                  <Upload.Dragger
-                    name="file"
-                    action="/api/v1/rules/upload"
+                  <input
+                    type="file"
                     accept=".md"
-                    onChange={handleUpload}
-                    multiple={false}
-                    showUploadList={false}
-                    beforeUpload={(file) => {
-                      const isValid = file.name.endsWith('.md');
-                      if (!isValid) {
-                        message.error('只支持 .md 格式的文件');
-                        return Upload.LIST_IGNORE;
+                    style={{ display: 'none' }}
+                    id="rule-file-input"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        handleFileSelect(file);
                       }
-                      const isLt2M = file.size / 1024 / 1024 < 2;
-                      if (!isLt2M) {
-                        message.error('文件大小不能超过 2MB');
-                        return Upload.LIST_IGNORE;
-                      }
-                      return true;
+                      // 重置 input，允许选择相同文件
+                      e.target.value = '';
                     }}
+                  />
+                  <div
+                    onClick={() => document.getElementById('rule-file-input')?.click()}
+                    style={{
+                      border: '1px dashed var(--ant-color-border)',
+                      borderRadius: 8,
+                      padding: 24,
+                      textAlign: 'center',
+                      cursor: 'pointer',
+                      transition: 'border-color 0.3s',
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.borderColor = 'var(--ant-color-primary)'}
+                    onMouseLeave={(e) => e.currentTarget.style.borderColor = 'var(--ant-color-border)'}
                   >
-                    <p className="ant-upload-drag-icon">
-                      <CloudUploadOutlined style={{ fontSize: 32, color: 'var(--ant-color-primary)' }} />
-                    </p>
-                    <p className="ant-upload-text">点击或拖拽文件到此区域上传</p>
-                    <p className="ant-upload-hint" style={{ fontSize: 12, color: 'var(--ant-color-text-secondary)' }}>
+                    <CloudUploadOutlined style={{ fontSize: 32, color: 'var(--ant-color-primary)' }} />
+                    <p style={{ marginTop: 8 }}>点击或拖拽文件到此区域上传</p>
+                    <p style={{ fontSize: 12, color: 'var(--ant-color-text-secondary)' }}>
                       支持 .md 格式，最大 2MB
                     </p>
-                  </Upload.Dragger>
+                  </div>
                 </div>
               )}
             </div>
@@ -423,22 +500,22 @@ const RuleList: React.FC = () => {
           </Form.Item>
 
           <Form.Item
-            name="scope"
-            label="范围"
-            rules={[{ required: true, message: '请选择范围' }]}
-            extra="公共规约：对所有 Agent 生效；实例规约：仅对绑定的 Agent 生效"
+            name="visibility"
+            label="可见性"
+            rules={[{ required: true, message: '请选择可见性' }]}
+            extra="公开：对所有 Agent 可见；私有：仅对绑定的 Agent 可见"
           >
             <Radio.Group>
               <Radio value="public">
                 <Space>
-                  <Tag color="blue">公共规约</Tag>
-                  <Text type="secondary" style={{ fontSize: 12 }}>对所有 Agent 生效</Text>
+                  <Tag color="blue">公开</Tag>
+                  <Text type="secondary" style={{ fontSize: 12 }}>对所有 Agent 可见</Text>
                 </Space>
               </Radio>
-              <Radio value="instance">
+              <Radio value="private">
                 <Space>
-                  <Tag color="green">实例规约</Tag>
-                  <Text type="secondary" style={{ fontSize: 12 }}>仅对绑定的 Agent 生效</Text>
+                  <Tag>私有</Tag>
+                  <Text type="secondary" style={{ fontSize: 12 }}>仅对绑定的 Agent 可见</Text>
                 </Space>
               </Radio>
             </Radio.Group>
@@ -491,13 +568,31 @@ const RuleList: React.FC = () => {
             </Paragraph>
 
             <Paragraph>
-              <Text strong>范围：</Text>
+              <Text strong>可见性：</Text>
               <br />
-              {getScopeTag(viewingRule.scope)}
+              {getVisibilityTag(viewingRule.visibility)}
               <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
-                {viewingRule.scope === 'public' ? '对所有 Agent 生效' : '仅对绑定的 Agent 生效'}
+                {viewingRule.visibility === 'public' ? '对所有 Agent 可见' : '仅对绑定的 Agent 可见'}
               </Text>
             </Paragraph>
+
+            <Paragraph>
+              <Text strong>规约内容：</Text>
+            </Paragraph>
+            <div
+              style={{
+                background: 'var(--ant-color-bg-container)',
+                border: '1px solid var(--ant-color-border)',
+                borderRadius: 8,
+                padding: 12,
+                maxHeight: 400,
+                overflow: 'auto',
+              }}
+            >
+              <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'monospace', fontSize: 13 }}>
+                {viewingRule.content || '暂无内容'}
+              </pre>
+            </div>
 
             <div style={{ marginTop: 16, color: 'var(--ant-color-text-secondary)', fontSize: 12 }}>
               <Text type="secondary">
