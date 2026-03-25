@@ -306,12 +306,49 @@ nsis:
   createDesktopShortcut: false
   createStartMenuShortcut: false
   shortcutName: ISDP
+  # 自定义NSIS脚本，处理启动器复制和卸载
+  include: build/installer.nsh
 
 extraResources:
+  # ISDP应用本体
   - from: "resources/app"
     to: "app"
     filter:
       - "**/*"
+  # 启动器可执行文件（与安装器同构建）
+  - from: "release/${version}/ISDP-Launcher.exe"
+    to: "ISDP-Launcher.exe"
+```
+
+- [ ] **Step 2.5: 创建自定义NSIS脚本**
+
+创建文件 `installer/build/installer.nsh`:
+
+```nsis
+; ISDP 自定义安装脚本
+
+; 安装完成后复制启动器到安装目录
+!macro customInstall
+  CopyFiles "$INSTDIR\resources\ISDP-Launcher.exe" "$INSTDIR\ISDP-Launcher.exe"
+!macroend
+
+; 卸载时清理
+!macro customUnInstall
+  ; 询问是否删除配置文件
+  MessageBox MB_YESNO "是否删除配置文件和用户数据？$\n选择'是'将删除所有数据，选择'否'将保留以便重装。" IDYES deleteAll IDNO keepData
+
+  deleteAll:
+    RMDir /r "$INSTDIR\config.yaml"
+    RMDir /r "$INSTDIR\logs"
+    RMDir /r "$INSTDIR\agent-assets"
+    RMDir /r "$INSTDIR\repos"
+    Goto done
+
+  keepData:
+    ; 保留配置和数据文件
+
+  done:
+!macroend
 ```
 
 - [ ] **Step 3: Commit**
@@ -1735,17 +1772,17 @@ interface CompleteProps {
 }
 
 export default function Complete({ config, onConfigUpdate }: CompleteProps) {
-  const handleFinish = () => {
+  const handleFinish = async () => {
     // 创建快捷方式
     if (config.createShortcut) {
-      window.electronAPI.createShortcut(config.installDir)
+      await window.electronAPI.createShortcut(config.installDir)
     }
 
     message.success('安装完成！')
 
     // 如果选择立即启动，启动服务
     if (config.launchNow) {
-      // TODO: 启动服务
+      await window.electronAPI.launchService(config.installDir)
     }
 
     // 关闭安装器
@@ -2625,6 +2662,298 @@ git commit -m "feat(installer): implement Node.js and Git installation"
 
 ---
 
+## Task 25: 启动器独立打包
+
+**Files:**
+- Modify: `installer/electron.vite.config.ts`
+- Create: `installer/src/main/launcher-entry.ts`
+
+- [ ] **Step 1: 创建启动器入口**
+
+创建文件 `installer/src/main/launcher-entry.ts`:
+
+```typescript
+import { app, BrowserWindow } from 'electron'
+import { join } from 'path'
+import { createTray } from './tray'
+import { ServiceManager } from './service-manager'
+
+const isDev = !app.isPackaged
+
+// 启动器模式：不创建窗口，只显示托盘
+async function runLauncher() {
+  // 获取安装目录（启动器位于安装目录根目录）
+  const installDir = isDev ? process.cwd() : join(app.getAppPath(), '../')
+
+  // 创建服务管理器
+  const serviceManager = new ServiceManager(installDir)
+
+  // 创建托盘
+  createTray(installDir, serviceManager)
+
+  // 自动启动服务
+  await serviceManager.start()
+
+  // 打开浏览器
+  const { shell } = require('electron')
+  shell.openExternal('http://localhost:8080')
+}
+
+// 判断运行模式
+const args = process.argv.slice(1)
+const isLauncherMode = args.includes('--launcher')
+
+if (isLauncherMode) {
+  runLauncher()
+}
+
+export { runLauncher }
+```
+
+- [ ] **Step 2: 更新 vite 配置支持多入口**
+
+修改 `installer/electron.vite.config.ts`:
+
+```typescript
+import { resolve } from 'path'
+import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
+import react from '@vitejs/plugin-react'
+
+export default defineConfig({
+  main: {
+    plugins: [externalizeDepsPlugin()],
+    build: {
+      rollupOptions: {
+        input: {
+          index: resolve(__dirname, 'src/main/index.ts'),
+          launcher: resolve(__dirname, 'src/main/launcher-entry.ts'),
+        },
+        output: {
+          entryFileNames: '[name].js',
+        },
+      },
+    },
+  },
+  preload: {
+    plugins: [externalizeDepsPlugin()]
+  },
+  renderer: {
+    resolve: {
+      alias: {
+        '@': resolve('src/renderer/src')
+      }
+    },
+    plugins: [react()]
+  }
+})
+```
+
+- [ ] **Step 3: 更新 package.json scripts**
+
+在 `installer/package.json` 中添加:
+
+```json
+"scripts": {
+  "dev": "electron-vite dev",
+  "dev:launcher": "electron-vite dev --mainEntry=launcher",
+  "build": "electron-vite build",
+  "build:launcher": "electron . --launcher",
+  "postinstall": "electron-builder install-app-deps",
+  "package": "electron-builder --win",
+  "package:launcher": "electron-builder --win --config.productName=ISDP-Launcher",
+  "package:all": "npm run package && npm run package:launcher"
+}
+```
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add installer/
+git commit -m "feat(installer): add launcher standalone build config"
+```
+
+---
+
+## Task 26: 启动服务功能
+
+**Files:**
+- Modify: `installer/src/main/index.ts`
+- Modify: `installer/src/preload/index.ts`
+- Modify: `installer/src/renderer/src/types/index.ts`
+
+- [ ] **Step 1: 添加启动服务 IPC handler**
+
+在 `installer/src/main/index.ts` 中添加:
+
+```typescript
+import { spawn } from 'child_process'
+import { shell } from 'electron'
+
+// 启动服务并打开浏览器
+ipcMain.handle('launch-service', async (_event, installDir: string) => {
+  try {
+    // 启动后端服务
+    const serverPath = join(installDir, 'isdp-server.exe')
+    const launcherPath = join(installDir, 'ISDP-Launcher.exe')
+
+    // 如果启动器存在，启动启动器（会自动启动服务）
+    if (existsSync(launcherPath)) {
+      spawn(launcherPath, ['--launcher'], {
+        detached: true,
+        stdio: 'ignore',
+      })
+    } else {
+      // 否则直接启动服务
+      spawn(serverPath, [], {
+        cwd: installDir,
+        detached: true,
+        stdio: 'ignore',
+      })
+
+      // 等待服务启动后打开浏览器
+      setTimeout(() => {
+        shell.openExternal('http://localhost:8080')
+      }, 3000)
+    }
+
+    return { success: true }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : '启动失败',
+    }
+  }
+})
+```
+
+- [ ] **Step 2: 更新预加载脚本**
+
+在 `installer/src/preload/index.ts` 中添加:
+
+```typescript
+launchService: (installDir: string) => ipcRenderer.invoke('launch-service', installDir),
+```
+
+- [ ] **Step 3: 更新类型定义**
+
+在 `installer/src/renderer/src/types/index.ts` 中添加:
+
+```typescript
+launchService: (installDir: string) => Promise<{ success: boolean; error?: string }>
+```
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add installer/
+git commit -m "feat(installer): add launch service functionality"
+```
+
+---
+
+## Task 27: 桌面快捷方式创建
+
+**Files:**
+- Modify: `installer/src/main/installer.ts`
+
+- [ ] **Step 1: 实现桌面快捷方式创建**
+
+在 `installer/src/main/installer.ts` 中更新 `createDesktopShortcut` 函数:
+
+```typescript
+import { shell } from 'electron'
+import { join } from 'path'
+
+export async function createDesktopShortcut(installDir: string): Promise<boolean> {
+  try {
+    const launcherPath = join(installDir, 'ISDP-Launcher.exe')
+
+    // Windows 创建快捷方式
+    // 使用 PowerShell 创建快捷方式
+    const psScript = `
+      $WshShell = New-Object -ComObject WScript.Shell
+      $Shortcut = $WshShell.CreateShortcut("$env:USERPROFILE\\Desktop\\ISDP.lnk")
+      $Shortcut.TargetPath = "${launcherPath.replace(/\\/g, '\\\\')}"
+      $Shortcut.Arguments = "--launcher"
+      $Shortcut.WorkingDirectory = "${installDir.replace(/\\/g, '\\\\')}"
+      $Shortcut.Description = "ISDP 智能开发平台"
+      $Shortcut.Save()
+    `
+
+    await execAsync(`powershell -Command "${psScript.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`)
+
+    return true
+  } catch (error) {
+    console.error('Failed to create shortcut:', error)
+    return false
+  }
+}
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add installer/
+git commit -m "feat(installer): implement desktop shortcut creation"
+```
+
+---
+
+## Task 28: 构建和发布脚本
+
+**Files:**
+- Create: `installer/build.sh`
+
+- [ ] **Step 1: 创建完整构建脚本**
+
+创建文件 `installer/build.sh`:
+
+```bash
+#!/bin/bash
+# ISDP 安装器完整构建脚本
+
+set -e
+
+echo "===== ISDP 安装器构建开始 ====="
+
+# 1. 构建 ISDP 后端
+echo "[1/5] 构建 ISDP 后端..."
+cd ../isdp
+make build
+cp bin/isdp.exe ../installer/resources/app/isdp-server.exe
+
+# 2. 构建 ISDP 前端
+echo "[2/5] 构建 ISDP 前端..."
+cd web
+npm run build
+cp -r dist/* ../installer/resources/app/web/
+
+# 3. 安装安装器依赖
+echo "[3/5] 安装安装器依赖..."
+cd ../../installer
+npm install
+
+# 4. 构建安装器
+echo "[4/5] 构建安装器..."
+npm run build
+
+# 5. 打包
+echo "[5/5] 打包安装器..."
+npm run package
+
+echo "===== 构建完成 ====="
+echo "安装器产物: release/*/ISDP-Setup-*.exe"
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add installer/
+git commit -m "feat(installer): add build script"
+```
+
+---
+
 ## 验证清单
 
 - [ ] 在全新 Windows 机器上测试安装流程
@@ -2638,8 +2967,13 @@ git commit -m "feat(installer): implement Node.js and Git installation"
 
 ## 后续任务
 
-1. ~~实现启动器（ISDP-Launcher.exe）独立程序~~ ✅ Task 23
+以下功能可在后续版本中完善：
+
+1. ~~实现启动器（ISDP-Launcher.exe）独立程序~~ ✅ Task 23, 25
 2. ~~添加 Node.js 和 Git 的自动安装逻辑~~ ✅ Task 24
-3. 完善错误处理和回滚机制
-4. 添加更新检测功能
-5. 支持静默安装模式
+3. ~~启动服务功能~~ ✅ Task 26
+4. ~~桌面快捷方式创建~~ ✅ Task 27
+5. ~~卸载功能~~ ✅ Task 2 (NSIS脚本)
+6. 完善错误处理和回滚机制
+7. 添加更新检测功能
+8. 支持静默安装模式
