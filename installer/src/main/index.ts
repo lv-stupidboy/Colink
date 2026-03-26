@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, Tray, Menu, nativeImage } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron'
 import { join, dirname } from 'path'
 import { execSync, spawn, exec } from 'child_process'
 import { existsSync, readdirSync, rmSync } from 'fs'
@@ -22,7 +22,6 @@ const execAsync = promisify(exec)
 const isDev = !app.isPackaged
 
 let mainWindow: BrowserWindow | null = null
-let tray: Tray | null = null
 let serviceManager: ServiceManager | null = null
 let installDir: string = ''
 
@@ -96,107 +95,6 @@ function createWindow() {
       mainWindow?.hide()
     }
   })
-}
-
-// 创建托盘
-function createTray() {
-  // 图标路径：开发模式从resources取，生产模式从exe同目录取
-  let iconPath: string
-  if (isDev) {
-    iconPath = join(__dirname, '../../resources/icon.ico')
-  } else {
-    // 生产模式：图标在exe同目录，或resources目录
-    const exeDir = getExeDir()
-    iconPath = join(exeDir, 'icon.ico')
-    if (!existsSync(iconPath)) {
-      iconPath = join(process.resourcesPath, 'icon.ico')
-    }
-  }
-
-  console.log('[Tray] Icon path:', iconPath)
-  console.log('[Tray] Icon exists:', existsSync(iconPath))
-
-  // 如果图标不存在，创建一个空图标
-  let icon: nativeImage
-  if (existsSync(iconPath)) {
-    icon = nativeImage.createFromPath(iconPath)
-  } else {
-    // 使用默认图标
-    icon = nativeImage.createEmpty()
-  }
-
-  tray = new Tray(icon)
-  tray.setToolTip('ISDP 智能开发平台')
-
-  // 点击托盘图标显示窗口
-  tray.on('click', () => {
-    mainWindow?.show()
-    mainWindow?.focus()
-  })
-
-  updateTrayMenu()
-}
-
-// 更新托盘菜单
-function updateTrayMenu() {
-  if (!tray) return
-
-  const installed = getInstalledVersion()
-  const status = serviceManager?.getStatus() || 'stopped'
-
-  const menuItems: any[] = [
-    {
-      label: '打开主界面',
-      click: () => {
-        mainWindow?.show()
-        mainWindow?.focus()
-      }
-    },
-    { type: 'separator' }
-  ]
-
-  if (installed.installed) {
-    menuItems.push(
-      {
-        label: status === 'running' ? '停止服务' : '启动服务',
-        click: async () => {
-          if (status === 'running') {
-            await serviceManager?.stop()
-          } else {
-            await serviceManager?.start()
-          }
-          updateTrayMenu()
-        }
-      },
-      {
-        label: '打开控制台',
-        click: () => shell.openExternal('http://localhost:8080')
-      },
-      { type: 'separator' },
-      {
-        label: '查看日志',
-        click: () => shell.openPath(join(installed.installDir!, 'data', 'logs'))
-      },
-      {
-        label: '数据目录',
-        click: () => shell.openPath(join(installed.installDir!, 'data'))
-      }
-    )
-  }
-
-  menuItems.push(
-    { type: 'separator' },
-    {
-      label: '退出',
-      click: () => {
-        app.isQuitting = true
-        serviceManager?.stop()
-        app.quit()
-      }
-    }
-  )
-
-  tray.setContextMenu(Menu.buildFromTemplate(menuItems))
 }
 
 // 初始化服务管理器
@@ -320,13 +218,11 @@ ipcMain.handle('start-service', async () => {
   }
 
   await serviceManager.start()
-  updateTrayMenu()
   return { success: true }
 })
 
 ipcMain.handle('stop-service', async () => {
   await stopAllProcesses()
-  updateTrayMenu()
   return { success: true }
 })
 
@@ -408,7 +304,6 @@ ipcMain.handle('uninstall', async (_event, keepData: boolean) => {
 
     installDir = ''
     serviceManager = null
-    updateTrayMenu()
 
     // 显示卸载完成提示
     dialog.showMessageBox(mainWindow!, {
@@ -465,7 +360,6 @@ if (!gotTheLock) {
 
   app.whenReady().then(() => {
     createWindow()
-    createTray()
     initServiceManager()
 
     app.on('activate', () => {
