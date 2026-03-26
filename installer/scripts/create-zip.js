@@ -1,4 +1,4 @@
-const { createWriteStream, existsSync, mkdirSync } = require('fs')
+const { createWriteStream, existsSync, readdirSync, statSync } = require('fs')
 const { join } = require('path')
 const archiver = require('archiver')
 
@@ -7,8 +7,9 @@ const packageJson = require('../package.json')
 const version = packageJson.version
 
 // 源目录和输出文件
-const distDir = join(__dirname, '../release/win-unpacked')
-const outputFile = join(__dirname, `../release/ISDP-${version}.zip`)
+const releaseDir = join(__dirname, '../release')
+const distDir = join(releaseDir, 'win-unpacked')
+const outputFile = join(releaseDir, `ISDP-${version}.zip`)
 
 console.log('Source:', distDir)
 console.log('Output:', outputFile)
@@ -43,8 +44,18 @@ archive.on('progress', (progress) => {
 
 archive.pipe(output)
 
-// 添加文件
+// 添加文件到 ISDP 目录
 console.log('Packaging files...')
-archive.directory(distDir, 'ISDP')
+
+const files = readdirSync(distDir)
+for (const file of files) {
+  const filePath = join(distDir, file)
+  const stat = statSync(filePath)
+  if (stat.isDirectory()) {
+    archive.directory(filePath, `ISDP/${file}`)
+  } else {
+    archive.file(filePath, { name: `ISDP/${file}` })
+  }
+}
 
 archive.finalize()
