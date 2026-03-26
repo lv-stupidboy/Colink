@@ -129,15 +129,25 @@ export async function installNpmPackage(packageName: string): Promise<{ success:
   }
 }
 
+// 需要排除的文件列表（开发调试文件，不需要打包）
+const EXCLUDE_FILES = new Set([
+  'debug.html',
+  'style-preview.html',
+  'theme-guide.md',
+])
+
 // 递归复制目录
 async function copyDir(src: string, dest: string, onProgress?: (progress: number) => void): Promise<void> {
   await mkdir(dest, { recursive: true })
   const entries = await readdir(src, { withFileTypes: true })
 
-  let copied = 0
-  const total = entries.length
+  // 过滤掉需要排除的文件
+  const filteredEntries = entries.filter(entry => !EXCLUDE_FILES.has(entry.name))
 
-  for (const entry of entries) {
+  let copied = 0
+  const total = filteredEntries.length
+
+  for (const entry of filteredEntries) {
     const srcPath = join(src, entry.name)
     const destPath = join(dest, entry.name)
 

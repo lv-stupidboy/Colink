@@ -55,15 +55,51 @@ html, body, #root {
 }
 
 .title-bar-btn {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   border: none;
   cursor: pointer;
+  transition: all 0.2s;
 }
 
-.title-bar-btn.minimize { background: #ffbd2e; }
-.title-bar-btn.close { background: #ff5f57; }
+.title-bar-btn.minimize {
+  background: #ffbd2e;
+  position: relative;
+}
+.title-bar-btn.minimize:hover {
+  background: #e5a800;
+}
+.title-bar-btn.minimize::after {
+  content: '−';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: rgba(0,0,0,0.5);
+  font-size: 10px;
+  font-weight: bold;
+  line-height: 1;
+}
+
+.title-bar-btn.close {
+  background: #ff5f57;
+  position: relative;
+}
+.title-bar-btn.close:hover {
+  background: #e04040;
+}
+.title-bar-btn.close::after {
+  content: '×';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: rgba(0,0,0,0.5);
+  font-size: 11px;
+  font-weight: bold;
+  line-height: 1;
+}
 
 /* 步骤导航 */
 .step-nav {
@@ -127,6 +163,8 @@ html, body, #root {
   display: flex;
   flex-direction: column;
   padding: 30px 40px;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 /* 底部按钮 */

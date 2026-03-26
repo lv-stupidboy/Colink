@@ -1,5 +1,5 @@
 import { app, shell } from 'electron'
-import { join } from 'path'
+import { join, dirname } from 'path'
 import { createTray } from './tray'
 import { ServiceManager } from './service-manager'
 
@@ -7,8 +7,20 @@ const isDev = !app.isPackaged
 
 // 启动器模式：不创建窗口，只显示托盘
 async function runLauncher() {
-  // 获取安装目录（启动器位于安装目录根目录）
-  const installDir = isDev ? process.cwd() : join(app.getAppPath(), '../')
+  // 获取安装目录
+  // 当启动器作为portable exe运行时，app.getAppPath()返回app.asar的路径
+  // 需要向上两级才能到达安装目录根目录
+  let installDir: string
+  if (isDev) {
+    installDir = process.cwd()
+  } else {
+    // app.getAppPath() = 安装目录/resources/app.asar
+    // dirname两次得到安装目录
+    installDir = dirname(dirname(app.getAppPath()))
+  }
+
+  console.log('ISDP Launcher starting...')
+  console.log('Install directory:', installDir)
 
   // 创建服务管理器
   const serviceManager = new ServiceManager(installDir)
