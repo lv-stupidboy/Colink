@@ -1,5 +1,5 @@
 appId: com.isdp.installer
-productName: ISDP
+productName: ISDP Setup
 directories:
   output: release
 
@@ -12,12 +12,21 @@ win:
 
 asar: true
 
+# 精确控制打包内容
+files:
+  - "out/**/*"
+  - "package.json"
+  - "!**/node_modules/**"
+  - "!**/src/**"
+  - "!**/resources/**"
+
 extraResources:
-  - from: "build/icon.ico"
-    to: "icon.ico"
+  # 后端服务
   - from: "resources/app/isdp-server.exe"
-    to: "isdp-server.exe"
+    to: "runtime/isdp-server.exe"
+  # 前端静态文件
   - from: "resources/app/web"
-    to: "web"
-    filter:
-      - "**/*"
+    to: "runtime/web"
+  # 启动器（从 release/launcher/ 复制）
+  - from: "release/launcher"
+    to: "launcher"
