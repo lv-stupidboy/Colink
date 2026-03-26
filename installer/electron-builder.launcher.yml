@@ -1,7 +1,7 @@
 appId: com.isdp.launcher
 productName: ISDP
 directories:
-  output: resources/launcher
+  output: release/launcher
 
 win:
   target:
@@ -9,7 +9,19 @@ win:
       arch: [x64]
   icon: build/icon.ico
   sign: null
-  executableName: ISDP
 
-# 不打包asar，直接输出文件
-asar: false
+asar: true
+
+# 精确控制打包内容，排除不需要的文件
+files:
+  - "out/**/*"
+  - "package.json"
+  - "!**/node_modules/**"
+  - "!**/src/**"
+  - "!**/release/**"
+  - "!**/resources/**"
+  - "!**/*.ts"
+
+extraResources:
+  - from: "build/icon.ico"
+    to: "icon.ico"
