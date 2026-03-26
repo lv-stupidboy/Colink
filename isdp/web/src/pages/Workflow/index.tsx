@@ -32,7 +32,6 @@ const { Text } = Typography;
 interface AgentTrigger {
   toAgentId: string;
   triggerHint: string;
-  type: 'sequence' | 'parallel';
 }
 
 // 团队视图中的 Agent
@@ -74,7 +73,6 @@ function transitionsToTeamView(
       .map(t => ({
         toAgentId: t.toAgentId,
         triggerHint: t.triggerHint || '',
-        type: t.type === 'parallel' ? 'parallel' : 'sequence',
       }));
 
     return { config, triggers };
@@ -90,7 +88,7 @@ function teamViewToTransitions(teamAgents: TeamAgent[]): Transition[] {
       transitions.push({
         fromAgentId: agent.config.id,
         toAgentId: trigger.toAgentId,
-        type: trigger.type,
+        type: 'sequence', // 默认顺序执行
         triggerHint: trigger.triggerHint,
       });
     });

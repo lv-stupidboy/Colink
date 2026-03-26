@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, Form, Select, Input, Radio, Button, Empty, Typography } from 'antd';
+import { Modal, Form, Select, Input, Button, Empty, Typography } from 'antd';
 import { PlusOutlined, DeleteOutlined } from '@ant-design/icons';
 import type { AgentConfig } from '@/types';
 
@@ -11,7 +11,6 @@ const { TextArea } = Input;
 interface AgentTrigger {
   toAgentId: string;
   triggerHint: string;
-  type: 'sequence' | 'parallel';
 }
 
 // 团队视图中的 Agent
@@ -54,7 +53,7 @@ const AgentTriggerModal: React.FC<AgentTriggerModalProps> = ({
 
   // 添加触发目标
   const handleAddTrigger = () => {
-    setTriggers([...triggers, { toAgentId: '', triggerHint: '', type: 'sequence' }]);
+    setTriggers([...triggers, { toAgentId: '', triggerHint: '' }]);
   };
 
   // 删除触发目标
@@ -97,7 +96,7 @@ const AgentTriggerModal: React.FC<AgentTriggerModalProps> = ({
       onCancel={onClose}
       onOk={handleSave}
       confirmLoading={loading}
-      width={600}
+      width={550}
       okText="保存"
       cancelText="取消"
     >
@@ -159,23 +158,13 @@ const AgentTriggerModal: React.FC<AgentTriggerModalProps> = ({
                 </Select>
               </Form.Item>
 
-              <Form.Item label="触发条件" style={{ marginBottom: 12 }}>
+              <Form.Item label="触发条件" style={{ marginBottom: 0 }}>
                 <TextArea
                   value={trigger.triggerHint}
                   onChange={(e) => handleUpdateTrigger(index, 'triggerHint', e.target.value)}
                   placeholder="例如：当需要前端实现时"
                   rows={2}
                 />
-              </Form.Item>
-
-              <Form.Item label="执行方式" style={{ marginBottom: 0 }}>
-                <Radio.Group
-                  value={trigger.type}
-                  onChange={(e) => handleUpdateTrigger(index, 'type', e.target.value)}
-                >
-                  <Radio value="sequence">顺序执行</Radio>
-                  <Radio value="parallel">并行执行</Radio>
-                </Radio.Group>
               </Form.Item>
             </div>
           ))}
