@@ -20,25 +20,22 @@ New-Item -ItemType Directory -Force -Path ../../installer/resources/app/web | Ou
 Copy-Item -Recurse -Force dist/* ../../installer/resources/app/web/
 Pop-Location
 
-# 3. 安装安装器依赖
-Write-Host "[3/6] 安装安装器依赖..." -ForegroundColor Cyan
+# 3. 安装依赖并构建安装器代码
+Write-Host "[3/6] 构建安装器代码..." -ForegroundColor Cyan
 npm install
-
-# 4. 构建安装器代码
-Write-Host "[4/6] 构建安装器代码..." -ForegroundColor Cyan
 npm run build
 
-# 5. 打包启动器
-Write-Host "[5/6] 打包启动器..." -ForegroundColor Cyan
+# 4. 打包启动器
+Write-Host "[4/6] 打包启动器..." -ForegroundColor Cyan
 npm run package:launcher
 
-New-Item -ItemType Directory -Force -Path resources/launcher | Out-Null
-$launcherPath = Get-ChildItem release/*/ISDP.exe | Select-Object -First 1
-Copy-Item $launcherPath.FullName resources/launcher/ISDP.exe
-
-# 6. 打包安装器
-Write-Host "[6/6] 打包安装器..." -ForegroundColor Cyan
+# 5. 打包安装器
+Write-Host "[5/6] 打包安装器..." -ForegroundColor Cyan
 npm run package
 
+# 6. 创建 ZIP 包
+Write-Host "[6/6] 创建 ZIP 包..." -ForegroundColor Cyan
+node scripts/create-zip.js
+
 Write-Host "===== 构建完成 =====" -ForegroundColor Green
-Write-Host "安装器产物: release/*/ISDP-Setup-*.exe" -ForegroundColor Yellow
+Write-Host "安装器产物: release/ISDP-*.zip" -ForegroundColor Yellow
