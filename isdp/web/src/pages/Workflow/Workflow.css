@@ -185,25 +185,6 @@
   background: var(--color-primary-light);
 }
 
-/* 触发配置预览 */
-.workflow-team-triggers {
-  padding: 12px 20px;
-  border-top: 1px solid var(--border-light);
-  background: var(--bg-base);
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.workflow-trigger-tag {
-  background: var(--color-primary-bg);
-  border: 1px solid var(--color-primary-border);
-  color: var(--color-primary);
-  font-size: 12px;
-  padding: 2px 8px;
-  border-radius: 4px;
-}
-
 /* ========== 添加 Agent 弹出层 ========== */
 .workflow-add-agent-popover {
   width: 280px;
@@ -254,11 +235,6 @@
 [data-theme='dark'] .workflow-team-header {
   background: #0f172a;
   border-bottom-color: #334155;
-}
-
-[data-theme='dark'] .workflow-team-triggers {
-  background: #0f172a;
-  border-top-color: #334155;
 }
 
 [data-theme='dark'] .workflow-agent-add {

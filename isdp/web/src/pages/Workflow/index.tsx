@@ -422,20 +422,6 @@ const WorkflowPage: React.FC = () => {
             </Popover>
           )}
         </div>
-
-        {/* 触发配置预览 */}
-        {team.agents.some(a => a.triggers.length > 0) && (
-          <div className="workflow-team-triggers">
-            {team.agents.flatMap((agent, idx) =>
-              agent.triggers.map((trigger, tIdx) => (
-                <Tag key={`${idx}-${tIdx}`} className="workflow-trigger-tag">
-                  {agent.config.name} → {agents.find(a => a.id === trigger.toAgentId)?.name || '未知'}
-                  {trigger.triggerHint && `：${trigger.triggerHint}`}
-                </Tag>
-              ))
-            )}
-          </div>
-        )}
       </div>
     );
   };
