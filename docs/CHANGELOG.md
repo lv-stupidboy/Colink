@@ -4,6 +4,46 @@
 
 ---
 
+## 2026-03-27 安装器重构
+
+### 背景
+
+原安装器存在嵌套打包问题，导致 app.asar 达到 1.6GB，安装过程复制运行时文件失败。
+
+### 目标
+
+1. 修复嵌套打包问题，将包大小降至 ~300MB
+2. 移除系统托盘功能，改用面板窗口
+3. 支持 ZIP 包分发结构
+
+### 核心变更
+
+**删除的文件：**
+- `src/main/tray.ts` - 移除系统托盘
+- `src/main/launcher-entry.ts` - 不再需要独立启动器入口
+
+**修改的文件：**
+- `src/main/index.ts` - 移除托盘函数，更新窗口关闭行为（添加确认对话框）
+- `src/renderer/src/pages/Dashboard.tsx` - 更新提示文字
+- `electron-builder.yml` - 新的打包结构（runtime/ + launcher/）
+- `electron-builder.launcher.yml` - 精确控制打包内容，添加 files 排除规则
+- `electron.vite.config.ts` - 移除 launcher-entry 入口
+- `package.json` - 添加 package:launcher 脚本
+- `build.ps1` / `build.sh` - 新的构建流程
+- `scripts/create-zip.js` - 更新 ZIP 打包逻辑
+
+### 验证方法
+
+1. 执行 `.\build.ps1` 完成构建
+2. 检查 ZIP 包大小应 < 350MB
+3. 测试安装流程
+
+### 影响范围
+
+installer 模块
+
+---
+
 ## 2026-03-26 Agent资产绑定与Skill使用统计
 
 ### 背景
