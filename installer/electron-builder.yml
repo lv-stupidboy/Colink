@@ -8,6 +8,7 @@ win:
     - target: nsis
       arch: [x64]
   icon: build/icon.ico
+  sign: null
 
 nsis:
   oneClick: false
