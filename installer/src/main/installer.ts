@@ -176,7 +176,8 @@ export async function copyLauncherFiles(
       return { success: false, error: `启动器目录不存在: ${launcherSrcDir}` }
     }
 
-    const fs = require('fs')
+    // 使用 original-fs 绕过 Electron 的 asar 处理
+    const fs = require('original-fs')
 
     // 获取 launcher 目录内容
     const entries = fs.readdirSync(launcherSrcDir, { withFileTypes: true })
@@ -195,20 +196,49 @@ export async function copyLauncherFiles(
       const destPath = join(destDir, entry.name)
 
       try {
-        // 使用 stat 检查是否为目录
+        // 使用 original-fs 的 stat 检查是否为目录
         const fileStat = fs.statSync(srcPath)
-        if (fileStat.isDirectory()) {
-          console.log(`[Copy] Copying directory: ${entry.name}`)
-          if (existsSync(destPath)) {
-            rmSync(destPath, { recursive: true, force: true })
+
+        // 特殊处理 resources 目录，因为包含 asar 文件
+        if (fileStat.isDirectory() && entry.name === 'resources') {
+          console.log(`[Copy] Copying resources directory (special handling for asar)...`)
+          fs.mkdirSync(destPath, { recursive: true })
+
+          const resourcesEntries = fs.readdirSync(srcPath, { withFileTypes: true })
+          for (const resEntry of resourcesEntries) {
+            const resSrcPath = join(srcPath, resEntry.name)
+            const resDestPath = join(destPath, resEntry.name)
+
+            // asar 文件必须作为文件复制，不能当作目录
+            if (resEntry.name.endsWith('.asar')) {
+              console.log(`[Copy] Copying asar file: ${resEntry.name}`)
+              const asarStat = fs.statSync(resSrcPath)
+              console.log(`[Copy] asar size: ${asarStat.size} bytes`)
+              if (fs.existsSync(resDestPath)) {
+                fs.rmSync(resDestPath, { force: true })
+              }
+              fs.copyFileSync(resSrcPath, resDestPath)
+              console.log(`[Copy] asar file copied successfully`)
+            } else if (fs.statSync(resSrcPath).isDirectory()) {
+              console.log(`[Copy] Copying resources subdirectory: ${resEntry.name}`)
+              fs.cpSync(resSrcPath, resDestPath, { recursive: true })
+            } else {
+              console.log(`[Copy] Copying resources file: ${resEntry.name}`)
+              fs.copyFileSync(resSrcPath, resDestPath)
+            }
           }
-          cpSync(srcPath, destPath, { recursive: true })
+        } else if (fileStat.isDirectory()) {
+          console.log(`[Copy] Copying directory: ${entry.name}`)
+          if (fs.existsSync(destPath)) {
+            fs.rmSync(destPath, { recursive: true, force: true })
+          }
+          fs.cpSync(srcPath, destPath, { recursive: true })
         } else {
           console.log(`[Copy] Copying file: ${entry.name} (${fileStat.size} bytes)`)
-          if (existsSync(destPath)) {
-            rmSync(destPath, { force: true })
+          if (fs.existsSync(destPath)) {
+            fs.rmSync(destPath, { force: true })
           }
-          await copyFile(srcPath, destPath)
+          fs.copyFileSync(srcPath, destPath)
         }
         copiedFiles++
         onProgress?.(Math.round((copiedFiles / totalFiles) * 100))
@@ -222,14 +252,14 @@ export async function copyLauncherFiles(
 
     // 验证关键文件
     const exeDest = join(destDir, 'ISDP.exe')
-    if (!existsSync(exeDest)) {
+    if (!fs.existsSync(exeDest)) {
       return { success: false, error: '启动器可执行文件复制失败: ISDP.exe 不存在' }
     }
     console.log('[Copy] ISDP.exe verified')
 
     // 验证 app.asar
     const appAsarDest = join(destDir, 'resources', 'app.asar')
-    if (!existsSync(appAsarDest)) {
+    if (!fs.existsSync(appAsarDest)) {
       console.warn('[Copy] Warning: app.asar not found, but continuing...')
     } else {
       const appAsarStat = fs.statSync(appAsarDest)
