@@ -147,7 +147,7 @@ export default function Dashboard({
 
       <div style={{ marginTop: 24, textAlign: 'center' }}>
         <Text type="secondary">
-          关闭窗口后程序将继续在系统托盘运行
+          关闭窗口后服务将继续在后台运行
         </Text>
       </div>
     </div>
