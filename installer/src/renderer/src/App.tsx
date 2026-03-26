@@ -11,8 +11,9 @@ import SystemConfig from './pages/SystemConfig'
 import Installing from './pages/Installing'
 import Complete from './pages/Complete'
 import Dashboard from './pages/Dashboard'
+import { LauncherDashboard } from './pages/LauncherDashboard'
 
-type AppMode = 'checking' | 'dashboard' | 'install' | 'installing' | 'complete'
+type AppMode = 'checking' | 'launcher' | 'dashboard' | 'install' | 'installing' | 'complete'
 
 const INSTALL_PAGES = {
   1: Welcome,
@@ -48,7 +49,7 @@ export default function App() {
 
   // 定期更新服务状态
   useEffect(() => {
-    if (mode === 'dashboard') {
+    if (mode === 'dashboard' || mode === 'launcher') {
       updateServiceStatus()
       const timer = setInterval(updateServiceStatus, 5000)
       return () => clearInterval(timer)
@@ -57,6 +58,18 @@ export default function App() {
 
   const checkInstalledVersion = async () => {
     try {
+      // 首先检测是否是 Launcher 模式
+      const isLauncher = await window.electronAPI.isLauncherMode()
+      if (isLauncher) {
+        // Launcher 模式，显示简化控制面板
+        const result = await window.electronAPI.checkInstalled()
+        setInstalledVersion(result)
+        setMode('launcher')
+        updateServiceStatus()
+        return
+      }
+
+      // Setup 模式，检测安装状态
       const result = await window.electronAPI.checkInstalled()
       setInstalledVersion(result)
       if (result.installed && result.installDir) {
@@ -165,6 +178,20 @@ export default function App() {
       <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <Spin size="large" tip="检测安装环境..." />
       </div>
+    )
+  }
+
+  // Launcher 模式（简化控制面板）
+  if (mode === 'launcher') {
+    return (
+      <Layout hideSteps>
+        <LauncherDashboard
+          installDir={installedVersion?.installDir || ''}
+          serviceStatus={serviceStatus}
+          onStartService={handleStartService}
+          onStopService={handleStopService}
+        />
+      </Layout>
     )
   }
 

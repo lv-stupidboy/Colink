@@ -15,6 +15,9 @@ import {
   deleteRegistry
 } from './installer'
 import { ServiceManager } from './service-manager'
+import { showStartupActionDialog, StartupAction } from './shared/startup-dialog'
+import { showCloseConfirm } from './shared/window-utils'
+import { getInstalledVersion } from './shared/install-utils'
 import mysql from 'mysql2/promise'
 
 const execAsync = promisify(exec)
@@ -24,34 +27,7 @@ const isDev = !app.isPackaged
 let mainWindow: BrowserWindow | null = null
 let serviceManager: ServiceManager | null = null
 let installDir: string = ''
-
-// 检测已安装的ISDP版本
-export function getInstalledVersion(): { installed: boolean; installDir?: string; version?: string; hasData?: boolean } {
-  try {
-    let regQuery: string
-    try {
-      regQuery = execSync(
-        'reg query "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ISDP" /v InstallLocation 2>nul',
-        { encoding: 'utf8' }
-      )
-    } catch {
-      regQuery = execSync(
-        'reg query "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ISDP" /v InstallLocation 2>nul',
-        { encoding: 'utf8' }
-      )
-    }
-    const match = regQuery.match(/InstallLocation\s+REG_SZ\s+(.+)/)
-    if (match) {
-      const dir = match[1].trim()
-      const dataDir = join(dir, 'data')
-      const hasData = existsSync(dataDir) && readdirSync(dataDir).length > 0
-      return { installed: true, installDir: dir, hasData }
-    }
-  } catch {
-    // 未安装
-  }
-  return { installed: false }
-}
+let startupAction: 'install' | 'upgrade' | 'uninstall' = 'install'
 
 // 获取当前exe所在目录
 function getExeDir(): string {
@@ -74,6 +50,7 @@ function createWindow() {
     minHeight: 550,
     frame: false,
     resizable: true,
+    icon: isDev ? undefined : join(process.resourcesPath, 'icon.ico'),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -89,24 +66,20 @@ function createWindow() {
   }
 
   // 关闭窗口时弹出确认对话框
-  mainWindow.on('close', (event) => {
+  mainWindow.on('close', async (event) => {
     // 如果应用正在退出，直接关闭窗口
     if (app.isQuitting) {
       return
     }
 
-    const choice = dialog.showMessageBoxSync(mainWindow!, {
-      type: 'question',
-      buttons: ['取消', '确认关闭'],
-      defaultId: 1,
-      cancelId: 0,
-      title: '关闭 ISDP',
-      message: '关闭 ISDP 控制面板？',
-      detail: '后端服务将继续在后台运行。您可以通过桌面快捷方式重新打开控制面板。'
+    event.preventDefault()
+    const canClose = await showCloseConfirm(mainWindow!, {
+      checkServiceRunning: () => serviceManager?.getStatus() === 'running',
+      stopService: async () => { await stopAllProcesses() }
     })
 
-    if (choice === 0) {
-      event.preventDefault()
+    if (canClose) {
+      mainWindow?.destroy()
     }
   })
 }
@@ -140,6 +113,10 @@ async function stopAllProcesses(): Promise<void> {
 
 ipcMain.on('window-minimize', () => mainWindow?.minimize())
 ipcMain.on('window-close', () => mainWindow?.close())
+
+ipcMain.handle('is-launcher-mode', () => false)
+
+ipcMain.handle('get-startup-action', () => startupAction)
 
 ipcMain.handle('get-app-path', () => app.getAppPath())
 
@@ -290,14 +267,28 @@ ipcMain.handle('uninstall', async (_event, keepData: boolean) => {
     try { if (existsSync(desktopPath)) rmSync(desktopPath) } catch {}
     try { if (existsSync(startMenuPath)) rmSync(startMenuPath) } catch {}
 
-    // 删除文件
+    // 删除文件（除了data目录）
     const dir = installed.installDir
-    const entries = ['ISDP.exe', 'isdp-server.exe', 'web', 'resources']
-    for (const entry of entries) {
+    const entriesToDelete = [
+      'ISDP.exe', 'isdp-server.exe', 'web', 'resources',
+      // DLL 文件
+      'ffmpeg.dll', 'd3dcompiler_47.dll', 'libEGL.dll', 'libGLESv2.dll',
+      'vk_swiftshader.dll', 'vulkan-1.dll',
+      // 其他文件
+      'resources.pak', 'chrome_100_percent.pak', 'chrome_200_percent.pak',
+      'icudtl.dat', 'snapshot_blob.bin', 'v8_context_snapshot.bin',
+      'vk_swiftshader_icd.json', 'icon.ico',
+      'LICENSE.electron.txt', 'LICENSES.chromium.html',
+      // 目录
+      'locales'
+    ]
+
+    for (const entry of entriesToDelete) {
       const path = join(dir, entry)
       if (existsSync(path)) {
         try {
           rmSync(path, { recursive: true, force: true })
+          console.log('[Uninstall] Removed:', entry)
         } catch (e) {
           console.error('[Uninstall] Failed to remove:', path, e)
         }
@@ -357,6 +348,10 @@ ipcMain.handle('open-config', async () => {
   }
 })
 
+ipcMain.handle('open-console', async () => {
+  shell.openExternal('http://localhost:8080')
+})
+
 // ==================== 应用启动 ====================
 
 // 单实例锁定：如果已有实例运行，激活它并退出
@@ -372,7 +367,29 @@ if (!gotTheLock) {
     mainWindow?.focus()
   })
 
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
+    // 检测是否已安装
+    const installed = getInstalledVersion()
+
+    if (installed.installed) {
+      // 显示启动操作选择对话框
+      const action = await showStartupActionDialog(installed)
+
+      if (action === 'cancel') {
+        app.quit()
+        return
+      }
+
+      if (action === 'uninstall') {
+        startupAction = 'uninstall'
+      } else {
+        // action === 'upgrade'
+        startupAction = 'upgrade'
+      }
+    } else {
+      startupAction = 'install'
+    }
+
     createWindow()
     initServiceManager()
 

@@ -62,6 +62,10 @@ declare global {
       minimizeWindow: () => void
       closeWindow: () => void
 
+      // 应用模式
+      isLauncherMode: () => Promise<boolean>
+      getStartupAction: () => Promise<'install' | 'upgrade' | 'uninstall'>
+
       // 路径获取
       getAppPath: () => Promise<string>
       getResourcePath: () => Promise<string>
@@ -89,6 +93,7 @@ declare global {
       openLogs: () => Promise<void>
       openDataDir: () => Promise<void>
       openConfig: () => Promise<void>
+      openConsole: () => Promise<void>
 
       // 卸载
       confirmUninstall: () => Promise<{ confirmed: boolean; keepData: boolean }>

@@ -3,6 +3,9 @@ productName: ISDP
 directories:
   output: release/launcher
 
+extraMetadata:
+  main: ./out/main/launcher-entry.js
+
 win:
   target:
     - target: dir

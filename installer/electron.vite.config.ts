@@ -9,6 +9,7 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/main/index.ts'),
+          'launcher-entry': resolve(__dirname, 'src/main/launcher-entry.ts'),
         },
         output: {
           entryFileNames: '[name].js',

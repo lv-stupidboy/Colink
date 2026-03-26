@@ -6,6 +6,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   minimizeWindow: () => ipcRenderer.send('window-minimize'),
   closeWindow: () => ipcRenderer.send('window-close'),
 
+  // 应用模式
+  isLauncherMode: () => ipcRenderer.invoke('is-launcher-mode'),
+  getStartupAction: () => ipcRenderer.invoke('get-startup-action'),
+
   // 路径获取
   getAppPath: () => ipcRenderer.invoke('get-app-path'),
   getResourcePath: () => ipcRenderer.invoke('get-resource-path'),
@@ -33,6 +37,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openLogs: () => ipcRenderer.invoke('open-logs'),
   openDataDir: () => ipcRenderer.invoke('open-data-dir'),
   openConfig: () => ipcRenderer.invoke('open-config'),
+  openConsole: () => ipcRenderer.invoke('open-console'),
 
   // 卸载
   confirmUninstall: () => ipcRenderer.invoke('confirm-uninstall'),
