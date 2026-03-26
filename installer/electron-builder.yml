@@ -27,6 +27,6 @@ extraResources:
   # 前端静态文件
   - from: "resources/app/web"
     to: "runtime/web"
-  # 启动器（从 release/launcher/ 复制）
-  - from: "release/launcher"
+  # 启动器（从 release/launcher/win-unpacked/ 复制）
+  - from: "release/launcher/win-unpacked"
     to: "launcher"
