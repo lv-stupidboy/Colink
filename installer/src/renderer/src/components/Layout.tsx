@@ -5,9 +5,10 @@ interface LayoutProps {
   stepLabels?: string[]
   children: ReactNode
   hideSteps?: boolean
+  title?: string
 }
 
-export default function Layout({ currentStep = 1, stepLabels = [], children, hideSteps = false }: LayoutProps) {
+export default function Layout({ currentStep = 1, stepLabels = [], children, hideSteps = false, title = 'ISDP' }: LayoutProps) {
   const handleMinimize = () => {
     window.electronAPI?.minimizeWindow()
   }
@@ -20,7 +21,7 @@ export default function Layout({ currentStep = 1, stepLabels = [], children, hid
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       {/* 标题栏 */}
       <div className="title-bar">
-        <h1>ISDP</h1>
+        <h1>{title}</h1>
         <div className="title-bar-controls">
           <button className="title-bar-btn minimize" onClick={handleMinimize} />
           <button className="title-bar-btn close" onClick={handleClose} />

@@ -1,5 +1,6 @@
 import { ChildProcess, spawn } from 'child_process'
 import { join } from 'path'
+import { existsSync } from 'fs'
 
 export class ServiceManager {
   private process: ChildProcess | null = null
@@ -9,30 +10,91 @@ export class ServiceManager {
     this.installDir = installDir
   }
 
-  async start(): Promise<void> {
-    if (this.process) return
+  async start(): Promise<{ success: boolean; error?: string }> {
+    if (this.process) {
+      return { success: true }
+    }
 
-    this.process = spawn(join(this.installDir, 'isdp-server.exe'), [], {
-      cwd: this.installDir,
-      detached: false,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: true,
+    const serverPath = join(this.installDir, 'isdp-server.exe')
+    const configPath = join(this.installDir, 'data', 'configs', 'config.yaml')
+
+    console.log('[Service] Starting server:', serverPath)
+    console.log('[Service] Working directory:', this.installDir)
+    console.log('[Service] Config path:', configPath)
+
+    if (!existsSync(serverPath)) {
+      return { success: false, error: `服务程序不存在` }
+    }
+
+    if (!existsSync(configPath)) {
+      return { success: false, error: `配置文件不存在` }
+    }
+
+    return new Promise((resolve) => {
+      let resolved = false
+      let errorOutput = ''
+
+      try {
+        // 在安装目录运行，通过 -c 指定配置文件路径
+        // 这样服务可以找到 ./web 目录
+        this.process = spawn(serverPath, ['-config', configPath], {
+          cwd: this.installDir,
+          detached: false,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          windowsHide: true,
+        })
+
+        this.process.stdout?.on('data', (data) => {
+          const msg = data.toString()
+          console.log(`[ISDP] ${msg.trim()}`)
+        })
+
+        this.process.stderr?.on('data', (data) => {
+          const msg = data.toString()
+          console.error(`[ISDP Error] ${msg.trim()}`)
+          errorOutput += msg
+        })
+
+        this.process.on('error', (err) => {
+          console.error('[Service] Process error:', err)
+          this.process = null
+          if (!resolved) {
+            resolved = true
+            resolve({ success: false, error: `启动失败: ${err.message}` })
+          }
+        })
+
+        this.process.on('close', (code, signal) => {
+          console.log(`[Service] Process closed with code: ${code}, signal: ${signal}`)
+          this.process = null
+          if (!resolved) {
+            resolved = true
+            const errorMsg = errorOutput || `服务退出，代码: ${code}`
+            resolve({ success: false, error: errorMsg })
+          }
+        })
+
+        // 等待服务启动
+        setTimeout(() => {
+          if (!resolved) {
+            if (this.process && !this.process.killed) {
+              resolved = true
+              resolve({ success: true })
+            } else {
+              resolved = true
+              resolve({ success: false, error: errorOutput || '服务启动超时' })
+            }
+          }
+        }, 5000)
+
+      } catch (err) {
+        console.error('[Service] Start error:', err)
+        if (!resolved) {
+          resolved = true
+          resolve({ success: false, error: err instanceof Error ? err.message : '启动异常' })
+        }
+      }
     })
-
-    this.process.stdout?.on('data', (data) => {
-      console.log(`[ISDP] ${data}`)
-    })
-
-    this.process.stderr?.on('data', (data) => {
-      console.error(`[ISDP Error] ${data}`)
-    })
-
-    this.process.on('close', () => {
-      this.process = null
-    })
-
-    // 等待服务就绪
-    await this.waitForReady()
   }
 
   async stop(): Promise<void> {
@@ -42,17 +104,12 @@ export class ServiceManager {
     }
   }
 
-  async restart(): Promise<void> {
+  async restart(): Promise<{ success: boolean; error?: string }> {
     await this.stop()
-    await this.start()
+    return this.start()
   }
 
   getStatus(): 'running' | 'stopped' {
     return this.process ? 'running' : 'stopped'
-  }
-
-  private async waitForReady(): Promise<void> {
-    // 简单的等待策略，实际可以检查 HTTP 端点
-    return new Promise(resolve => setTimeout(resolve, 2000))
   }
 }

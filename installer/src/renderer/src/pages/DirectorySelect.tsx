@@ -20,6 +20,7 @@ export default function DirectorySelect({ config, onConfigUpdate, onValidationCh
   const validatePath = async (path: string) => {
     if (!path || path.trim() === '') {
       setIsValid(false)
+      setFreeSpace(0)
       onValidationChange?.(false)
       return
     }
@@ -31,19 +32,22 @@ export default function DirectorySelect({ config, onConfigUpdate, onValidationCh
 
     setParentPath(parent)
 
-    // 检查父目录是否存在
+    // 检查父目录是否存在并获取磁盘空间
     try {
       const result = await window.electronAPI.getDiskSpace(parent)
       if (result.free === 0 && result.total === 0) {
         // 父目录不存在
         setIsValid(false)
+        setFreeSpace(0)
         onValidationChange?.(false)
       } else {
         setIsValid(true)
+        setFreeSpace(result.free)
         onValidationChange?.(true)
       }
     } catch {
       setIsValid(false)
+      setFreeSpace(0)
       onValidationChange?.(false)
     }
   }

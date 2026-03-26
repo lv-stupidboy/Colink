@@ -315,3 +315,147 @@ isdp/sql-change/
 - 新增 `internal/model/skill.go` - Skill模型
 ...
 ```
+
+## 安装程序 (Installer)
+
+### 目录结构
+
+安装程序位于 `installer/` 目录：
+
+```
+installer/
+├── src/
+│   ├── main/
+│   │   ├── index.ts           # ISDP Setup 入口（安装/升级/卸载）
+│   │   ├── launcher-entry.ts  # ISDP Launcher 入口（服务管理）
+│   │   ├── service-manager.ts # 服务进程管理
+│   │   └── installer.ts       # 安装逻辑
+│   ├── preload/               # Electron preload 脚本
+│   └── renderer/              # React 前端界面
+├── build/                     # 构建资源（图标等）
+├── electron-builder.yml       # Setup 打包配置
+├── electron-builder.launcher.yml  # Launcher 打包配置
+├── build.ps1                  # Windows 完整构建脚本
+└── build.sh                   # Unix 完整构建脚本
+```
+
+### 构建流程
+
+**一键构建（推荐）：**
+
+```bash
+# Windows
+cd installer
+.\build.ps1
+
+# Unix/Linux/macOS
+cd installer
+./build.sh
+```
+
+构建脚本会依次执行：
+1. 构建 Go 后端 (`isdp/isdp-server.exe`)
+2. 构建前端 (`isdp/web/dist`)
+3. 构建 Electron 安装器代码
+4. 打包 Launcher (`ISDP.exe`)
+5. 打包 Setup (`ISDP Setup.exe`)
+6. 创建发布 ZIP 包 (`release/ISDP-*.zip`)
+
+**单独构建：**
+
+```bash
+cd installer
+npm run build              # 只构建 Electron 代码
+npm run package:launcher   # 只打包 Launcher
+npm run package:setup      # 只打包 Setup
+```
+
+### Setup 与 Launcher 职责
+
+| 程序 | 职责 | 启动时机 |
+|------|------|----------|
+| **ISDP Setup.exe** | 安装、升级、卸载 | 用户手动运行安装包 |
+| **ISDP.exe (Launcher)** | 服务启停、日志查看、配置管理 | 用户通过桌面快捷方式启动 |
+
+**Setup 功能：**
+- 检测已安装版本，提供升级/卸载选项
+- 选择安装目录
+- 检测依赖（Node.js、Git、Claude CLI）
+- 配置数据库连接
+- 创建桌面快捷方式和开始菜单项
+
+**Launcher 功能：**
+- 启动/停止后端服务
+- 打开控制台 (http://localhost:8080)
+- 查看日志、配置、数据目录
+- 服务状态监控
+
+### 安装后目录结构
+
+```
+{安装目录}/
+├── ISDP.exe              # Launcher 启动器
+├── isdp-server.exe       # 后端服务
+├── web/                  # 前端静态文件
+│   ├── index.html
+│   └── assets/
+└── data/                 # 用户数据目录（升级时保留）
+    ├── configs/
+    │   └── config.yaml   # 配置文件
+    ├── logs/             # 日志文件
+    ├── agent-assets/     # Agent 资产
+    ├── agent-configs/    # Agent 配置
+    ├── repos/            # 代码仓库
+    └── *.db              # SQLite 数据库（如使用）
+```
+
+### 服务启动命令
+
+后端服务在安装目录运行，通过参数指定配置文件：
+
+```bash
+isdp-server.exe -config "{安装目录}/data/configs/config.yaml"
+```
+
+工作目录为安装目录，这样服务可以正确找到 `./web` 静态文件。
+
+## Data 目录约定
+
+### 目录结构
+
+`data/` 目录存放所有用户数据和运行时数据，升级安装时保留：
+
+```
+data/
+├── configs/
+│   └── config.yaml       # 主配置文件
+├── logs/
+│   └── server.log        # 服务日志
+├── agent-assets/         # Agent 资产文件（技能包、知识库等）
+├── agent-configs/        # Agent 运行时配置
+├── repos/                # 克隆的代码仓库
+└── isdp.db               # SQLite 数据库（开发环境）
+```
+
+### 重要规则
+
+1. **升级保留**：安装器升级时会保留整个 `data/` 目录
+2. **配置不覆盖**：如果配置文件已存在，升级时不会覆盖
+3. **相对路径**：配置文件中使用 `./data` 相对路径，基于安装目录
+4. **敏感数据**：数据库密码等敏感信息存放在 `data/configs/config.yaml`，不提交到 Git
+
+### 配置文件路径优先级
+
+Go 后端按以下顺序查找配置文件：
+
+1. 命令行参数：`-config <路径>`
+2. 环境变量：`ISDP_CONFIG`
+3. 安装路径：`data/configs/config.yaml`
+4. 开发路径：`configs/config.yaml`
+
+### 开发环境 vs 生产环境
+
+| 环境 | 配置路径 | 数据目录 |
+|------|----------|----------|
+| 开发 | `isdp/configs/config.yaml` | `isdp/data/` |
+| 生产 | `{安装目录}/data/configs/config.yaml` | `{安装目录}/data/` |

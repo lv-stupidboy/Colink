@@ -54,3 +54,6 @@ openspec/
 
 # Playwright 测试报告
 isdp/web/playwright-report/
+
+# Installer 构建产物
+installer/release/

@@ -1,42 +1,36 @@
-import { useEffect, useState } from 'react'
-import { Checkbox, Button, Spin } from 'antd'
+import { useState } from 'react'
+import { Button, message } from 'antd'
 import { CheckCircleOutlined } from '@ant-design/icons'
-import { InstallConfig, InstalledVersion } from '../types'
+import { InstallConfig } from '../types'
 
 interface CompleteProps {
   config: InstallConfig
-  onConfigUpdate: (updates: Partial<InstallConfig>) => void
-  installedVersion?: InstalledVersion
   isUpgrade?: boolean
+  onComplete: () => void
 }
 
 export default function Complete({ config, isUpgrade }: CompleteProps) {
   const [launching, setLaunching] = useState(false)
-  const [serviceLaunched, setServiceLaunched] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    // 如果选择立即启动，启动服务
-    if (config.launchNow) {
-      const launchService = async () => {
-        setLaunching(true)
-        try {
-          const result = await window.electronAPI.launchService(config.installDir)
-          if (result.success) {
-            setServiceLaunched(true)
-          } else {
-            setError(result.error || '启动失败')
-          }
-        } catch (err) {
-          setError(err instanceof Error ? err.message : '启动失败')
-        }
+  const handleLaunch = async () => {
+    setLaunching(true)
+    try {
+      // 启动 ISDP.exe（桌面快捷方式指向的程序）
+      const result = await window.electronAPI.launchISDP()
+      if (result.success) {
+        // 延迟关闭窗口
+        setTimeout(() => {
+          window.electronAPI.closeWindow()
+        }, 1000)
+      } else {
+        message.error(result.error || '启动失败')
         setLaunching(false)
       }
-
-      // 延迟启动，让用户看到完成页面
-      setTimeout(launchService, 500)
+    } catch (err) {
+      message.error('启动失败')
+      setLaunching(false)
     }
-  }, [config])
+  }
 
   const handleClose = () => {
     window.electronAPI.closeWindow()
@@ -84,32 +78,22 @@ export default function Complete({ config, isUpgrade }: CompleteProps) {
       <div style={{ marginBottom: 30, textAlign: 'left', minWidth: 280 }}>
         <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
           <CheckCircleOutlined style={{ color: '#52c41a' }} />
-          <span>桌面快捷方式已创建</span>
+          <span>已创建桌面快捷方式</span>
         </div>
         <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
           <CheckCircleOutlined style={{ color: '#52c41a' }} />
-          <span>开始菜单快捷方式已创建</span>
+          <span>已创建开始菜单快捷方式</span>
         </div>
-        {config.launchNow && (
-          <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
-            {launching ? (
-              <Spin size="small" />
-            ) : serviceLaunched ? (
-              <CheckCircleOutlined style={{ color: '#52c41a' }} />
-            ) : error ? (
-              <span style={{ color: '#ff4d4f' }}>✗</span>
-            ) : (
-              <CheckCircleOutlined style={{ color: '#52c41a' }} />
-            )}
-            <span>启动 ISDP 服务</span>
-            {error && <span style={{ color: '#ff4d4f', fontSize: 12 }}>({error})</span>}
-          </div>
-        )}
       </div>
 
-      <Button type="primary" size="large" onClick={handleClose}>
-        关闭
-      </Button>
+      <div style={{ display: 'flex', gap: 16 }}>
+        <Button size="large" onClick={handleClose}>
+          关闭
+        </Button>
+        <Button type="primary" size="large" onClick={handleLaunch} loading={launching}>
+          启动 ISDP
+        </Button>
+      </div>
     </div>
   )
 }

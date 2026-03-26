@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron'
 import { join } from 'path'
 import { ServiceManager } from './service-manager'
 import { getInstalledVersion } from './shared/install-utils'
-import { createMainWindow, showCloseConfirm } from './shared/window-utils'
+import { showCloseConfirm } from './shared/window-utils'
 
 const isDev = !app.isPackaged
 
@@ -32,8 +32,7 @@ ipcMain.handle('start-service', async () => {
     return { success: false, error: '服务管理器未初始化' }
   }
 
-  await serviceManager.start()
-  return { success: true }
+  return serviceManager.start()
 })
 
 ipcMain.handle('stop-service', async () => {
@@ -69,6 +68,61 @@ ipcMain.handle('open-console', async () => {
   shell.openExternal('http://localhost:8080')
 })
 
+// ==================== 创建窗口 ====================
+
+function createLauncherWindow(): BrowserWindow {
+  console.log('[Launcher] Creating window')
+  console.log('[Launcher] isDev:', isDev)
+  console.log('[Launcher] __dirname:', __dirname)
+  console.log('[Launcher] resourcesPath:', process.resourcesPath)
+
+  const window = new BrowserWindow({
+    width: 900,
+    height: 650,
+    minWidth: 800,
+    minHeight: 550,
+    frame: false,
+    resizable: true,
+    icon: isDev ? undefined : join(process.resourcesPath, 'icon.ico'),
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+
+  if (isDev) {
+    console.log('[Launcher] Loading dev URL')
+    window.loadURL('http://localhost:5173')
+    window.webContents.openDevTools()
+  } else {
+    const rendererPath = join(__dirname, '../renderer/index.html')
+    console.log('[Launcher] Loading file:', rendererPath)
+
+    window.loadFile(rendererPath).catch(err => {
+      console.error('[Launcher] Failed to load file:', err)
+      dialog.showErrorBox('加载失败', `无法加载界面：${err.message}`)
+    })
+  }
+
+  window.webContents.on('did-finish-load', () => {
+    console.log('[Launcher] Page loaded successfully')
+  })
+
+  window.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+    console.error('[Launcher] Page load failed:', errorCode, errorDescription)
+  })
+
+  return window
+
+  // 开发模式下打开开发者工具
+  if (isDev) {
+    window.webContents.openDevTools()
+  }
+
+  return window
+}
+
 // ==================== 应用启动 ====================
 
 // 单实例锁定
@@ -83,7 +137,10 @@ if (!gotTheLock) {
   })
 
   app.whenReady().then(async () => {
+    console.log('[Launcher] App ready')
+
     const installed = getInstalledVersion()
+    console.log('[Launcher] Installed version:', installed)
 
     if (!installed.installed || !installed.installDir) {
       dialog.showErrorBox('错误', 'ISDP 未安装，请先运行安装程序')
@@ -92,9 +149,11 @@ if (!gotTheLock) {
     }
 
     installDir = installed.installDir
+    console.log('[Launcher] Install dir:', installDir)
+
     serviceManager = new ServiceManager(installDir)
 
-    mainWindow = createMainWindow(isDev)
+    mainWindow = createLauncherWindow()
 
     // 关闭确认
     mainWindow.on('close', async (event) => {
@@ -113,7 +172,7 @@ if (!gotTheLock) {
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
-        mainWindow = createMainWindow(isDev)
+        mainWindow = createLauncherWindow()
       }
     })
   })

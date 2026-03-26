@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, app } from 'electron'
+import { BrowserWindow, dialog } from 'electron'
 import { join } from 'path'
 
 export interface CloseConfirmOptions {
@@ -8,8 +8,8 @@ export interface CloseConfirmOptions {
 
 /**
  * 显示关闭确认对话框
- * - 服务运行时：三选项（取消/停止并关闭/保持运行并关闭）
- * - 服务停止时：二选项（取消/确认关闭）
+ * - 服务运行时：必须先停止服务才能关闭
+ * - 服务停止时：直接关闭
  */
 export async function showCloseConfirm(
   mainWindow: BrowserWindow,
@@ -18,45 +18,37 @@ export async function showCloseConfirm(
   const isRunning = options.checkServiceRunning()
 
   if (isRunning) {
+    // 服务运行时，必须先停止
     const choice = await dialog.showMessageBox(mainWindow, {
-      type: 'question',
-      buttons: ['取消', '停止服务并关闭', '保持运行并关闭'],
-      defaultId: 2,
-      cancelId: 0,
-      title: '关闭 ISDP',
+      type: 'warning',
+      buttons: ['停止服务并关闭', '取消'],
+      defaultId: 0,
+      cancelId: 1,
+      title: '无法关闭',
       message: '服务正在运行',
-      detail: '请选择关闭方式：'
+      detail: '请先停止服务后再关闭窗口。'
     })
 
     if (choice.response === 0) {
-      return false // 取消关闭
-    }
-    if (choice.response === 1) {
       // 停止服务并关闭
       await options.stopService()
+      return true
     }
-    // response === 2: 保持运行并关闭
-    return true
-  } else {
-    // 服务未运行时，简单确认
-    const choice = dialog.showMessageBoxSync(mainWindow, {
-      type: 'question',
-      buttons: ['取消', '确认关闭'],
-      defaultId: 1,
-      cancelId: 0,
-      title: '关闭 ISDP',
-      message: '关闭 ISDP 控制面板？',
-      detail: '后端服务将继续在后台运行。'
-    })
-
-    return choice !== 0
+    return false
   }
+
+  return true
 }
 
 /**
  * 创建主窗口
  */
 export function createMainWindow(isDev: boolean): BrowserWindow {
+  console.log('[Window] Creating main window')
+  console.log('[Window] isDev:', isDev)
+  console.log('[Window] __dirname:', __dirname)
+  console.log('[Window] process.resourcesPath:', process.resourcesPath)
+
   const mainWindow = new BrowserWindow({
     width: 900,
     height: 650,
@@ -73,11 +65,24 @@ export function createMainWindow(isDev: boolean): BrowserWindow {
   })
 
   if (isDev) {
+    console.log('[Window] Loading dev URL: http://localhost:5173')
     mainWindow.loadURL('http://localhost:5173')
     mainWindow.webContents.openDevTools()
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    const rendererPath = join(__dirname, '../renderer/index.html')
+    console.log('[Window] Loading file:', rendererPath)
+    mainWindow.loadFile(rendererPath).catch(err => {
+      console.error('[Window] Failed to load:', err)
+    })
   }
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    console.log('[Window] Page loaded successfully')
+  })
+
+  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+    console.error('[Window] Page load failed:', errorCode, errorDescription)
+  })
 
   return mainWindow
 }

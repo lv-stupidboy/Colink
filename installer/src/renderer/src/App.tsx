@@ -168,7 +168,13 @@ export default function App() {
     }
   }
 
+  const handleInstallComplete = () => {
+    // 安装完成，切换到完成页面让用户选择
+    setMode('complete')
+  }
+
   const handleComplete = async () => {
+    // 完成页面用户点击完成后，检测安装状态并跳转
     await checkInstalledVersion()
   }
 
@@ -184,7 +190,7 @@ export default function App() {
   // Launcher 模式（简化控制面板）
   if (mode === 'launcher') {
     return (
-      <Layout hideSteps>
+      <Layout hideSteps title="ISDP">
         <LauncherDashboard
           installDir={installedVersion?.installDir || ''}
           serviceStatus={serviceStatus}
@@ -198,12 +204,9 @@ export default function App() {
   // 控制面板
   if (mode === 'dashboard') {
     return (
-      <Layout hideSteps>
+      <Layout hideSteps title="ISDP Setup">
         <Dashboard
           installDir={installedVersion?.installDir || ''}
-          serviceStatus={serviceStatus}
-          onStartService={handleStartService}
-          onStopService={handleStopService}
           onReinstall={handleStartInstall}
           onUninstall={handleUninstall}
         />
@@ -214,8 +217,8 @@ export default function App() {
   // 安装中
   if (mode === 'installing') {
     return (
-      <Layout hideSteps>
-        <Installing config={config} onComplete={handleComplete} isUpgrade={isUpgrade} />
+      <Layout hideSteps title="ISDP Setup">
+        <Installing config={config} onComplete={handleInstallComplete} isUpgrade={isUpgrade} />
       </Layout>
     )
   }
@@ -223,9 +226,10 @@ export default function App() {
   // 安装完成
   if (mode === 'complete') {
     return (
-      <Layout hideSteps>
+      <Layout hideSteps title="ISDP Setup">
         <Complete
           config={config}
+          isUpgrade={isUpgrade}
           onComplete={async () => {
             await checkInstalledVersion()
           }}
@@ -241,7 +245,7 @@ export default function App() {
     : currentStep - 1
 
   return (
-    <Layout currentStep={stepIndex + 1} stepLabels={getStepLabels()}>
+    <Layout currentStep={stepIndex + 1} stepLabels={getStepLabels()} title="ISDP Setup">
       <PageComponent
         config={config}
         onConfigUpdate={(updates) => setConfig(prev => ({ ...prev, ...updates }))}

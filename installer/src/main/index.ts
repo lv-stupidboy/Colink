@@ -208,8 +208,7 @@ ipcMain.handle('start-service', async () => {
     serviceManager = new ServiceManager(installed.installDir)
   }
 
-  await serviceManager.start()
-  return { success: true }
+  return serviceManager.start()
 })
 
 ipcMain.handle('stop-service', async () => {
@@ -228,23 +227,40 @@ ipcMain.handle('confirm-uninstall', async () => {
     return { confirmed: false }
   }
 
-  const result = await dialog.showMessageBox(mainWindow!, {
-    type: 'warning',
-    buttons: ['取消', '卸载'],
-    defaultId: 0,
-    cancelId: 0,
-    title: '卸载 ISDP',
-    message: '确定要卸载 ISDP 吗？',
-    detail: installed.hasData
-      ? '检测到数据目录，卸载后可以选择保留或删除。'
-      : '卸载后将无法使用本软件。',
-    checkboxLabel: installed.hasData ? '保留数据目录' : undefined,
-    checkboxChecked: true,
-  })
+  // 只有当 hasData 为 true 时才显示复选框
+  if (installed.hasData) {
+    const result = await dialog.showMessageBox(mainWindow!, {
+      type: 'warning',
+      buttons: ['取消', '卸载'],
+      defaultId: 0,
+      cancelId: 0,
+      title: '卸载 ISDP',
+      message: '确定要卸载 ISDP 吗？',
+      detail: '检测到数据目录，卸载后可以选择保留或删除。',
+      checkboxLabel: '保留数据目录',
+      checkboxChecked: true,
+    })
 
-  return {
-    confirmed: result.response === 1,
-    keepData: installed.hasData ? result.checkboxChecked : false
+    return {
+      confirmed: result.response === 1,
+      keepData: result.checkboxChecked || false
+    }
+  } else {
+    // 没有数据目录，显示简单确认
+    const result = await dialog.showMessageBox(mainWindow!, {
+      type: 'warning',
+      buttons: ['取消', '卸载'],
+      defaultId: 0,
+      cancelId: 0,
+      title: '卸载 ISDP',
+      message: '确定要卸载 ISDP 吗？',
+      detail: '卸载后将无法使用本软件。',
+    })
+
+    return {
+      confirmed: result.response === 1,
+      keepData: false
+    }
   }
 })
 
@@ -269,8 +285,33 @@ ipcMain.handle('uninstall', async (_event, keepData: boolean) => {
 
     // 删除文件（除了data目录）
     const dir = installed.installDir
+
+    // 先强制删除 resources 目录（包含 launcher 和 runtime）
+    const resourcesDir = join(dir, 'resources')
+    if (existsSync(resourcesDir)) {
+      try {
+        // 使用最大力度的删除参数
+        rmSync(resourcesDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 })
+        console.log('[Uninstall] Removed resources directory')
+      } catch (e) {
+        console.error('[Uninstall] Failed to remove resources:', resourcesDir, e)
+        // 尝试逐个删除子目录
+        try {
+          const subEntries = readdirSync(resourcesDir)
+          for (const subEntry of subEntries) {
+            const subPath = join(resourcesDir, subEntry)
+            try {
+              rmSync(subPath, { recursive: true, force: true, maxRetries: 3 })
+            } catch {}
+          }
+          // 最后删除空目录
+          rmSync(resourcesDir, { force: true })
+        } catch {}
+      }
+    }
+
     const entriesToDelete = [
-      'ISDP.exe', 'isdp-server.exe', 'web', 'resources',
+      'ISDP.exe', 'isdp-server.exe', 'web',
       // DLL 文件
       'ffmpeg.dll', 'd3dcompiler_47.dll', 'libEGL.dll', 'libGLESv2.dll',
       'vk_swiftshader.dll', 'vulkan-1.dll',
@@ -350,6 +391,29 @@ ipcMain.handle('open-config', async () => {
 
 ipcMain.handle('open-console', async () => {
   shell.openExternal('http://localhost:8080')
+})
+
+ipcMain.handle('launch-isdp', async () => {
+  const installed = getInstalledVersion()
+  if (!installed.installDir) {
+    return { success: false, error: '未找到安装目录' }
+  }
+
+  const launcherPath = join(installed.installDir, 'ISDP.exe')
+  if (!existsSync(launcherPath)) {
+    return { success: false, error: `启动器不存在: ${launcherPath}` }
+  }
+
+  try {
+    spawn(launcherPath, [], {
+      detached: true,
+      stdio: 'ignore',
+      cwd: installed.installDir
+    })
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : '启动失败' }
+  }
 })
 
 // ==================== 应用启动 ====================

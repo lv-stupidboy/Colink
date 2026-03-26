@@ -38,6 +38,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openDataDir: () => ipcRenderer.invoke('open-data-dir'),
   openConfig: () => ipcRenderer.invoke('open-config'),
   openConsole: () => ipcRenderer.invoke('open-console'),
+  launchISDP: () => ipcRenderer.invoke('launch-isdp'),
 
   // 卸载
   confirmUninstall: () => ipcRenderer.invoke('confirm-uninstall'),

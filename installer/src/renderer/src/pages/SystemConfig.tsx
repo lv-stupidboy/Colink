@@ -142,12 +142,6 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
           )}
         </div>
       </ConfigSection>
-
-      <ConfigSection title="高级设置（可选）" defaultCollapsed>
-        <div style={{ color: '#999', textAlign: 'center', padding: 20 }}>
-          预留扩展空间
-        </div>
-      </ConfigSection>
     </div>
   )
 }

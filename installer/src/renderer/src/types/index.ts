@@ -94,6 +94,7 @@ declare global {
       openDataDir: () => Promise<void>
       openConfig: () => Promise<void>
       openConsole: () => Promise<void>
+      launchISDP: () => Promise<{ success: boolean; error?: string }>
 
       // 卸载
       confirmUninstall: () => Promise<{ confirmed: boolean; keepData: boolean }>

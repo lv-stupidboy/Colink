@@ -146,12 +146,6 @@ export function LauncherDashboard({
           <Text code>{installDir}</Text>
         </div>
       </Card>
-
-      <div style={{ marginTop: 24, textAlign: 'center' }}>
-        <Text type="secondary">
-          关闭窗口后服务将继续在后台运行
-        </Text>
-      </div>
     </div>
   )
 }
