@@ -8,6 +8,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "postinstall": "electron-builder install-app-deps",
+    "package:launcher": "electron-builder --win --config electron-builder.launcher.yml",
     "package": "npm run build && electron-builder --win --config electron-builder.yml",
     "package:zip": "npm run package && node scripts/create-zip.js"
   },
