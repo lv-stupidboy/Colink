@@ -12,6 +12,7 @@ import (
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
+	"github.com/anthropic/isdp/internal/service/mention"
 	"github.com/anthropic/isdp/internal/ws"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -42,6 +43,9 @@ type ExecutionService struct {
 	wsHub            *ws.Hub
 	defaultAdapter   AgentAdapter
 
+	// Mention 解析器（支持动态 patterns）
+	mentionParser *mention.Parser
+
 	runningAgents  map[uuid.UUID]*RunningAgent
 	mu             sync.RWMutex
 
@@ -64,6 +68,7 @@ func NewExecutionService(
 	projectRepo *repo.ProjectRepository,
 	wsHub *ws.Hub,
 	defaultAdapter AgentAdapter,
+	mentionParser *mention.Parser,
 ) *ExecutionService {
 	es := &ExecutionService{
 		invocationRepo:   invocationRepo,
@@ -78,6 +83,7 @@ func NewExecutionService(
 		projectRepo:      projectRepo,
 		wsHub:            wsHub,
 		defaultAdapter:   defaultAdapter,
+		mentionParser:    mentionParser,
 		runningAgents:    make(map[uuid.UUID]*RunningAgent),
 		a2aContexts:      make(map[uuid.UUID]*A2AContext),
 	}
@@ -329,7 +335,34 @@ func (es *ExecutionService) buildContextLayers(ctx context.Context, threadID uui
 	return layers, nil
 }
 
-// buildDynamicSystemPrompt 构建动态系统提示，注入工作流触发点和出口检查
+// roleTriggerHints 根据角色自动生成的触发提示
+// key 对应数据库中 agent_configs.role 字段的值
+var roleTriggerHints = map[string]string{
+	"requirement_analyst":  "@需求分析师 当需要需求分析时",
+	"architect":            "@架构师 当需要架构设计时",
+	"frontend_developer":   "@前端开发工程师 当需要前端实现时",
+	"backend_developer":    "@后端开发工程师 当需要后端实现时",
+	"code_reviewer":        "@代码审查工程师 当需要代码审查时",
+	"test_engineer":        "@测试工程师 当需要测试时",
+	"sre_engineer":         "@运维工程师 当需要部署运维时",
+	"project_manager":      "@项目经理 当需要项目协调时",
+	"ui_designer":          "@UI设计师 当需要界面设计时",
+	"database_designer":    "@数据库设计师 当需要数据库设计时",
+	"security_engineer":    "@安全工程师 当需要安全审计时",
+	"tech_writer":          "@技术文档工程师 当需要文档编写时",
+}
+
+// generateTriggerHint 根据目标 Agent 生成触发提示
+func generateTriggerHint(toAgent *model.AgentRoleConfig) string {
+	// 优先使用角色预设
+	if hint, ok := roleTriggerHints[string(toAgent.Role)]; ok {
+		return hint
+	}
+	// 兜底：使用 Agent 名称
+	return fmt.Sprintf("@%s", toAgent.Name)
+}
+
+// buildDynamicSystemPrompt 构建动态系统提示，注入工作流协作关系
 func (es *ExecutionService) buildDynamicSystemPrompt(ctx context.Context, threadID uuid.UUID, config *model.AgentRoleConfig) string {
 	var sb strings.Builder
 
@@ -339,46 +372,41 @@ func (es *ExecutionService) buildDynamicSystemPrompt(ctx context.Context, thread
 	// 获取当前 Agent 的转换规则
 	transitions := es.getTransitionsForAgent(ctx, threadID, config.ID)
 
-	// 获取工作流中的所有 Agent，用于将 ID 转换为名称
+	// DEBUG: 打印 transitions 数量
+	fmt.Printf("[DEBUG] buildDynamicSystemPrompt: agent=%s, transitions=%d\n", config.Name, len(transitions))
+
+	// 获取工作流中的所有 Agent，用于生成 trigger_hint
 	allowedAgents := es.getAllowedAgentsFromWorkflow(ctx, threadID)
-	agentNameMap := make(map[string]string)
+	agentMap := make(map[string]*model.AgentRoleConfig)
 	for _, agent := range allowedAgents {
-		agentNameMap[agent.ID.String()] = agent.Name
+		agentMap[agent.ID.String()] = agent
 	}
 
-	// 分类 Transitions：有条件的自动触发 vs 需要显式 @mention
-	var autoTriggerTransitions []model.Transition
-	var manualTriggerTransitions []model.Transition
-	for _, t := range transitions {
-		if t.Condition != "" {
-			autoTriggerTransitions = append(autoTriggerTransitions, t)
-		} else {
-			manualTriggerTransitions = append(manualTriggerTransitions, t)
-		}
-	}
+	// 注入协作提示（使用 trigger_hint 或智能生成）
+	if len(transitions) > 0 {
+		sb.WriteString("\n\n## 下游协作方（需要时 @ 触发）\n")
+		sb.WriteString("**重要格式规则**：@mention 必须单独成行，不能嵌入句子中。\n")
+		sb.WriteString("正确示例：\n```\n@后端开发工程师 请实现用户登录 API\n```\n")
+		sb.WriteString("错误示例：\n```\n确认后我将 @后端开发工程师 进行实现  ← 无效，不会触发\n```\n\n")
+		sb.WriteString("可用的下游协作方：\n")
+		for _, t := range transitions {
+			toAgent := agentMap[t.ToAgentID]
+			var hint string
 
-	// 注入自动触发提示（有条件的 Transition）
-	if len(autoTriggerTransitions) > 0 {
-		sb.WriteString("\n\n## 工作流自动触发（满足条件时自动调用）\n")
-		for _, t := range autoTriggerTransitions {
-			agentName := t.ToAgentID
-			if name, ok := agentNameMap[t.ToAgentID]; ok {
-				agentName = name
+			// 优先使用用户填写的 trigger_hint
+			if t.TriggerHint != "" {
+				hint = t.TriggerHint
+			} else if toAgent != nil {
+				// 智能生成
+				hint = generateTriggerHint(toAgent)
+			} else {
+				hint = fmt.Sprintf("@%s", t.ToAgentID[:8])
 			}
-			sb.WriteString(fmt.Sprintf("- 当输出匹配「%s」时 → 自动调用 @%s\n", t.Condition, agentName))
-		}
-	}
 
-	// 注入手动触发提示（无条件 Transition，需要显式 @）
-	if len(manualTriggerTransitions) > 0 {
-		sb.WriteString("\n\n## 下游协作方（需要时显式 @ 触发）\n")
-		for _, t := range manualTriggerTransitions {
-			agentName := t.ToAgentID
-			if name, ok := agentNameMap[t.ToAgentID]; ok {
-				agentName = name
-			}
-			sb.WriteString(fmt.Sprintf("- %s → @%s\n", t.Trigger, agentName))
+			fmt.Printf("[DEBUG] buildDynamicSystemPrompt: 注入 hint=%s\n", hint)
+			sb.WriteString(fmt.Sprintf("- %s\n", hint))
 		}
+		sb.WriteString("\n**角色边界**：你的职责是输出分析结果，不要直接进行代码实现。实现工作由下游协作方负责。\n")
 	}
 
 	// 注入出口检查提示
@@ -471,10 +499,12 @@ func (es *ExecutionService) ClearA2AContext(threadID uuid.UUID) {
 }
 
 // checkRouting 检查路由
+// 支持博弈场景：一个 mention 可能匹配多个 Agent
+// mentionIDs 是解析出的 Agent ID 列表
 func (es *ExecutionService) checkRouting(ctx context.Context, threadID uuid.UUID, currentConfig *model.AgentRoleConfig, output string) {
-	mentions := es.parseMentions(output)
+	mentionIDs := es.parseMentions(output)
 
-	if len(mentions) == 0 {
+	if len(mentionIDs) == 0 {
 		// 检查信号路由
 		es.checkSignalRouting(ctx, threadID, currentConfig, output)
 		return
@@ -504,6 +534,12 @@ func (es *ExecutionService) checkRouting(ctx context.Context, threadID uuid.UUID
 	// 获取工作流模板中的 Agent 列表
 	allowedAgents := es.getAllowedAgentsFromWorkflow(ctx, threadID)
 
+	// 构建 Agent ID -> AgentConfig 映射（限制在当前团队内）
+	agentMap := make(map[string]*model.AgentRoleConfig)
+	for _, agent := range allowedAgents {
+		agentMap[agent.ID.String()] = agent
+	}
+
 	// 获取项目路径
 	var projectPath string
 	if es.projectRepo != nil {
@@ -513,20 +549,17 @@ func (es *ExecutionService) checkRouting(ctx context.Context, threadID uuid.UUID
 		}
 	}
 
-	for _, mention := range mentions {
-		var targetConfig *model.AgentRoleConfig
+	// 构建 A2A 输入（原始用户消息 + 前序响应上下文）
+	a2aInput := es.buildA2AInput(ctx, threadID, currentConfig, output)
 
-		if mention.Role != "" {
-			// 按 role 查找
-			targetConfig = es.findAgentByRole(allowedAgents, mention.Role)
-		} else {
-			// 按 name 查找
-			targetConfig = es.findAgentByName(allowedAgents, mention.AgentName)
-		}
+	// 收集所有待触发的 Agent（支持博弈场景）
+	agentsToTrigger := make(map[uuid.UUID]*model.AgentRoleConfig)
 
-		if targetConfig == nil {
-			logInfo("路由被拒绝：目标不在工作流模板中",
-				zap.String("mention", mention.Raw),
+	for _, agentID := range mentionIDs {
+		targetConfig, exists := agentMap[agentID]
+		if !exists {
+			logInfo("路由被拒绝：目标不在工作流团队中",
+				zap.String("agentID", agentID),
 				zap.String("threadId", threadID.String()))
 			continue
 		}
@@ -539,8 +572,17 @@ func (es *ExecutionService) checkRouting(ctx context.Context, threadID uuid.UUID
 			continue
 		}
 
+		agentsToTrigger[targetConfig.ID] = targetConfig
+	}
+
+	// 批量触发 Agent
+	for _, targetConfig := range agentsToTrigger {
 		// 更新 A2A 上下文
 		es.a2aMu.Lock()
+		if a2aCtx.Depth >= MaxA2ADepth {
+			es.a2aMu.Unlock()
+			break
+		}
 		a2aCtx.Depth++
 		a2aCtx.InvokedAgents[targetConfig.ID] = true
 		es.a2aMu.Unlock()
@@ -551,55 +593,125 @@ func (es *ExecutionService) checkRouting(ctx context.Context, threadID uuid.UUID
 			zap.Int("depth", a2aCtx.Depth),
 			zap.String("threadId", threadID.String()))
 
-		// 使用工作流模板中指定的 Agent 实例
+		// 使用构建的 A2A 输入（原始用户消息 + 前序响应）
 		es.SpawnAgent(ctx, &SpawnRequest{
 			ThreadID:    threadID,
 			ConfigID:    targetConfig.ID,
 			Role:        targetConfig.Role,
-			Input:       output,
+			Input:       a2aInput,
 			ProjectPath: projectPath,
 		})
 	}
 }
 
-// parseMentions 解析@mention
-// 支持: @developer (角色) 或 @前端开发 (实例名称)
-// 可以在行的任意位置出现，如 "- **@前端开发工程师** 请实现..."
-func (es *ExecutionService) parseMentions(content string) []ParsedMention {
-	var mentions []ParsedMention
+// parseMentions 解析@mention（仅匹配行首）
+// 返回匹配的 Agent ID 列表
+// 只在行首（可带空白缩进）的 @mention 才会触发 A2A 路由
+func (es *ExecutionService) parseMentions(content string) []string {
 	seen := make(map[string]bool) // 去重
 
-	// 使用正则表达式匹配 @mention
-	// 匹配模式: @后面跟着中文字符、英文字母、数字或下划线
-	re := regexp.MustCompile(`@([\p{Han}a-zA-Z0-9_]+)`)
-
-	matches := re.FindAllStringSubmatch(content, -1)
-	for _, match := range matches {
-		if len(match) > 1 {
-			mention := match[1]
-			if mention != "" && !seen[mention] {
-				seen[mention] = true
-				// 尝试解析为角色
-				role := parseAgentRole(mention)
-
-				mentions = append(mentions, ParsedMention{
-					Role:      role,
-					AgentName: mention,
-					Raw:       mention,
-				})
-			}
+	// 使用动态 MentionParser
+	var mentionIDs []string
+	if es.mentionParser != nil {
+		var err error
+		mentionIDs, err = es.mentionParser.Parse(context.Background(), content, "")
+		if err != nil {
+			logError("parseMentions: 解析失败", zap.Error(err))
+			return nil
 		}
 	}
 
-	logInfo("parseMentions: 解析结果", zap.Int("count", len(mentions)), zap.Strings("mentions", func() []string {
-		var result []string
-		for _, m := range mentions {
-			result = append(result, m.AgentName)
+	// 去重
+	result := make([]string, 0)
+	for _, id := range mentionIDs {
+		if id != "" && !seen[id] {
+			seen[id] = true
+			result = append(result, id)
 		}
-		return result
-	}()))
+	}
 
-	return mentions
+	logInfo("parseMentions: 解析结果（仅行首）", zap.Int("count", len(result)), zap.Strings("agentIDs", result))
+
+	return result
+}
+
+// buildA2AInput 构建 A2A 输入
+// 参考 clowder-ai 的做法：传递原始用户消息 + 格式化的前序响应上下文
+// 而不是传递包含 @mention 的原始输出
+func (es *ExecutionService) buildA2AInput(ctx context.Context, threadID uuid.UUID, fromAgent *model.AgentRoleConfig, output string) string {
+	// 1. 获取原始用户消息
+	originalMessage := es.getLastUserMessage(ctx, threadID)
+
+	// 2. 移除纯 @mention 行
+	strippedOutput := es.stripPureMentionLines(output)
+
+	// 3. 构建格式化输入
+	var sb strings.Builder
+
+	if originalMessage != "" {
+		sb.WriteString(originalMessage)
+		sb.WriteString("\n\n---\n\n")
+	}
+
+	sb.WriteString(fmt.Sprintf("[%s 已经分析了这个问题：]\n\n", fromAgent.Name))
+	sb.WriteString(strippedOutput)
+
+	return sb.String()
+}
+
+// getLastUserMessage 获取 Thread 中最近的用户消息
+func (es *ExecutionService) getLastUserMessage(ctx context.Context, threadID uuid.UUID) string {
+	if es.msgRepo == nil {
+		return ""
+	}
+
+	messages, err := es.msgRepo.GetRecent(ctx, threadID, 10)
+	if err != nil || len(messages) == 0 {
+		return ""
+	}
+
+	// 从后往前找最后一条用户消息
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == model.MessageRoleUser {
+			return messages[i].Content
+		}
+	}
+
+	return ""
+}
+
+// stripPureMentionLines 移除输出中的纯 @mention 行
+// 只移除"行首 @mention 后面没有实质内容"的行
+// 避免移除"@后端 请帮忙"这种有效指令
+func (es *ExecutionService) stripPureMentionLines(output string) string {
+	lines := strings.Split(output, "\n")
+	var result []string
+
+	for _, line := range lines {
+		trimmed := strings.TrimLeft(line, " \t")
+
+		// 检查是否是纯 @mention 行
+		if strings.HasPrefix(trimmed, "@") {
+			// 找到 mention 结束位置
+			mentionEnd := len(trimmed)
+			for i, r := range trimmed[1:] {
+				if r == ' ' || r == '\t' {
+					mentionEnd = i + 1
+					break
+				}
+			}
+
+			// 如果 @mention 后面只有空白，则跳过这一行
+			afterMention := strings.TrimSpace(trimmed[mentionEnd:])
+			if afterMention == "" {
+				continue
+			}
+		}
+
+		result = append(result, line)
+	}
+
+	return strings.Join(result, "\n")
 }
 
 // getAllowedAgentsFromWorkflow 从工作流模板获取允许路由的 Agent 列表
@@ -678,30 +790,27 @@ func (es *ExecutionService) findAgentByName(agents []*model.AgentRoleConfig, nam
 	return nil
 }
 
-// checkSignalRouting 检查信号路由（基于Transitions自动路由）
+// checkSignalRouting 检查信号路由（混合模式：@mention + workflow配置）
 // 支持三种路由类型：
 // 1. sequence - 顺序执行：触发单个下游 Agent
 // 2. parallel - 并行执行：同时触发多个下游 Agent（分支工作流）
 // 3. merge - 汇聚执行：等待多个上游 Agent 完成后再执行
 //
-// 重要：只有当 Transition.Condition 不为空且匹配时，才会自动触发下一个 Agent
-// 如果 Condition 为空，则需要 Agent 在输出中显式使用 @mention 来触发下游
+// 混合模式说明：
+// - @mention 触发（优先）：解析输出中的 @mention 动态触发 Agent
+// - workflow condition 触发：当 Transition.Condition 不为空且匹配时自动触发
+// - workflow 建议流转：Condition 为空时仅作为建议（已在 systemPrompt 中注入）
+//
+// 博弈场景：一个 mention pattern 可能匹配多个 Agent，全部触发
 func (es *ExecutionService) checkSignalRouting(ctx context.Context, threadID uuid.UUID, config *model.AgentRoleConfig, output string) {
-	// 获取当前 Agent 的 Transitions
-	transitions := es.getTransitionsForAgent(ctx, threadID, config.ID)
-	if len(transitions) == 0 {
-		logInfo("checkSignalRouting: no transitions found for agent", zap.String("agentId", config.ID.String()))
-		return
-	}
-
 	// 获取或创建 A2A 上下文
 	es.a2aMu.Lock()
 	a2aCtx, exists := es.a2aContexts[threadID]
 	if !exists {
 		a2aCtx = &A2AContext{
-			Depth:         0,
-			InvokedAgents: make(map[uuid.UUID]bool),
-			CompletedAgents: make(map[uuid.UUID]bool), // 初始化完成记录
+			Depth:           0,
+			InvokedAgents:   make(map[uuid.UUID]bool),
+			CompletedAgents: make(map[uuid.UUID]bool),
 		}
 		es.a2aContexts[threadID] = a2aCtx
 	}
@@ -729,106 +838,67 @@ func (es *ExecutionService) checkSignalRouting(ctx context.Context, threadID uui
 	// 获取工作流模板中的 Agent 列表
 	allowedAgents := es.getAllowedAgentsFromWorkflow(ctx, threadID)
 
-	// 收集所有待触发的 Agent（支持并行）
-	var agentsToTrigger []*model.AgentRoleConfig
-	var agentsToMerge []*model.AgentRoleConfig
+	// 收集所有待触发的 Agent（支持并行和博弈）
+	agentsToTrigger := make(map[uuid.UUID]*model.AgentRoleConfig) // 使用 map 去重
 
-	// 根据 Transitions 自动路由到下一个 Agent
-	for _, t := range transitions {
-		// 关键变更：如果 Condition 为空，不自动触发
-		// 需要显式使用 @mention 来触发下游 Agent
-		if t.Condition == "" {
-			logInfo("A2A 自动路由跳过：Transition.Condition 为空，需显式 @mention",
-				zap.String("fromAgent", config.Name),
-				zap.String("toAgentId", t.ToAgentID),
-				zap.String("建议", "在 Transition 配置中添加 condition 字段，例如: 'contains:【需求分析完成】'"))
-			continue
-		}
-
-		// 检查条件路由
-		if !es.matchCondition(output, t.Condition) {
-			logInfo("A2A 条件路由：条件不匹配，跳过",
-				zap.String("condition", t.Condition),
-				zap.String("fromAgent", config.Name))
-			continue
-		}
-
-		targetID, err := uuid.Parse(t.ToAgentID)
+	// ========== 1. 解析输出中的 @mention（优先触发，支持博弈场景）==========
+	// 使用 ParseForAgents 限制在当前工作流的 Agent 范围内
+	var a2aMentions []string
+	if es.mentionParser != nil {
+		var err error
+		a2aMentions, err = es.mentionParser.ParseForAgents(ctx, output, config.ID.String(), allowedAgents)
 		if err != nil {
-			logError("Invalid target agent ID in transition", zap.Error(err), zap.String("toAgentId", t.ToAgentID))
-			continue
+			logError("checkSignalRouting: 解析失败", zap.Error(err))
 		}
+	}
+	logInfo("A2A @mention 解析结果（限制在工作流范围内）",
+		zap.String("fromAgent", config.Name),
+		zap.Strings("agentIDs", a2aMentions),
+		zap.Int("count", len(a2aMentions)))
 
-		// 查找目标 Agent 配置
-		var targetConfig *model.AgentRoleConfig
-		for _, agent := range allowedAgents {
-			if agent.ID == targetID {
-				targetConfig = agent
-				break
-			}
-		}
-
-		if targetConfig == nil {
-			logInfo("自动路由被拒绝：目标不在工作流模板中",
-				zap.String("toAgentId", t.ToAgentID),
-				zap.String("threadId", threadID.String()))
-			continue
-		}
-
-		// 去重检查：同一 Agent 不重复调用
-		if a2aCtx.InvokedAgents[targetConfig.ID] {
-			logInfo("A2A 去重：Agent 已被调用过",
-				zap.String("agentId", targetConfig.ID.String()),
-				zap.String("threadId", threadID.String()))
-			continue
-		}
-
-		// 汇聚类型：检查是否所有上游 Agent 都已完成
-		if t.Type == model.TransitionTypeMerge && len(t.WaitFor) > 0 {
-			allCompleted := es.checkMergeCondition(threadID, t.WaitFor)
-			if !allCompleted {
-				logInfo("A2A 汇聚：等待上游 Agent 完成",
-					zap.String("toAgent", targetConfig.Name),
-					zap.Strings("waitingFor", t.WaitFor),
-					zap.String("threadId", threadID.String()))
-				continue
-			}
-			agentsToMerge = append(agentsToMerge, targetConfig)
-			continue
-		}
-
-		// 顺序或并行类型：添加到待触发列表
-		agentsToTrigger = append(agentsToTrigger, targetConfig)
+	// 构建 Agent ID -> AgentConfig 映射（限制在当前团队内）
+	agentMap := make(map[string]*model.AgentRoleConfig)
+	for _, agent := range allowedAgents {
+		agentMap[agent.ID.String()] = agent
 	}
 
-	// 合并需要触发的 Agent（汇聚类型的 Agent 也需要触发）
-	agentsToTrigger = append(agentsToTrigger, agentsToMerge...)
+	// 博弈场景：一个 mention 可能匹配多个 Agent
+	for _, agentID := range a2aMentions {
+		agent, exists := agentMap[agentID]
+		if !exists {
+			continue
+		}
 
-	// 批量触发 Agent（支持并行）
+		// 去重检查
+		if a2aCtx.InvokedAgents[agent.ID] {
+			logInfo("A2A 去重：Agent 已被调用过",
+				zap.String("agentId", agent.ID.String()),
+				zap.String("source", "@mention"))
+			continue
+		}
+
+		agentsToTrigger[agent.ID] = agent
+		logInfo("A2A @mention 触发添加（博弈场景支持）",
+			zap.String("fromAgent", config.Name),
+			zap.String("toAgent", agent.Name),
+			zap.String("agentID", agentID))
+	}
+
+	// ========== 2. 批量触发 Agent ==========
 	for _, targetConfig := range agentsToTrigger {
 		// 更新 A2A 上下文
 		es.a2aMu.Lock()
+		if a2aCtx.Depth >= MaxA2ADepth {
+			es.a2aMu.Unlock()
+			break
+		}
 		a2aCtx.Depth++
 		a2aCtx.InvokedAgents[targetConfig.ID] = true
 		es.a2aMu.Unlock()
 
-		// 查找对应的 Transition 获取类型
-		var transitionType model.TransitionType
-		for _, t := range transitions {
-			if t.ToAgentID == targetConfig.ID.String() {
-				transitionType = t.Type
-				break
-			}
-		}
-		if transitionType == "" {
-			transitionType = model.TransitionTypeSequence // 默认顺序
-		}
-
-		logInfo("A2A 自动路由触发（基于Transitions）",
+		logInfo("A2A 触发执行",
 			zap.String("fromAgent", config.Name),
 			zap.String("toAgent", targetConfig.Name),
-			zap.String("trigger", "auto"),
-			zap.String("type", string(transitionType)),
 			zap.Int("depth", a2aCtx.Depth),
 			zap.String("threadId", threadID.String()))
 
@@ -1104,22 +1174,19 @@ func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, thread
 		}
 	}
 
-	// 回退逻辑：根据当前阶段决定触发哪个Agent
-	logDebug("No workflow agent found, using phase-based selection")
-	role := es.workflow.GetPhaseAgent(thread.CurrentPhase)
-	if role == "" {
-		role = model.AgentRoleRequirement
+	// 回退逻辑：获取任意一个可用的默认 Agent
+	logDebug("No workflow agent found, using fallback selection")
+	configs, listErr := es.configSvc.List(ctx)
+	if listErr != nil || len(configs) == 0 {
+		return fmt.Errorf("no agent config available: %w", listErr)
 	}
-
-	// 检查是否有该角色的默认配置
-	config, err := es.configSvc.GetDefaultByRole(ctx, role)
-	if err != nil {
-		// 如果没有找到配置，尝试获取任意一个可用的配置
-		configs, listErr := es.configSvc.List(ctx)
-		if listErr != nil || len(configs) == 0 {
-			return fmt.Errorf("no agent config available: %w", err)
+	// 优先选择 is_default=true 的，否则选第一个
+	config := configs[0]
+	for _, c := range configs {
+		if c.IsDefault {
+			config = c
+			break
 		}
-		config = configs[0]
 	}
 
 	// 触发Agent

@@ -209,15 +209,15 @@ func (h *AgentHandler) Copy(c *gin.Context) {
 
 	// 创建副本
 	copyReq := &model.CreateAgentRequest{
-		Name:         original.Name + " (副本)",
-		Role:         original.Role,
-		BaseAgentID:  original.BaseAgentID,
-		Description:  original.Description,
-		SystemPrompt: original.SystemPrompt,
-		MaxTokens:    original.MaxTokens,
-		Temperature:  original.Temperature,
-		RoutingConfig: &original.RoutingConfig,
-		IsDefault:    false, // 副本不设为默认
+		Name:           original.Name + " (副本)",
+		Role:           original.Role,
+		BaseAgentID:    original.BaseAgentID,
+		Description:    original.Description,
+		SystemPrompt:   original.SystemPrompt,
+		MaxTokens:      original.MaxTokens,
+		Temperature:    original.Temperature,
+		IsDefault:      false, // 副本不设为默认
+		MentionPatterns: original.MentionPatterns,
 	}
 
 	copy, err := h.configSvc.Create(c.Request.Context(), copyReq)

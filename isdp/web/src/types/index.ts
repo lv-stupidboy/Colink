@@ -115,19 +115,13 @@ export interface AgentConfig {
   modelName: string;
   maxTokens: number;
   temperature: number;
-  routingConfig: RoutingConfig;
   isDefault: boolean;
   isSystem: boolean;  // 是否为系统预置角色
   configGeneratedAt?: string;
   configPath?: string;
+  mentionPatterns?: string[];  // @mention 触发模式列表
   createdAt: string;
   updatedAt: string;
-}
-
-// 路由配置
-export interface RoutingConfig {
-  canRouteTo: AgentRole[];
-  routeOnSignal: string[];
 }
 
 // Agent调用
@@ -242,11 +236,8 @@ export interface Transition {
   fromAgentId: string;
   toAgentId: string;
   type: TransitionType;
-  trigger?: string;
-  condition?: string;
-  waitFor?: string[];
-  messageTemplate?: string;
-  description?: string;
+  triggerHint?: string;  // "@前端开发工程师 当需要前端实现时" - 注入到源 Agent 的 system prompt
+  waitFor?: string[];    // 汇聚等待的 Agent ID 列表
 }
 
 // Agent团队

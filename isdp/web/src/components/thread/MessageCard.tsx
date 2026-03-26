@@ -1,6 +1,7 @@
 // isdp/web/src/components/thread/MessageCard.tsx
 import React from 'react';
 import { Message } from '@/types';
+import { MessageContent } from './MessageContent';
 import './MessageCard.css';
 
 interface MessageCardProps {
@@ -27,7 +28,7 @@ export const MessageCard: React.FC<MessageCardProps> = ({
         </div>
       )}
       <div className="message-content">
-        {message.content}
+        <MessageContent content={message.content} />
         {isStreaming && <span className="streaming-cursor">▊</span>}
       </div>
     </div>

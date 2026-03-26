@@ -19,6 +19,13 @@ type WorklistItem struct {
 	Payload     string
 	CreatedAt   time.Time
 	ProcessAfter *time.Time
+
+	// A2A 增强字段
+	A2ADepth     int       // A2A 深度计数
+	A2AFrom      string    // 触发者 Agent ID
+	TriggerMsgID uuid.UUID // 触发消息 ID
+	MaxDepth     int       // 最大深度 (默认 MaxA2ADepth)
+	AutoExecute  bool      // 自动执行标记
 }
 
 // Worklist A2A工作队列
@@ -190,4 +197,83 @@ func (w *Worklist) reorder(index int) {
 	if !inserted {
 		w.items = append(w.items, item)
 	}
+}
+
+// ========== A2A 增强方法 ==========
+
+// EnqueueA2A 入队 A2A 任务
+// 检查深度限制和去重
+func (w *Worklist) EnqueueA2A(item WorklistItem, callerAgentID string) error {
+	// 设置默认最大深度
+	if item.MaxDepth == 0 {
+		item.MaxDepth = MaxA2ADepth
+	}
+
+	// 深度限制检查
+	if item.A2ADepth >= item.MaxDepth {
+		return nil // 静默忽略，不报错
+	}
+
+	// 设置触发者
+	item.A2AFrom = callerAgentID
+
+	return w.Enqueue(context.Background(), item)
+}
+
+// GetA2ADepth 获取线程的 A2A 深度
+func (w *Worklist) GetA2ADepth(threadID uuid.UUID) int {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+
+	maxDepth := 0
+	for _, item := range w.items {
+		if item.ThreadID == threadID && item.A2ADepth > maxDepth {
+			maxDepth = item.A2ADepth
+		}
+	}
+	return maxDepth
+}
+
+// HasPendingAgent 检查是否有指定 Agent 的待处理项
+func (w *Worklist) HasPendingAgent(threadID uuid.UUID, agentID string) bool {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+
+	for _, item := range w.items {
+		if item.ThreadID == threadID {
+			// 检查 TargetRole 对应的 Agent ID
+			if string(item.TargetRole) == agentID {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// GetA2AItems 获取所有 A2A 项
+func (w *Worklist) GetA2AItems(threadID uuid.UUID) []WorklistItem {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+
+	var result []WorklistItem
+	for _, item := range w.items {
+		if item.ThreadID == threadID && item.A2ADepth > 0 {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
+// CountA2ABySource 统计指定来源的 A2A 项数量
+func (w *Worklist) CountA2ABySource(threadID uuid.UUID, sourceAgentID string) int {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+
+	count := 0
+	for _, item := range w.items {
+		if item.ThreadID == threadID && item.A2AFrom == sourceAgentID {
+			count++
+		}
+	}
+	return count
 }

@@ -13,12 +13,14 @@ import (
 
 	"github.com/anthropic/isdp/internal/api"
 	"github.com/anthropic/isdp/internal/middleware"
+	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
 	"github.com/anthropic/isdp/internal/service/agent"
 	"github.com/anthropic/isdp/internal/service/a2a"
 	"github.com/anthropic/isdp/internal/service/command"
 	"github.com/anthropic/isdp/internal/service/configgen"
 	"github.com/anthropic/isdp/internal/service/knowledge"
+	"github.com/anthropic/isdp/internal/service/mention"
 	"github.com/anthropic/isdp/internal/service/merge"
 	"github.com/anthropic/isdp/internal/service/message"
 	"github.com/anthropic/isdp/internal/service/project"
@@ -31,6 +33,7 @@ import (
 	"github.com/anthropic/isdp/internal/ws"
 	"github.com/anthropic/isdp/pkg/config"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/natefinch/lumberjack.v2"
@@ -129,6 +132,18 @@ func main() {
 	workflowEngine := agent.NewWorkflowEngine(threadRepo, messageRepo, configService)
 	workflowService := workflow.NewService(workflowRepo)
 	mcpAuthService := a2a.NewMCPAuthService(cfg.MCP.TokenTTL)
+	invocationRegistry := a2a.NewInvocationRegistry()  // 新增：调用注册表
+	invocationQueue := a2a.NewInvocationQueue()       // 新增：请求队列
+
+	// 初始化 Mention 模式注册表和解析器（支持动态 patterns 和博弈场景）
+	mentionPatternRegistry := mention.NewPatternRegistry(agentConfigRepo)
+	mentionParser := mention.NewParser(mentionPatternRegistry)
+
+	// 刷新 mention patterns（从数据库加载）
+	if err := mentionPatternRegistry.Refresh(context.Background()); err != nil {
+		logger.Warn("Failed to refresh mention patterns", zap.Error(err))
+	}
+
 	skillService := skill.NewService(
 		skillRepo, agentSkillBindingRepo, agentConfigRepo,
 		subagentSkillBindingRepo, commandSkillBindingRepo,
@@ -208,7 +223,7 @@ func main() {
 	tracker := agent.NewInvocationTracker(invocationRepo)
 	orchestrator := agent.NewOrchestrator(
 		invocationRepo, threadRepo, messageRepo,
-		configService, baseAgentService, baseAgentRepo, tracker, workflowEngine, workflowRepo, projectRepo, wsHub, defaultAdapter,
+		configService, baseAgentService, baseAgentRepo, tracker, workflowEngine, workflowRepo, projectRepo, wsHub, defaultAdapter, mentionParser,
 	)
 
 	// 在Orchestrator中设置调试管理器
@@ -216,6 +231,24 @@ func main() {
 
 	// 连接Message服务和Agent编排器（用户消息触发Agent）
 	messageService.SetAgentSpawner(orchestrator)
+
+	// 创建队列处理器（在 orchestrator 创建之后）
+	queueProcessor := a2a.NewQueueProcessor(a2a.QueueProcessorDeps{
+		Queue:    invocationQueue,
+		Registry: invocationRegistry,
+		WSHub:    wsHub,
+		SpawnAgent: func(ctx context.Context, threadID uuid.UUID, catID string, content string) error {
+			// 通过 Orchestrator 触发 Agent
+			req := &agent.SpawnRequest{
+				ThreadID: threadID,
+				Role:     getRoleFromCatID(catID),
+				Input:    content,
+			}
+			_, err := orchestrator.SpawnAgent(ctx, req)
+			return err
+		},
+	})
+	_ = queueProcessor // TODO: wire into orchestrator completion hooks
 
 	gatekeeper := merge.NewGatekeeper(reviewRepo, artifactRepo, threadRepo)
 
@@ -319,13 +352,17 @@ func main() {
 	configGenHandler := api.NewConfigGenHandler(configGenService)
 	configGenHandler.RegisterRoutes(v1)
 
-	// Command Handler
+// Command Handler
 	commandHandler := api.NewCommandHandler(commandSvc, cfg.GetCommandStoragePath(), cfg.Command.GetUploadMaxSize())
 	commandHandler.RegisterRoutes(v1)
 
 	// Rule Handler
 	ruleHandler := api.NewRuleHandler(ruleSvc, cfg.GetRuleStoragePath(), cfg.Rule.GetUploadMaxSize())
 	ruleHandler.RegisterRoutes(v1)
+
+	// MCP Callback Handler
+	callbackHandler := api.NewCallbackHandler(invocationRegistry, mcpAuthService, messageService, messageRepo, wsHub, orchestrator, baseAgentRepo, invocationQueue, queueProcessor, mentionParser)
+	callbackHandler.RegisterRoutes(v1)
 
 	// WebSocket
 	wsHandler := ws.NewHandler(wsHub)
@@ -817,4 +854,10 @@ func performLogMaintenance(logger *zap.Logger) {
 	logger.Info("Log maintenance completed",
 		zap.Int("files_cleaned", cleanedCount),
 		zap.Int64("total_size_bytes", totalSize))
+}
+
+// getRoleFromCatID 从 catID 获取 AgentRole
+// catID 就是 role（如 "backend_developer"），直接返回
+func getRoleFromCatID(catID string) model.AgentRole {
+	return model.AgentRole(catID)
 }

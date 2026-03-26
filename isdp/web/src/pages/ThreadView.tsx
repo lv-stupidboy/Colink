@@ -1647,7 +1647,7 @@ const ThreadView: React.FC = () => {
                               </div>
                             )}
                             <div className="message-body">
-                              {streamMsg.content}
+                              <MessageContent content={streamMsg.content} />
                               {isGenerating && <span className="streaming-cursor">▌</span>}
                             </div>
                           </div>
@@ -1790,7 +1790,7 @@ const ThreadView: React.FC = () => {
                               </div>
                             )}
                             <div className="message-body">
-                              {streamMsg.content}
+                              <MessageContent content={streamMsg.content} />
                               {isGenerating && <span className="streaming-cursor">▌</span>}
                             </div>
                           </div>

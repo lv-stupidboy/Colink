@@ -3,7 +3,7 @@ import React, { memo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
-import 'highlight.js/styles/github-dark.css';
+import 'highlight.js/styles/atom-one-dark.css';
 import './MessageContent.css';
 
 interface MessageContentProps {
@@ -13,7 +13,7 @@ interface MessageContentProps {
 
 /**
  * 消息内容渲染组件
- * 支持 Markdown、代码高亮、图片等
+ * 支持 Markdown、代码高亮
  */
 export const MessageContent: React.FC<MessageContentProps> = memo(({
   content,
@@ -25,123 +25,71 @@ export const MessageContent: React.FC<MessageContentProps> = memo(({
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeHighlight]}
         components={{
-          // 代码块渲染
-          code({ node, inline, className: codeClassName, children, ...props }: any) {
+          // 代码块
+          code({ inline, className: codeClassName, children, ...props }: any) {
+            if (inline) {
+              return <code className="inline-code" {...props}>{children}</code>;
+            }
+            // 块级代码
             const match = /language-(\w+)/.exec(codeClassName || '');
             const language = match ? match[1] : '';
+            const codeContent = String(children).replace(/\n$/, '');
 
-            if (!inline && language) {
-              // 块级代码
-              return (
-                <div className="code-block-wrapper">
-                  <div className="code-block-header">
-                    <span className="code-language">{language}</span>
-                    <button
-                      className="code-copy-btn"
-                      onClick={(e) => {
-                        const code = String(children).replace(/\n$/, '');
-                        navigator.clipboard.writeText(code);
-                        const btn = e.currentTarget;
-                        btn.textContent = '已复制';
-                        setTimeout(() => {
-                          btn.textContent = '复制';
-                        }, 2000);
-                      }}
-                    >
-                      复制
-                    </button>
-                  </div>
-                  <pre className={`code-block ${codeClassName}`}>
-                    <code className={codeClassName} {...props}>
-                      {children}
-                    </code>
-                  </pre>
-                </div>
-              );
-            }
-
-            // 行内代码
             return (
-              <code className="inline-code" {...props}>
-                {children}
-              </code>
-            );
-          },
-
-          // 图片渲染
-          img({ node, src, alt, ...props }: any) {
-            return (
-              <div className="message-image-wrapper">
-                <img
-                  src={src}
-                  alt={alt || ''}
-                  className="message-image"
-                  loading="lazy"
-                  {...props}
-                />
-                {alt && <div className="message-image-caption">{alt}</div>}
+              <div className="code-block-wrapper">
+                {language && <div className="code-block-header">{language}</div>}
+                <button
+                  className="code-copy-btn"
+                  onClick={(e) => {
+                    navigator.clipboard.writeText(codeContent);
+                    const btn = e.currentTarget;
+                    btn.textContent = '已复制';
+                    setTimeout(() => { btn.textContent = '复制'; }, 1500);
+                  }}
+                >
+                  复制
+                </button>
+                <pre className="code-block">
+                  <code className={codeClassName} {...props}>{children}</code>
+                </pre>
               </div>
             );
           },
 
-          // 链接渲染 - 新窗口打开
-          a({ node, href, children, ...props }: any) {
+          // 链接
+          a({ href, children }: any) {
             return (
-              <a
-                href={href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="message-link"
-                {...props}
-              >
+              <a href={href} target="_blank" rel="noopener noreferrer" className="message-link">
                 {children}
               </a>
             );
           },
 
-          // 表格渲染
-          table({ node, children, ...props }: any) {
+          // 表格
+          table({ children }: any) {
             return (
               <div className="message-table-wrapper">
-                <table className="message-table" {...props}>
-                  {children}
-                </table>
+                <table className="message-table">{children}</table>
               </div>
             );
           },
 
           // 引用块
-          blockquote({ node, children, ...props }: any) {
-            return (
-              <blockquote className="message-blockquote" {...props}>
-                {children}
-              </blockquote>
-            );
+          blockquote({ children }: any) {
+            return <blockquote className="message-blockquote">{children}</blockquote>;
           },
 
           // 标题
-          h1({ node, children, ...props }: any) {
-            return <h1 className="message-h1" {...props}>{children}</h1>;
-          },
-          h2({ node, children, ...props }: any) {
-            return <h2 className="message-h2" {...props}>{children}</h2>;
-          },
-          h3({ node, children, ...props }: any) {
-            return <h3 className="message-h3" {...props}>{children}</h3>;
-          },
+          h1: ({ children }) => <h1 className="message-h1">{children}</h1>,
+          h2: ({ children }) => <h2 className="message-h2">{children}</h2>,
+          h3: ({ children }) => <h3 className="message-h3">{children}</h3>,
 
           // 列表
-          ul({ node, children, ...props }: any) {
-            return <ul className="message-list" {...props}>{children}</ul>;
-          },
-          ol({ node, children, ...props }: any) {
-            return <ol className="message-list message-list-ordered" {...props}>{children}</ol>;
-          },
+          ul: ({ children }) => <ul className="message-list">{children}</ul>,
+          ol: ({ children }) => <ol className="message-list">{children}</ol>,
 
           // 段落
-          p({ node, children, ...props }: any) {
-            return <p className="message-paragraph" {...props}>{children}</p>;
-          },
+          p: ({ children }) => <p className="message-paragraph">{children}</p>,
         }}
       >
         {content}

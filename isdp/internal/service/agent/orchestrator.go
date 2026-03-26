@@ -10,17 +10,11 @@ import (
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
+	"github.com/anthropic/isdp/internal/service/mention"
 	"github.com/anthropic/isdp/internal/ws"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
-
-// ParsedMention @mention 解析结果
-type ParsedMention struct {
-	Role      model.AgentRole // 角色类型（可能为空）
-	AgentName string          // Agent 实例名称（可能为空）
-	Raw       string          // 原始 mention 文本
-}
 
 // Orchestrator Agent编排器
 type Orchestrator struct {
@@ -38,6 +32,9 @@ type Orchestrator struct {
 	defaultAdapter   AgentAdapter     // 默认适配器，用于向后兼容
 	executionService *ExecutionService // 统一执行服务
 	debugThreadMgr   *DebugThreadManager // 调试线程管理器
+
+	// Mention 解析器（支持动态 patterns）
+	mentionParser *mention.Parser
 
 	runningAgents      map[uuid.UUID]*RunningAgent
 	mu                 sync.RWMutex
@@ -67,6 +64,7 @@ func NewOrchestrator(
 	projectRepo *repo.ProjectRepository,
 	wsHub *ws.Hub,
 	defaultAdapter AgentAdapter,
+	mentionParser *mention.Parser,
 ) *Orchestrator {
 	o := &Orchestrator{
 		invocationRepo: invocationRepo,
@@ -81,6 +79,7 @@ func NewOrchestrator(
 		projectRepo:    projectRepo,
 		wsHub:          wsHub,
 		defaultAdapter: defaultAdapter,
+		mentionParser:  mentionParser,
 		runningAgents:  make(map[uuid.UUID]*RunningAgent),
 	}
 
@@ -98,6 +97,7 @@ func NewOrchestrator(
 		projectRepo,
 		wsHub,
 		defaultAdapter,
+		mentionParser,
 	)
 
 	return o
@@ -142,44 +142,6 @@ func (o *Orchestrator) mergeConfig(config *model.AgentRoleConfig, baseAgent *mod
 func (o *Orchestrator) getAdapter(ctx context.Context, config *model.AgentRoleConfig, baseAgent *model.BaseAgent) (AgentAdapter, error) {
 	// 委托给ExecutionService的实现
 	return o.executionService.getAdapter(ctx, config, baseAgent)
-}
-
-// parseAgentRole 解析Agent角色
-func parseAgentRole(s string) model.AgentRole {
-	switch strings.ToLower(s) {
-	case "requirement", "req":
-		return model.AgentRoleRequirement
-	case "architect", "arch":
-		return model.AgentRoleArchitect
-	case "developer", "dev":
-		return model.AgentRoleDeveloper
-	case "reviewer", "review":
-		return model.AgentRoleReviewer
-	case "testengineer", "test":
-		return model.AgentRoleTestEngineer
-	case "devops", "ops":
-		return model.AgentRoleDevOps
-	default:
-		return ""
-	}
-}
-
-// getPhaseFromSignal 从信号获取阶段
-func getPhaseFromSignal(signal string) model.Phase {
-	switch signal {
-	case "需求完成", "requirement_done":
-		return model.PhaseRequirement
-	case "设计完成", "design_done":
-		return model.PhaseDesign
-	case "开发完成", "development_done":
-		return model.PhaseDevelopment
-	case "评审完成", "review_done":
-		return model.PhaseReview
-	case "测试完成", "test_done":
-		return model.PhaseTest
-	default:
-		return model.PhaseRequirement
-	}
 }
 
 // formatMessages 格式化消息

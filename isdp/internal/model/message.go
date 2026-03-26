@@ -35,8 +35,19 @@ type Message struct {
 	MessageType MessageType     `json:"messageType"`
 	Metadata    json.RawMessage `json:"metadata,omitempty"`
 	CreatedAt   time.Time       `json:"createdAt"`
+
+	// A2A 相关字段
+	Mentions     []string    `json:"mentions,omitempty"`      // 被 @mention 的 Agent IDs
+	MentionsUser bool        `json:"mentionsUser,omitempty"` // 是否 @用户
+	Origin       string      `json:"origin,omitempty"`        // "user", "callback", "stream"
+	ReplyTo      *uuid.UUID  `json:"replyTo,omitempty"`       // 回复的消息 ID
 }
 
 func (m *Message) TableName() string {
 	return "messages"
+}
+
+// Now 返回当前时间的毫秒时间戳
+func Now() int64 {
+	return time.Now().UnixMilli()
 }

@@ -62,26 +62,6 @@ func (e *WorkflowEngine) GetNextPhase(currentPhase model.Phase) model.Phase {
 	}
 }
 
-// GetPhaseAgent 获取阶段对应的默认Agent
-func (e *WorkflowEngine) GetPhaseAgent(phase model.Phase) model.AgentRole {
-	switch phase {
-	case model.PhaseRequirement:
-		return model.AgentRoleRequirement
-	case model.PhaseDesign:
-		return model.AgentRoleArchitect
-	case model.PhaseDevelopment:
-		return model.AgentRoleDeveloper
-	case model.PhaseReview:
-		return model.AgentRoleReviewer
-	case model.PhaseTest:
-		return model.AgentRoleTestEngineer
-	case model.PhaseMerge:
-		return model.AgentRoleDevOps
-	default:
-		return model.AgentRoleRequirement
-	}
-}
-
 // ValidatePhaseCompletion 验证阶段是否完成
 func (e *WorkflowEngine) ValidatePhaseCompletion(ctx context.Context, threadID uuid.UUID, phase model.Phase) error {
 	thread, err := e.threadRepo.FindByID(ctx, threadID)

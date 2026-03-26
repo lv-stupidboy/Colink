@@ -71,33 +71,25 @@ func (s *ConfigService) GetDefaultByRole(ctx context.Context, role model.AgentRo
 
 // Create 创建配置
 func (s *ConfigService) Create(ctx context.Context, req *model.CreateAgentRequest) (*model.AgentRoleConfig, error) {
-	// 设置默认角色
+	// 角色必须由调用方指定
 	role := req.Role
 	if role == "" {
-		role = model.AgentRoleCustom
+		role = model.AgentRole("custom")
 	}
 
 	config := &model.AgentRoleConfig{
-		ID:           uuid.New(),
-		Name:         req.Name,
-		Role:         role,
-		BaseAgentID:  req.BaseAgentID,
-		Description:  req.Description,
-		SystemPrompt: req.SystemPrompt,
-		MaxTokens:    req.MaxTokens,
-		Temperature:  req.Temperature,
-		IsDefault:    req.IsDefault,
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
-	}
-
-	if req.RoutingConfig != nil {
-		config.RoutingConfig = *req.RoutingConfig
-	} else {
-		config.RoutingConfig = model.RoutingConfig{
-			CanRouteTo:    getDefaultRouting(role),
-			RouteOnSignal: []string{},
-		}
+		ID:             uuid.New(),
+		Name:           req.Name,
+		Role:           role,
+		BaseAgentID:    req.BaseAgentID,
+		Description:    req.Description,
+		SystemPrompt:   req.SystemPrompt,
+		MaxTokens:      req.MaxTokens,
+		Temperature:    req.Temperature,
+		IsDefault:      req.IsDefault,
+		MentionPatterns: req.MentionPatterns,
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
 	}
 
 	if err := s.repo.Create(ctx, config); err != nil {
@@ -118,10 +110,10 @@ func (s *ConfigService) Update(ctx context.Context, id uuid.UUID, req *model.Cre
 		return nil, err
 	}
 
-	// 设置默认角色
+	// 角色必须由调用方指定
 	role := req.Role
 	if role == "" {
-		role = model.AgentRoleCustom
+		role = model.AgentRole("custom")
 	}
 
 	config.Name = req.Name
@@ -132,11 +124,8 @@ func (s *ConfigService) Update(ctx context.Context, id uuid.UUID, req *model.Cre
 	config.MaxTokens = req.MaxTokens
 	config.Temperature = req.Temperature
 	config.IsDefault = req.IsDefault
+	config.MentionPatterns = req.MentionPatterns
 	config.UpdatedAt = time.Now()
-
-	if req.RoutingConfig != nil {
-		config.RoutingConfig = *req.RoutingConfig
-	}
 
 	if err := s.repo.Update(ctx, config); err != nil {
 		return nil, err
@@ -167,26 +156,6 @@ func (s *ConfigService) List(ctx context.Context) ([]*model.AgentRoleConfig, err
 	return s.repo.List(ctx)
 }
 
-// getDefaultRouting 获取默认路由配置
-func getDefaultRouting(role model.AgentRole) []model.AgentRole {
-	switch role {
-	case model.AgentRoleRequirement:
-		return []model.AgentRole{model.AgentRoleArchitect}
-	case model.AgentRoleArchitect:
-		return []model.AgentRole{model.AgentRoleDeveloper, model.AgentRoleReviewer}
-	case model.AgentRoleDeveloper:
-		return []model.AgentRole{model.AgentRoleReviewer, model.AgentRoleTestEngineer}
-	case model.AgentRoleReviewer:
-		return []model.AgentRole{model.AgentRoleDeveloper, model.AgentRoleDevOps}
-	case model.AgentRoleTestEngineer:
-		return []model.AgentRole{model.AgentRoleDeveloper, model.AgentRoleDevOps}
-	case model.AgentRoleDevOps:
-		return []model.AgentRole{}
-	default:
-		return []model.AgentRole{}
-	}
-}
-
 var (
 	ErrConfigNotFound = errors.New("agent config not found")
 )
@@ -194,7 +163,7 @@ var (
 // InitSystemAgents 初始化系统预置角色
 func (s *ConfigService) InitSystemAgents(ctx context.Context) error {
 	// 检查全栈工程师角色是否已存在
-	configs, err := s.repo.FindByRole(ctx, model.AgentRoleFullstackEngineer)
+	configs, err := s.repo.FindByRole(ctx, model.AgentRole("fullstack_engineer"))
 	if err != nil {
 		return err
 	}
@@ -208,7 +177,7 @@ func (s *ConfigService) InitSystemAgents(ctx context.Context) error {
 	fullstackEngineer := &model.AgentRoleConfig{
 		ID:           uuid.New(),
 		Name:         "全栈工程师",
-		Role:         model.AgentRoleFullstackEngineer,
+		Role:         model.AgentRole("fullstack_engineer"),
 		Description:  "全栈开发工程师，能独立完成从需求分析、架构设计、前后端开发到测试部署的完整项目开发流程",
 		SystemPrompt: fullstackEngineerPrompt,
 		MaxTokens:    4096,

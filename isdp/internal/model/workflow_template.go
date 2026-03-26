@@ -18,14 +18,15 @@ const (
 
 // Transition Agent间协作转换规则
 type Transition struct {
-	FromAgentID     string         `json:"fromAgentId"`     // 源 Agent ID
-	Trigger         string         `json:"trigger"`           // 触发条件描述
-	ToAgentID       string         `json:"toAgentId"`       // 目标 Agent ID
-	MessageTemplate string         `json:"messageTemplate"`  // 消息模板 (可选)
-	Description     string         `json:"description"`       // 转换描述
-	Type            TransitionType `json:"type"`              // 转换类型: sequence/parallel/merge
-	Condition       string         `json:"condition"`         // 条件表达式 (可选，用于条件路由)
-	WaitFor         []string       `json:"waitFor"`          // 等待的 Agent ID 列表 (用于汇聚)
+	FromAgentID string         `json:"fromAgentId"` // 源 Agent ID
+	ToAgentID   string         `json:"toAgentId"`   // 目标 Agent ID
+	Type        TransitionType `json:"type"`        // 转换类型: sequence/parallel/merge
+
+	// 触发提示（用户可编辑，注入到源 Agent 的 system prompt）
+	TriggerHint string `json:"triggerHint"` // "@前端开发工程师 当需要前端实现时"
+
+	// 汇聚配置
+	WaitFor []string `json:"waitFor"` // 等待的 Agent ID 列表 (用于汇聚)
 }
 
 // WorkflowTemplate 工作流模板
