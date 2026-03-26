@@ -88,11 +88,25 @@ function createWindow() {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
-  // 关闭窗口时最小化到托盘而不是退出
+  // 关闭窗口时弹出确认对话框
   mainWindow.on('close', (event) => {
-    if (!app.isQuitting) {
+    // 如果应用正在退出，直接关闭窗口
+    if (app.isQuitting) {
+      return
+    }
+
+    const choice = dialog.showMessageBoxSync(mainWindow!, {
+      type: 'question',
+      buttons: ['取消', '确认关闭'],
+      defaultId: 1,
+      cancelId: 0,
+      title: '关闭 ISDP',
+      message: '关闭 ISDP 控制面板？',
+      detail: '后端服务将继续在后台运行。您可以通过桌面快捷方式重新打开控制面板。'
+    })
+
+    if (choice === 0) {
       event.preventDefault()
-      mainWindow?.hide()
     }
   })
 }
@@ -125,7 +139,7 @@ async function stopAllProcesses(): Promise<void> {
 // ==================== IPC 处理 ====================
 
 ipcMain.on('window-minimize', () => mainWindow?.minimize())
-ipcMain.on('window-close', () => mainWindow?.hide())
+ipcMain.on('window-close', () => mainWindow?.close())
 
 ipcMain.handle('get-app-path', () => app.getAppPath())
 
