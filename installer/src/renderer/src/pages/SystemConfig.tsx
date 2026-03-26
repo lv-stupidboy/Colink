@@ -1,18 +1,34 @@
-import { useState } from 'react'
-import { Button, Input, Row, Col, message } from 'antd'
+import { useState, useEffect } from 'react'
+import { Button, Input, Row, Col, message, Spin } from 'antd'
 import { CheckCircleOutlined } from '@ant-design/icons'
 import ConfigSection from '../components/ConfigSection'
-import { InstallConfig } from '../types'
+import { InstallConfig, InstalledVersion } from '../types'
 import { testConnection } from '../services/database-connector'
 
 interface SystemConfigProps {
   config: InstallConfig
   onConfigUpdate: (updates: Partial<InstallConfig>) => void
+  installedVersion?: InstalledVersion
+  isUpgrade?: boolean
 }
 
-export default function SystemConfig({ config, onConfigUpdate }: SystemConfigProps) {
+export default function SystemConfig({ config, onConfigUpdate, installedVersion, isUpgrade }: SystemConfigProps) {
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
+  const [loadingConfig, setLoadingConfig] = useState(false)
+
+  // 升级模式下读取已有配置
+  useEffect(() => {
+    if (isUpgrade && installedVersion?.installDir) {
+      setLoadingConfig(true)
+      window.electronAPI.readExistingConfig(installedVersion.installDir).then(result => {
+        if (result.success && result.config) {
+          onConfigUpdate({ database: result.config.database })
+        }
+        setLoadingConfig(false)
+      })
+    }
+  }, [isUpgrade, installedVersion])
 
   const handleDbChange = (field: string, value: string | number) => {
     onConfigUpdate({
@@ -36,10 +52,20 @@ export default function SystemConfig({ config, onConfigUpdate }: SystemConfigPro
     }
   }
 
+  if (loadingConfig) {
+    return (
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Spin size="large" tip="加载已有配置..." />
+      </div>
+    )
+  }
+
   return (
     <div style={{ flex: 1 }}>
       <h2 style={{ fontSize: 22, marginBottom: 8, color: '#333' }}>系统配置</h2>
-      <p style={{ color: '#666', marginBottom: 30 }}>请配置 ISDP 运行所需的参数</p>
+      <p style={{ color: '#666', marginBottom: 30 }}>
+        {isUpgrade ? '已加载现有配置，如需修改请直接调整' : '请配置 ISDP 运行所需的参数'}
+      </p>
 
       <ConfigSection title="数据库配置">
         <Row gutter={20}>

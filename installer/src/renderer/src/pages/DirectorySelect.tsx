@@ -1,21 +1,56 @@
 import { useEffect, useState } from 'react'
-import { Button, Input } from 'antd'
-import { FolderOpenOutlined } from '@ant-design/icons'
-import { InstallConfig } from '../types'
+import { Button, Input, Radio, Spin } from 'antd'
+import { FolderOpenOutlined, InfoCircleOutlined, CloseCircleOutlined } from '@ant-design/icons'
+import { InstallConfig, InstalledVersion } from '../types'
 
 interface DirectorySelectProps {
   config: InstallConfig
   onConfigUpdate: (updates: Partial<InstallConfig>) => void
+  installedVersion?: InstalledVersion
+  isUpgrade?: boolean
+  onValidationChange?: (valid: boolean) => void
 }
 
-export default function DirectorySelect({ config, onConfigUpdate }: DirectorySelectProps) {
+export default function DirectorySelect({ config, onConfigUpdate, onValidationChange }: DirectorySelectProps) {
   const [freeSpace, setFreeSpace] = useState<number>(0)
+  const [isValid, setIsValid] = useState<boolean>(true)
+  const [parentPath, setParentPath] = useState<string>('')
+
+  // 验证目录路径
+  const validatePath = async (path: string) => {
+    if (!path || path.trim() === '') {
+      setIsValid(false)
+      onValidationChange?.(false)
+      return
+    }
+
+    // 获取父目录路径
+    const parts = path.replace(/\\/g, '/').split('/')
+    parts.pop() // 移除最后一级目录名
+    const parent = parts.join('/') || parts[0] + '/'
+
+    setParentPath(parent)
+
+    // 检查父目录是否存在
+    try {
+      const result = await window.electronAPI.getDiskSpace(parent)
+      if (result.free === 0 && result.total === 0) {
+        // 父目录不存在
+        setIsValid(false)
+        onValidationChange?.(false)
+      } else {
+        setIsValid(true)
+        onValidationChange?.(true)
+      }
+    } catch {
+      setIsValid(false)
+      onValidationChange?.(false)
+    }
+  }
 
   useEffect(() => {
-    // 获取磁盘空间
-    window.electronAPI.getDiskSpace(config.installDir).then((space: { free: number; total: number }) => {
-      setFreeSpace(space.free)
-    })
+    // 获取磁盘空间和验证目录
+    validatePath(config.installDir)
   }, [config.installDir])
 
   const handleBrowse = async () => {
@@ -45,16 +80,23 @@ export default function DirectorySelect({ config, onConfigUpdate }: DirectorySel
             value={config.installDir}
             onChange={(e) => onConfigUpdate({ installDir: e.target.value })}
             style={{ flex: 1 }}
+            status={!isValid ? 'error' : undefined}
           />
           <Button icon={<FolderOpenOutlined />} onClick={handleBrowse}>
             浏览...
           </Button>
         </div>
+        {!isValid && (
+          <div style={{ color: '#ff4d4f', fontSize: 12, marginTop: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
+            <CloseCircleOutlined />
+            目录不存在，请选择有效的安装位置
+          </div>
+        )}
       </div>
 
       <div style={{ display: 'flex', gap: 40, color: '#666', fontSize: 14 }}>
         <span>所需空间：约 500 MB</span>
-        <span>可用空间：{formatSize(freeSpace)}</span>
+        <span>可用空间：{isValid ? formatSize(freeSpace) : '未知'}</span>
       </div>
     </div>
   )

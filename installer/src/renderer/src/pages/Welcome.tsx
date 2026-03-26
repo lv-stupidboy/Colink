@@ -1,7 +1,9 @@
-import { InstallConfig } from '../types'
+import { InstallConfig, InstalledVersion } from '../types'
 
 interface WelcomeProps {
   config: InstallConfig
+  installedVersion?: InstalledVersion
+  isUpgrade?: boolean
 }
 
 // ISDP Logo SVG
@@ -27,7 +29,7 @@ const ISDPLogo = () => (
   </svg>
 )
 
-export default function Welcome({}: WelcomeProps) {
+export default function Welcome({ isUpgrade, installedVersion }: WelcomeProps) {
   return (
     <div style={{
       flex: 1,
@@ -38,15 +40,35 @@ export default function Welcome({}: WelcomeProps) {
       textAlign: 'center'
     }}>
       <div style={{ marginBottom: 20 }}><ISDPLogo /></div>
-      <h2 style={{ fontSize: 24, marginBottom: 12, color: '#333' }}>
-        欢迎使用 ISDP 智能软件开发平台
-      </h2>
-      <p style={{ color: '#666', lineHeight: 2, marginBottom: 40 }}>
-        本向导将帮助您完成：<br />
-        · 安装 ISDP 核心程序<br />
-        · 检测并安装运行依赖<br />
-        · 配置数据库连接
-      </p>
+
+      {isUpgrade ? (
+        <>
+          <h2 style={{ fontSize: 24, marginBottom: 12, color: '#333' }}>
+            检测到已安装的 ISDP
+          </h2>
+          <p style={{ color: '#666', lineHeight: 2, marginBottom: 20 }}>
+            安装位置：<code style={{ background: '#f5f5f5', padding: '2px 8px', borderRadius: 4 }}>{installedVersion?.installDir}</code>
+          </p>
+          <p style={{ color: '#666', lineHeight: 2, marginBottom: 40 }}>
+            本向导将帮助您完成：<br />
+            · 检测并安装运行依赖<br />
+            · 升级 ISDP 核心程序<br />
+            · 保留现有配置和数据
+          </p>
+        </>
+      ) : (
+        <>
+          <h2 style={{ fontSize: 24, marginBottom: 12, color: '#333' }}>
+            欢迎使用 ISDP 智能软件开发平台
+          </h2>
+          <p style={{ color: '#666', lineHeight: 2, marginBottom: 40 }}>
+            本向导将帮助您完成：<br />
+            · 安装 ISDP 核心程序<br />
+            · 检测并安装运行依赖<br />
+            · 配置数据库连接
+          </p>
+        </>
+      )}
     </div>
   )
 }

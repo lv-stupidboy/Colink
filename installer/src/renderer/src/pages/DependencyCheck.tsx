@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
 import { Spin, Tag } from 'antd'
 import { CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons'
-import { Dependency, InstallConfig } from '../types'
+import { Dependency, InstallConfig, InstalledVersion } from '../types'
 import { checkAllDependencies } from '../services/dependency-checker'
 
 interface DependencyCheckProps {
   config: InstallConfig
   onDependenciesUpdate: (deps: Dependency[]) => void
+  installedVersion?: InstalledVersion
+  isUpgrade?: boolean
 }
 
 export default function DependencyCheck({ onDependenciesUpdate }: DependencyCheckProps) {

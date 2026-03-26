@@ -1,9 +1,11 @@
 import { Radio, Space } from 'antd'
-import { InstallConfig, Dependency, InstallMode } from '../types'
+import { InstallConfig, Dependency, InstallMode, InstalledVersion } from '../types'
 
 interface ModeSelectProps {
   config: InstallConfig
   onConfigUpdate: (updates: Partial<InstallConfig>) => void
+  installedVersion?: InstalledVersion
+  isUpgrade?: boolean
 }
 
 export default function ModeSelect({ config, onConfigUpdate }: ModeSelectProps) {

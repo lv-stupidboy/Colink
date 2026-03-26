@@ -2,6 +2,11 @@ server:
   port: 8080
   mode: debug
 
+# 数据目录配置
+data:
+  # 数据根目录，子目录: configs/, logs/, agent-assets/, agent-configs/, repos/
+  base_path: ./data
+
 database:
   # 数据库类型: sqlite | mysql
   type: mysql
@@ -37,7 +42,7 @@ sandbox:
   default_cpu_limit: 2
   default_memory_limit: 4096
   network: isdp-network
-  repos_dir: ./repos
+  repos_dir: ./data/repos
 
 agent:
   max_depth: 15
@@ -59,35 +64,26 @@ auth:
 
 # Agent资产配置
 agent_assets:
-  # 资产存储基础路径，所有资产类型都在此目录下
-  # 默认值: ./agent-assets
-  base_path: ./agent-assets
+  base_path: ./data/agent-assets
 
 # 技能配置
 skill:
-  # 技能使用次数统计更新间隔，默认 1h
-  # 格式: "30m" (30分钟), "1h" (1小时), "2h30m" (2小时30分钟)
+  # 更新间隔格式: "30m", "1h", "2h30m"
   use_count_update_interval: "1h"
-  # 技能包上传最大大小，单位 MB，默认 5
   upload_max_size: 5
 
 # 子代理配置
 subagent:
-  # 子代理文件上传最大大小，单位 MB，默认 2
   upload_max_size: 2
 
 # 命令配置
 command:
-  # 命令文件上传最大大小，单位 MB，默认 2
   upload_max_size: 2
 
 # 规约配置
 rule:
-  # 规约文件上传最大大小，单位 MB，默认 2
   upload_max_size: 2
 
-# Agent配置相关
+# Agent配置池
 agent_config:
-  # Agent配置输出目录
-  # 默认值: ./agent-configs
-  data_dir: ./agent-configs
+  data_dir: ./data/agent-configs

@@ -39,20 +39,48 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
+// findConfigPath 查找配置文件路径，按优先级查找
+func findConfigPath() string {
+	// 1. 命令行参数 -config
+	for i, arg := range os.Args {
+		if arg == "-config" && i+1 < len(os.Args) {
+			return os.Args[i+1]
+		}
+	}
+
+	// 2. 环境变量 ISDP_CONFIG
+	if envPath := os.Getenv("ISDP_CONFIG"); envPath != "" {
+		return envPath
+	}
+
+	// 3. 安装后的配置路径
+	installConfig := "data/configs/config.yaml"
+	if _, err := os.Stat(installConfig); err == nil {
+		return installConfig
+	}
+
+	// 4. 开发环境配置路径
+	return "configs/config.yaml"
+}
+
 func main() {
 	// 设置 Windows 控制台 UTF-8 编码，解决中文乱码问题
 	os.Stdout.WriteString("\x1b[?65001h")
 	os.Stderr.WriteString("\x1b[?65001h")
 
+	// 确定配置文件路径，按优先级查找
+	configPath := findConfigPath()
+
 	// 加载配置
-	cfg, err := config.Load("configs/config.yaml")
+	cfg, err := config.Load(configPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to load config: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Failed to load config from %s: %v\n", configPath, err)
 		os.Exit(1)
 	}
+	fmt.Printf("Loaded config from: %s\n", configPath)
 
 	// 初始化日志
-	logger, err := initLogger(cfg.Logging.Level, cfg.Logging.Format)
+	logger, err := initLogger(cfg.Logging.Level, cfg.Logging.Format, cfg.Data.GetLogsPath())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to init logger: %v\n", err)
 		os.Exit(1)
@@ -395,13 +423,13 @@ func main() {
 		defer ticker.Stop()
 
 		// 立即执行一次日志维护
-		performLogMaintenance(logger)
+		performLogMaintenance(logger, cfg.Data.GetLogsPath())
 
 		for {
 			select {
 			case <-ticker.C:
 				// 定期执行日志维护
-				performLogMaintenance(logger)
+				performLogMaintenance(logger, cfg.Data.GetLogsPath())
 			}
 		}
 	}()
@@ -431,9 +459,8 @@ func main() {
 	logger.Info("Server exited")
 }
 
-func initLogger(level, format string) (*zap.Logger, error) {
+func initLogger(level, format, logDir string) (*zap.Logger, error) {
 	// 确保日志目录存在
-	logDir := "logs"
 	if err := os.MkdirAll(logDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create log directory: %w", err)
 	}
@@ -810,9 +837,7 @@ CREATE TABLE IF NOT EXISTS subagent_skill_bindings (
 }
 
 // performLogMaintenance 执行日志维护任务
-func performLogMaintenance(logger *zap.Logger) {
-	logDir := "logs"
-
+func performLogMaintenance(logger *zap.Logger, logDir string) {
 	// 检查日志目录是否存在
 	if _, err := os.Stat(logDir); os.IsNotExist(err) {
 		return

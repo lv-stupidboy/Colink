@@ -1,7 +1,7 @@
 appId: com.isdp.launcher
-productName: ISDP-Launcher
+productName: ISDP
 directories:
-  output: release/${version}
+  output: resources/launcher
 
 win:
   target:
@@ -9,3 +9,7 @@ win:
       arch: [x64]
   icon: build/icon.ico
   sign: null
+  executableName: ISDP
+
+# 不打包asar，直接输出文件
+asar: false

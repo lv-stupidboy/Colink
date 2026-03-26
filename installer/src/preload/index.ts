@@ -16,11 +16,27 @@ contextBridge.exposeInMainWorld('electronAPI', {
   checkDependency: (dep: string) => ipcRenderer.invoke('check-dependency', dep),
   installDependency: (dep: string) => ipcRenderer.invoke('install-dependency', dep),
   startInstallation: (config: object) => ipcRenderer.invoke('start-installation', config),
-  copyFiles: (src: string, dest: string) => ipcRenderer.invoke('copy-files', src, dest),
   generateConfig: (config: object) => ipcRenderer.invoke('generate-config', config),
   testDatabaseConnection: (config: object) => ipcRenderer.invoke('test-database-connection', config),
   createShortcut: (path: string) => ipcRenderer.invoke('create-shortcut', path),
-  launchService: (installDir: string) => ipcRenderer.invoke('launch-service', installDir),
+
+  // 安装状态
+  checkInstalled: () => ipcRenderer.invoke('check-installed'),
+  readExistingConfig: (installDir: string) => ipcRenderer.invoke('read-existing-config', installDir),
+
+  // 服务管理
+  startService: () => ipcRenderer.invoke('start-service'),
+  stopService: () => ipcRenderer.invoke('stop-service'),
+  getServiceStatus: () => ipcRenderer.invoke('get-service-status'),
+
+  // 快捷操作
+  openLogs: () => ipcRenderer.invoke('open-logs'),
+  openDataDir: () => ipcRenderer.invoke('open-data-dir'),
+  openConfig: () => ipcRenderer.invoke('open-config'),
+
+  // 卸载
+  confirmUninstall: () => ipcRenderer.invoke('confirm-uninstall'),
+  uninstall: (keepData: boolean) => ipcRenderer.invoke('uninstall', keepData),
 
   // 进度回调
   onInstallProgress: (callback: (progress: any) => void) => {

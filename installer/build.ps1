@@ -33,8 +33,8 @@ Write-Host "[5/6] 打包启动器..." -ForegroundColor Cyan
 npm run package:launcher
 
 New-Item -ItemType Directory -Force -Path resources/launcher | Out-Null
-$launcherPath = Get-ChildItem release/*/ISDP-Launcher*.exe | Select-Object -First 1
-Copy-Item $launcherPath.FullName resources/launcher/ISDP-Launcher.exe
+$launcherPath = Get-ChildItem release/*/ISDP.exe | Select-Object -First 1
+Copy-Item $launcherPath.FullName resources/launcher/ISDP.exe
 
 # 6. 打包安装器
 Write-Host "[6/6] 打包安装器..." -ForegroundColor Cyan

@@ -1,34 +1,23 @@
 appId: com.isdp.installer
-productName: ISDP-Setup
+productName: ISDP
 directories:
-  output: release/${version}
+  output: release
 
 win:
   target:
-    - target: nsis
+    - target: dir
       arch: [x64]
   icon: build/icon.ico
   sign: null
 
-nsis:
-  oneClick: false
-  perMachine: true
-  allowElevation: true
-  allowToChangeInstallationDirectory: false
-  installerIcon: build/icon.ico
-  uninstallerIcon: build/icon.ico
-  createDesktopShortcut: false
-  createStartMenuShortcut: false
-  shortcutName: ISDP
-  # 自定义NSIS脚本，处理启动器复制和卸载
-  include: build/installer.nsh
+asar: true
 
 extraResources:
-  # ISDP应用本体
-  - from: "resources/app"
-    to: "app"
+  - from: "build/icon.ico"
+    to: "icon.ico"
+  - from: "resources/app/isdp-server.exe"
+    to: "isdp-server.exe"
+  - from: "resources/app/web"
+    to: "web"
     filter:
       - "**/*"
-  # 启动器可执行文件（由打包脚本在打包前复制）
-  - from: "resources/launcher/ISDP-Launcher.exe"
-    to: "ISDP-Launcher.exe"

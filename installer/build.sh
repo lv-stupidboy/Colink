@@ -33,7 +33,7 @@ echo "[5/6] 打包启动器..."
 npm run package:launcher
 
 mkdir -p resources/launcher
-cp release/*/ISDP-Launcher*.exe resources/launcher/ISDP-Launcher.exe 2>/dev/null || true
+cp release/*/ISDP.exe resources/launcher/ISDP.exe 2>/dev/null || true
 
 # 6. 打包安装器
 echo "[6/6] 打包安装器..."

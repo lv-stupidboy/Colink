@@ -11,6 +11,7 @@ import (
 // Config 应用配置
 type Config struct {
 	Server       ServerConfig       `mapstructure:"server"`
+	Data         DataConfig         `mapstructure:"data"`
 	Database     DatabaseConfig     `mapstructure:"database"`
 	Redis        RedisConfig        `mapstructure:"redis"`
 	Claude       ClaudeConfig       `mapstructure:"claude"`
@@ -25,6 +26,65 @@ type Config struct {
 	AgentConfig  AgentConfigConfig  `mapstructure:"agent_config"`
 	Command      CommandConfig      `mapstructure:"command"`
 	Rule         RuleConfig         `mapstructure:"rule"`
+}
+
+// DataConfig 数据目录配置
+type DataConfig struct {
+	// BasePath 数据根目录（必须配置）
+	BasePath string `mapstructure:"base_path"`
+}
+
+// GetDataPath 获取数据根目录，未配置则返回空字符串
+func (c *DataConfig) GetDataPath() string {
+	return c.BasePath
+}
+
+// GetLogsPath 获取日志目录
+func (c *DataConfig) GetLogsPath() string {
+	if c.BasePath == "" {
+		return ""
+	}
+	return c.BasePath + "/logs"
+}
+
+// GetConfigsPath 获取配置文件目录
+func (c *DataConfig) GetConfigsPath() string {
+	if c.BasePath == "" {
+		return ""
+	}
+	return c.BasePath + "/configs"
+}
+
+// GetAgentAssetsPath 获取Agent资产目录
+func (c *DataConfig) GetAgentAssetsPath() string {
+	if c.BasePath == "" {
+		return ""
+	}
+	return c.BasePath + "/agent-assets"
+}
+
+// GetAgentConfigsPath 获取Agent配置池目录
+func (c *DataConfig) GetAgentConfigsPath() string {
+	if c.BasePath == "" {
+		return ""
+	}
+	return c.BasePath + "/agent-configs"
+}
+
+// GetReposPath 获取代码仓库目录
+func (c *DataConfig) GetReposPath() string {
+	if c.BasePath == "" {
+		return ""
+	}
+	return c.BasePath + "/repos"
+}
+
+// GetDBPath 获取SQLite数据库路径
+func (c *DataConfig) GetDBPath() string {
+	if c.BasePath == "" {
+		return ""
+	}
+	return c.BasePath + "/isdp.db"
 }
 
 // ServerConfig 服务器配置
@@ -142,16 +202,12 @@ type AuthConfig struct {
 
 // AgentAssetsConfig Agent资产配置
 type AgentAssetsConfig struct {
-	// BasePath 资产存储基础路径，所有资产类型都在此目录下
-	// 默认值: ./agent-assets
+	// BasePath 资产存储基础路径（必须配置）
 	BasePath string `mapstructure:"base_path"`
 }
 
-// GetBasePath 获取资产基础路径
+// GetBasePath 获取资产基础路径，未配置则返回空字符串
 func (c *AgentAssetsConfig) GetBasePath() string {
-	if c.BasePath == "" {
-		return "./agent-assets"
-	}
 	return c.BasePath
 }
 
@@ -276,14 +332,43 @@ func Load(configPath string) (*Config, error) {
 	// 应用默认值（确保零值字段有合理的默认值）
 	cfg.Database.ApplyDefaults()
 
+	// 验证必须的路径配置
+	if err := validateConfig(&cfg); err != nil {
+		return nil, err
+	}
+
 	return &cfg, nil
 }
 
-// setDefaults 设置默认值
+// validateConfig 验证必须的配置项
+func validateConfig(cfg *Config) error {
+	// 数据目录必须配置
+	if cfg.Data.BasePath == "" {
+		return fmt.Errorf("配置错误: data.base_path 未设置")
+	}
+
+	// Agent资产目录必须配置
+	if cfg.AgentAssets.BasePath == "" {
+		return fmt.Errorf("配置错误: agent_assets.base_path 未设置")
+	}
+
+	// Agent配置池目录必须配置
+	if cfg.AgentConfig.DataDir == "" {
+		return fmt.Errorf("配置错误: agent_config.data_dir 未设置")
+	}
+
+	// 代码仓库目录必须配置
+	if cfg.Sandbox.ReposDir == "" {
+		return fmt.Errorf("配置错误: sandbox.repos_dir 未设置")
+	}
+
+	return nil
+}
+
+// setDefaults 设置默认值（仅设置非路径类配置的默认值）
 func setDefaults() {
 	viper.SetDefault("server.port", 8080)
 	viper.SetDefault("server.mode", "debug")
-	viper.SetDefault("database.path", "./data/isdp.db")
 	viper.SetDefault("redis.addr", "localhost:6379")
 	viper.SetDefault("claude.path", "claude")
 	viper.SetDefault("claude.default_model", "claude-sonnet-4-6")
@@ -293,7 +378,6 @@ func setDefaults() {
 	viper.SetDefault("sandbox.default_cpu_limit", 2)
 	viper.SetDefault("sandbox.default_memory_limit", 4096)
 	viper.SetDefault("sandbox.network", "isdp-network")
-	viper.SetDefault("sandbox.repos_dir", "./repos")
 	viper.SetDefault("agent.max_depth", 15)
 	viper.SetDefault("agent.max_retries", 3)
 	viper.SetDefault("agent.context_max_lines", 400)
@@ -301,11 +385,9 @@ func setDefaults() {
 	viper.SetDefault("logging.format", "json")
 	viper.SetDefault("mcp.base_url", "http://localhost:8080/api/v1/mcp")
 	viper.SetDefault("mcp.token_ttl", "30m")
-	viper.SetDefault("agent_assets.base_path", "./agent-assets")
 	viper.SetDefault("skill.use_count_update_interval", "1h")
 	viper.SetDefault("skill.upload_max_size", 5)
 	viper.SetDefault("subagent.upload_max_size", 2)
-	viper.SetDefault("agent_config.data_dir", "./data")
 	viper.SetDefault("command.upload_max_size", 2)
 	viper.SetDefault("rule.upload_max_size", 2)
 }
