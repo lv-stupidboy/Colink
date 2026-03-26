@@ -4,43 +4,204 @@
 
 ---
 
-## 2026-03-27 安装器重构
+## 2026-03-27 安装器完整实现与优化
 
 ### 背景
 
-原安装器存在嵌套打包问题，导致 app.asar 达到 1.6GB，安装过程复制运行时文件失败。
+ISDP 需要一个完整的 Windows 安装器，支持一键安装、服务管理、升级卸载等功能。原项目使用简单的打包方式，存在安装流程不完整、依赖检测缺失、服务管理不便等问题。
 
 ### 目标
 
-1. 修复嵌套打包问题，将包大小降至 ~300MB
-2. 移除系统托盘功能，改用面板窗口
-3. 支持 ZIP 包分发结构
+1. 实现完整的 Windows 安装器（Setup.exe）和启动器
+2. 支持依赖检测和自动安装
+3. 支持数据库配置和服务启动
+4. 支持 ZIP 包分发，便于离线安装
 
 ### 核心变更
 
-**删除的文件：**
-- `src/main/tray.ts` - 移除系统托盘
-- `src/main/launcher-entry.ts` - 不再需要独立启动器入口
+#### 安装器架构重构
 
-**修改的文件：**
-- `src/main/index.ts` - 移除托盘函数，更新窗口关闭行为（添加确认对话框）
-- `src/renderer/src/pages/Dashboard.tsx` - 更新提示文字
-- `electron-builder.yml` - 新的打包结构（runtime/ + launcher/）
-- `electron-builder.launcher.yml` - 精确控制打包内容，添加 files 排除规则
-- `electron.vite.config.ts` - 移除 launcher-entry 入口
-- `package.json` - 添加 package:launcher 脚本
-- `build.ps1` / `build.sh` - 新的构建流程
-- `scripts/create-zip.js` - 更新 ZIP 打包逻辑
+**Setup 与 Launcher 分离：**
+- **ISDP Setup.exe**：负责安装、升级、卸载流程
+- **ISDP.exe (Launcher)**：负责服务启停、日志查看、配置管理
+
+**新的打包结构：**
+```
+release/
+├── ISDP-1.0.0.zip          # 发布包
+├── ISDP/                   # 安装文件
+│   ├── ISDP.exe            # Launcher
+│   ├── ISDP-Setup.exe      # 安装程序
+│   ├── isdp-server.exe     # 后端服务
+│   └── web/                # 前端静态文件
+└── launcher/               # Launcher 独立包
+```
+
+#### 后端改动
+
+**新增文件：**
+- `installer/src/main/index.ts` - Setup 入口（安装/升级/卸载）
+- `installer/src/main/launcher-entry.ts` - Launcher 入口（服务管理）
+- `installer/src/main/service-manager.ts` - 服务进程管理
+- `installer/src/main/installer.ts` - 安装逻辑
+- `installer/src/main/shared/window-utils.ts` - 窗口工具函数
+
+**打包配置优化：**
+- `electron-builder.yml` - Setup 打包配置，精确控制打包内容
+- `electron-builder.launcher.yml` - Launcher 独立打包配置
+- `build.ps1` / `build.sh` - 一键构建脚本
+
+#### 前端改动
+
+**新增页面：**
+- `pages/Welcome.tsx` - 欢迎页
+- `pages/DirectorySelect.tsx` - 安装目录选择
+- `pages/DependencyCheck.tsx` - 依赖检测（Node.js、Git、Claude CLI）
+- `pages/ModeSelect.tsx` - 安装模式选择
+- `pages/SystemConfig.tsx` - 数据库配置
+- `pages/Installing.tsx` - 安装进度
+- `pages/Complete.tsx` - 安装完成
+- `pages/Dashboard.tsx` - Setup 仪表盘
+- `pages/LauncherDashboard.tsx` - Launcher 仪表盘
+
+**组件和工具：**
+- `components/Layout.tsx` - 页面布局组件
+- `services/dependencyChecker.ts` - 依赖检测服务
+- `services/configGenerator.ts` - 配置文件生成
+
+### 功能特性
+
+| 功能 | 说明 |
+|------|------|
+| 依赖检测 | 自动检测 Node.js、Git、Claude CLI，缺失时提供下载链接 |
+| 数据库配置 | 支持 MySQL 和 SQLite，自动生成配置文件 |
+| 桌面快捷方式 | 自动创建桌面和开始菜单快捷方式 |
+| 服务管理 | Launcher 支持启动/停止后端服务 |
+| 日志查看 | 内置日志查看功能 |
+| 升级安装 | 检测已安装版本，支持升级和卸载 |
+| ZIP 分发 | 打包为 ZIP，支持离线分发 |
+
+### 新增文件列表
+
+| 文件 | 说明 |
+|------|------|
+| `installer/src/main/index.ts` | Setup 主入口 |
+| `installer/src/main/launcher-entry.ts` | Launcher 主入口 |
+| `installer/src/main/service-manager.ts` | 服务管理器 |
+| `installer/src/main/installer.ts` | 安装逻辑 |
+| `installer/src/main/shared/window-utils.ts` | 窗口工具 |
+| `installer/src/preload/index.ts` | Electron preload |
+| `installer/src/renderer/*` | React 前端界面 |
+| `installer/build.ps1` | Windows 构建脚本 |
+| `installer/build.sh` | Unix 构建脚本 |
+| `installer/electron-builder.yml` | Setup 打包配置 |
+| `installer/electron-builder.launcher.yml` | Launcher 打包配置 |
+
+### 修改文件列表
+
+| 文件 | 改动类型 | 说明 |
+|------|----------|------|
+| `installer/package.json` | 修改 | 添加依赖和脚本 |
+| `.gitignore` | 修改 | 忽略 release 目录 |
+| `CLAUDE.md` | 修改 | 更新安装器文档 |
+| `isdp/web/src/config/version.ts` | 修改 | 版本号更新 |
+
+### 提交记录（60 个提交）
+
+按功能分组：
+
+**安装器功能实现：**
+```
+ed66b5c feat(installer): initialize project structure
+c1f5028 feat(installer): add vite and electron-builder config
+abf79f9 feat(installer): add main process entry
+b1b4db8 feat(installer): add preload script
+606b14b feat(installer): add type definitions
+975f924 feat(installer): add global styles
+75b4661 feat(installer): add React entry and App component
+0886a4f feat(installer): add Layout component
+9f0b898 feat(installer): add Welcome page
+d29728b feat(installer): add DirectorySelect page
+a8012bd feat(installer): add DependencyCheck page and service
+b3375da feat(installer): add ModeSelect page
+1d88ebb feat(installer): add ConfigSection component
+aaef2cc feat(installer): add SystemConfig page and database connector
+3b62cb5 feat(installer): add Installing page and config generator
+0e73df8 feat(installer): add Complete page
+7500741 feat(installer): add main process installer logic and IPC handlers
+14261e6 feat(installer): implement file copy logic
+a3b2ace feat(installer): implement directory selection dialog
+f814205 feat(installer): implement installation flow
+92f0c38 feat(installer): implement launcher service manager and tray
+d48dc8f feat(installer): implement Node.js and Git installation
+11f3540 feat(installer): add launch service functionality
+a24a7f9 feat(installer): add launcher standalone build config
+50af906 feat(installer): implement desktop shortcut creation
+bb4d4f3 feat(installer): add icon and complete package build
+d1f290d feat(installer): add build scripts for Windows and Unix
+```
+
+**安装器修复：**
+```
+7fb5e6e fix(installer): include mysql2 in bundle instead of externalizing
+38b308e fix(installer): update file paths for new package structure
+56ad230 fix(installer): use original-fs to handle asar file copying
+b7f1233 fix(installer): improve UI, fix launcher path, exclude debug files
+```
+
+**安装器重构：**
+```
+748e859 refactor(installer): remove tray and launcher-entry files
+86a1b85 refactor(installer): remove tray functions from index.ts
+b67dfbb refactor(installer): change window close behavior with confirmation dialog
+d18035d refactor(installer): update dashboard close hint text
+7bd0a10 refactor(installer): update launcher build config with file exclusions
+c7e6559 refactor(installer): update installer build config with runtime and launcher
+c32261c refactor(installer): add package:launcher script
+4cbe060 refactor(installer): update build scripts for new workflow
+37b6d2a refactor(installer): update zip script for new structure
+e273a7c refactor(installer): remove launcher-entry from vite config
+```
+
+**文档更新：**
+```
+7caf3c7 docs: update changelog for installer refactor
+79764d9 docs: add installer refactor implementation plan
+95bf3b9 docs: add installer refactor design v2
+c8fd2d7 docs: add Windows installer implementation plan
+f6a05a1 docs: improve Windows installer design spec
+323093f docs: add Windows installer design specification
+d78cc85 docs: add tasks 25-28 for complete installer functionality
+715fcb7 docs: add prerequisites and clarify launcher architecture
+feba230 docs: add missing dependencies and APIs to installer plan
+b3f9533 docs: fix and enhance Windows installer plan
+cd36c6a docs: fix installer plan issues
+d1a9f44 docs: fix build script for proper launcher packaging order
+96645d9 docs: fix duplicate content in NSIS script and step numbering
+02436be docs: fix plan documentation issues
+6cc57ba docs: integrate Node.js/Git installation and add disk space detection
+24280f0 docs: fix plan documentation issues and fix missing imports
+665ec3e fix(installer-plan): add Windows PowerShell build script to Task 28
+```
+
+**清理工作：**
+```
+9d597a2 feat(installer): separate Setup and Launcher functionality
+617fac9 chore(installer): remove release directory from tracking and improve code
+```
 
 ### 验证方法
 
-1. 执行 `.\build.ps1` 完成构建
-2. 检查 ZIP 包大小应 < 350MB
-3. 测试安装流程
+1. 进入 installer 目录执行 `.\build.ps1`
+2. 检查 `release/ISDP-1.0.0.zip` 生成成功
+3. 解压并运行 `ISDP-Setup.exe` 测试安装流程
+4. 运行 `ISDP.exe` 测试服务启动
 
 ### 影响范围
 
-installer 模块
+- installer 模块完整重构
+- 新增 Windows 安装器功能
+- 支持 ZIP 包分发
 
 ---
 
@@ -579,7 +740,6 @@ Solo 模式左侧任务列表存在布局异常、切换功能缺失、新建任
 2. **自动触发**：选择"全栈工程师"角色进入调试时自动进入 Solo 模式
 3. **退出 Solo 模式**：点击顶部"退出"按钮或"工作流模式"标签
 4. **沙箱操作**：在 Solo 模式下点击右上角"沙箱"按钮打开/关闭沙箱面板
->>>>>>> 34fc8f9e52d42063a2f7c8b1ec8a890008facf96
 
 ---
 
