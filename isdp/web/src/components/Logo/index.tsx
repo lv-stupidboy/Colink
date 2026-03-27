@@ -1,5 +1,5 @@
 import React from 'react';
-import { RocketOutlined, MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons';
+import { BulbOutlined, MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons';
 import './Logo.css';
 
 interface LogoProps {
@@ -14,30 +14,31 @@ interface LogoProps {
 }
 
 /**
- * Logo 组件 - 方案 A：火箭图标
- * 代表创新与进取，适合智能软件开发平台定位
+ * Logo 组件 - 熄灯工厂
+ * 灯泡图标象征全自动化、无人值守的智能生产
+ * 默认熄灭状态，hover时微光闪烁，寓意暗夜中自动运行
  */
 const Logo: React.FC<LogoProps> = ({ showSubtitle = true, size = 'default', collapsed = false, onCollapse }) => {
   return (
     <div className={`logo-container logo-${size} ${collapsed ? 'logo-collapsed' : ''}`}>
       <div className="logo-icon-wrapper">
-        <RocketOutlined className="logo-icon" />
-        {/* 火焰效果 */}
-        <div className="logo-flame">
-          <span className="flame-inner" />
-          <span className="flame-outer" />
+        <BulbOutlined className="logo-icon" />
+        {/* 熄灯效果 - 微弱的光晕 */}
+        <div className="logo-glow">
+          <span className="glow-ring glow-ring-1" />
+          <span className="glow-ring glow-ring-2" />
+          <span className="glow-ring glow-ring-3" />
         </div>
-        {/* 烟雾粒子 */}
-        <div className="logo-smoke">
-          <span className="smoke-particle smoke-1" />
-          <span className="smoke-particle smoke-2" />
-          <span className="smoke-particle smoke-3" />
+        {/* 星星粒子 - 象征暗夜中的自动化 */}
+        <div className="logo-stars">
+          <span className="star-particle star-1" />
+          <span className="star-particle star-2" />
+          <span className="star-particle star-3" />
         </div>
       </div>
       {!collapsed && (
         <div className="logo-text">
-          <span className="logo-title">ISDP</span>
-          {showSubtitle && <span className="logo-subtitle">智能软件开发平台</span>}
+          <span className="logo-title">Lights-Out</span>
         </div>
       )}
       {/* 收缩/展开按钮 */}

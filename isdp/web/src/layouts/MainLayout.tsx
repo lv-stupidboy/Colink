@@ -254,7 +254,7 @@ const MainLayout: React.FC = () => {
           }}
         >
           <Title level={4} style={{ margin: 0, color: 'var(--text-primary)' }}>
-            智能软件开发平台
+            Lights-Out Factory - 熄灯工厂
           </Title>
           <Space size="small">
             <Tag color="orange" style={{ margin: 0 }}>

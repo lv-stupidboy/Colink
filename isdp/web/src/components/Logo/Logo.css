@@ -1,5 +1,5 @@
 /**
- * Logo 组件样式
+ * Logo 组件样式 - 熄灯工厂主题
  * 使用 CSS 变量实现主题切换
  */
 
@@ -35,22 +35,21 @@
   width: 40px;
   height: 40px;
   border-radius: 10px;
-  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);
+  background: linear-gradient(135deg, #374151 0%, #1f2937 100%);
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 4px 12px var(--color-primary-opacity-30);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
   position: relative;
   z-index: 1;
   transition: all 0.3s ease;
-  animation: logoFloat 3s ease-in-out infinite;
 }
 
-/* 火箭图标 */
+/* 灯泡图标 - 默认熄灭状态 */
 .logo-icon {
   font-size: 20px;
-  color: #ffffff;
-  transition: transform 0.3s ease;
+  color: #6b7280;
+  transition: all 0.3s ease;
   position: relative;
   z-index: 2;
 }
@@ -124,156 +123,134 @@
 }
 
 /* ============================================
-   火焰效果
+   微光效果 - 象征暗夜中的自动化
    ============================================ */
 
-.logo-flame {
+.logo-glow {
   position: absolute;
-  bottom: -2px;
+  top: 50%;
   left: 50%;
-  transform: translateX(-50%);
+  transform: translate(-50%, -50%);
   pointer-events: none;
+}
+
+.glow-ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
   opacity: 0;
-  transition: opacity 0.2s ease;
+  pointer-events: none;
 }
 
-.logo-container:hover .logo-flame {
-  opacity: 1;
+/* 内圈微光 - 呼吸效果 */
+.glow-ring-1 {
+  width: 30px;
+  height: 30px;
+  background: radial-gradient(circle, rgba(251, 191, 36, 0.15) 0%, transparent 70%);
+  animation: glowPulse 3s ease-in-out infinite;
 }
 
-.flame-inner {
-  position: absolute;
-  bottom: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 8px;
-  height: 12px;
-  background: linear-gradient(to top, #fbbf24 0%, #f59e0b 50%, #ef4444 100%);
-  border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
-  animation: flameFlicker 0.15s ease-in-out infinite alternate;
+/* 中圈微光 */
+.glow-ring-2 {
+  width: 45px;
+  height: 45px;
+  background: radial-gradient(circle, rgba(251, 191, 36, 0.08) 0%, transparent 70%);
+  animation: glowPulse 3s ease-in-out infinite 0.5s;
 }
 
-.flame-outer {
-  position: absolute;
-  bottom: -2px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 12px;
-  height: 16px;
-  background: linear-gradient(to top, #fcd34d 0%, #fbbf24 40%, #f59e0b 100%);
-  border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
-  opacity: 0.6;
-  animation: flameFlicker 0.12s ease-in-out infinite alternate-reverse;
+/* 外圈微光 */
+.glow-ring-3 {
+  width: 60px;
+  height: 60px;
+  background: radial-gradient(circle, rgba(251, 191, 36, 0.04) 0%, transparent 70%);
+  animation: glowPulse 3s ease-in-out infinite 1s;
 }
 
-@keyframes flameFlicker {
-  0% {
-    transform: translateX(-50%) scaleY(1) scaleX(1);
+@keyframes glowPulse {
+  0%, 100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.8);
   }
-  100% {
-    transform: translateX(-50%) scaleY(1.1) scaleX(0.9);
+  50% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
   }
 }
 
 /* ============================================
-   烟雾粒子效果
+   星星粒子 - 暗夜氛围
    ============================================ */
 
-.logo-smoke {
+.logo-stars {
   position: absolute;
-  bottom: -8px;
-  left: 50%;
-  transform: translateX(-50%);
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
   pointer-events: none;
 }
 
-.smoke-particle {
+.star-particle {
   position: absolute;
-  width: 4px;
-  height: 4px;
-  background: radial-gradient(circle, rgba(200, 200, 200, 0.8) 0%, transparent 70%);
+  width: 2px;
+  height: 2px;
+  background: #fbbf24;
   border-radius: 50%;
   opacity: 0;
 }
 
-.logo-container:hover .smoke-particle {
-  animation: smokeRise 0.8s ease-out forwards;
+.star-1 {
+  top: 8px;
+  left: 8px;
+  animation: starTwinkle 2s ease-in-out infinite;
 }
 
-.smoke-1 {
-  left: -6px;
-  animation-delay: 0.3s !important;
+.star-2 {
+  top: 6px;
+  right: 10px;
+  animation: starTwinkle 2.5s ease-in-out infinite 0.3s;
 }
 
-.smoke-2 {
-  left: 0;
-  animation-delay: 0.4s !important;
+.star-3 {
+  bottom: 10px;
+  left: 12px;
+  animation: starTwinkle 3s ease-in-out infinite 0.6s;
 }
 
-.smoke-3 {
-  left: 6px;
-  animation-delay: 0.5s !important;
-}
-
-@keyframes smokeRise {
-  0% {
+@keyframes starTwinkle {
+  0%, 100% {
     opacity: 0;
-    transform: translateY(0) scale(0.5);
+    transform: scale(0.5);
   }
-  30% {
-    opacity: 0.7;
-    transform: translateY(8px) scale(1);
-  }
-  100% {
-    opacity: 0;
-    transform: translateY(20px) scale(1.5);
+  50% {
+    opacity: 0.8;
+    transform: scale(1);
   }
 }
 
 /* ============================================
-   火箭起飞动效
+   悬停效果 - 微光闪烁
    ============================================ */
 
-/* 起飞准备 - 抖动 */
-@keyframes rocketPrepare {
-  0%, 100% { transform: translateX(0); }
-  10% { transform: translateX(-1.5px); }
-  20% { transform: translateX(1.5px); }
-  30% { transform: translateX(-1px); }
-  40% { transform: translateX(1px); }
-  50% { transform: translateX(-0.5px); }
-  60% { transform: translateX(0.5px); }
-  70% { transform: translateX(-0.3px); }
-  80% { transform: translateX(0.3px); }
-  90% { transform: translateX(0); }
-}
-
-/* 起飞升空 */
-@keyframes rocketLaunch {
-  0% {
-    transform: translateY(0);
-  }
-  30% {
-    transform: translateY(-8px);
-  }
-  60% {
-    transform: translateY(-16px);
-  }
-  100% {
-    transform: translateY(-25px);
-  }
-}
-
-/* 悬停触发起飞 */
 .logo-container:hover .logo-icon-wrapper {
-  animation: rocketPrepare 0.5s ease-in-out forwards;
-  box-shadow: 0 8px 25px var(--color-primary-opacity-50),
-              0 0 30px var(--color-primary-opacity-30);
+  background: linear-gradient(135deg, #4b5563 0%, #374151 100%);
+  box-shadow: 0 4px 20px rgba(251, 191, 36, 0.15),
+              0 0 30px rgba(251, 191, 36, 0.1);
 }
 
-/* 延迟后开始起飞 */
 .logo-container:hover .logo-icon {
-  animation: rocketLaunch 0.6s ease-out 0.5s forwards;
+  color: #fbbf24;
+  filter: drop-shadow(0 0 4px rgba(251, 191, 36, 0.5));
+}
+
+.logo-container:hover .glow-ring {
+  animation-duration: 1.5s;
+}
+
+.logo-container:hover .star-particle {
+  animation-duration: 1s;
 }
 
 /* ============================================
@@ -303,14 +280,19 @@
   font-size: 10px;
 }
 
-.logo-small .flame-inner {
-  width: 6px;
-  height: 10px;
+.logo-small .glow-ring-1 {
+  width: 24px;
+  height: 24px;
 }
 
-.logo-small .flame-outer {
-  width: 10px;
-  height: 13px;
+.logo-small .glow-ring-2 {
+  width: 36px;
+  height: 36px;
+}
+
+.logo-small .glow-ring-3 {
+  width: 48px;
+  height: 48px;
 }
 
 .logo-large {
@@ -336,14 +318,19 @@
   font-size: 14px;
 }
 
-.logo-large .flame-inner {
-  width: 10px;
-  height: 14px;
+.logo-large .glow-ring-1 {
+  width: 36px;
+  height: 36px;
 }
 
-.logo-large .flame-outer {
-  width: 14px;
-  height: 18px;
+.logo-large .glow-ring-2 {
+  width: 54px;
+  height: 54px;
+}
+
+.logo-large .glow-ring-3 {
+  width: 72px;
+  height: 72px;
 }
 
 /* ============================================
@@ -355,8 +342,12 @@
 }
 
 [data-theme='dark'] .logo-icon-wrapper {
-  box-shadow: 0 4px 16px var(--color-primary-opacity-40),
-              0 0 20px var(--color-primary-opacity-20);
+  background: linear-gradient(135deg, #1f2937 0%, #111827 100%);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+[data-theme='dark'] .logo-icon {
+  color: #4b5563;
 }
 
 [data-theme='dark'] .logo-title {
@@ -367,16 +358,24 @@
 }
 
 [data-theme='dark'] .logo-container:hover .logo-icon-wrapper {
-  box-shadow: 0 8px 30px var(--color-primary-opacity-50),
-              0 0 40px var(--color-primary-opacity-30);
+  box-shadow: 0 4px 24px rgba(251, 191, 36, 0.2),
+              0 0 40px rgba(251, 191, 36, 0.15);
 }
 
-[data-theme='dark'] .smoke-particle {
-  background: radial-gradient(circle, rgba(150, 150, 150, 0.6) 0%, transparent 70%);
+[data-theme='dark'] .glow-ring-1 {
+  background: radial-gradient(circle, rgba(251, 191, 36, 0.2) 0%, transparent 70%);
+}
+
+[data-theme='dark'] .glow-ring-2 {
+  background: radial-gradient(circle, rgba(251, 191, 36, 0.1) 0%, transparent 70%);
+}
+
+[data-theme='dark'] .glow-ring-3 {
+  background: radial-gradient(circle, rgba(251, 191, 36, 0.05) 0%, transparent 70%);
 }
 
 /* ============================================
-   浮动动画（非悬停状态）
+   呼吸动画（非悬停状态）
    ============================================ */
 
 @keyframes logoFloat {
@@ -384,6 +383,10 @@
     transform: translateY(0);
   }
   50% {
-    transform: translateY(-3px);
+    transform: translateY(-2px);
   }
+}
+
+.logo-icon-wrapper {
+  animation: logoFloat 4s ease-in-out infinite;
 }
