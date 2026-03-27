@@ -17,18 +17,42 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
   const [loadingConfig, setLoadingConfig] = useState(false)
 
-  // 升级模式下读取已有配置
+  // 升级模式或安装目录已有配置时读取已有配置
   useEffect(() => {
-    if (isUpgrade && installedVersion?.installDir) {
+    const loadExistingConfig = async () => {
+      // 优先从安装目录读取配置（可能是卸载保留的数据）
+      const targetDir = config.installDir || installedVersion?.installDir
+
+      if (!targetDir) return
+
       setLoadingConfig(true)
-      window.electronAPI.readExistingConfig(installedVersion.installDir).then(result => {
+      try {
+        const result = await window.electronAPI.readExistingConfig(targetDir)
         if (result.success && result.config) {
-          onConfigUpdate({ database: result.config.database })
+          console.log('[SystemConfig] Loaded existing config from:', targetDir)
+          onConfigUpdate({
+            database: result.config.database,
+            serverPort: result.config.serverPort || 8080
+          })
+          if (!isUpgrade) {
+            message.info('已加载该目录下的现有配置')
+          }
         }
-        setLoadingConfig(false)
-      })
+      } catch (e) {
+        console.warn('[SystemConfig] Failed to load existing config:', e)
+      }
+      setLoadingConfig(false)
     }
-  }, [isUpgrade, installedVersion])
+
+    // 升级模式：从已安装目录读取
+    if (isUpgrade && installedVersion?.installDir) {
+      loadExistingConfig()
+    }
+    // 安装模式：检查目标目录是否有配置（卸载保留的数据）
+    else if (!isUpgrade && config.installDir) {
+      loadExistingConfig()
+    }
+  }, [isUpgrade, installedVersion, config.installDir])
 
   const handleDbChange = (field: string, value: string | number) => {
     onConfigUpdate({
@@ -64,7 +88,7 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
     <div style={{ flex: 1 }}>
       <h2 style={{ fontSize: 22, marginBottom: 8, color: '#333' }}>系统配置</h2>
       <p style={{ color: '#666', marginBottom: 30 }}>
-        {isUpgrade ? '已加载现有配置，如需修改请直接调整' : '请配置 ISDP 运行所需的参数'}
+        {isUpgrade ? '已加载现有配置，如需修改请直接调整' : '请配置 Lights-Out 运行所需的参数'}
       </p>
 
       <ConfigSection title="数据库配置">
@@ -141,6 +165,25 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
             </span>
           )}
         </div>
+      </ConfigSection>
+
+      <ConfigSection title="服务配置">
+        <Row gutter={20}>
+          <Col span={12}>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 13, color: '#666', marginBottom: 6 }}>
+                服务端口
+              </label>
+              <Input
+                type="number"
+                value={config.serverPort || 8080}
+                onChange={(e) => onConfigUpdate({ serverPort: parseInt(e.target.value) || 8080 })}
+                placeholder="8080"
+              />
+              <span style={{ fontSize: 12, color: '#999' }}>Web 控制台将在此端口运行</span>
+            </div>
+          </Col>
+        </Row>
       </ConfigSection>
     </div>
   )

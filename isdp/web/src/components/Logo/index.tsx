@@ -3,8 +3,6 @@ import { BulbOutlined, MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/
 import './Logo.css';
 
 interface LogoProps {
-  /** 是否显示副标题 */
-  showSubtitle?: boolean;
   /** 尺寸模式 */
   size?: 'default' | 'small' | 'large';
   /** 是否收缩模式 */
@@ -18,7 +16,7 @@ interface LogoProps {
  * 灯泡图标象征全自动化、无人值守的智能生产
  * 默认熄灭状态，hover时微光闪烁，寓意暗夜中自动运行
  */
-const Logo: React.FC<LogoProps> = ({ showSubtitle = true, size = 'default', collapsed = false, onCollapse }) => {
+const Logo: React.FC<LogoProps> = ({ size = 'default', collapsed = false, onCollapse }) => {
   return (
     <div className={`logo-container logo-${size} ${collapsed ? 'logo-collapsed' : ''}`}>
       <div className="logo-icon-wrapper">

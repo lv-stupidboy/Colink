@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron'
 import { join } from 'path'
+import { existsSync, readFileSync } from 'fs'
 import { ServiceManager } from './service-manager'
 import { getInstalledVersion } from './shared/install-utils'
 import { showCloseConfirm } from './shared/window-utils'
@@ -65,17 +66,30 @@ ipcMain.handle('open-config', async () => {
 })
 
 ipcMain.handle('open-console', async () => {
-  shell.openExternal('http://localhost:8080')
+  let port = 8080
+
+  // 尝试从配置文件读取端口
+  if (installDir) {
+    try {
+      const configPath = join(installDir, 'data', 'configs', 'config.yaml')
+      if (existsSync(configPath)) {
+        const content = readFileSync(configPath, 'utf-8')
+        const portMatch = content.match(/port:\s*(\d+)/)
+        if (portMatch) {
+          port = parseInt(portMatch[1])
+        }
+      }
+    } catch (e) {
+      console.warn('[Launcher] Failed to read config port:', e)
+    }
+  }
+
+  shell.openExternal(`http://localhost:${port}`)
 })
 
 // ==================== 创建窗口 ====================
 
 function createLauncherWindow(): BrowserWindow {
-  console.log('[Launcher] Creating window')
-  console.log('[Launcher] isDev:', isDev)
-  console.log('[Launcher] __dirname:', __dirname)
-  console.log('[Launcher] resourcesPath:', process.resourcesPath)
-
   const window = new BrowserWindow({
     width: 900,
     height: 650,
@@ -83,6 +97,7 @@ function createLauncherWindow(): BrowserWindow {
     minHeight: 550,
     frame: false,
     resizable: true,
+    show: false,
     icon: isDev ? undefined : join(process.resourcesPath, 'icon.ico'),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -92,33 +107,28 @@ function createLauncherWindow(): BrowserWindow {
   })
 
   if (isDev) {
-    console.log('[Launcher] Loading dev URL')
     window.loadURL('http://localhost:5173')
     window.webContents.openDevTools()
   } else {
     const rendererPath = join(__dirname, '../renderer/index.html')
-    console.log('[Launcher] Loading file:', rendererPath)
-
     window.loadFile(rendererPath).catch(err => {
       console.error('[Launcher] Failed to load file:', err)
       dialog.showErrorBox('加载失败', `无法加载界面：${err.message}`)
     })
   }
 
+  // 页面加载完成后显示窗口
   window.webContents.on('did-finish-load', () => {
-    console.log('[Launcher] Page loaded successfully')
+    window.show()
+    window.focus()
   })
 
-  window.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
-    console.error('[Launcher] Page load failed:', errorCode, errorDescription)
+  // 按 F12 打开开发者工具（用于调试）
+  window.webContents.on('before-input-event', (event, input) => {
+    if (input.key === 'F12') {
+      window.webContents.toggleDevTools()
+    }
   })
-
-  return window
-
-  // 开发模式下打开开发者工具
-  if (isDev) {
-    window.webContents.openDevTools()
-  }
 
   return window
 }
@@ -137,20 +147,15 @@ if (!gotTheLock) {
   })
 
   app.whenReady().then(async () => {
-    console.log('[Launcher] App ready')
-
     const installed = getInstalledVersion()
-    console.log('[Launcher] Installed version:', installed)
 
     if (!installed.installed || !installed.installDir) {
-      dialog.showErrorBox('错误', 'ISDP 未安装，请先运行安装程序')
+      dialog.showErrorBox('错误', 'Lights-Out 未安装，请先运行安装程序')
       app.quit()
       return
     }
 
     installDir = installed.installDir
-    console.log('[Launcher] Install dir:', installDir)
-
     serviceManager = new ServiceManager(installDir)
 
     mainWindow = createLauncherWindow()

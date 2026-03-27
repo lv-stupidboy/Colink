@@ -1,8 +1,9 @@
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron'
 import { join, dirname } from 'path'
-import { execSync, spawn, exec } from 'child_process'
+import { execSync } from 'child_process'
 import { existsSync, readdirSync, rmSync } from 'fs'
-import { promisify } from 'util'
+import { promises as fsPromises } from 'fs'
+const readFile = fsPromises.readFile
 import {
   checkDependency,
   installNpmPackage,
@@ -15,12 +16,9 @@ import {
   deleteRegistry
 } from './installer'
 import { ServiceManager } from './service-manager'
-import { showStartupActionDialog, StartupAction } from './shared/startup-dialog'
 import { showCloseConfirm } from './shared/window-utils'
 import { getInstalledVersion } from './shared/install-utils'
 import mysql from 'mysql2/promise'
-
-const execAsync = promisify(exec)
 
 const isDev = !app.isPackaged
 
@@ -62,8 +60,20 @@ function createWindow() {
     mainWindow.loadURL('http://localhost:5173')
     mainWindow.webContents.openDevTools()
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    const rendererPath = join(__dirname, '../renderer/index.html')
+    mainWindow.loadFile(rendererPath).catch(err => {
+      console.error('[Setup] Failed to load renderer:', err)
+      const { dialog } = require('electron')
+      dialog.showErrorBox('加载失败', `无法加载界面：${err.message}`)
+    })
   }
+
+  // 按 F12 打开开发者工具（用于调试）
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.key === 'F12') {
+      mainWindow?.webContents.toggleDevTools()
+    }
+  })
 
   // 关闭窗口时弹出确认对话框
   mainWindow.on('close', async (event) => {
@@ -153,11 +163,51 @@ ipcMain.handle('select-directory', async () => {
 
 ipcMain.handle('get-disk-space', async (_event, path: string) => {
   try {
-    const drive = path.substring(0, 2)
-    const output = execSync(`wmic logicaldisk where "DeviceID='${drive}'" get FreeSpace,Size /format:csv`, { encoding: 'utf8' })
+    // 提取驱动器字母（支持 D: 或 D:\ 格式）
+    const drive = path.substring(0, 2).toUpperCase()
+    if (!drive.match(/^[A-Z]:$/)) {
+      return { free: 0, total: 0 }
+    }
+
+    // 方法1: 使用 PowerShell (推荐，Windows 10+)
+    try {
+      const output = execSync(
+        `powershell -Command "(Get-PSDrive -Name '${drive.charAt(0)}').Free;(Get-PSDrive -Name '${drive.charAt(0)}').Used"`,
+        { encoding: 'utf8', timeout: 5000 }
+      )
+      const lines = output.trim().split('\n')
+      const free = parseInt(lines[0].trim()) || 0
+      const used = parseInt(lines[1].trim()) || 0
+      if (free > 0 || used > 0) {
+        return { free, total: free + used }
+      }
+    } catch {
+      // PowerShell 失败，尝试 wmic
+    }
+
+    // 方法2: 回退到 wmic (兼容旧系统)
+    const output = execSync(
+      `wmic logicaldisk where "DeviceID='${drive}'" get FreeSpace,Size /format:csv`,
+      { encoding: 'utf8', timeout: 5000 }
+    )
     const lines = output.trim().split('\n')
-    const data = lines[1].split(',')
-    return { free: parseInt(data[1]) || 0, total: parseInt(data[2]) || 0 }
+
+    // CSV 格式: Node,FreeSpace,Size
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i].trim()
+      if (line) {
+        const data = line.split(',')
+        if (data.length >= 3) {
+          const free = parseInt(data[1]) || 0
+          const total = parseInt(data[2]) || 0
+          if (free > 0 || total > 0) {
+            return { free, total }
+          }
+        }
+      }
+    }
+
+    return { free: 0, total: 0 }
   } catch {
     return { free: 0, total: 0 }
   }
@@ -234,8 +284,8 @@ ipcMain.handle('confirm-uninstall', async () => {
       buttons: ['取消', '卸载'],
       defaultId: 0,
       cancelId: 0,
-      title: '卸载 ISDP',
-      message: '确定要卸载 ISDP 吗？',
+      title: '卸载 Lights-Out',
+      message: '确定要卸载 Lights-Out 吗？',
       detail: '检测到数据目录，卸载后可以选择保留或删除。',
       checkboxLabel: '保留数据目录',
       checkboxChecked: true,
@@ -252,8 +302,8 @@ ipcMain.handle('confirm-uninstall', async () => {
       buttons: ['取消', '卸载'],
       defaultId: 0,
       cancelId: 0,
-      title: '卸载 ISDP',
-      message: '确定要卸载 ISDP 吗？',
+      title: '卸载 Lights-Out',
+      message: '确定要卸载 Lights-Out 吗？',
       detail: '卸载后将无法使用本软件。',
     })
 
@@ -355,7 +405,7 @@ ipcMain.handle('uninstall', async (_event, keepData: boolean) => {
     dialog.showMessageBox(mainWindow!, {
       type: 'info',
       title: '卸载完成',
-      message: 'ISDP 已卸载',
+      message: 'Lights-Out 已卸载',
       detail: keepData
         ? `数据目录已保留：${dir}\\data\n\n请手动删除安装目录：${dir}`
         : `请手动删除安装目录：${dir}`,
@@ -390,30 +440,26 @@ ipcMain.handle('open-config', async () => {
 })
 
 ipcMain.handle('open-console', async () => {
-  shell.openExternal('http://localhost:8080')
-})
-
-ipcMain.handle('launch-isdp', async () => {
   const installed = getInstalledVersion()
-  if (!installed.installDir) {
-    return { success: false, error: '未找到安装目录' }
+  let port = 8080
+
+  // 尝试从配置文件读取端口
+  if (installed.installDir) {
+    try {
+      const configPath = join(installed.installDir, 'data', 'configs', 'config.yaml')
+      if (existsSync(configPath)) {
+        const content = await readFile(configPath, 'utf-8')
+        const portMatch = content.match(/port:\s*(\d+)/)
+        if (portMatch) {
+          port = parseInt(portMatch[1])
+        }
+      }
+    } catch (e) {
+      console.warn('[OpenConsole] Failed to read config:', e)
+    }
   }
 
-  const launcherPath = join(installed.installDir, 'ISDP.exe')
-  if (!existsSync(launcherPath)) {
-    return { success: false, error: `启动器不存在: ${launcherPath}` }
-  }
-
-  try {
-    spawn(launcherPath, [], {
-      detached: true,
-      stdio: 'ignore',
-      cwd: installed.installDir
-    })
-    return { success: true }
-  } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : '启动失败' }
-  }
+  shell.openExternal(`http://localhost:${port}`)
 })
 
 // ==================== 应用启动 ====================
@@ -432,27 +478,9 @@ if (!gotTheLock) {
   })
 
   app.whenReady().then(async () => {
-    // 检测是否已安装
+    // 检测是否已安装（前端会处理选项展示）
     const installed = getInstalledVersion()
-
-    if (installed.installed) {
-      // 显示启动操作选择对话框
-      const action = await showStartupActionDialog(installed)
-
-      if (action === 'cancel') {
-        app.quit()
-        return
-      }
-
-      if (action === 'uninstall') {
-        startupAction = 'uninstall'
-      } else {
-        // action === 'upgrade'
-        startupAction = 'upgrade'
-      }
-    } else {
-      startupAction = 'install'
-    }
+    startupAction = installed.installed ? 'upgrade' : 'install'
 
     createWindow()
     initServiceManager()

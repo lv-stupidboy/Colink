@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin({ exclude: ['mysql2'] })],
+    plugins: [externalizeDepsPlugin({ exclude: ['mysql2', 'yaml'] })],
     build: {
       rollupOptions: {
         input: {

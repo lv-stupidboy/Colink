@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Button, Space, Spin, Card, Tag, Divider, Modal, message } from 'antd'
-import { PlayCircleOutlined, StopOutlined, SettingOutlined, FileTextOutlined, FolderOutlined, DeleteOutlined, ReloadOutlined, RedoOutlined } from '@ant-design/icons'
+import { PlayCircleOutlined, StopOutlined, SettingOutlined, FileTextOutlined, FolderOutlined, DeleteOutlined, ReloadOutlined, RedoOutlined, CloudUploadOutlined, CloseOutlined } from '@ant-design/icons'
 import { InstallConfig, InstalledVersion } from './types'
 import Layout from './components/Layout'
 import Welcome from './pages/Welcome'
@@ -10,10 +10,10 @@ import ModeSelect from './pages/ModeSelect'
 import SystemConfig from './pages/SystemConfig'
 import Installing from './pages/Installing'
 import Complete from './pages/Complete'
-import Dashboard from './pages/Dashboard'
 import { LauncherDashboard } from './pages/LauncherDashboard'
+import SelectAction from './pages/SelectAction'
 
-type AppMode = 'checking' | 'launcher' | 'dashboard' | 'install' | 'installing' | 'complete'
+type AppMode = 'checking' | 'launcher' | 'select-action' | 'install' | 'installing' | 'complete'
 
 const INSTALL_PAGES = {
   1: Welcome,
@@ -32,10 +32,11 @@ export default function App() {
   const [installedVersion, setInstalledVersion] = useState<InstalledVersion | null>(null)
   const [serviceStatus, setServiceStatus] = useState<'running' | 'stopped'>('stopped')
   const [config, setConfig] = useState<InstallConfig>({
-    installDir: 'C:\\Program Files\\ISDP',
+    installDir: 'C:\\Program Files\\Lights-Out',
     installMode: 'auto',
     dependencies: [],
     database: { host: '', port: 3306, database: 'isdp', username: 'root', password: '' },
+    serverPort: 8080,
     createShortcut: true,
     launchNow: true,
     keepData: true,
@@ -49,7 +50,7 @@ export default function App() {
 
   // 定期更新服务状态
   useEffect(() => {
-    if (mode === 'dashboard' || mode === 'launcher') {
+    if (mode === 'launcher') {
       updateServiceStatus()
       const timer = setInterval(updateServiceStatus, 5000)
       return () => clearInterval(timer)
@@ -74,8 +75,7 @@ export default function App() {
       setInstalledVersion(result)
       if (result.installed && result.installDir) {
         setConfig(prev => ({ ...prev, installDir: result.installDir!, keepData: true }))
-        setMode('dashboard')
-        updateServiceStatus()
+        setMode('select-action')  // 显示选择页面
       } else {
         setMode('install')
       }
@@ -190,7 +190,7 @@ export default function App() {
   // Launcher 模式（简化控制面板）
   if (mode === 'launcher') {
     return (
-      <Layout hideSteps title="ISDP">
+      <Layout hideSteps title="Lights-Out">
         <LauncherDashboard
           installDir={installedVersion?.installDir || ''}
           serviceStatus={serviceStatus}
@@ -201,14 +201,15 @@ export default function App() {
     )
   }
 
-  // 控制面板
-  if (mode === 'dashboard') {
+  // 选择操作页面（已安装）
+  if (mode === 'select-action') {
     return (
-      <Layout hideSteps title="ISDP Setup">
-        <Dashboard
+      <Layout hideSteps title="Lights-Out Setup">
+        <SelectAction
           installDir={installedVersion?.installDir || ''}
-          onReinstall={handleStartInstall}
+          onUpgrade={handleStartInstall}
           onUninstall={handleUninstall}
+          onCancel={() => window.electronAPI.closeWindow()}
         />
       </Layout>
     )
@@ -217,7 +218,7 @@ export default function App() {
   // 安装中
   if (mode === 'installing') {
     return (
-      <Layout hideSteps title="ISDP Setup">
+      <Layout hideSteps title="Lights-Out Setup">
         <Installing config={config} onComplete={handleInstallComplete} isUpgrade={isUpgrade} />
       </Layout>
     )
@@ -226,7 +227,7 @@ export default function App() {
   // 安装完成
   if (mode === 'complete') {
     return (
-      <Layout hideSteps title="ISDP Setup">
+      <Layout hideSteps title="Lights-Out Setup">
         <Complete
           config={config}
           isUpgrade={isUpgrade}
@@ -245,7 +246,7 @@ export default function App() {
     : currentStep - 1
 
   return (
-    <Layout currentStep={stepIndex + 1} stepLabels={getStepLabels()} title="ISDP Setup">
+    <Layout currentStep={stepIndex + 1} stepLabels={getStepLabels()} title="Lights-Out Setup">
       <PageComponent
         config={config}
         onConfigUpdate={(updates) => setConfig(prev => ({ ...prev, ...updates }))}

@@ -1,6 +1,5 @@
-import { useState } from 'react'
-import { Button, message } from 'antd'
-import { CheckCircleOutlined } from '@ant-design/icons'
+import { Button } from 'antd'
+import { CheckCircleOutlined, DesktopOutlined } from '@ant-design/icons'
 import { InstallConfig } from '../types'
 
 interface CompleteProps {
@@ -10,28 +9,6 @@ interface CompleteProps {
 }
 
 export default function Complete({ config, isUpgrade }: CompleteProps) {
-  const [launching, setLaunching] = useState(false)
-
-  const handleLaunch = async () => {
-    setLaunching(true)
-    try {
-      // 启动 ISDP.exe（桌面快捷方式指向的程序）
-      const result = await window.electronAPI.launchISDP()
-      if (result.success) {
-        // 延迟关闭窗口
-        setTimeout(() => {
-          window.electronAPI.closeWindow()
-        }, 1000)
-      } else {
-        message.error(result.error || '启动失败')
-        setLaunching(false)
-      }
-    } catch (err) {
-      message.error('启动失败')
-      setLaunching(false)
-    }
-  }
-
   const handleClose = () => {
     window.electronAPI.closeWindow()
   }
@@ -86,14 +63,26 @@ export default function Complete({ config, isUpgrade }: CompleteProps) {
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 16 }}>
-        <Button size="large" onClick={handleClose}>
-          关闭
-        </Button>
-        <Button type="primary" size="large" onClick={handleLaunch} loading={launching}>
-          启动 ISDP
-        </Button>
+      <div style={{
+        background: '#e6f7ff',
+        border: '1px solid #91d5ff',
+        borderRadius: 8,
+        padding: 16,
+        marginBottom: 24,
+        maxWidth: 400
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <DesktopOutlined style={{ color: '#1890ff', fontSize: 18 }} />
+          <span style={{ fontWeight: 500, color: '#1890ff' }}>启动方式</span>
+        </div>
+        <p style={{ margin: 0, color: '#666', fontSize: 14 }}>
+          请双击桌面上的快捷方式启动程序
+        </p>
       </div>
+
+      <Button type="primary" size="large" onClick={handleClose}>
+        关闭
+      </Button>
     </div>
   )
 }

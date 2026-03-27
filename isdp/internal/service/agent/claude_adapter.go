@@ -85,8 +85,10 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionReq
 		"--no-session-persistence", // 禁用 CLI 会话持久化，由 ISDP 管理记忆（避免多 Agent 间记忆干扰）
 	}
 
-	// 注意: --model 参数不需要，模型通过配置或环境变量指定
-	// 注意: --add-dir 参数不需要，配置目录通过 CLAUDE_CONFIG_DIR 环境变量指定
+	// 添加模型参数
+	if a.baseAgent != nil && a.baseAgent.DefaultModel != "" {
+		args = append(args, "--model", a.baseAgent.DefaultModel)
+	}
 
 	logDebug("Claude: Starting execution", zap.String("workDir", req.WorkDir), zap.String("configDir", req.ConfigDir))
 

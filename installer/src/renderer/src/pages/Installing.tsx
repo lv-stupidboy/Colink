@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Progress, message } from 'antd'
+import { Progress, Button, message } from 'antd'
 import { CheckCircleOutlined, LoadingOutlined, CloseCircleOutlined } from '@ant-design/icons'
 import { InstallConfig, InstallProgress, InstalledVersion } from '../types'
 
@@ -32,10 +32,15 @@ export default function Installing({ config, onComplete, isUpgrade }: Installing
     INSTALL_STEPS.map(s => ({ step: s.key, status: 'pending', progress: 0 }))
   )
   const [installError, setInstallError] = useState<string | null>(null)
+  const [installComplete, setInstallComplete] = useState(false)
 
   useEffect(() => {
+    let isMounted = true
+
     // 监听安装进度
     window.electronAPI.onInstallProgress((progress: InstallProgress) => {
+      if (!isMounted) return
+
       setSteps(prev => prev.map(s =>
         s.step === progress.step
           ? { ...s, status: progress.status, progress: progress.progress || 0, error: progress.message }
@@ -46,7 +51,9 @@ export default function Installing({ config, onComplete, isUpgrade }: Installing
         setInstallError(progress.message || `${progress.step} 失败`)
       }
 
-      if (progress.status === 'success' && progress.step === 'registry') {
+      // 只有在没有错误且 registry 成功时才完成
+      if (progress.status === 'success' && progress.step === 'registry' && !installError) {
+        setInstallComplete(true)
         setTimeout(onComplete, 500)
       }
     })
@@ -54,16 +61,22 @@ export default function Installing({ config, onComplete, isUpgrade }: Installing
     // 启动安装
     console.log('Starting installation with config:', config)
     window.electronAPI.startInstallation(config).then(result => {
+      if (!isMounted) return
       console.log('Installation result:', result)
       if (!result.success) {
         setInstallError(result.error || '安装失败')
         message.error(result.error || '安装失败')
       }
     }).catch(err => {
+      if (!isMounted) return
       console.error('Installation error:', err)
       setInstallError(err.message || '安装过程出错')
     })
-  }, [config, onComplete])
+
+    return () => {
+      isMounted = false
+    }
+  }, [config, onComplete, installError])
 
   const getStepIcon = (status: string) => {
     switch (status) {
@@ -74,15 +87,21 @@ export default function Installing({ config, onComplete, isUpgrade }: Installing
     }
   }
 
+  const handleClose = () => {
+    window.electronAPI.closeWindow()
+  }
+
   // 显示所有步骤
   const visibleSteps = steps
 
   return (
     <div style={{ flex: 1 }}>
       <h2 style={{ fontSize: 22, marginBottom: 8, color: '#333' }}>
-        {isUpgrade ? '正在升级...' : '正在安装...'}
+        {installError ? (isUpgrade ? '升级失败' : '安装失败') : (isUpgrade ? '正在升级...' : '正在安装...')}
       </h2>
-      <p style={{ color: '#666', marginBottom: 30 }}>请稍候，安装程序正在配置您的系统</p>
+      <p style={{ color: '#666', marginBottom: 30 }}>
+        {installError ? '安装过程中遇到错误，请检查后重试' : '请稍候，安装程序正在配置您的系统'}
+      </p>
 
       {installError && (
         <div style={{
@@ -128,6 +147,14 @@ export default function Installing({ config, onComplete, isUpgrade }: Installing
           </div>
         ))}
       </div>
+
+      {installError && (
+        <div style={{ marginTop: 24, textAlign: 'right' }}>
+          <Button type="primary" onClick={handleClose}>
+            关闭
+          </Button>
+        </div>
+      )}
     </div>
   )
 }

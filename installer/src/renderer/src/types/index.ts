@@ -28,6 +28,7 @@ export interface InstallConfig {
   installMode: InstallMode
   dependencies: Dependency[]
   database: DatabaseConfig
+  serverPort?: number
   createShortcut: boolean
   launchNow: boolean
   keepData?: boolean
@@ -52,6 +53,7 @@ export interface InstalledVersion {
 // 已有配置信息
 export interface ExistingConfig {
   database: DatabaseConfig
+  serverPort?: number
 }
 
 // Electron API 类型声明
@@ -94,7 +96,6 @@ declare global {
       openDataDir: () => Promise<void>
       openConfig: () => Promise<void>
       openConsole: () => Promise<void>
-      launchISDP: () => Promise<{ success: boolean; error?: string }>
 
       // 卸载
       confirmUninstall: () => Promise<{ confirmed: boolean; keepData: boolean }>

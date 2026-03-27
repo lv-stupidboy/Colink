@@ -6,6 +6,7 @@ import { join, dirname, basename } from 'path'
 import { BrowserWindow } from 'electron'
 import { tmpdir } from 'os'
 import { https } from 'follow-redirects'
+import YAML from 'yaml'
 
 const execAsync = promisify(exec)
 
@@ -55,15 +56,9 @@ export async function installNpmPackage(packageName: string): Promise<{ success:
 
 // 强制结束所有ISDP相关进程（不包括当前进程）
 export async function killAllProcesses(): Promise<void> {
-  console.log('[Process] Killing all ISDP processes...')
-
-  // 结束 isdp-server.exe
   try {
     execSync('taskkill /f /im isdp-server.exe 2>nul', { encoding: 'utf8' })
-    console.log('[Process] Killed isdp-server.exe')
   } catch {}
-
-  console.log('[Process] Skip killing ISDP.exe to avoid self-termination')
 
   // 等待进程完全退出
   await new Promise(resolve => setTimeout(resolve, 1500))
@@ -75,7 +70,6 @@ async function forceDelete(path: string, retries: number = 5): Promise<boolean> 
     try {
       if (!existsSync(path)) return true
       rmSync(path, { recursive: true, force: true })
-      console.log('[Delete] Successfully deleted:', path)
       return true
     } catch (e) {
       console.warn(`[Delete] Attempt ${i + 1} failed:`, e)
@@ -92,22 +86,15 @@ export async function copyApplicationFiles(
   onProgress?: (progress: number) => void
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    console.log('[Copy] Copying application files')
-    console.log('[Copy] Dest dir:', destDir)
-    console.log('[Copy] Resources path:', process.resourcesPath)
-
     await mkdir(destDir, { recursive: true })
 
     const resourcesDir = process.resourcesPath
-    console.log('[Copy] Using resources from:', resourcesDir)
 
     if (!existsSync(resourcesDir)) {
       return { success: false, error: `资源目录不存在: ${resourcesDir}` }
     }
 
-    // 新结构: runtime/isdp-server.exe 和 runtime/web/
     const runtimeDir = join(resourcesDir, 'runtime')
-    console.log('[Copy] Runtime dir:', runtimeDir)
 
     if (!existsSync(runtimeDir)) {
       return { success: false, error: `运行时目录不存在: ${runtimeDir}` }
@@ -122,9 +109,8 @@ export async function copyApplicationFiles(
         await forceDelete(serverDest)
       }
       await copyFile(serverSrc, serverDest)
-      console.log('[Copy] isdp-server.exe copied')
     } else {
-      console.warn('[Copy] isdp-server.exe not found at:', serverSrc)
+      console.warn('[Copy] isdp-server.exe not found')
     }
 
     // 复制 web/
@@ -136,9 +122,8 @@ export async function copyApplicationFiles(
         await forceDelete(webDest)
       }
       cpSync(webSrc, webDest, { recursive: true })
-      console.log('[Copy] web/ copied')
     } else {
-      console.warn('[Copy] web/ not found at:', webSrc)
+      console.warn('[Copy] web/ not found')
     }
 
     // 创建数据目录
@@ -147,6 +132,13 @@ export async function copyApplicationFiles(
     await mkdir(join(destDir, 'data', 'agent-assets'), { recursive: true })
     await mkdir(join(destDir, 'data', 'agent-configs'), { recursive: true })
     await mkdir(join(destDir, 'data', 'repos'), { recursive: true })
+
+    // 复制 icon.ico 到安装目录（用于快捷方式和注册表）
+    const iconSrc = join(resourcesDir, 'icon.ico')
+    const iconDest = join(destDir, 'icon.ico')
+    if (existsSync(iconSrc)) {
+      await copyFile(iconSrc, iconDest)
+    }
 
     onProgress?.(100)
     return { success: true }
@@ -164,44 +156,32 @@ export async function copyLauncherFiles(
   onProgress?: (progress: number) => void
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    console.log('[Copy] Copying launcher files')
-    console.log('[Copy] Dest:', destDir)
-
     const resourcesDir = process.resourcesPath
     const launcherSrcDir = join(resourcesDir, 'launcher')
-    console.log('[Copy] Launcher source dir:', launcherSrcDir)
 
-    // 检查 launcher 目录是否存在
     if (!existsSync(launcherSrcDir)) {
       return { success: false, error: `启动器目录不存在: ${launcherSrcDir}` }
     }
 
-    // 使用 original-fs 绕过 Electron 的 asar 处理
     const fs = require('original-fs')
 
-    // 获取 launcher 目录内容
     const entries = fs.readdirSync(launcherSrcDir, { withFileTypes: true })
     if (entries.length === 0) {
       return { success: false, error: `启动器目录为空: ${launcherSrcDir}` }
     }
 
-    console.log(`[Copy] Found ${entries.length} entries in launcher directory`)
-
     let copiedFiles = 0
     const totalFiles = entries.length
 
-    // 复制 launcher 目录中的所有内容到目标目录
     for (const entry of entries) {
       const srcPath = join(launcherSrcDir, entry.name)
       const destPath = join(destDir, entry.name)
 
       try {
-        // 使用 original-fs 的 stat 检查是否为目录
         const fileStat = fs.statSync(srcPath)
 
         // 特殊处理 resources 目录，因为包含 asar 文件
         if (fileStat.isDirectory() && entry.name === 'resources') {
-          console.log(`[Copy] Copying resources directory (special handling for asar)...`)
           fs.mkdirSync(destPath, { recursive: true })
 
           const resourcesEntries = fs.readdirSync(srcPath, { withFileTypes: true })
@@ -209,32 +189,23 @@ export async function copyLauncherFiles(
             const resSrcPath = join(srcPath, resEntry.name)
             const resDestPath = join(destPath, resEntry.name)
 
-            // asar 文件必须作为文件复制，不能当作目录
             if (resEntry.name.endsWith('.asar')) {
-              console.log(`[Copy] Copying asar file: ${resEntry.name}`)
-              const asarStat = fs.statSync(resSrcPath)
-              console.log(`[Copy] asar size: ${asarStat.size} bytes`)
               if (fs.existsSync(resDestPath)) {
                 fs.rmSync(resDestPath, { force: true })
               }
               fs.copyFileSync(resSrcPath, resDestPath)
-              console.log(`[Copy] asar file copied successfully`)
             } else if (fs.statSync(resSrcPath).isDirectory()) {
-              console.log(`[Copy] Copying resources subdirectory: ${resEntry.name}`)
               fs.cpSync(resSrcPath, resDestPath, { recursive: true })
             } else {
-              console.log(`[Copy] Copying resources file: ${resEntry.name}`)
               fs.copyFileSync(resSrcPath, resDestPath)
             }
           }
         } else if (fileStat.isDirectory()) {
-          console.log(`[Copy] Copying directory: ${entry.name}`)
           if (fs.existsSync(destPath)) {
             fs.rmSync(destPath, { recursive: true, force: true })
           }
           fs.cpSync(srcPath, destPath, { recursive: true })
         } else {
-          console.log(`[Copy] Copying file: ${entry.name} (${fileStat.size} bytes)`)
           if (fs.existsSync(destPath)) {
             fs.rmSync(destPath, { force: true })
           }
@@ -248,22 +219,10 @@ export async function copyLauncherFiles(
       }
     }
 
-    console.log(`[Copy] Launcher files copied: ${copiedFiles}/${totalFiles}`)
-
     // 验证关键文件
     const exeDest = join(destDir, 'ISDP.exe')
     if (!fs.existsSync(exeDest)) {
       return { success: false, error: '启动器可执行文件复制失败: ISDP.exe 不存在' }
-    }
-    console.log('[Copy] ISDP.exe verified')
-
-    // 验证 app.asar
-    const appAsarDest = join(destDir, 'resources', 'app.asar')
-    if (!fs.existsSync(appAsarDest)) {
-      console.warn('[Copy] Warning: app.asar not found, but continuing...')
-    } else {
-      const appAsarStat = fs.statSync(appAsarDest)
-      console.log('[Copy] app.asar verified, size:', appAsarStat.size)
     }
 
     onProgress?.(100)
@@ -291,7 +250,10 @@ export async function generateConfigFile(
 
 export async function readExistingConfig(installDir: string): Promise<{
   success: boolean
-  config?: { database: { host: string; port: number; database: string; username: string; password: string } }
+  config?: {
+    database: { host: string; port: number; database: string; username: string; password: string }
+    serverPort?: number
+  }
   error?: string
 }> {
   try {
@@ -302,15 +264,28 @@ export async function readExistingConfig(installDir: string): Promise<{
 
     const content = await readFile(configPath, 'utf-8')
     const config = {
-      database: { host: '', port: 3306, database: 'isdp', username: 'root', password: '' }
+      database: { host: '', port: 3306, database: 'isdp', username: 'root', password: '' },
+      serverPort: 8080
     }
 
     const lines = content.split('\n')
     let inMysql = false
+    let inServer = false
 
     for (const line of lines) {
       const trimmed = line.trim()
-      if (trimmed === 'mysql:') { inMysql = true; continue }
+
+      // 解析 server 配置
+      if (trimmed === 'server:') { inServer = true; inMysql = false; continue }
+      if (inServer && trimmed.startsWith('port:')) {
+        config.serverPort = parseInt(trimmed.replace('port:', '').trim()) || 8080
+      }
+      if (inServer && !trimmed.startsWith('port') && !trimmed.startsWith('mode') && trimmed.includes(':')) {
+        inServer = false
+      }
+
+      // 解析 mysql 配置
+      if (trimmed === 'mysql:') { inMysql = true; inServer = false; continue }
       if (inMysql && !trimmed.startsWith('host') && !trimmed.startsWith('port') && !trimmed.startsWith('database') && !trimmed.startsWith('username') && !trimmed.startsWith('password') && !trimmed.startsWith('charset') && trimmed.includes(':')) {
         inMysql = false
       }
@@ -329,42 +304,47 @@ export async function readExistingConfig(installDir: string): Promise<{
   }
 }
 
-function generateConfigYaml(db: { host: string; port: number; database: string; username: string; password: string }): string {
-  return `server:
-  port: 8080
-  mode: release
+function generateConfigYaml(db: { host: string; port: number; database: string; username: string; password: string }, serverPort: number = 8080): string {
+  const config = {
+    server: {
+      port: serverPort,
+      mode: 'release'
+    },
+    data: {
+      base_path: './data'
+    },
+    database: {
+      type: 'mysql',
+      mysql: {
+        host: db.host,
+        port: db.port,
+        database: db.database,
+        username: db.username,
+        password: db.password,
+        charset: 'utf8mb4'
+      }
+    },
+    sandbox: {
+      repos_dir: './data/repos'
+    },
+    claude: {
+      path: 'claude',
+      default_model: 'claude-sonnet-4-6',
+      timeout: '30m'
+    },
+    logging: {
+      level: 'info',
+      format: 'json'
+    },
+    agent_assets: {
+      base_path: './data/agent-assets'
+    },
+    agent_config: {
+      data_dir: './data/agent-configs'
+    }
+  }
 
-data:
-  base_path: ./data
-
-database:
-  type: mysql
-  mysql:
-    host: ${db.host}
-    port: ${db.port}
-    database: ${db.database}
-    username: ${db.username}
-    password: ${db.password}
-    charset: utf8mb4
-
-sandbox:
-  repos_dir: ./data/repos
-
-claude:
-  path: claude
-  default_model: claude-sonnet-4-6
-  timeout: 30m
-
-logging:
-  level: info
-  format: json
-
-agent_assets:
-  base_path: ./data/agent-assets
-
-agent_config:
-  data_dir: ./data/agent-configs
-`
+  return YAML.stringify(config)
 }
 
 // ==================== 快捷方式 ====================
@@ -372,6 +352,7 @@ agent_config:
 export async function createDesktopShortcut(installDir: string): Promise<boolean> {
   try {
     const launcherPath = join(installDir, 'ISDP.exe')
+    const iconPath = join(installDir, 'icon.ico')
     const desktopPath = process.env.USERPROFILE + '\\Desktop\\ISDP.lnk'
 
     const vbsContent = `Set WshShell = WScript.CreateObject("WScript.Shell")
@@ -379,6 +360,7 @@ Set oShellLink = WshShell.CreateShortcut("${desktopPath}")
 oShellLink.TargetPath = "${launcherPath}"
 oShellLink.WorkingDirectory = "${installDir}"
 oShellLink.Description = "ISDP"
+oShellLink.IconLocation = "${iconPath},0"
 oShellLink.Save
 WScript.Echo "OK"`
 
@@ -397,6 +379,7 @@ WScript.Echo "OK"`
 export async function createStartMenuShortcut(installDir: string): Promise<boolean> {
   try {
     const launcherPath = join(installDir, 'ISDP.exe')
+    const iconPath = join(installDir, 'icon.ico')
     const startMenuPath = process.env.APPDATA + '\\Microsoft\\Windows\\Start Menu\\Programs\\ISDP.lnk'
 
     const vbsContent = `Set WshShell = WScript.CreateObject("WScript.Shell")
@@ -404,6 +387,7 @@ Set oShellLink = WshShell.CreateShortcut("${startMenuPath}")
 oShellLink.TargetPath = "${launcherPath}"
 oShellLink.WorkingDirectory = "${installDir}"
 oShellLink.Description = "ISDP"
+oShellLink.IconLocation = "${iconPath},0"
 oShellLink.Save
 WScript.Echo "OK"`
 
@@ -475,6 +459,7 @@ export async function runInstallation(
     installMode: string
     dependencies: Array<{ key: string; installed: boolean }>
     database: { host: string; port: number; database: string; username: string; password: string }
+    serverPort?: number
     keepData?: boolean
     createShortcut?: boolean
   },
@@ -541,7 +526,7 @@ export async function runInstallation(
 
     // Step 4: 生成配置文件
     sendProgress('config', 'running', 0)
-    const configContent = generateConfigYaml(config.database)
+    const configContent = generateConfigYaml(config.database, config.serverPort || 8080)
     const configPath = join(config.installDir, 'data', 'configs', 'config.yaml')
     const configResult = await generateConfigFile(configPath, configContent)
     if (!configResult.success) {

@@ -18,10 +18,6 @@ export class ServiceManager {
     const serverPath = join(this.installDir, 'isdp-server.exe')
     const configPath = join(this.installDir, 'data', 'configs', 'config.yaml')
 
-    console.log('[Service] Starting server:', serverPath)
-    console.log('[Service] Working directory:', this.installDir)
-    console.log('[Service] Config path:', configPath)
-
     if (!existsSync(serverPath)) {
       return { success: false, error: `服务程序不存在` }
     }
@@ -35,8 +31,6 @@ export class ServiceManager {
       let errorOutput = ''
 
       try {
-        // 在安装目录运行，通过 -c 指定配置文件路径
-        // 这样服务可以找到 ./web 目录
         this.process = spawn(serverPath, ['-config', configPath], {
           cwd: this.installDir,
           detached: false,
@@ -45,13 +39,12 @@ export class ServiceManager {
         })
 
         this.process.stdout?.on('data', (data) => {
-          const msg = data.toString()
-          console.log(`[ISDP] ${msg.trim()}`)
+          console.log(`[Server] ${data.toString().trim()}`)
         })
 
         this.process.stderr?.on('data', (data) => {
           const msg = data.toString()
-          console.error(`[ISDP Error] ${msg.trim()}`)
+          console.error(`[Server Error] ${msg.trim()}`)
           errorOutput += msg
         })
 
@@ -64,13 +57,11 @@ export class ServiceManager {
           }
         })
 
-        this.process.on('close', (code, signal) => {
-          console.log(`[Service] Process closed with code: ${code}, signal: ${signal}`)
+        this.process.on('close', (code) => {
           this.process = null
           if (!resolved) {
             resolved = true
-            const errorMsg = errorOutput || `服务退出，代码: ${code}`
-            resolve({ success: false, error: errorMsg })
+            resolve({ success: false, error: errorOutput || `服务退出，代码: ${code}` })
           }
         })
 
