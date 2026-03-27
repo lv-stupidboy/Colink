@@ -214,6 +214,17 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 
 	// 检查是否需要路由到下一个Agent
 	es.checkRouting(ctx, req.ThreadID, config, output)
+
+	// Agent 完成后，从 InvokedAgents 中移除，允许再次被调用（支持反馈循环）
+	es.a2aMu.Lock()
+	if a2aCtx, exists := es.a2aContexts[req.ThreadID]; exists {
+		delete(a2aCtx.InvokedAgents, config.ID)
+		logInfo("A2A: Agent 完成后从 InvokedAgents 移除，允许再次被调用",
+			zap.String("agentId", config.ID.String()),
+			zap.String("agentName", config.Name),
+			zap.String("threadId", req.ThreadID.String()))
+	}
+	es.a2aMu.Unlock()
 }
 
 // resolveConfigAndBaseAgent 解析配置和BaseAgent
