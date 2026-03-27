@@ -12,9 +12,9 @@ SET NAMES utf8mb4;
 
 -- 先删除相关的绑定关系
 DELETE FROM agent_skill_bindings WHERE agent_role_id IN (SELECT id FROM agent_configs WHERE is_system = 1);
-DELETE FROM agent_command_bindings WHERE agent_id IN (SELECT id FROM agent_configs WHERE is_system = 1);
-DELETE FROM agent_rule_bindings WHERE agent_id IN (SELECT id FROM agent_configs WHERE is_system = 1);
-DELETE FROM agent_subagent_bindings WHERE agent_id IN (SELECT id FROM agent_configs WHERE is_system = 1);
+DELETE FROM agent_command_bindings WHERE agent_role_id IN (SELECT id FROM agent_configs WHERE is_system = 1);
+DELETE FROM agent_rule_bindings WHERE agent_role_id IN (SELECT id FROM agent_configs WHERE is_system = 1);
+DELETE FROM agent_subagent_bindings WHERE agent_role_id IN (SELECT id FROM agent_configs WHERE is_system = 1);
 
 -- 删除所有系统预置 Agent 角色
 DELETE FROM agent_configs WHERE is_system = 1;

@@ -9,16 +9,16 @@ SET NAMES utf8mb4;
 -- 这些字段已被 workflow_templates.transitions 替代
 
 -- 1. 删除 routing_config 字段（路由配置已迁移到 workflow_templates.transitions）
-ALTER TABLE agent_configs DROP COLUMN IF EXISTS routing_config;
+ALTER TABLE agent_configs DROP COLUMN routing_config;
 
 -- 2. 删除 capabilities 字段（能力声明未实现，已废弃）
-ALTER TABLE agent_configs DROP COLUMN IF EXISTS capabilities;
+ALTER TABLE agent_configs DROP COLUMN capabilities;
 
 -- 3. 删除 dependencies 字段（依赖声明未实现，已废弃）
-ALTER TABLE agent_configs DROP COLUMN IF EXISTS dependencies;
+ALTER TABLE agent_configs DROP COLUMN dependencies;
 
 -- 4. 删除 outputs 字段（产出声明未实现，已废弃）
-ALTER TABLE agent_configs DROP COLUMN IF EXISTS outputs;
+ALTER TABLE agent_configs DROP COLUMN outputs;
 
 -- 回滚语句（如需回滚执行以下语句）
 -- ALTER TABLE agent_configs ADD COLUMN routing_config JSON COMMENT '路由配置(JSON格式)';
