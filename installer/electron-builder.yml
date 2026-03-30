@@ -24,8 +24,8 @@ extraResources:
   # 图标
   - from: "build/icon.ico"
     to: "icon.ico"
-  # 后端服务（直接从 Go 项目读取）
-  - from: "../isdp/isdp-server.exe"
+  # 后端服务（从 bin 目录读取构建产物）
+  - from: "../isdp/bin/isdp-server.exe"
     to: "runtime/isdp-server.exe"
   # 前端静态文件（从 Go 项目的 web 目录读取）
   - from: "../isdp/web/dist"

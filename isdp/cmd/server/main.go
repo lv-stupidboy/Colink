@@ -39,6 +39,13 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
+// 版本信息（构建时通过 -ldflags 注入）
+var (
+	Version   = "dev"
+	GitCommit = "unknown"
+	BuildTime = "unknown"
+)
+
 // findConfigPath 查找配置文件路径，按优先级查找
 func findConfigPath() string {
 	// 1. 命令行参数 -config
@@ -309,8 +316,11 @@ func main() {
 	// 健康检查
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
-			"status": "ok",
-			"time":   time.Now().Format(time.RFC3339),
+			"status":     "ok",
+			"version":    Version,
+			"gitCommit":  GitCommit,
+			"buildTime":  BuildTime,
+			"time":       time.Now().Format(time.RFC3339),
 		})
 	})
 

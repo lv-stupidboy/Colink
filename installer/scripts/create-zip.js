@@ -1,15 +1,46 @@
-const { createWriteStream, existsSync, readdirSync, statSync } = require('fs')
+const { createWriteStream, existsSync, readdirSync, statSync, readFileSync } = require('fs')
 const { join } = require('path')
 const archiver = require('archiver')
 
-// 获取版本号
-const packageJson = require('../package.json')
-const version = packageJson.version
+// Get full version: priority from environment variable (set by build script)
+let fullVersion = process.env.ISDP_FULL_VERSION
+let os = process.env.ISDP_OS
+let arch = process.env.ISDP_ARCH
 
-// 源目录和输出文件
+if (!fullVersion) {
+  // Fallback: generate from VERSION file + timestamp
+  const rootVersionPath = join(__dirname, '../../isdp/VERSION')
+  let baseVersion
+  if (existsSync(rootVersionPath)) {
+    baseVersion = readFileSync(rootVersionPath, 'utf-8').trim()
+  } else {
+    const packageJson = require('../package.json')
+    baseVersion = packageJson.version
+  }
+
+  // Generate timestamp
+  const now = new Date()
+  const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '')
+  const timeStr = now.toTimeString().slice(0, 8).replace(/:/g, '')
+  fullVersion = `v${baseVersion}-${dateStr}-${timeStr}`
+}
+
+// Detect platform if not provided
+if (!os || !arch) {
+  const platform = process.platform
+  const nodeArch = process.arch
+
+  os = platform === 'win32' ? 'windows' : platform === 'darwin' ? 'darwin' : 'linux'
+  arch = nodeArch === 'x64' ? 'amd64' : nodeArch === 'arm64' ? 'arm64' : nodeArch
+}
+
+// Package name with platform
+const packageName = `ISDP-${fullVersion}-${os}-${arch}`
+
+// Source directory and output file
 const releaseDir = join(__dirname, '../release')
 const distDir = join(releaseDir, 'win-unpacked')
-const outputFile = join(releaseDir, `ISDP-${version}.zip`)
+const outputFile = join(releaseDir, `${packageName}.zip`)
 
 console.log('Source:', distDir)
 console.log('Output:', outputFile)

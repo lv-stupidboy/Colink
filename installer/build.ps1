@@ -1,37 +1,70 @@
-# ISDP 安装器完整构建脚本 (Windows PowerShell)
+# ISDP Complete Build Script (Windows PowerShell)
 
 $ErrorActionPreference = "Stop"
 
-Write-Host "===== ISDP 安装器构建开始 =====" -ForegroundColor Green
+# Set console encoding to UTF-8
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
 
-# 1. 构建 ISDP 后端
-Write-Host "[1/5] 构建 ISDP 后端..." -ForegroundColor Cyan
-Push-Location ../isdp
-make build
+Write-Host "===== ISDP Build Started =====" -ForegroundColor Green
+
+# 0. Read version and generate full version with timestamp
+$VERSION = "dev"
+if (Test-Path "..\isdp\VERSION") {
+    $VERSION = (Get-Content "..\isdp\VERSION" -Raw).Trim()
+}
+$BUILD_TIME = Get-Date -Format "yyyyMMdd-HHmmss"
+
+# Detect platform and architecture
+$OS = "windows"
+$ARCH = "amd64"
+if ([Environment]::Is64BitOperatingSystem) {
+    $ARCH = "amd64"
+} else {
+    $ARCH = "386"
+}
+
+$FULL_VERSION = "v$VERSION-$BUILD_TIME"
+$PACKAGE_NAME = "ISDP-$FULL_VERSION-$OS-$ARCH"
+Write-Host "Version: $FULL_VERSION" -ForegroundColor Cyan
+Write-Host "Platform: $OS-$ARCH" -ForegroundColor Cyan
+
+# 1. Clean old artifacts
+Write-Host "[1/6] Cleaning old build artifacts..." -ForegroundColor Cyan
+Remove-Item -Path "..\isdp\bin\*" -Force -ErrorAction SilentlyContinue
+Remove-Item -Path "release\*.zip" -Force -ErrorAction SilentlyContinue
+
+# 2. Build backend
+Write-Host "[2/6] Building backend..." -ForegroundColor Cyan
+Push-Location ..\isdp
+go build -ldflags "-X main.Version=$FULL_VERSION" -o bin\isdp-server.exe .\cmd\server
 Pop-Location
 
-# 2. 构建 ISDP 前端
-Write-Host "[2/5] 构建 ISDP 前端..." -ForegroundColor Cyan
-Push-Location ../isdp/web
+# 3. Build frontend
+Write-Host "[3/6] Building frontend..." -ForegroundColor Cyan
+Push-Location ..\isdp\web
 npm run build
 Pop-Location
 
-# 3. 安装依赖并构建安装器代码
-Write-Host "[3/5] 构建安装器代码..." -ForegroundColor Cyan
+# 4. Build installer
+Write-Host "[4/6] Building installer..." -ForegroundColor Cyan
 npm install
 npm run build
 
-# 4. 打包启动器
-Write-Host "[4/5] 打包启动器..." -ForegroundColor Cyan
+# 5. Package launcher
+Write-Host "[5/6] Packaging launcher..." -ForegroundColor Cyan
 npm run package:launcher
 
-# 5. 打包安装器（electron-builder 会直接从 ../isdp/ 读取后端和前端）
-Write-Host "[5/5] 打包安装器..." -ForegroundColor Cyan
+# 6. Package setup
+Write-Host "[6/6] Packaging setup..." -ForegroundColor Cyan
 npm run package:setup
 
-# 6. 创建 ZIP 包
-Write-Host "[6/6] 创建 ZIP 包..." -ForegroundColor Cyan
-node scripts/create-zip.js
+# 7. Create ZIP
+Write-Host "[7/7] Creating release package..." -ForegroundColor Cyan
+$env:ISDP_FULL_VERSION = $FULL_VERSION
+$env:ISDP_OS = $OS
+$env:ISDP_ARCH = $ARCH
+node scripts\create-zip.js
 
-Write-Host "===== 构建完成 =====" -ForegroundColor Green
-Write-Host "安装器产物: release/ISDP-*.zip" -ForegroundColor Yellow
+Write-Host "===== Build Complete =====" -ForegroundColor Green
+Write-Host "Release: release\$PACKAGE_NAME.zip" -ForegroundColor Yellow

@@ -7,10 +7,17 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// 读取 package.json 获取基础版本号
-const packageJsonPath = path.join(__dirname, '../package.json');
-const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
-const baseVersion = packageJson.version;
+// 优先从根目录 VERSION 文件读取基础版本号
+const rootVersionPath = path.join(__dirname, '../../VERSION');
+let baseVersion;
+if (fs.existsSync(rootVersionPath)) {
+  baseVersion = fs.readFileSync(rootVersionPath, 'utf-8').trim();
+} else {
+  // fallback: 从 package.json 读取
+  const packageJsonPath = path.join(__dirname, '../package.json');
+  const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
+  baseVersion = packageJson.version;
+}
 
 // 生成时间戳
 const now = new Date();

@@ -88,6 +88,9 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionReq
 	// 添加模型参数
 	if a.baseAgent != nil && a.baseAgent.DefaultModel != "" {
 		args = append(args, "--model", a.baseAgent.DefaultModel)
+		logDebug("Claude: using model from baseAgent", zap.String("model", a.baseAgent.DefaultModel))
+	} else {
+		logInfo("Claude: WARNING - no model specified", zap.Bool("hasBaseAgent", a.baseAgent != nil), zap.String("defaultModel", a.baseAgent.DefaultModel))
 	}
 
 	logDebug("Claude: Starting execution", zap.String("workDir", req.WorkDir), zap.String("configDir", req.ConfigDir))
