@@ -37,8 +37,17 @@ func (r *ThreadRepository) Create(ctx context.Context, thread *model.Thread) err
 	if threadType == "" {
 		threadType = model.ThreadTypeWorkflow
 	}
+	// 将 availableAgents 转换为 JSON 字符串
+	var availableAgentsJSON interface{}
+	if len(thread.AvailableAgents) > 0 {
+		agentsBytes, err := json.Marshal(thread.AvailableAgents)
+		if err != nil {
+			return fmt.Errorf("failed to marshal available_agents: %w", err)
+		}
+		availableAgentsJSON = string(agentsBytes)
+	}
 	_, err := r.db.ExecContext(ctx, query,
-		thread.ID.String(), thread.ProjectID.String(), thread.Name, thread.Status, thread.CurrentPhase, thread.CurrentAgent, thread.Depth, workflowTemplateID, threadType, thread.AvailableAgents, now, now,
+		thread.ID.String(), thread.ProjectID.String(), thread.Name, thread.Status, thread.CurrentPhase, thread.CurrentAgent, thread.Depth, workflowTemplateID, threadType, availableAgentsJSON, now, now,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create thread: %w", err)
