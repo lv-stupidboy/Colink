@@ -309,6 +309,11 @@ func (c *Config) GetRuleStoragePath() string {
 	return c.AgentAssets.GetBasePath() + "/rules"
 }
 
+// GetSettingsStoragePath 获取Settings存储路径
+func (c *Config) GetSettingsStoragePath() string {
+	return c.AgentAssets.GetBasePath() + "/settings"
+}
+
 // Load 加载配置文件
 func Load(configPath string) (*Config, error) {
 	v := viper.New()

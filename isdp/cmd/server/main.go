@@ -17,6 +17,7 @@ import (
 	"github.com/anthropic/isdp/internal/repo"
 	"github.com/anthropic/isdp/internal/service/agent"
 	"github.com/anthropic/isdp/internal/service/a2a"
+	"github.com/anthropic/isdp/internal/service/assetpackage"
 	"github.com/anthropic/isdp/internal/service/command"
 	"github.com/anthropic/isdp/internal/service/configgen"
 	"github.com/anthropic/isdp/internal/service/knowledge"
@@ -26,6 +27,7 @@ import (
 	"github.com/anthropic/isdp/internal/service/project"
 	"github.com/anthropic/isdp/internal/service/rule"
 	"github.com/anthropic/isdp/internal/service/sandbox"
+	"github.com/anthropic/isdp/internal/service/settings"
 	"github.com/anthropic/isdp/internal/service/skill"
 	"github.com/anthropic/isdp/internal/service/subagent"
 	"github.com/anthropic/isdp/internal/service/thread"
@@ -157,6 +159,10 @@ func main() {
 	agentCommandBindingRepo := repo.NewAgentCommandBindingRepository(db)
 	agentRuleBindingRepo := repo.NewAgentRuleBindingRepository(db)
 	subagentSkillBindingRepo := repo.NewSubagentSkillBindingRepository(db)
+	// Settings 和 AssetPackage 相关 Repositories
+	settingsRepo := repo.NewSettingsRepository(db)
+	agentSettingsBindingRepo := repo.NewAgentSettingsBindingRepository(db)
+	assetPackageRepo := repo.NewAssetPackageRepository(db)
 
 	// 初始化Services
 	projectService := project.NewService(projectRepo, workflowRepo)
@@ -219,6 +225,24 @@ func main() {
 	ruleSvc := rule.NewService(
 		ruleRepo, agentRuleBindingRepo, agentConfigRepo,
 		cfg.GetRuleStoragePath(),
+		logger,
+	)
+
+	// 创建 Settings Service
+	settingsSvc := settings.NewService(
+		settingsRepo, agentSettingsBindingRepo, agentConfigRepo,
+		cfg.GetSettingsStoragePath(),
+		logger,
+	)
+
+	// 创建 AssetPackage Service
+	assetPackageSvc := assetpackage.NewService(
+		assetPackageRepo, skillRepo, commandRepo, subagentRepo, ruleRepo, settingsRepo,
+		settingsSvc,
+		commandSkillBindingRepo, subagentSkillBindingRepo,
+		cfg.GetSkillStoragePath(), cfg.GetSubagentStoragePath(),
+		cfg.GetCommandStoragePath(), cfg.GetRuleStoragePath(),
+		cfg.GetSettingsStoragePath(),
 		logger,
 	)
 
@@ -397,6 +421,14 @@ func main() {
 	// Rule Handler
 	ruleHandler := api.NewRuleHandler(ruleSvc, cfg.GetRuleStoragePath(), cfg.Rule.GetUploadMaxSize())
 	ruleHandler.RegisterRoutes(v1)
+
+	// Settings Handler
+	settingsHandler := api.NewSettingsHandler(settingsSvc, cfg.GetSettingsStoragePath())
+	settingsHandler.RegisterRoutes(v1)
+
+	// AssetPackage Handler
+	assetPackageHandler := api.NewAssetPackageHandler(assetPackageSvc)
+	assetPackageHandler.RegisterRoutes(v1)
 
 	// MCP Callback Handler
 	callbackHandler := api.NewCallbackHandler(invocationRegistry, mcpAuthService, messageService, messageRepo, wsHub, orchestrator, baseAgentRepo, invocationQueue, queueProcessor, mentionParser)
