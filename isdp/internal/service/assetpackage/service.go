@@ -860,6 +860,9 @@ func createZip(srcDir string) ([]byte, error) {
 }
 
 // extractZip 解压 ZIP 文件
+// 包含安全保护措施：
+// 1. 路径遍历防护：防止恶意路径逃逸目标目录
+// 2. ZIP bomb 防护：限制文件数量和总大小
 func extractZip(zipReader io.Reader, dstDir string) error {
 	zipData, err := io.ReadAll(zipReader)
 	if err != nil {
@@ -871,42 +874,90 @@ func extractZip(zipReader io.Reader, dstDir string) error {
 		return err
 	}
 
+	// ZIP bomb 防护常量
+	const (
+		maxTotalSize  = int64(500 * 1024 * 1024) // 500MB 总大小限制
+		maxFileCount  = 1000                      // 最大文件数量
+		maxFileSize   = int64(100 * 1024 * 1024)  // 单文件最大 100MB
+	)
+
+	var totalSize int64
+	fileCount := 0
+
+	// 清理并规范化目标目录路径
+	cleanDstDir := filepath.Clean(dstDir)
+
 	for _, file := range reader.File {
+		fileCount++
+		if fileCount > maxFileCount {
+			return fmt.Errorf("ZIP 文件数量超过限制 (最大 %d 个文件)", maxFileCount)
+		}
+
+		// 获取文件信息
+		fileInfo := file.FileInfo()
+
+		// 检查单文件大小
+		fileSize := fileInfo.Size()
+		if fileSize > maxFileSize {
+			return fmt.Errorf("文件 %s 超过大小限制 (最大 %d MB)", file.Name, maxFileSize/1024/1024)
+		}
+
+		// 累计总大小
+		totalSize += fileSize
+		if totalSize > maxTotalSize {
+			return fmt.Errorf("ZIP 解压总大小超过限制 (最大 %d MB)", maxTotalSize/1024/1024)
+		}
+
+		// 构建目标路径
 		dstPath := filepath.Join(dstDir, file.Name)
 
-		// 使用 file.Mode().IsDir() 或 FileInfo() 来判断是否为目录
-		fileInfo := file.FileInfo()
+		// 安全检查：路径遍历防护
+		// 清理路径并检查是否在目标目录内
+		cleanPath := filepath.Clean(dstPath)
+		if !strings.HasPrefix(cleanPath, cleanDstDir+string(filepath.Separator)) {
+			// 允许路径恰好等于目标目录（根目录的情况）
+			if cleanPath != cleanDstDir {
+				return fmt.Errorf("检测到路径遍历攻击: %s", file.Name)
+			}
+		}
+
+		// 处理目录
 		if fileInfo.IsDir() {
-			if err := os.MkdirAll(dstPath, 0755); err != nil {
-				return err
+			if err := os.MkdirAll(cleanPath, 0755); err != nil {
+				return fmt.Errorf("创建目录失败: %w", err)
 			}
 			continue
 		}
 
-		// 创建目标目录
-		if err := os.MkdirAll(filepath.Dir(dstPath), 0755); err != nil {
-			return err
+		// 创建目标文件的父目录
+		if err := os.MkdirAll(filepath.Dir(cleanPath), 0755); err != nil {
+			return fmt.Errorf("创建父目录失败: %w", err)
 		}
 
 		// 打开 ZIP 条目
 		srcFile, err := file.Open()
 		if err != nil {
-			return err
+			return fmt.Errorf("打开 ZIP 条目失败: %w", err)
 		}
 
 		// 创建目标文件
-		dstFile, err := os.Create(dstPath)
+		dstFile, err := os.Create(cleanPath)
 		if err != nil {
 			srcFile.Close()
-			return err
+			return fmt.Errorf("创建目标文件失败: %w", err)
 		}
 
-		// 复制内容
-		_, err = io.Copy(dstFile, srcFile)
+		// 复制内容（使用 LimitReader 防止解压炸弹）
+		_, err = io.CopyN(dstFile, srcFile, maxFileSize+1)
 		dstFile.Close()
 		srcFile.Close()
+
 		if err != nil {
-			return err
+			if err == io.EOF {
+				// 正常结束
+				continue
+			}
+			return fmt.Errorf("解压文件失败: %w", err)
 		}
 	}
 
