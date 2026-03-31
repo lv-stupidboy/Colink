@@ -49,6 +49,15 @@ import type {
   RuleListResponse,
   CommandSkillsResponse,
   AgentRulesResponse,
+  AssetPackage,
+  AssetPackageListQuery,
+  AssetPackageListResponse,
+  ExportAssetPackageRequest,
+  ImportResult,
+  Settings,
+  SettingsListQuery,
+  SettingsListResponse,
+  AgentSettingsResponse,
 } from '@/types';
 import {
   transformProjects,
@@ -579,6 +588,81 @@ class APIClient {
       this.request(`/agents/${agentId}/rules`, 'POST', { ruleIds: ruleIds }),
     unbindRuleFromAgent: (agentId: string, ruleId: string): Promise<{ message: string }> =>
       this.request(`/agents/${agentId}/rules/${ruleId}`, 'DELETE'),
+  };
+
+  // Asset Package API
+  assetPackages = {
+    list: (query?: AssetPackageListQuery): Promise<AssetPackageListResponse> => {
+      const params = new URLSearchParams();
+      if (query?.search) params.append('search', query.search);
+      if (query?.page) params.append('page', query.page.toString());
+      if (query?.pageSize) params.append('page_size', query.pageSize.toString());
+
+      const url = params.toString() ? `/asset-packages?${params.toString()}` : '/asset-packages';
+      return this.request(url, 'GET');
+    },
+    get: (id: string): Promise<AssetPackage> =>
+      this.request(`/asset-packages/${id}`, 'GET'),
+    import: async (file: File): Promise<ImportResult> => {
+      const formData = new FormData();
+      formData.append('file', file);
+      const response = await this.client.post('/asset-packages/import', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      return response.data;
+    },
+    export: async (data: ExportAssetPackageRequest): Promise<Blob> => {
+      const response = await this.client.post('/asset-packages/export', data, {
+        responseType: 'blob',
+      });
+      return response.data;
+    },
+    delete: (id: string): Promise<void> =>
+      this.request(`/asset-packages/${id}`, 'DELETE'),
+  };
+
+  // Settings API
+  settings = {
+    list: (query?: SettingsListQuery): Promise<SettingsListResponse> => {
+      const params = new URLSearchParams();
+      if (query?.search) params.append('search', query.search);
+      if (query?.page) params.append('page', query.page.toString());
+      if (query?.pageSize) params.append('page_size', query.pageSize.toString());
+
+      const url = params.toString() ? `/settings?${params.toString()}` : '/settings';
+      return this.request(url, 'GET');
+    },
+    get: (id: string): Promise<Settings> =>
+      this.request(`/settings/${id}`, 'GET'),
+    create: async (formData: FormData): Promise<Settings> => {
+      const response = await this.client.post('/settings', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      return response.data;
+    },
+    delete: (id: string): Promise<void> =>
+      this.request(`/settings/${id}`, 'DELETE'),
+    getBoundAgents: (id: string): Promise<AgentConfig[]> =>
+      this.request(`/settings/${id}/agents`, 'GET'),
+    readDirectory: (id: string, subPath?: string): Promise<any> => {
+      const url = subPath
+        ? `/settings/${id}/directory?path=${encodeURIComponent(subPath)}`
+        : `/settings/${id}/directory`;
+      return this.request(url, 'GET');
+    },
+    readFile: async (id: string, filePath: string): Promise<string> => {
+      const response = await this.client.get(`/settings/${id}/file`, {
+        params: { path: filePath },
+      });
+      return response.data;
+    },
+    // Agent-Settings 绑定
+    getAgentSettings: (agentId: string): Promise<AgentSettingsResponse> =>
+      this.request(`/agent-roles/${agentId}/settings`, 'GET'),
+    bindToAgent: (agentId: string, settingsIds: string[]): Promise<void> =>
+      this.request(`/agent-roles/${agentId}/settings`, 'POST', { settingsIds }),
+    unbindFromAgent: (agentId: string, settingsId: string): Promise<void> =>
+      this.request(`/agent-roles/${agentId}/settings/${settingsId}`, 'DELETE'),
   };
 }
 

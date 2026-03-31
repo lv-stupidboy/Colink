@@ -715,5 +715,157 @@ export interface AgentRulesResponse {
   count: number;
 }
 
+// ========== Settings 相关类型 ==========
+
+// Settings
+export interface Settings {
+  id: string;
+  name: string;
+  description?: string;
+  directoryPath?: string;
+  version: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// 创建Settings请求
+export interface CreateSettingsRequest {
+  name: string;
+  description?: string;
+}
+
+// Settings列表查询参数
+export interface SettingsListQuery {
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+// Settings列表响应
+export interface SettingsListResponse {
+  data: Settings[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+// 绑定Settings请求
+export interface BindSettingsRequest {
+  settingsIds: string[];
+}
+
+// Agent绑定的Settings响应
+export interface AgentSettingsResponse {
+  settings: Settings[];
+  count: number;
+}
+
+// ========== Asset Package 相关类型 ==========
+
+// AssetPackage 资产包
+export interface AssetPackage {
+  id: string;
+  name: string;
+  version: string;
+  description?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// AssetPackageManifest 资产包 manifest
+export interface AssetPackageManifest {
+  name: string;
+  version: string;
+  exportedAt: string;
+  description: string;
+  assets: AssetPackageAssetsList;
+}
+
+// AssetPackageAssetsList 资产列表
+export interface AssetPackageAssetsList {
+  skills?: AssetPackageSkillItem[];
+  commands?: AssetPackageCommandItem[];
+  subagents?: AssetPackageSubagentItem[];
+  rules?: AssetPackageRuleItem[];
+  settings?: AssetPackageSettingsItem[];
+}
+
+// AssetPackageSkillItem 技能项
+export interface AssetPackageSkillItem {
+  name: string;
+  version: string;
+}
+
+// AssetPackageCommandItem 命令项
+export interface AssetPackageCommandItem {
+  name: string;
+  version: string;
+  boundSkills?: string[];
+}
+
+// AssetPackageSubagentItem 子代理项
+export interface AssetPackageSubagentItem {
+  name: string;
+  version: string;
+  boundSkills?: string[];
+}
+
+// AssetPackageRuleItem 规则项
+export interface AssetPackageRuleItem {
+  name: string;
+  version: string;
+}
+
+// AssetPackageSettingsItem 配置项
+export interface AssetPackageSettingsItem {
+  name: string;
+}
+
+// AssetPackageListQuery 资产包列表查询参数
+export interface AssetPackageListQuery {
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+// AssetPackageListResponse 资产包列表响应
+export interface AssetPackageListResponse {
+  data: AssetPackage[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+// ExportAssetPackageRequest 导出资产包请求
+export interface ExportAssetPackageRequest {
+  name: string;
+  version: string;
+  description?: string;
+  skillIds?: string[];
+  commandIds?: string[];
+  subagentIds?: string[];
+  ruleIds?: string[];
+  settingsIds?: string[];
+}
+
+// ImportResult 导入结果
+export interface ImportResult {
+  packageName: string;
+  packageId: string;
+  success: number;
+  skipped: number;
+  failed: number;
+  details: ImportDetail[];
+}
+
+// ImportDetail 导入详情
+export interface ImportDetail {
+  assetType: string;
+  name: string;
+  version: string;
+  status: string; // success, skipped, failed
+  message?: string;
+}
+
 // 内容类型
 export * from './content';
