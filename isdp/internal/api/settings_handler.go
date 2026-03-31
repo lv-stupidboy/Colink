@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"io"
 	"net/http"
 	"path/filepath"
@@ -98,13 +99,19 @@ func (h *SettingsHandler) Create(c *gin.Context) {
 				// 打开文件
 				file, err := fileHeader.Open()
 				if err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to open uploaded file"})
-					return
+					continue
+				}
+
+				// 立即读取文件内容并关闭文件句柄
+				content, err := io.ReadAll(file)
+				file.Close()
+				if err != nil {
+					continue
 				}
 
 				files = append(files, settings.FileData{
 					RelativePath: relativePath,
-					Content:      file,
+					Content:      bytes.NewReader(content),
 				})
 			}
 		}
@@ -122,13 +129,6 @@ func (h *SettingsHandler) Create(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
-	}
-
-	// 关闭所有打开的文件
-	for _, f := range files {
-		if closer, ok := f.Content.(io.Closer); ok {
-			closer.Close()
-		}
 	}
 
 	c.JSON(http.StatusCreated, settingsRecord)

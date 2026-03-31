@@ -3,6 +3,7 @@ package api
 import (
 	"io"
 	"net/http"
+	"strconv"
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/service/assetpackage"
@@ -126,7 +127,7 @@ func (h *AssetPackageHandler) Export(c *gin.Context) {
 	c.Header("Expires", "0")
 	c.Header("Cache-Control", "must-revalidate")
 	c.Header("Pragma", "public")
-	c.Header("Content-Length", string(len(zipData)))
+	c.Header("Content-Length", strconv.Itoa(len(zipData)))
 
 	// 返回 ZIP 文件
 	c.Data(http.StatusOK, "application/zip", zipData)
