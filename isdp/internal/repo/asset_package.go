@@ -164,6 +164,10 @@ func (r *AssetPackageRepository) List(ctx context.Context, query *model.AssetPac
 		packages = append(packages, pkg)
 	}
 
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("failed to iterate asset packages: %w", err)
+	}
+
 	return packages, total, nil
 }
 
