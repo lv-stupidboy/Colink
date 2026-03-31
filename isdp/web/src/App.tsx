@@ -139,7 +139,6 @@ const App: React.FC = () => {
               <Route path="agents/subagents" element={<SubagentList />} />
               <Route path="agents/skills" element={<SkillLibrary />} />
               <Route path="agents/rules" element={<RuleList />} />
-              <Route path="agents/hooks" element={<PlaceholderPage title="钩子管理" description="该功能正在开发中，敬请期待" />} />
               <Route path="agents/settings" element={<SettingsManagement />} />
               <Route path="agents/plugins" element={<PlaceholderPage title="插件管理" description="该功能正在开发中，敬请期待" />} />
               <Route path="agents/knowledge" element={<KnowledgeManagement />} />

@@ -14,11 +14,11 @@ import {
   CloudServerOutlined,
   DatabaseOutlined,
   CodeOutlined,
-  OrderedListOutlined,
   ApiOutlined,
   SafetyCertificateOutlined,
   ControlOutlined,
   CompassOutlined,
+  ContainerOutlined,
 } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import ThemeSwitcher from '@/components/ThemeSwitcher';
@@ -47,7 +47,7 @@ const MainLayout: React.FC = () => {
       // Agent团队下的路径，需要展开到三级菜单
       if (path.startsWith('/agents/commands') || path.startsWith('/agents/subagents') ||
           path.startsWith('/agents/skills') || path.startsWith('/agents/rules') ||
-          path.startsWith('/agents/hooks') || path.startsWith('/agents/settings') ||
+          path.startsWith('/agents/settings') ||
           path.startsWith('/agents/plugins')) {
         setOpenKeys(['agents', 'assets']);
       } else {
@@ -73,6 +73,11 @@ const MainLayout: React.FC = () => {
       key: '/projects',
       icon: <ProjectOutlined />,
       label: '项目空间',
+    },
+    {
+      key: '/asset-packages',
+      icon: <ContainerOutlined />,
+      label: '资产包',
     },
     {
       key: 'agents',
@@ -113,11 +118,6 @@ const MainLayout: React.FC = () => {
               key: '/agents/rules',
               icon: <SafetyCertificateOutlined />,
               label: 'Rules',
-            },
-            {
-              key: '/agents/hooks',
-              icon: <OrderedListOutlined />,
-              label: 'Hooks',
             },
             {
               key: '/agents/settings',
@@ -179,6 +179,7 @@ const MainLayout: React.FC = () => {
     const path = location.pathname;
     if (path.startsWith('/projects')) return '/projects';
     if (path.startsWith('/threads')) return '/projects';
+    if (path.startsWith('/asset-packages')) return '/asset-packages';
     if (path.startsWith('/registries')) return '/registries';
     if (path.startsWith('/sandbox')) return '/sandbox';
     if (path === '/workflow') return '/workflow';
@@ -188,7 +189,6 @@ const MainLayout: React.FC = () => {
     if (path.startsWith('/agents/subagents')) return '/agents/subagents';
     if (path.startsWith('/agents/skills')) return '/agents/skills';
     if (path.startsWith('/agents/rules')) return '/agents/rules';
-    if (path.startsWith('/agents/hooks')) return '/agents/hooks';
     if (path.startsWith('/agents/settings')) return '/agents/settings';
     if (path.startsWith('/agents/plugins')) return '/agents/plugins';
     if (path.startsWith('/agents/knowledge')) return '/agents/knowledge';
