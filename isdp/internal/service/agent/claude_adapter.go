@@ -105,6 +105,46 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionReq
 	env := a.buildEnv(req)
 	cmd.Env = env
 
+	// 构建可复制的命令（方便调试）
+	// 提取关键环境变量用于日志，对敏感信息脱敏
+	var envVarsForLog []string
+	for _, e := range env {
+		if strings.HasPrefix(e, "ANTHROPIC_") || strings.HasPrefix(e, "CLAUDE_") {
+			if strings.HasPrefix(e, "ANTHROPIC_AUTH_TOKEN=") {
+				token := strings.TrimPrefix(e, "ANTHROPIC_AUTH_TOKEN=")
+				maskedToken := maskToken(token)
+				envVarsForLog = append(envVarsForLog, fmt.Sprintf("ANTHROPIC_AUTH_TOKEN=\"%s\"", maskedToken))
+			} else {
+				envVarsForLog = append(envVarsForLog, e)
+			}
+		}
+	}
+
+	// 构建可复制的完整命令
+	cliCmd := a.cliPath + " " + strings.Join(args, " ")
+	var cmdForCopy strings.Builder
+	if cmd.Dir != "" {
+		cmdForCopy.WriteString(fmt.Sprintf("cd \"%s\" && ", cmd.Dir))
+	}
+	for i, envLine := range envVarsForLog {
+		cmdForCopy.WriteString(envLine)
+		if i < len(envVarsForLog)-1 {
+			cmdForCopy.WriteString(" ")
+		}
+	}
+	if len(envVarsForLog) > 0 {
+		cmdForCopy.WriteString(" ")
+	}
+	cmdForCopy.WriteString(cliCmd)
+
+	logInfo("Claude: CLI command (copy to test)",
+		zap.String("workDir", cmd.Dir),
+		zap.Strings("envVars", envVarsForLog),
+		zap.String("cliPath", a.cliPath),
+		zap.Strings("args", args),
+		zap.String("fullCommand", cmdForCopy.String()),
+	)
+
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
@@ -164,6 +204,20 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionReq
 	wg.Wait()
 
 	if err := cmd.Wait(); err != nil {
+		// 获取模型名称
+		modelName := ""
+		if a.baseAgent != nil {
+			modelName = a.baseAgent.DefaultModel
+		}
+		// 详细记录执行失败信息
+		logError("Claude: Execution failed",
+			zap.Error(err),
+			zap.String("cliPath", a.cliPath),
+			zap.String("workDir", cmd.Dir),
+			zap.String("configDir", req.ConfigDir),
+			zap.String("stderr", stderrOutput.String()),
+			zap.String("model", modelName),
+		)
 		if stderrOutput.Len() > 0 {
 			return nil, fmt.Errorf("CLI error: %s", stderrOutput.String())
 		}
@@ -402,21 +456,37 @@ func (a *ClaudeAdapter) parseStreamJSONLine(line string, isStreaming bool) []Chu
 }
 
 // buildEnv 构建环境变量
+// 使用 map 去重，BaseAgent 配置的值会覆盖系统环境变量
 func (a *ClaudeAdapter) buildEnv(req *ExecutionRequest) []string {
-	env := os.Environ()
-	env = append(env, "CLAUDE_NO_INTERACTIVE=1")
+	// 用 map 存储环境变量，后面的值会覆盖前面的
+	envMap := make(map[string]string)
+
+	// 先复制系统环境变量
+	for _, e := range os.Environ() {
+		if idx := strings.Index(e, "="); idx > 0 {
+			envMap[e[:idx]] = e[idx+1:]
+		}
+	}
+
+	// 设置 BaseAgent 配置的环境变量（会覆盖系统环境变量）
+	envMap["CLAUDE_NO_INTERACTIVE"] = "1"
 	if a.apiURL != "" {
-		env = append(env, fmt.Sprintf("ANTHROPIC_BASE_URL=%s", a.apiURL))
+		envMap["ANTHROPIC_BASE_URL"] = a.apiURL
 	}
 	if a.apiToken != "" {
-		env = append(env, fmt.Sprintf("ANTHROPIC_AUTH_TOKEN=%s", a.apiToken))
+		envMap["ANTHROPIC_AUTH_TOKEN"] = a.apiToken
 	}
 	if a.gitBashPath != "" {
-		env = append(env, fmt.Sprintf("CLAUDE_CODE_GIT_BASH_PATH=%s", a.gitBashPath))
+		envMap["CLAUDE_CODE_GIT_BASH_PATH"] = a.gitBashPath
 	}
-	// 设置配置目录
 	if req.ConfigDir != "" {
-		env = append(env, fmt.Sprintf("CLAUDE_CONFIG_DIR=%s", req.ConfigDir))
+		envMap["CLAUDE_CONFIG_DIR"] = req.ConfigDir
+	}
+
+	// 转换为 slice
+	env := make([]string, 0, len(envMap))
+	for k, v := range envMap {
+		env = append(env, fmt.Sprintf("%s=%s", k, v))
 	}
 	return env
 }
@@ -440,23 +510,67 @@ func (a *ClaudeAdapter) GetAvailableModels(ctx context.Context) ([]string, error
 }
 
 // CheckHealth 检查CLI健康状态，执行简单prompt验证API连接
+// 使用与正常执行相同的参数和环境变量构建逻辑，确保一致性
 func (a *ClaudeAdapter) CheckHealth(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
+	// 使用与 ExecuteWithStream 相同的基础参数
 	args := []string{
 		"--print",
 		"--dangerously-skip-permissions",
 	}
 
+	// 添加模型参数（与 ExecuteWithStream 保持一致）
 	if a.baseAgent != nil && a.baseAgent.DefaultModel != "" {
 		args = append(args, "--model", a.baseAgent.DefaultModel)
 	}
 
 	cmd := exec.CommandContext(ctx, a.cliPath, args...)
 
-	// 设置环境变量，和正常执行流程一致
-	cmd.Env = a.buildEnv(&ExecutionRequest{})
+	// 构建与正常执行相同的环境变量（使用空的 ExecutionRequest，但包含基本配置）
+	execReq := &ExecutionRequest{
+		BaseAgent: a.baseAgent,
+	}
+	env := a.buildEnv(execReq)
+	cmd.Env = env
+
+	// 提取关键环境变量用于日志，对敏感信息脱敏
+	var envVarsForLog []string
+	for _, e := range env {
+		if strings.HasPrefix(e, "ANTHROPIC_") || strings.HasPrefix(e, "CLAUDE_") {
+			if strings.HasPrefix(e, "ANTHROPIC_AUTH_TOKEN=") {
+				token := strings.TrimPrefix(e, "ANTHROPIC_AUTH_TOKEN=")
+				maskedToken := maskToken(token)
+				envVarsForLog = append(envVarsForLog, fmt.Sprintf("ANTHROPIC_AUTH_TOKEN=\"%s\"", maskedToken))
+			} else {
+				envVarsForLog = append(envVarsForLog, e)
+			}
+		}
+	}
+
+	// 构建可复制的完整命令
+	cliCmd := a.cliPath + " " + strings.Join(args, " ")
+	var cmdForCopy strings.Builder
+	cmdForCopy.WriteString(fmt.Sprintf("cd \"%s\" && ", os.TempDir()))
+	for i, envLine := range envVarsForLog {
+		cmdForCopy.WriteString(envLine)
+		if i < len(envVarsForLog)-1 {
+			cmdForCopy.WriteString(" ")
+		}
+	}
+	if len(envVarsForLog) > 0 {
+		cmdForCopy.WriteString(" ")
+	}
+	cmdForCopy.WriteString(cliCmd)
+
+	logInfo("Claude: CheckHealth command (copy to test)",
+		zap.String("workDir", os.TempDir()),
+		zap.Strings("envVars", envVarsForLog),
+		zap.String("cliPath", a.cliPath),
+		zap.Strings("args", args),
+		zap.String("fullCommand", cmdForCopy.String()),
+	)
 
 	// 通过stdin传递prompt
 	cmd.Stdin = strings.NewReader("reply with ok only")
@@ -466,6 +580,17 @@ func (a *ClaudeAdapter) CheckHealth(ctx context.Context) error {
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		modelName := ""
+		if a.baseAgent != nil {
+			modelName = a.baseAgent.DefaultModel
+		}
+		logError("Claude: Health check failed",
+			zap.Error(err),
+			zap.String("cliPath", a.cliPath),
+			zap.String("model", modelName),
+			zap.String("workDir", cmd.Dir),
+			zap.String("output", string(output)),
+		)
 		return fmt.Errorf("claude CLI test failed: %w, output: %s", err, string(output))
 	}
 

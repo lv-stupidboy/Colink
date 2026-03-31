@@ -50,14 +50,15 @@ type CreateBaseAgentRequest struct {
 }
 
 // UpdateBaseAgentRequest 更新基础Agent请求
+// 使用指针类型区分"不更新"（nil）和"清空"（空字符串）
 type UpdateBaseAgentRequest struct {
 	Name           string        `json:"name"`
 	Type           BaseAgentType `json:"type"`
-	ApiURL         string        `json:"apiUrl"`
-	ApiToken       string        `json:"apiToken"`
-	DefaultModel   string        `json:"defaultModel"`
+	ApiURL         *string       `json:"apiUrl"`         // 指针类型，支持清空
+	ApiToken       *string       `json:"apiToken"`       // 指针类型，支持清空
+	DefaultModel   *string       `json:"defaultModel"`   // 指针类型，支持清空
 	CliPath        string        `json:"cliPath"`
-	GitBashPath    string        `json:"gitBashPath"`
+	GitBashPath    *string       `json:"gitBashPath"`    // 指针类型，支持清空
 	MaxTokens      int           `json:"maxTokens"`
 	TimeoutMinutes int           `json:"timeoutMinutes"`
 }

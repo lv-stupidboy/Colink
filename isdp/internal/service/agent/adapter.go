@@ -64,3 +64,16 @@ func min(a, b int) int {
 	}
 	return b
 }
+
+// maskToken 对敏感token进行掩码处理，只显示前4位和后4位
+// 例如: "sk-ant-api03-xxxxx" -> "sk-a****xxxx"
+func maskToken(token string) string {
+	if token == "" {
+		return "<empty>"
+	}
+	if len(token) <= 8 {
+		return "****"
+	}
+	// 显示前4位和后4位，中间用****替代
+	return token[:4] + "****" + token[len(token)-4:]
+}

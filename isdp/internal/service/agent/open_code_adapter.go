@@ -96,11 +96,6 @@ func (a *OpenCodeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionR
 		"--continue", // 统一使用 --continue 让 CLI 自动恢复上次会话
 	}
 
-	// 记录完整命令到日志文件
-	logInfo("OpenCode: Starting with --continue",
-		zap.String("cliPath", a.cliPath),
-		zap.String("workDir", req.WorkDir))
-
 	cmd := exec.CommandContext(ctx, a.cliPath, args...)
 
 	// 通过 Stdin 传递 prompt，避免命令行参数丢失换行符的问题
@@ -114,6 +109,39 @@ func (a *OpenCodeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionR
 	// 设置环境变量
 	env := a.buildEnv(req)
 	cmd.Env = env
+
+	// 提取关键环境变量用于日志
+	var envVarsForLog []string
+	for _, e := range env {
+		if strings.HasPrefix(e, "OPENCODE_") {
+			envVarsForLog = append(envVarsForLog, e)
+		}
+	}
+
+	// 构建可复制的完整命令
+	cliCmd := a.cliPath + " " + strings.Join(args, " ")
+	var cmdForCopy strings.Builder
+	if cmd.Dir != "" {
+		cmdForCopy.WriteString(fmt.Sprintf("cd \"%s\" && ", cmd.Dir))
+	}
+	for i, envLine := range envVarsForLog {
+		cmdForCopy.WriteString(envLine)
+		if i < len(envVarsForLog)-1 {
+			cmdForCopy.WriteString(" ")
+		}
+	}
+	if len(envVarsForLog) > 0 {
+		cmdForCopy.WriteString(" ")
+	}
+	cmdForCopy.WriteString(cliCmd)
+
+	logInfo("OpenCode: CLI command (copy to test)",
+		zap.String("workDir", cmd.Dir),
+		zap.Strings("envVars", envVarsForLog),
+		zap.String("cliPath", a.cliPath),
+		zap.Strings("args", args),
+		zap.String("fullCommand", cmdForCopy.String()),
+	)
 
 	// 获取 stdout 和 stderr 管道
 	stdout, err := cmd.StdoutPipe()
@@ -198,8 +226,15 @@ func (a *OpenCodeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionR
 
 	// 在 wg.Wait() 之后调用 cmd.Wait() 清理进程资源
 	if err := cmd.Wait(); err != nil {
+		logError("OpenCode: Execution failed",
+			zap.Error(err),
+			zap.String("cliPath", a.cliPath),
+			zap.String("workDir", cmd.Dir),
+			zap.String("configDir", req.ConfigDir),
+			zap.String("stderr", stderrOutput.String()),
+			zap.String("model", modelName),
+		)
 		if stderrOutput.Len() > 0 {
-			logError("OpenCode CLI error", zap.String("stderr", stderrOutput.String()))
 			return nil, fmt.Errorf("CLI error: %s", stderrOutput.String())
 		}
 		return nil, fmt.Errorf("CLI execution failed: %w", err)
@@ -309,22 +344,38 @@ func (a *OpenCodeAdapter) buildPromptFromRequest(req *ExecutionRequest) string {
 // buildEnv 构建环境变量
 // OpenCode CLI 使用 ~/.local/share/opencode/auth.json 管理 Provider 凭证
 // API Token 不支持通过环境变量设置，需在 auth.json 中配置
-// API URL 仅私有部署模型需要配置
+// 使用 map 去重，BaseAgent 配置的值会覆盖系统环境变量
 func (a *OpenCodeAdapter) buildEnv(req *ExecutionRequest) []string {
-	env := os.Environ()
+	// 用 map 存储环境变量，后面的值会覆盖前面的
+	envMap := make(map[string]string)
+
+	// 先复制系统环境变量
+	for _, e := range os.Environ() {
+		if idx := strings.Index(e, "="); idx > 0 {
+			envMap[e[:idx]] = e[idx+1:]
+		}
+	}
+
+	// 设置 BaseAgent 配置的环境变量（会覆盖系统环境变量）
 	// API URL: 仅私有部署模型需要配置
 	if a.apiURL != "" {
-		env = append(env, fmt.Sprintf("OPENCODE_API_URL=%s", a.apiURL))
+		envMap["OPENCODE_API_URL"] = a.apiURL
 	}
 	// Git-Bash 路径: Windows 下需要
 	if a.gitBashPath != "" {
-		env = append(env, fmt.Sprintf("OPENCODE_GIT_BASH_PATH=%s", a.gitBashPath))
+		envMap["OPENCODE_GIT_BASH_PATH"] = a.gitBashPath
 	}
 	// 设置配置目录
 	if req.ConfigDir != "" {
-		env = append(env, fmt.Sprintf("OPENCODE_CONFIG_DIR=%s", req.ConfigDir))
+		envMap["OPENCODE_CONFIG_DIR"] = req.ConfigDir
 	}
 	// 注意: API Token 不支持环境变量，需配置 auth.json
+
+	// 转换为 slice
+	env := make([]string, 0, len(envMap))
+	for k, v := range envMap {
+		env = append(env, fmt.Sprintf("%s=%s", k, v))
+	}
 	return env
 }
 
@@ -382,6 +433,7 @@ func (a *OpenCodeAdapter) extractTextFromJSON(line string) string {
 }
 
 // CheckHealth 检查CLI健康状态，执行简单prompt验证API连接
+// 使用与正常执行相同的参数和环境变量构建逻辑，确保一致性
 func (a *OpenCodeAdapter) CheckHealth(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -389,21 +441,62 @@ func (a *OpenCodeAdapter) CheckHealth(ctx context.Context) error {
 	// 首先检查 CLI 是否存在
 	cmd := exec.CommandContext(ctx, a.cliPath, "--version")
 	if err := cmd.Run(); err != nil {
+		logError("OpenCode: CLI not found", zap.Error(err), zap.String("cliPath", a.cliPath))
 		return fmt.Errorf("opencode CLI not found: %w", err)
 	}
 
 	// 如果配置了模型，执行简单的测试 prompt
+	modelName := ""
 	if a.baseAgent != nil && a.baseAgent.DefaultModel != "" {
+		modelName = a.baseAgent.DefaultModel
+	}
+
+	if modelName != "" {
 		args := []string{
 			"run",
-			"--model", a.baseAgent.DefaultModel,
+			"--model", modelName,
 			"--format", "json",
 		}
 
 		cmd = exec.CommandContext(ctx, a.cliPath, args...)
 
-		// 设置环境变量，和正常执行流程一致
-		cmd.Env = a.buildEnv(&ExecutionRequest{})
+		// 构建与正常执行相同的环境变量（使用包含 BaseAgent 的 ExecutionRequest）
+		execReq := &ExecutionRequest{
+			BaseAgent: a.baseAgent,
+		}
+		env := a.buildEnv(execReq)
+		cmd.Env = env
+
+		// 提取关键环境变量用于日志
+		var envVarsForLog []string
+		for _, e := range env {
+			if strings.HasPrefix(e, "OPENCODE_") {
+				envVarsForLog = append(envVarsForLog, e)
+			}
+		}
+
+		// 构建可复制的完整命令
+		cliCmd := a.cliPath + " " + strings.Join(args, " ")
+		var cmdForCopy strings.Builder
+		cmdForCopy.WriteString(fmt.Sprintf("cd \"%s\" && ", os.TempDir()))
+		for i, envLine := range envVarsForLog {
+			cmdForCopy.WriteString(envLine)
+			if i < len(envVarsForLog)-1 {
+				cmdForCopy.WriteString(" ")
+			}
+		}
+		if len(envVarsForLog) > 0 {
+			cmdForCopy.WriteString(" ")
+		}
+		cmdForCopy.WriteString(cliCmd)
+
+		logInfo("OpenCode: CheckHealth command (copy to test)",
+			zap.String("workDir", os.TempDir()),
+			zap.Strings("envVars", envVarsForLog),
+			zap.String("cliPath", a.cliPath),
+			zap.Strings("args", args),
+			zap.String("fullCommand", cmdForCopy.String()),
+		)
 
 		// 通过stdin传递prompt
 		cmd.Stdin = strings.NewReader("reply with ok only")
@@ -413,14 +506,27 @@ func (a *OpenCodeAdapter) CheckHealth(ctx context.Context) error {
 
 		output, err := cmd.CombinedOutput()
 		if err != nil {
+			logError("OpenCode: Health check failed",
+				zap.Error(err),
+				zap.String("cliPath", a.cliPath),
+				zap.String("model", modelName),
+				zap.String("workDir", cmd.Dir),
+				zap.String("output", string(output)),
+			)
 			return fmt.Errorf("opencode CLI test failed: %w, output: %s", err, string(output))
 		}
 
 		// 检查输出是否包含有效响应
 		outputStr := strings.TrimSpace(string(output))
 		if outputStr == "" {
+			logError("OpenCode: Health check returned empty response",
+				zap.String("cliPath", a.cliPath),
+				zap.String("model", modelName),
+			)
 			return fmt.Errorf("opencode CLI returned empty response")
 		}
+
+		logInfo("OpenCode: Health check passed", zap.String("model", modelName))
 	}
 
 	return nil

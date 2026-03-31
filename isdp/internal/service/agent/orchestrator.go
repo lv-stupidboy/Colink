@@ -299,7 +299,16 @@ func (o *Orchestrator) SpawnDebugAgent(ctx context.Context, req *SpawnRequest) (
 		o.debugThreadMgr.SetStatus(req.ThreadID, DebugThreadStatusIdle)
 		return nil, fmt.Errorf("base agent not found: %w", err)
 	}
-	logInfo("SpawnDebugAgent: got baseAgent", zap.String("id", baseAgent.ID.String()), zap.String("name", baseAgent.Name), zap.String("defaultModel", baseAgent.DefaultModel), zap.Bool("hasApiToken", baseAgent.ApiToken != ""), zap.String("apiUrl", baseAgent.ApiURL))
+	logInfo("SpawnDebugAgent: got baseAgent",
+		zap.String("id", baseAgent.ID.String()),
+		zap.String("name", baseAgent.Name),
+		zap.String("type", string(baseAgent.Type)),
+		zap.String("defaultModel", baseAgent.DefaultModel),
+		zap.Bool("hasApiToken", baseAgent.ApiToken != ""),
+		zap.String("apiUrl", baseAgent.ApiURL),
+		zap.String("cliPath", baseAgent.CliPath),
+		zap.String("configPath", config.ConfigPath),
+	)
 
 	// 创建适配器
 	adapter := NewAdapter(baseAgent)

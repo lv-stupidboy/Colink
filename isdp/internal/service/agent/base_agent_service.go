@@ -136,18 +136,25 @@ func (s *BaseAgentService) Update(ctx context.Context, id uuid.UUID, req *model.
 	if req.Type != "" {
 		agent.Type = req.Type
 	}
-	// ApiURL 可以为空字符串（清除配置）
-	agent.ApiURL = req.ApiURL
-	// ApiToken 可以为空字符串（清除配置）
-	agent.ApiToken = req.ApiToken
-	if req.DefaultModel != "" {
-		agent.DefaultModel = req.DefaultModel
+	// ApiURL 使用指针类型，nil 表示不更新，空字符串表示清空
+	if req.ApiURL != nil {
+		agent.ApiURL = *req.ApiURL
+	}
+	// ApiToken 使用指针类型，nil 表示不更新，空字符串表示清空
+	if req.ApiToken != nil {
+		agent.ApiToken = *req.ApiToken
+	}
+	// DefaultModel 使用指针类型，nil 表示不更新，空字符串表示清空
+	if req.DefaultModel != nil {
+		agent.DefaultModel = *req.DefaultModel
 	}
 	if req.CliPath != "" {
 		agent.CliPath = req.CliPath
 	}
-	// GitBashPath 可以为空字符串（清除配置）
-	agent.GitBashPath = req.GitBashPath
+	// GitBashPath 使用指针类型，nil 表示不更新，空字符串表示清空
+	if req.GitBashPath != nil {
+		agent.GitBashPath = *req.GitBashPath
+	}
 	if req.MaxTokens != 0 {
 		agent.MaxTokens = req.MaxTokens
 	}
