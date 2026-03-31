@@ -30,6 +30,14 @@ const (
 	PhaseComplete    Phase = "complete"
 )
 
+// ThreadType 会话类型
+type ThreadType string
+
+const (
+	ThreadTypeWorkflow       ThreadType = "workflow"        // 工作流模式（默认）
+	ThreadTypeFreeDiscussion ThreadType = "free_discussion" // 自由协作模式
+)
+
 // Thread 开发会话模型
 type Thread struct {
 	ID                 uuid.UUID    `json:"id"`
@@ -40,7 +48,9 @@ type Thread struct {
 	CurrentAgent       string       `json:"currentAgent"`
 	Depth              int          `json:"depth"`
 	AbortToken         *string      `json:"abortToken,omitempty"`
-	WorkflowTemplateID *uuid.UUID   `json:"workflowTemplateId,omitempty"` // 新增：使用的工作流模板ID
+	WorkflowTemplateID *uuid.UUID   `json:"workflowTemplateId,omitempty"` // 使用的工作流模板ID
+	Type               ThreadType   `json:"type"`                         // 会话类型：workflow/free_discussion
+	AvailableAgents    []string     `json:"availableAgents,omitempty"`    // 可用 Agent 范围（自由模式）
 	CreatedAt          time.Time    `json:"createdAt"`
 	UpdatedAt          time.Time    `json:"updatedAt"`
 }
