@@ -115,6 +115,22 @@ func (r *SkillRepository) FindByName(ctx context.Context, name string) (*model.S
 	return skill, nil
 }
 
+// FindByNameAndVersion 根据名称和版本查找
+func (r *SkillRepository) FindByNameAndVersion(ctx context.Context, name, version string) (*model.Skill, error) {
+	query := `
+		SELECT id, name, description, tags, source_type, source_registry_id, author_id, project_id, supported_agents, version, use_count, status, is_public, created_at, updated_at
+		FROM skills WHERE name = ? AND version = ?
+	`
+	skill, err := scanSkill(r.db.QueryRowContext(ctx, query, name, version))
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("skill not found: %w", err)
+		}
+		return nil, fmt.Errorf("failed to find skill: %w", err)
+	}
+	return skill, nil
+}
+
 // List 列出Skills，支持分页和过滤
 func (r *SkillRepository) List(ctx context.Context, query *model.SkillListQuery) ([]*model.Skill, int64, error) {
 	// 构建查询条件
