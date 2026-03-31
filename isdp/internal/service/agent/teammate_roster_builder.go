@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
@@ -144,9 +143,4 @@ func (b *TeammateRosterBuilder) BuildByAvailableAgents(ctx context.Context, agen
 	}
 
 	return teammates, nil
-}
-
-// parseJSON 解析 JSON 字节到目标
-func parseJSON(data []byte, target interface{}) error {
-	return json.Unmarshal(data, target)
 }
