@@ -14,7 +14,7 @@ import (
 // MultiMentionOrchestrator 多讨论编排器
 // 管理多 Agent 并行讨论的状态机和响应聚合
 type MultiMentionOrchestrator struct {
-	repo repo.MultiMentionRepository
+	repo *repo.MultiMentionRepository
 
 	// activeTargets 记录当前活跃的被召唤 Agent
 	// key: threadID, value: agentID 列表
@@ -29,7 +29,7 @@ type MultiMentionOrchestrator struct {
 }
 
 // NewMultiMentionOrchestrator 创建编排器
-func NewMultiMentionOrchestrator(repo repo.MultiMentionRepository) *MultiMentionOrchestrator {
+func NewMultiMentionOrchestrator(repo *repo.MultiMentionRepository) *MultiMentionOrchestrator {
 	return &MultiMentionOrchestrator{
 		repo: repo,
 	}

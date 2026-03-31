@@ -34,7 +34,7 @@ type CallbackHandler struct {
 
 	// Multi-Mention 编排器
 	multiMentionOrchestrator *a2a.MultiMentionOrchestrator
-	multiMentionRepo         repo.MultiMentionRepository
+	multiMentionRepo         *repo.MultiMentionRepository
 	threadRepo               *repo.ThreadRepository
 }
 
@@ -51,7 +51,7 @@ func NewCallbackHandler(
 	queueProcessor *a2a.QueueProcessor,
 	mentionParser *mention.Parser,
 	multiMentionOrchestrator *a2a.MultiMentionOrchestrator,
-	multiMentionRepo repo.MultiMentionRepository,
+	multiMentionRepo *repo.MultiMentionRepository,
 	threadRepo *repo.ThreadRepository,
 ) *CallbackHandler {
 	return &CallbackHandler{
