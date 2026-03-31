@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS asset_packages (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
 
     PRIMARY KEY (id),
+    UNIQUE KEY uk_asset_packages_name_version (name, version),
     KEY idx_asset_packages_name (name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='资产包表';
 
