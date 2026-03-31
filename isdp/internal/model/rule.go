@@ -23,6 +23,7 @@ type Rule struct {
 	Description string         `json:"description,omitempty"`
 	Content     string         `json:"content,omitempty"` // 文件内容（上传或查看时返回）
 	Visibility  RuleVisibility `json:"visibility"`
+	Version     string         `json:"version"` // 版本号
 	CreatedAt   time.Time      `json:"createdAt"`
 	UpdatedAt   time.Time      `json:"updatedAt"`
 }
@@ -49,12 +50,14 @@ type CreateRuleRequest struct {
 	Description string         `json:"description"`
 	Visibility  RuleVisibility `json:"visibility"`
 	Content     string         `json:"content"` // 规约内容（可选，传入则保存文件）
+	Version     string         `json:"version"` // 版本号
 }
 
 // UpdateRuleRequest 更新Rule请求
 type UpdateRuleRequest struct {
 	Description string         `json:"description"`
 	Visibility  RuleVisibility `json:"visibility"`
+	Version     string         `json:"version"` // 版本号
 }
 
 // RuleListQuery Rule列表查询参数

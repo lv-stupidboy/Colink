@@ -14,6 +14,7 @@ type Command struct {
 	Name        string    `json:"name"`
 	Description string    `json:"description,omitempty"`
 	Content     string    `json:"content,omitempty"` // 文件内容（上传或查看时返回）
+	Version     string    `json:"version"`           // 版本号
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
 }
@@ -51,11 +52,13 @@ type CreateCommandRequest struct {
 	Name        string `json:"name" binding:"required"`
 	Description string `json:"description"`
 	Content     string `json:"content"` // 命令内容（可选，传入则保存文件）
+	Version     string `json:"version"` // 版本号
 }
 
 // UpdateCommandRequest 更新Command请求
 type UpdateCommandRequest struct {
 	Description string `json:"description"`
+	Version     string `json:"version"` // 版本号
 }
 
 // CommandListQuery Command列表查询参数
