@@ -45,7 +45,8 @@ const MainLayout: React.FC = () => {
       setOpenKeys(['settings']);
     } else if (path.startsWith('/agents')) {
       // Agent团队下的路径，需要展开到三级菜单
-      if (path.startsWith('/agents/commands') || path.startsWith('/agents/subagents') ||
+      if (path.startsWith('/asset-packages') ||
+          path.startsWith('/agents/commands') || path.startsWith('/agents/subagents') ||
           path.startsWith('/agents/skills') || path.startsWith('/agents/rules') ||
           path.startsWith('/agents/settings') ||
           path.startsWith('/agents/plugins')) {
@@ -75,11 +76,6 @@ const MainLayout: React.FC = () => {
       label: '项目空间',
     },
     {
-      key: '/asset-packages',
-      icon: <ContainerOutlined />,
-      label: '资产包',
-    },
-    {
       key: 'agents',
       icon: <ApartmentOutlined />,
       label: 'Agent团队',
@@ -99,6 +95,11 @@ const MainLayout: React.FC = () => {
           icon: <ThunderboltOutlined />,
           label: '角色资产',
           children: [
+            {
+              key: '/asset-packages',
+              icon: <ContainerOutlined />,
+              label: '资产包',
+            },
             {
               key: '/agents/commands',
               icon: <CodeOutlined />,
@@ -179,11 +180,11 @@ const MainLayout: React.FC = () => {
     const path = location.pathname;
     if (path.startsWith('/projects')) return '/projects';
     if (path.startsWith('/threads')) return '/projects';
-    if (path.startsWith('/asset-packages')) return '/asset-packages';
     if (path.startsWith('/registries')) return '/registries';
     if (path.startsWith('/sandbox')) return '/sandbox';
     if (path === '/workflow') return '/workflow';
     // Agent 团队子菜单路由
+    if (path.startsWith('/asset-packages')) return '/asset-packages';
     if (path.startsWith('/agents/roles')) return '/agents/roles';
     if (path.startsWith('/agents/commands')) return '/agents/commands';
     if (path.startsWith('/agents/subagents')) return '/agents/subagents';
