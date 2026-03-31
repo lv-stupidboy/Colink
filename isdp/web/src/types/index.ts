@@ -52,11 +52,16 @@ export interface Project {
   updatedAt: string;
 }
 
+// Thread类型
+export type ThreadType = 'workflow' | 'free_discussion';
+
 // Thread
 export interface Thread {
   id: string;
   projectId: string;
   name: string; // 任务名称
+  type?: ThreadType; // 会话类型：workflow 或 free_discussion
+  availableAgents?: string[]; // 可用Agent范围（自由模式）
   status: ThreadStatus;
   currentPhase: Phase;
   currentAgent?: string;

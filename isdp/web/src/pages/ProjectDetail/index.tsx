@@ -29,6 +29,7 @@ import {
   DeleteOutlined,
   PlayCircleOutlined,
   SyncOutlined,
+  TeamOutlined,
 } from '@ant-design/icons';
 import api from '@/api/client';
 import type { Project, Thread, WorkflowTemplate } from '@/types';
@@ -118,7 +119,7 @@ const ProjectDetail: React.FC = () => {
 
   const handleCreateThread = async (values: { name?: string }) => {
     try {
-      const thread = await api.threads.create(projectId!, values.name || '新任务');
+      const thread = await api.threads.create(projectId!, { name: values.name || '新任务' });
       message.success('任务创建成功');
       setCreateThreadModalVisible(false);
       threadForm.resetFields();
@@ -126,6 +127,34 @@ const ProjectDetail: React.FC = () => {
       navigate(`/projects/${projectId}/threads/${thread.id}`);
     } catch (error) {
       message.error('创建任务失败');
+    }
+  };
+
+  // 创建自由讨论会话
+  const handleCreateFreeDiscussion = async () => {
+    try {
+      // 获取项目绑定的团队 Agent 列表
+      const templateId = project?.workflowTemplateId;
+      let availableAgents: string[] = [];
+
+      if (templateId) {
+        const template = workflowTemplates.find(t => t.id === templateId);
+        if (template && template.agentIds) {
+          availableAgents = template.agentIds;
+        }
+      }
+
+      // 创建自由讨论类型的 Thread
+      const thread = await api.threads.create(projectId!, {
+        name: '自由讨论',
+        type: 'free_discussion',
+        availableAgents: availableAgents,
+      });
+      message.success('自由讨论会话已创建');
+      // 跳转到新创建的 Thread
+      navigate(`/projects/${projectId}/threads/${thread.id}`);
+    } catch (error) {
+      message.error('创建自由讨论失败');
     }
   };
 
@@ -394,13 +423,27 @@ const ProjectDetail: React.FC = () => {
             key="threads"
           >
             <div style={{ marginBottom: 16 }}>
-              <Button
-                type="primary"
-                icon={<PlusOutlined />}
-                onClick={() => setCreateThreadModalVisible(true)}
-              >
-                新建任务
-              </Button>
+              <Space>
+                <Button
+                  type="primary"
+                  icon={<PlusOutlined />}
+                  onClick={() => setCreateThreadModalVisible(true)}
+                >
+                  新建任务
+                </Button>
+                <Button
+                  icon={<TeamOutlined />}
+                  onClick={handleCreateFreeDiscussion}
+                  disabled={!project?.workflowTemplateId}
+                >
+                  自由讨论
+                </Button>
+              </Space>
+              {!project?.workflowTemplateId && (
+                <Text type="secondary" style={{ marginLeft: 8 }}>
+                  （自由讨论需要先绑定团队）
+                </Text>
+              )}
             </div>
 
             {threads.length > 0 ? (
