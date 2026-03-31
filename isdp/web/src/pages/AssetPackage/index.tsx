@@ -5,11 +5,10 @@ import {
   Pagination, Alert
 } from 'antd';
 import {
-  PlusOutlined,
   CloudUploadOutlined,
   CloudDownloadOutlined,
   DeleteOutlined,
-  PackageOutlined,
+  InboxOutlined,
   FileZipOutlined,
   EyeOutlined,
 } from '@ant-design/icons';
@@ -18,20 +17,14 @@ import api from '@/api/client';
 import type {
   AssetPackage,
   ImportResult,
-  ImportDetail,
   Skill,
   Command,
   Subagent,
   Rule,
   Settings,
-  SkillListResponse,
-  CommandListResponse,
-  SubagentListResponse,
-  RuleListResponse,
-  SettingsListResponse,
 } from '@/types';
 
-const { Title, Text, Paragraph } = Typography;
+const { Title, Text } = Typography;
 
 // 资产类型选项
 const assetTypeOptions = [
@@ -254,7 +247,7 @@ const AssetPackageManagement: React.FC = () => {
       key: 'name',
       render: (name: string) => (
         <Space>
-          <PackageOutlined style={{ color: '#1890ff' }} />
+          <InboxOutlined style={{ color: '#1890ff' }} />
           <Text strong>{name}</Text>
         </Space>
       ),
@@ -375,7 +368,7 @@ const AssetPackageManagement: React.FC = () => {
           <Table
             style={{ marginTop: 12 }}
             dataSource={importResult.details}
-            rowKey={(item: ImportDetail, index: number) => `${item.assetType}-${item.name}-${index}`}
+            rowKey={(item, index) => `${item.assetType}-${item.name}-${index}`}
             pagination={false}
             size="small"
             columns={[
