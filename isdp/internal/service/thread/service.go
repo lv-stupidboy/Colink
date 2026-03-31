@@ -27,6 +27,11 @@ func NewService(repo *repo.ThreadRepository, projectRepo *repo.ProjectRepository
 
 // Create 创建Thread
 func (s *Service) Create(ctx context.Context, projectID uuid.UUID, name string) (*model.Thread, error) {
+	return s.CreateWithType(ctx, projectID, name, model.ThreadTypeWorkflow, nil)
+}
+
+// CreateWithType 创建Thread（支持指定类型）
+func (s *Service) CreateWithType(ctx context.Context, projectID uuid.UUID, name string, threadType model.ThreadType, availableAgents []string) (*model.Thread, error) {
 	// 1. 获取项目信息
 	project, err := s.projectRepo.FindByID(ctx, projectID)
 	if err != nil {
@@ -43,8 +48,8 @@ func (s *Service) Create(ctx context.Context, projectID uuid.UUID, name string) 
 			return nil, errors.New("项目绑定的工作流不存在，请重新配置")
 		}
 		workflowID = project.WorkflowTemplateID
-	} else {
-		// 3. 查询默认工作流
+	} else if threadType == model.ThreadTypeWorkflow {
+		// 3. 工作流模式：查询默认工作流
 		defaultWorkflow, err := s.workflowRepo.GetDefault(ctx)
 		if err != nil {
 			return nil, errors.New("请先在项目设置中绑定工作流，或设置系统默认工作流")
@@ -60,6 +65,8 @@ func (s *Service) Create(ctx context.Context, projectID uuid.UUID, name string) 
 		Status:             model.ThreadStatusIdle,
 		CurrentPhase:       model.PhaseRequirement,
 		WorkflowTemplateID: workflowID,
+		Type:               threadType,
+		AvailableAgents:    availableAgents,
 	}
 
 	if err := s.repo.Create(ctx, thread); err != nil {

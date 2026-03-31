@@ -430,6 +430,9 @@ func (h *CallbackHandler) RegisterRoutes(r *gin.RouterGroup) {
 		// Multi-Mention APIs
 		callbacks.POST("/multi-mention", h.MultiMention)
 		callbacks.GET("/multi-mention-status", h.MultiMentionStatus)
+
+		// Teammate Roster API
+		callbacks.GET("/teammate-roster", h.TeammateRoster)
 	}
 }
 
@@ -601,6 +604,73 @@ func (h *CallbackHandler) getAvailableAgents(ctx context.Context, threadID uuid.
 	// 工作流模式：从模板获取
 	// TODO: 从 WorkflowTemplate 获取 AgentIDs
 	return nil
+}
+
+// TeammateRosterRequest teammate-roster 请求
+type TeammateRosterRequest struct {
+	ThreadID    string `form:"threadId" binding:"required"`
+	ExcludeSelf string `form:"excludeSelf"` // 可选：排除自己的 AgentID
+}
+
+// TeammateInfo 队友信息
+type TeammateInfo struct {
+	ID     string   `json:"id"`
+	Name   string   `json:"name"`
+	Role   string   `json:"role"`
+	Skills []string `json:"skills"`
+}
+
+// TeammateRosterResponse teammate-roster 响应
+type TeammateRosterResponse struct {
+	Agents []TeammateInfo `json:"agents"`
+}
+
+// TeammateRoster 获取队友名册
+// GET /api/callbacks/teammate-roster
+func (h *CallbackHandler) TeammateRoster(c *gin.Context) {
+	var req TeammateRosterRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	threadID, err := uuid.Parse(req.ThreadID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid threadId"})
+		return
+	}
+
+	// 获取 Thread 的可用 Agent 列表
+	availableAgents := h.getAvailableAgents(c.Request.Context(), threadID)
+	if len(availableAgents) == 0 {
+		c.JSON(http.StatusOK, TeammateRosterResponse{Agents: []TeammateInfo{}})
+		return
+	}
+
+	// 过滤掉自己
+	if req.ExcludeSelf != "" {
+		filtered := make([]string, 0, len(availableAgents))
+		for _, a := range availableAgents {
+			if a != req.ExcludeSelf {
+				filtered = append(filtered, a)
+			}
+		}
+		availableAgents = filtered
+	}
+
+	// 转换为 TeammateInfo
+	// TODO: 从 AgentConfigRepository 获取详细信息
+	teammates := make([]TeammateInfo, 0, len(availableAgents))
+	for _, agentID := range availableAgents {
+		teammates = append(teammates, TeammateInfo{
+			ID:     agentID,
+			Name:   agentID, // 临时使用 ID 作为名称
+			Role:   "",
+			Skills: []string{},
+		})
+	}
+
+	c.JSON(http.StatusOK, TeammateRosterResponse{Agents: teammates})
 }
 
 // 辅助函数

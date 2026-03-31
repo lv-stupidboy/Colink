@@ -60,7 +60,9 @@ func (h *ThreadHandler) Create(c *gin.Context) {
 	}
 
 	var req struct {
-		Name string `json:"name"`
+		Name            string   `json:"name"`
+		Type            string   `json:"type"`            // 可选：workflow 或 free_discussion
+		AvailableAgents []string `json:"availableAgents"` // 可选：自由模式下的可用 Agent 列表
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		// 如果没有请求体，使用默认名称
@@ -72,7 +74,19 @@ func (h *ThreadHandler) Create(c *gin.Context) {
 		req.Name = "新任务"
 	}
 
-	thread, err := h.service.Create(c.Request.Context(), projectID, req.Name)
+	// 默认为工作流模式
+	threadType := model.ThreadTypeWorkflow
+	if req.Type == string(model.ThreadTypeFreeDiscussion) {
+		threadType = model.ThreadTypeFreeDiscussion
+	}
+
+	var thread *model.Thread
+	if threadType == model.ThreadTypeFreeDiscussion && len(req.AvailableAgents) > 0 {
+		thread, err = h.service.CreateWithType(c.Request.Context(), projectID, req.Name, threadType, req.AvailableAgents)
+	} else {
+		thread, err = h.service.CreateWithType(c.Request.Context(), projectID, req.Name, threadType, nil)
+	}
+
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
