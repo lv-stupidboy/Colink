@@ -31,6 +31,11 @@ type CallbackHandler struct {
 
 	// Mention 解析器（支持动态 patterns）
 	mentionParser *mention.Parser
+
+	// Multi-Mention 编排器
+	multiMentionOrchestrator *a2a.MultiMentionOrchestrator
+	multiMentionRepo         repo.MultiMentionRepository
+	threadRepo               *repo.ThreadRepository
 }
 
 // NewCallbackHandler 创建 Callback 处理器
@@ -45,18 +50,24 @@ func NewCallbackHandler(
 	queue *a2a.InvocationQueue,
 	queueProcessor *a2a.QueueProcessor,
 	mentionParser *mention.Parser,
+	multiMentionOrchestrator *a2a.MultiMentionOrchestrator,
+	multiMentionRepo repo.MultiMentionRepository,
+	threadRepo *repo.ThreadRepository,
 ) *CallbackHandler {
 	return &CallbackHandler{
-		registry:       registry,
-		mcpAuth:        mcpAuth,
-		messageSvc:     messageSvc,
-		msgRepo:        msgRepo,
-		wsHub:          wsHub,
-		orchestrator:   orchestrator,
-		baseAgentRepo:  baseAgentRepo,
-		queue:          queue,
-		queueProcessor: queueProcessor,
-		mentionParser:  mentionParser,
+		registry:                  registry,
+		mcpAuth:                   mcpAuth,
+		messageSvc:                messageSvc,
+		msgRepo:                   msgRepo,
+		wsHub:                     wsHub,
+		orchestrator:              orchestrator,
+		baseAgentRepo:             baseAgentRepo,
+		queue:                     queue,
+		queueProcessor:            queueProcessor,
+		mentionParser:             mentionParser,
+		multiMentionOrchestrator:  multiMentionOrchestrator,
+		multiMentionRepo:          multiMentionRepo,
+		threadRepo:                threadRepo,
 	}
 }
 
@@ -415,7 +426,181 @@ func (h *CallbackHandler) RegisterRoutes(r *gin.RouterGroup) {
 		callbacks.POST("/post-message", h.PostMessage)
 		callbacks.GET("/pending-mentions", h.PendingMentions)
 		callbacks.GET("/thread-context", h.ThreadContext)
+
+		// Multi-Mention APIs
+		callbacks.POST("/multi-mention", h.MultiMention)
+		callbacks.GET("/multi-mention-status", h.MultiMentionStatus)
 	}
+}
+
+// ========== Multi-Mention APIs ==========
+
+// MultiMentionRequest multi-mention 请求
+type MultiMentionRequest struct {
+	InvocationID      string   `json:"invocationId" binding:"required"`
+	CallbackToken     string   `json:"callbackToken" binding:"required"`
+	Targets           []string `json:"targets" binding:"required,min=1,max=3"`
+	Question          string   `json:"question" binding:"required,max=5000"`
+	CallbackTo        string   `json:"callbackTo" binding:"required"`
+	Context           string   `json:"context,omitempty"`
+	TimeoutMinutes    int      `json:"timeoutMinutes,omitempty"`
+	SearchEvidence    []string `json:"searchEvidence,omitempty"`
+	OverrideReason    string   `json:"overrideReason,omitempty"`
+}
+
+// MultiMentionResponse multi-mention 响应
+type MultiMentionResponse struct {
+	RequestID     string `json:"requestId"`
+	Status        string `json:"status"`
+	CallbackToken string `json:"callbackToken"`
+}
+
+// MultiMention 创建多讨论请求
+// POST /api/callbacks/multi-mention
+func (h *CallbackHandler) MultiMention(c *gin.Context) {
+	var req MultiMentionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	invocationID, err := uuid.Parse(req.InvocationID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid invocationId"})
+		return
+	}
+
+	// 验证调用身份
+	record := h.registry.Verify(invocationID, req.CallbackToken)
+	if record == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error":   "expired_credentials",
+			"message": "Invocation ID or callback token is invalid or expired",
+		})
+		return
+	}
+
+	// 参数校验：先搜后问原则
+	if len(req.SearchEvidence) == 0 && req.OverrideReason == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "search_evidence_required",
+			"message": "searchEvidenceRefs or overrideReason is required (先搜后问原则)",
+		})
+		return
+	}
+
+	// 级联防护检查
+	if h.multiMentionOrchestrator != nil && h.multiMentionOrchestrator.IsActiveTarget(record.ThreadID, record.CatID) {
+		c.JSON(http.StatusConflict, gin.H{
+			"error":   "cascade_blocked",
+			"message": "Caller is an active multi-mention target, cascade blocked",
+		})
+		return
+	}
+
+	// 获取 Thread 的 availableAgents
+	availableAgents := h.getAvailableAgents(c.Request.Context(), record.ThreadID)
+
+	// 创建请求
+	params := a2a.CreateParams{
+		ThreadID:       record.ThreadID,
+		Initiator:      record.CatID,
+		CallbackTo:     req.CallbackTo,
+		Targets:        req.Targets,
+		Question:       req.Question,
+		Context:        req.Context,
+		TimeoutMinutes: req.TimeoutMinutes,
+		SearchEvidence: req.SearchEvidence,
+		OverrideReason: req.OverrideReason,
+	}
+
+	result, err := h.multiMentionOrchestrator.Create(c.Request.Context(), params, availableAgents)
+	if err != nil {
+		switch err {
+		case a2a.ErrTargetsEmpty, a2a.ErrTargetsExceed, a2a.ErrTargetsInvalid:
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		case a2a.ErrMissingSearchEvidence:
+			c.JSON(http.StatusBadRequest, gin.H{"error": "searchEvidenceRefs or overrideReason is required"})
+		case a2a.ErrCascadeBlocked:
+			c.JSON(http.StatusConflict, gin.H{"error": "cascade blocked"})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
+		return
+	}
+
+	// 启动请求
+	if err := h.multiMentionOrchestrator.Start(c.Request.Context(), result.RequestID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// TODO: 分发到目标 Agent（后续实现）
+
+	c.JSON(http.StatusOK, MultiMentionResponse{
+		RequestID:     result.RequestID.String(),
+		Status:        string(result.Status),
+		CallbackToken: result.CallbackToken,
+	})
+}
+
+// MultiMentionStatusRequest multi-mention-status 请求
+type MultiMentionStatusRequest struct {
+	ID string `form:"id" binding:"required"`
+}
+
+// MultiMentionStatusResponse multi-mention-status 响应
+type MultiMentionStatusResponse struct {
+	ID        string                          `json:"id"`
+	Status    string                          `json:"status"`
+	Responses []*model.MultiMentionResponse   `json:"responses"`
+	Timeout   bool                            `json:"timeout"`
+}
+
+// MultiMentionStatus 获取多讨论状态
+// GET /api/callbacks/multi-mention-status
+func (h *CallbackHandler) MultiMentionStatus(c *gin.Context) {
+	var req MultiMentionStatusRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	requestID, err := uuid.Parse(req.ID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	result, err := h.multiMentionOrchestrator.GetResult(c.Request.Context(), requestID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "request not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, MultiMentionStatusResponse{
+		ID:        requestID.String(),
+		Status:    string(result.Status),
+		Responses: result.Responses,
+		Timeout:   result.Timeout,
+	})
+}
+
+// getAvailableAgents 获取 Thread 的可用 Agent 列表
+func (h *CallbackHandler) getAvailableAgents(ctx context.Context, threadID uuid.UUID) []string {
+	thread, err := h.threadRepo.FindByID(ctx, threadID)
+	if err != nil || thread == nil {
+		return nil
+	}
+
+	// 自由模式
+	if thread.Type == model.ThreadTypeFreeDiscussion && len(thread.AvailableAgents) > 0 {
+		return thread.AvailableAgents
+	}
+
+	// 工作流模式：从模板获取
+	// TODO: 从 WorkflowTemplate 获取 AgentIDs
+	return nil
 }
 
 // 辅助函数
