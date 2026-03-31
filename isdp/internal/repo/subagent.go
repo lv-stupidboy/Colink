@@ -20,11 +20,11 @@ func NewSubagentRepository(db *sql.DB) *SubagentRepository {
 	return &SubagentRepository{db: db}
 }
 
-// Create 创建Subagent
+// Create 创建Subagent（content 存储在文件系统，不写入数据库）
 func (r *SubagentRepository) Create(ctx context.Context, subagent *model.Subagent) error {
 	query := `
-		INSERT INTO subagents (id, name, description, content, version, skill_id, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO subagents (id, name, description, version, skill_id, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`
 
 	var skillID interface{}
@@ -33,12 +33,12 @@ func (r *SubagentRepository) Create(ctx context.Context, subagent *model.Subagen
 	}
 
 	_, err := r.db.ExecContext(ctx, query,
-		subagent.ID.String(), subagent.Name, subagent.Description, subagent.Content, subagent.Version, skillID, subagent.CreatedAt, subagent.UpdatedAt,
+		subagent.ID.String(), subagent.Name, subagent.Description, subagent.Version, skillID, subagent.CreatedAt, subagent.UpdatedAt,
 	)
 	return err
 }
 
-// scanSubagent 辅助函数，扫描Subagent行
+// scanSubagent 辅助函数，扫描Subagent行（不包含 content，由 service 层从文件读取）
 func scanSubagent(scanner interface {
 	Scan(dest ...interface{}) error
 }) (*model.Subagent, error) {
@@ -49,7 +49,7 @@ func scanSubagent(scanner interface {
 	var skillID sql.NullString
 
 	err := scanner.Scan(
-		&idStr, &subagent.Name, &description, &subagent.Content, &version, &skillID, &subagent.CreatedAt, &subagent.UpdatedAt,
+		&idStr, &subagent.Name, &description, &version, &skillID, &subagent.CreatedAt, &subagent.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -72,7 +72,7 @@ func scanSubagent(scanner interface {
 // FindByID 根据ID查找
 func (r *SubagentRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.Subagent, error) {
 	query := `
-		SELECT id, name, description, content, version, skill_id, created_at, updated_at
+		SELECT id, name, description, version, skill_id, created_at, updated_at
 		FROM subagents WHERE id = ?
 	`
 	subagent, err := scanSubagent(r.db.QueryRowContext(ctx, query, id.String()))
@@ -88,7 +88,7 @@ func (r *SubagentRepository) FindByID(ctx context.Context, id uuid.UUID) (*model
 // FindByName 根据名称查找
 func (r *SubagentRepository) FindByName(ctx context.Context, name string) (*model.Subagent, error) {
 	query := `
-		SELECT id, name, description, content, version, skill_id, created_at, updated_at
+		SELECT id, name, description, version, skill_id, created_at, updated_at
 		FROM subagents WHERE name = ?
 	`
 	subagent, err := scanSubagent(r.db.QueryRowContext(ctx, query, name))
@@ -142,7 +142,7 @@ func (r *SubagentRepository) List(ctx context.Context, query *model.SubagentList
 
 	// 查询列表
 	listQuery := `
-		SELECT id, name, description, content, version, skill_id, created_at, updated_at
+		SELECT id, name, description, version, skill_id, created_at, updated_at
 		FROM subagents ` + whereClause + ` ORDER BY created_at DESC LIMIT ? OFFSET ?
 	`
 	args = append(args, pageSize, offset)
@@ -162,14 +162,18 @@ func (r *SubagentRepository) List(ctx context.Context, query *model.SubagentList
 		subagents = append(subagents, subagent)
 	}
 
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("error iterating subagent rows: %w", err)
+	}
+
 	return subagents, total, nil
 }
 
-// Update 更新Subagent
+// Update 更新Subagent（content 存储在文件系统，不更新数据库）
 func (r *SubagentRepository) Update(ctx context.Context, subagent *model.Subagent) error {
 	query := `
 		UPDATE subagents
-		SET name = ?, description = ?, content = ?, version = ?, skill_id = ?, updated_at = NOW()
+		SET name = ?, description = ?, version = ?, skill_id = ?, updated_at = NOW()
 		WHERE id = ?
 	`
 
@@ -179,7 +183,7 @@ func (r *SubagentRepository) Update(ctx context.Context, subagent *model.Subagen
 	}
 
 	_, err := r.db.ExecContext(ctx, query,
-		subagent.Name, subagent.Description, subagent.Content, subagent.Version, skillID, subagent.ID.String(),
+		subagent.Name, subagent.Description, subagent.Version, skillID, subagent.ID.String(),
 	)
 	return err
 }
@@ -194,7 +198,7 @@ func (r *SubagentRepository) Delete(ctx context.Context, id uuid.UUID) error {
 // FindByNameAndVersion 根据名称和版本查找
 func (r *SubagentRepository) FindByNameAndVersion(ctx context.Context, name, version string) (*model.Subagent, error) {
 	query := `
-		SELECT id, name, description, content, version, skill_id, created_at, updated_at
+		SELECT id, name, description, version, skill_id, created_at, updated_at
 		FROM subagents WHERE name = ? AND version = ?
 	`
 	subagent, err := scanSubagent(r.db.QueryRowContext(ctx, query, name, version))

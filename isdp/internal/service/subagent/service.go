@@ -49,6 +49,64 @@ func NewService(
 	}
 }
 
+// getContentFilePath 获取 content 文件路径
+func (s *Service) getContentFilePath(name string) string {
+	return filepath.Join(s.storagePath, name+".md")
+}
+
+// readContentFromFile 从文件读取 content
+func (s *Service) readContentFromFile(name string) string {
+	filePath := s.getContentFilePath(name)
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		s.logger.Debug("读取子代理文件失败，返回空内容",
+			zap.String("path", filePath),
+			zap.Error(err),
+		)
+		return ""
+	}
+	return string(content)
+}
+
+// writeContentToFile 将 content 写入文件
+func (s *Service) writeContentToFile(name, content string) error {
+	// 确保存储目录存在
+	if err := os.MkdirAll(s.storagePath, 0755); err != nil {
+		return fmt.Errorf("创建存储目录失败: %w", err)
+	}
+
+	filePath := s.getContentFilePath(name)
+	if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
+		return fmt.Errorf("写入文件失败: %w", err)
+	}
+
+	s.logger.Debug("写入子代理文件成功", zap.String("path", filePath))
+	return nil
+}
+
+// deleteContentFile 删除 content 文件
+func (s *Service) deleteContentFile(name string) error {
+	filePath := s.getContentFilePath(name)
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return nil // 文件不存在，无需删除
+	}
+	return os.Remove(filePath)
+}
+
+// populateContent 为 Subagent 填充 content（从文件读取）
+func (s *Service) populateContent(subagent *model.Subagent) {
+	if s.storagePath != "" && subagent != nil {
+		subagent.Content = s.readContentFromFile(subagent.Name)
+	}
+}
+
+// populateContentList 为 Subagent 列表填充 content
+func (s *Service) populateContentList(subagents []*model.Subagent) {
+	for _, subagent := range subagents {
+		s.populateContent(subagent)
+	}
+}
+
 // Create 创建Subagent
 func (s *Service) Create(ctx context.Context, req *model.CreateSubagentRequest) (*model.Subagent, error) {
 	// 检查名称是否重复
@@ -67,13 +125,26 @@ func (s *Service) Create(ctx context.Context, req *model.CreateSubagentRequest) 
 		ID:          uuid.New(),
 		Name:        req.Name,
 		Description: req.Description,
-		Content:     req.Content,
+		Content:     "", // Content 不再存储到数据库
 		SkillID:     req.SkillID,
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
 	}
 
+	// 写入 content 到文件
+	if s.storagePath != "" && req.Content != "" {
+		if err := s.writeContentToFile(req.Name, req.Content); err != nil {
+			return nil, fmt.Errorf("写入子代理文件失败: %w", err)
+		}
+		subagent.Content = req.Content
+	}
+
+	// 创建数据库记录（不含 content）
 	if err := s.repo.Create(ctx, subagent); err != nil {
+		// 回滚：删除已创建的文件
+		if s.storagePath != "" {
+			s.deleteContentFile(req.Name)
+		}
 		return nil, fmt.Errorf("创建子代理失败: %w", err)
 	}
 
@@ -87,12 +158,24 @@ func (s *Service) Create(ctx context.Context, req *model.CreateSubagentRequest) 
 
 // Get 根据ID获取Subagent
 func (s *Service) Get(ctx context.Context, id uuid.UUID) (*model.Subagent, error) {
-	return s.repo.FindByID(ctx, id)
+	subagent, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	// 从文件填充 content
+	s.populateContent(subagent)
+	return subagent, nil
 }
 
 // List 列出Subagents
 func (s *Service) List(ctx context.Context, query *model.SubagentListQuery) ([]*model.Subagent, int64, error) {
-	return s.repo.List(ctx, query)
+	subagents, total, err := s.repo.List(ctx, query)
+	if err != nil {
+		return nil, 0, err
+	}
+	// 从文件填充 content
+	s.populateContentList(subagents)
+	return subagents, total, nil
 }
 
 // Update 更新Subagent
