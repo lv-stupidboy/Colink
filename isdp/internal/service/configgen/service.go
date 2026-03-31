@@ -29,6 +29,8 @@ type Service struct {
 	agentRuleBindingRepo     *repo.AgentRuleBindingRepository
 	commandSkillBindingRepo  *repo.CommandSkillBindingRepository
 	subagentSkillBindingRepo *repo.SubagentSkillBindingRepository
+	settingsRepo             *repo.SettingsRepository
+	agentSettingsBindingRepo *repo.AgentSettingsBindingRepository
 	skillStoragePath         string
 	subagentStoragePath      string
 	commandStoragePath       string
@@ -51,6 +53,8 @@ func NewService(
 	agentRuleBindingRepo *repo.AgentRuleBindingRepository,
 	commandSkillBindingRepo *repo.CommandSkillBindingRepository,
 	subagentSkillBindingRepo *repo.SubagentSkillBindingRepository,
+	settingsRepo *repo.SettingsRepository,
+	agentSettingsBindingRepo *repo.AgentSettingsBindingRepository,
 	skillStoragePath string,
 	subagentStoragePath string,
 	commandStoragePath string,
@@ -72,6 +76,8 @@ func NewService(
 		agentRuleBindingRepo:     agentRuleBindingRepo,
 		commandSkillBindingRepo:  commandSkillBindingRepo,
 		subagentSkillBindingRepo: subagentSkillBindingRepo,
+		settingsRepo:             settingsRepo,
+		agentSettingsBindingRepo: agentSettingsBindingRepo,
 		skillStoragePath:         skillStoragePath,
 		subagentStoragePath:      subagentStoragePath,
 		commandStoragePath:       commandStoragePath,
@@ -112,21 +118,24 @@ type GenerateAgentConfigResult struct {
 	SubagentsCount int       `json:"subagentsCount"`
 	CommandsCount  int       `json:"commandsCount"`
 	RulesCount     int       `json:"rulesCount"`
+	SettingsCount  int       `json:"settingsCount"`
 	GeneratedAt    time.Time `json:"generatedAt"`
 }
 
 // PreviewAgentConfigResult Agent配置预览结果
 type PreviewAgentConfigResult struct {
-	AgentID      string                      `json:"agent_id"`
-	AgentName    string                      `json:"agent_name"`
-	Skills       []PreviewAssetItem          `json:"skills"`
-	Commands     []PreviewAssetItem          `json:"commands"`
-	Subagents    []PreviewAssetItem          `json:"subagents"`
-	Rules        []PreviewAssetItem          `json:"rules"`
-	SkillsCount  int                         `json:"skills_count"`
-	CommandsCount int                        `json:"commands_count"`
-	SubagentsCount int                       `json:"subagents_count"`
-	RulesCount   int                         `json:"rules_count"`
+	AgentID        string             `json:"agent_id"`
+	AgentName      string             `json:"agent_name"`
+	Skills         []PreviewAssetItem `json:"skills"`
+	Commands       []PreviewAssetItem `json:"commands"`
+	Subagents      []PreviewAssetItem `json:"subagents"`
+	Rules          []PreviewAssetItem `json:"rules"`
+	Settings       []PreviewAssetItem `json:"settings"`
+	SkillsCount    int                `json:"skills_count"`
+	CommandsCount  int                `json:"commands_count"`
+	SubagentsCount int                `json:"subagents_count"`
+	RulesCount     int                `json:"rules_count"`
+	SettingsCount  int                `json:"settings_count"`
 }
 
 // PreviewAssetItem 预览资产项
@@ -281,11 +290,12 @@ func (s *Service) GenerateAgentConfig(ctx context.Context, req *GenerateAgentCon
 		}
 	}
 
-	// 4. 创建目录结构: skills/, agents/, commands/, rules/
+	// 4. 创建目录结构: skills/, agents/, commands/, rules/, settings/
 	skillsDir := filepath.Join(configPath, "skills")
 	agentsDir := filepath.Join(configPath, "agents")
 	commandsDir := filepath.Join(configPath, "commands")
 	rulesDir := filepath.Join(configPath, "rules")
+	settingsDir := filepath.Join(configPath, "settings")
 	if err := os.MkdirAll(skillsDir, 0755); err != nil {
 		return nil, fmt.Errorf("创建skills目录失败: %w", err)
 	}
@@ -297,6 +307,9 @@ func (s *Service) GenerateAgentConfig(ctx context.Context, req *GenerateAgentCon
 	}
 	if err := os.MkdirAll(rulesDir, 0755); err != nil {
 		return nil, fmt.Errorf("创建rules目录失败: %w", err)
+	}
+	if err := os.MkdirAll(settingsDir, 0755); err != nil {
+		return nil, fmt.Errorf("创建settings目录失败: %w", err)
 	}
 
 	// 5. 生成 settings.json
@@ -448,7 +461,31 @@ func (s *Service) GenerateAgentConfig(ctx context.Context, req *GenerateAgentCon
 		skillsCount++
 	}
 
-	// 12. 更新Agent配置生成时间
+	// 12. 复制绑定的Settings目录到 settings/
+	settingsCount := 0
+	settingsIDs, err := s.agentSettingsBindingRepo.FindByAgentRoleID(ctx, req.AgentRoleID)
+	if err != nil {
+		s.logger.Warn("获取绑定的Settings失败", zap.Error(err))
+	}
+	for _, settingsID := range settingsIDs {
+		settings, err := s.settingsRepo.FindByID(ctx, settingsID)
+		if err != nil {
+			s.logger.Warn("获取Settings失败",
+				zap.String("settings_id", settingsID.String()),
+				zap.Error(err))
+			continue
+		}
+		// 复制Settings目录到 settings/{settingsName}/
+		if err := s.copySettingsDirectory(settings, settingsDir); err != nil {
+			s.logger.Warn("复制Settings目录失败",
+				zap.String("settings", settings.Name),
+				zap.Error(err))
+			continue
+		}
+		settingsCount++
+	}
+
+	// 13. 更新Agent配置生成时间
 	if err := s.agentRepo.UpdateConfigGeneratedAt(ctx, req.AgentRoleID, configPath); err != nil {
 		s.logger.Warn("更新配置生成时间失败", zap.Error(err))
 	}
@@ -458,7 +495,8 @@ func (s *Service) GenerateAgentConfig(ctx context.Context, req *GenerateAgentCon
 		zap.Int("skills_count", skillsCount),
 		zap.Int("subagents_count", subagentsCount),
 		zap.Int("commands_count", commandsCount),
-		zap.Int("rules_count", rulesCount))
+		zap.Int("rules_count", rulesCount),
+		zap.Int("settings_count", settingsCount))
 
 	return &GenerateAgentConfigResult{
 		AgentID:        req.AgentRoleID.String(),
@@ -467,6 +505,7 @@ func (s *Service) GenerateAgentConfig(ctx context.Context, req *GenerateAgentCon
 		SubagentsCount: subagentsCount,
 		CommandsCount:  commandsCount,
 		RulesCount:     rulesCount,
+		SettingsCount:  settingsCount,
 		GeneratedAt:    time.Now(),
 	}, nil
 }
@@ -564,6 +603,75 @@ func (s *Service) copyRuleFile(rule *model.Rule, targetDir string) error {
 	return os.WriteFile(targetPath, content, 0644)
 }
 
+// copySettingsDirectory 复制Settings目录到目标目录
+// 源目录: {settings.DirectoryPath}
+// 目标目录: {targetDir}/{settings.Name}/
+func (s *Service) copySettingsDirectory(settings *model.Settings, targetDir string) error {
+	// 检查Settings目录路径是否存在
+	if settings.DirectoryPath == "" {
+		return fmt.Errorf("Settings目录路径为空")
+	}
+
+	// 源目录
+	sourceDir := settings.DirectoryPath
+	if _, err := os.Stat(sourceDir); os.IsNotExist(err) {
+		return fmt.Errorf("Settings源目录不存在: %s", sourceDir)
+	}
+
+	// 目标目录: {targetDir}/{settingsName}/
+	destDir := filepath.Join(targetDir, settings.Name)
+
+	// 如果目标目录已存在，先删除
+	if _, err := os.Stat(destDir); err == nil {
+		if err := os.RemoveAll(destDir); err != nil {
+			return fmt.Errorf("删除已存在的Settings目标目录失败: %w", err)
+		}
+	}
+
+	// 创建目标目录
+	if err := os.MkdirAll(destDir, 0755); err != nil {
+		return fmt.Errorf("创建Settings目标目录失败: %w", err)
+	}
+
+	// 递归复制目录内容
+	return s.copyDirContents(sourceDir, destDir)
+}
+
+// copyDirContents 递归复制目录内容
+func (s *Service) copyDirContents(srcDir, destDir string) error {
+	// 读取源目录
+	entries, err := os.ReadDir(srcDir)
+	if err != nil {
+		return fmt.Errorf("读取源目录失败: %w", err)
+	}
+
+	for _, entry := range entries {
+		srcPath := filepath.Join(srcDir, entry.Name())
+		destPath := filepath.Join(destDir, entry.Name())
+
+		if entry.IsDir() {
+			// 递归复制子目录
+			if err := os.MkdirAll(destPath, 0755); err != nil {
+				return fmt.Errorf("创建子目录失败: %w", err)
+			}
+			if err := s.copyDirContents(srcPath, destPath); err != nil {
+				return err
+			}
+		} else {
+			// 复制文件
+			content, err := os.ReadFile(srcPath)
+			if err != nil {
+				return fmt.Errorf("读取文件失败: %w", err)
+			}
+			if err := os.WriteFile(destPath, content, 0644); err != nil {
+				return fmt.Errorf("写入文件失败: %w", err)
+			}
+		}
+	}
+
+	return nil
+}
+
 // PreviewAgentConfig 预览Agent配置（生成前）
 func (s *Service) PreviewAgentConfig(ctx context.Context, agentRoleID uuid.UUID) (*PreviewAgentConfigResult, error) {
 	// 1. 获取Agent角色
@@ -579,6 +687,7 @@ func (s *Service) PreviewAgentConfig(ctx context.Context, agentRoleID uuid.UUID)
 		Commands:  []PreviewAssetItem{},
 		Subagents: []PreviewAssetItem{},
 		Rules:     []PreviewAssetItem{},
+		Settings:  []PreviewAssetItem{},
 	}
 
 	// 用于收集所有 Skill（去重）
@@ -693,16 +802,35 @@ func (s *Service) PreviewAgentConfig(ctx context.Context, agentRoleID uuid.UUID)
 		})
 	}
 
-	// 6. 转换skillMap为列表
+	// 6. 获取绑定的Settings
+	settingsIDs, err := s.agentSettingsBindingRepo.FindByAgentRoleID(ctx, agentRoleID)
+	if err != nil {
+		s.logger.Warn("获取绑定的Settings失败", zap.Error(err))
+	}
+	for _, settingsID := range settingsIDs {
+		settings, err := s.settingsRepo.FindByID(ctx, settingsID)
+		if err != nil {
+			s.logger.Warn("获取Settings失败", zap.String("settings_id", settingsID.String()), zap.Error(err))
+			continue
+		}
+		result.Settings = append(result.Settings, PreviewAssetItem{
+			ID:          settingsID.String(),
+			Name:        settings.Name,
+			Description: settings.Description,
+		})
+	}
+
+	// 7. 转换skillMap为列表
 	for _, skill := range skillMap {
 		result.Skills = append(result.Skills, *skill)
 	}
 
-	// 7. 设置计数
+	// 8. 设置计数
 	result.SkillsCount = len(result.Skills)
 	result.CommandsCount = len(result.Commands)
 	result.SubagentsCount = len(result.Subagents)
 	result.RulesCount = len(result.Rules)
+	result.SettingsCount = len(result.Settings)
 
 	return result, nil
 }
