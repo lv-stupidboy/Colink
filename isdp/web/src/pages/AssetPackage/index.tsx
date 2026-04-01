@@ -318,10 +318,6 @@ const AssetPackageManagement: React.FC = () => {
               >
                 <Input placeholder="如：my-assets" />
               </Form.Item>
-
-              <Form.Item name="description" label="描述">
-                <Input.TextArea rows={2} placeholder="资产包描述" />
-              </Form.Item>
             </Form>
 
             <Divider>选择资产</Divider>
