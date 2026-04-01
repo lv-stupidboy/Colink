@@ -3,7 +3,9 @@ package api
 import (
 	"io"
 	"net/http"
+	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/service/assetpackage"
@@ -33,8 +35,8 @@ func (h *AssetPackageHandler) Import(c *gin.Context) {
 	defer file.Close()
 
 	// 检查文件扩展名
-	ext := header.Filename
-	if len(ext) < 4 || ext[len(ext)-4:] != ".zip" {
+	ext := strings.ToLower(filepath.Ext(header.Filename))
+	if ext != ".zip" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "只支持 .zip 格式的文件"})
 		return
 	}
