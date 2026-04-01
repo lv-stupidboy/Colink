@@ -589,14 +589,19 @@ const AgentRoleList: React.FC = () => {
             <Input.TextArea rows={8} placeholder="系统提示词，定义Agent的行为和能力" />
           </Form.Item>
 
-          <Form.Item label="绑定技能">
+          <Form.Item label="绑定 Skills">
             <Select
               mode="multiple"
-              placeholder="选择要绑定的技能"
+              placeholder="选择要绑定的 Skills"
               value={selectedSkillIds}
               onChange={setSelectedSkillIds}
               style={{ width: '100%' }}
               optionLabelProp="label"
+              showSearch
+              filterOption={(input, option) =>
+                (option?.label as string)?.toLowerCase().includes(input.toLowerCase()) ||
+                (option?.desc as string)?.toLowerCase().includes(input.toLowerCase())
+              }
               options={skills.map(s => ({
                 label: s.name,
                 value: s.id,
@@ -606,21 +611,26 @@ const AgentRoleList: React.FC = () => {
                 <div style={{ display: 'flex', flexDirection: 'column' }}>
                   <span style={{ fontWeight: 500 }}>{option.label}</span>
                   <span style={{ fontSize: 12, color: '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 400 }}>
-                    {option.data.desc}
+                    {option.data?.desc}
                   </span>
                 </div>
               )}
             />
           </Form.Item>
 
-          <Form.Item label="绑定子代理">
+          <Form.Item label="绑定 Subagents">
             <Select
               mode="multiple"
-              placeholder="选择要绑定的子代理"
+              placeholder="选择要绑定的 Subagents"
               value={selectedSubagentIds}
               onChange={setSelectedSubagentIds}
               style={{ width: '100%' }}
               optionLabelProp="label"
+              showSearch
+              filterOption={(input, option) =>
+                (option?.label as string)?.toLowerCase().includes(input.toLowerCase()) ||
+                (option?.desc as string)?.toLowerCase().includes(input.toLowerCase())
+              }
               options={subagents.map(s => ({
                 label: s.name,
                 value: s.id,
@@ -630,21 +640,26 @@ const AgentRoleList: React.FC = () => {
                 <div style={{ display: 'flex', flexDirection: 'column' }}>
                   <span style={{ fontWeight: 500 }}>{option.label}</span>
                   <span style={{ fontSize: 12, color: '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 400 }}>
-                    {option.data.desc}
+                    {option.data?.desc}
                   </span>
                 </div>
               )}
             />
           </Form.Item>
 
-          <Form.Item label="绑定命令">
+          <Form.Item label="绑定 Commands">
             <Select
               mode="multiple"
-              placeholder="选择要绑定的命令"
+              placeholder="选择要绑定的 Commands"
               value={selectedCommandIds}
               onChange={setSelectedCommandIds}
               style={{ width: '100%' }}
               optionLabelProp="label"
+              showSearch
+              filterOption={(input, option) =>
+                (option?.label as string)?.toLowerCase().includes(input.toLowerCase()) ||
+                (option?.desc as string)?.toLowerCase().includes(input.toLowerCase())
+              }
               options={commands.map(c => ({
                 label: c.name,
                 value: c.id,
@@ -654,29 +669,34 @@ const AgentRoleList: React.FC = () => {
                 <div style={{ display: 'flex', flexDirection: 'column' }}>
                   <span style={{ fontWeight: 500 }}>{option.label}</span>
                   <span style={{ fontSize: 12, color: '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 400 }}>
-                    {option.data.desc}
+                    {option.data?.desc}
                   </span>
                 </div>
               )}
             />
           </Form.Item>
 
-          <Form.Item label="绑定规约">
+          <Form.Item label="绑定 Rules">
             <div style={{ marginBottom: 8 }}>
               <Text type="secondary" style={{ fontSize: 12 }}>
-                公共规约（默认选中，可取消）:
+                公共 Rules（默认选中，可取消）：
               </Text>
               <Select
                 mode="multiple"
-                placeholder="选择公共规约"
+                placeholder="选择公共 Rules"
                 value={selectedRuleIds.filter(id => publicRules.some(r => r.id === id))}
                 onChange={(ids) => {
-                  // 合并公共规约选择和实例规约选择
+                  // 合并公共 Rules 和实例 Rules 的选择
                   const instanceSelected = selectedRuleIds.filter(id => instanceRules.some(r => r.id === id));
                   setSelectedRuleIds([...ids, ...instanceSelected]);
                 }}
                 style={{ width: '100%', marginTop: 4 }}
                 optionLabelProp="label"
+                showSearch
+                filterOption={(input, option) =>
+                  (option?.label as string)?.toLowerCase().includes(input.toLowerCase()) ||
+                  (option?.desc as string)?.toLowerCase().includes(input.toLowerCase())
+                }
                 options={publicRules.map(r => ({
                   label: r.name,
                   value: r.id,
@@ -694,19 +714,24 @@ const AgentRoleList: React.FC = () => {
             </div>
             <div>
               <Text type="secondary" style={{ fontSize: 12 }}>
-                实例规约（按需绑定）:
+                实例 Rules（按需绑定）：
               </Text>
               <Select
                 mode="multiple"
-                placeholder="选择实例规约"
+                placeholder="选择实例 Rules"
                 value={selectedRuleIds.filter(id => instanceRules.some(r => r.id === id))}
                 onChange={(ids) => {
-                  // 合并公共规约选择和实例规约选择
+                  // 合并公共 Rules 和实例 Rules 的选择
                   const publicSelected = selectedRuleIds.filter(id => publicRules.some(r => r.id === id));
                   setSelectedRuleIds([...publicSelected, ...ids]);
                 }}
                 style={{ width: '100%', marginTop: 4 }}
                 optionLabelProp="label"
+                showSearch
+                filterOption={(input, option) =>
+                  (option?.label as string)?.toLowerCase().includes(input.toLowerCase()) ||
+                  (option?.desc as string)?.toLowerCase().includes(input.toLowerCase())
+                }
                 options={instanceRules.map(r => ({
                   label: r.name,
                   value: r.id,
@@ -791,7 +816,7 @@ const AgentRoleList: React.FC = () => {
                         <Tag key={item.id} color="default">{item.name}</Tag>
                       ))}
                     </div>
-                  ) : <Text type="secondary">暂无绑定的命令</Text>,
+                  ) : <Text type="secondary">暂无绑定的 Commands</Text>,
                 },
                 {
                   key: 'subagents',
@@ -808,14 +833,14 @@ const AgentRoleList: React.FC = () => {
                         <Tag key={item.id} color="default">{item.name}</Tag>
                       ))}
                     </div>
-                  ) : <Text type="secondary">暂无绑定的子代理</Text>,
+                  ) : <Text type="secondary">暂无绑定的 Subagents</Text>,
                 },
                 {
                   key: 'skills',
                   label: (
                     <Space>
                       <BookOutlined style={{ color: '#722ed1' }} />
-                      <span>Skills（含命令/子代理关联）</span>
+                      <span>Skills（含 Command/Subagent 关联）</span>
                       <Tag color="purple">{previewData.skillsCount}</Tag>
                     </Space>
                   ),
@@ -825,7 +850,7 @@ const AgentRoleList: React.FC = () => {
                         <Tag key={item.id} color="default">{item.name}</Tag>
                       ))}
                     </div>
-                  ) : <Text type="secondary">暂无关联的技能</Text>,
+                  ) : <Text type="secondary">暂无关联的 Skills</Text>,
                 },
                 {
                   key: 'rules',
@@ -842,7 +867,7 @@ const AgentRoleList: React.FC = () => {
                         <Tag key={item.id} color="default">{item.name}</Tag>
                       ))}
                     </div>
-                  ) : <Text type="secondary">暂无绑定的规约</Text>,
+                  ) : <Text type="secondary">暂无绑定的 Rules</Text>,
                 },
               ]}
             />

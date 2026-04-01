@@ -4,6 +4,84 @@
 
 ---
 
+## 2026-04-01 资产包轻量化重构与团队包功能
+
+### 背景
+
+原有的资产包设计引入了版本概念和元数据表管理，带来了额外的管理负担。实际使用中，资产包只需要作为导入导出工具，不需要存储版本信息。同时，团队协作场景需要能够完整导出工作流及其关联的角色和资产。
+
+### 目标
+
+1. 移除资产包的版本概念，简化为纯粹的导入导出工具
+2. 删除 asset_packages 元数据表
+3. 新增团队包功能，支持导出工作流+角色+资产的完整配置
+4. 菜单结构调整：在 Agent团队 下新增"管理工具"二级菜单
+
+### 核心变更
+
+#### 后端改动
+
+**模型简化：**
+- `isdp/internal/model/asset_package.go` - 移除 AssetPackage 实体，保留请求/响应结构和 Manifest
+- `isdp/internal/model/team_package.go` - 新增团队包模型（TeamPackageManifest, TeamPackagePreview, TeamPackageImportConfirm）
+
+**服务层：**
+- `isdp/internal/service/assetpackage/service.go` - 简化为仅 Import/Export 方法，移除元数据管理
+- `isdp/internal/service/teampackage/service.go` - 新增团队包服务（Export, ImportPreview, ImportConfirm）
+
+**API Handler：**
+- `isdp/internal/api/asset_package_handler.go` - 仅保留 Import 和 Export 端点
+- `isdp/internal/api/team_package_handler.go` - 新增团队包端点（Import, ImportConfirm, Export）
+
+**数据库：**
+- `isdp/sql-change/migrations/202604010001_drop_asset_packages_table.sql` - 删除 asset_packages 表
+
+#### 前端改动
+
+**菜单结构：**
+- `isdp/web/src/layouts/MainLayout.tsx` - 新增"管理工具"菜单（团队包、资产包）
+
+**页面组件：**
+- `isdp/web/src/pages/AssetPackage/index.tsx` - 重写为双卡片布局（导入+导出）
+- `isdp/web/src/pages/TeamPackage/index.tsx` - 新增团队包页面（导入预览+导出）
+
+**API 客户端：**
+- `isdp/web/src/api/client.ts` - 简化 assetPackages，新增 teamPackages API
+
+### 新增/修改文件列表
+
+| 文件 | 改动类型 | 说明 |
+|------|----------|------|
+| `isdp/sql-change/migrations/202604010001_drop_asset_packages_table.sql` | 新建 | 数据库迁移脚本 |
+| `isdp/internal/model/asset_package.go` | 修改 | 简化模型，移除版本 |
+| `isdp/internal/model/team_package.go` | 新建 | 团队包模型定义 |
+| `isdp/internal/service/assetpackage/service.go` | 修改 | 简化服务，仅保留导入导出 |
+| `isdp/internal/service/teampackage/service.go` | 新建 | 团队包服务实现 |
+| `isdp/internal/api/asset_package_handler.go` | 修改 | 简化端点 |
+| `isdp/internal/api/team_package_handler.go` | 新建 | 团队包 Handler |
+| `isdp/cmd/server/main.go` | 修改 | 更新服务注册 |
+| `isdp/web/src/layouts/MainLayout.tsx` | 修改 | 新增管理工具菜单 |
+| `isdp/web/src/pages/AssetPackage/index.tsx` | 重写 | 双卡片布局 |
+| `isdp/web/src/pages/TeamPackage/index.tsx` | 新建 | 团队包页面 |
+| `isdp/web/src/api/client.ts` | 修改 | 更新 API 客户端 |
+| `isdp/web/src/App.tsx` | 修改 | 新增路由 |
+
+### 验证方法
+
+1. 启动后端服务：`cd isdp && go run ./cmd/server`
+2. 启动前端：`cd web && npm run dev`
+3. 访问管理工具菜单，验证资产包和团队包页面
+4. 测试资产包导入导出功能
+5. 测试团队包导入（包含冲突预览）导出功能
+
+### 影响范围
+
+- 资产包功能完全重构，原有版本管理功能移除
+- 新增团队包功能模块
+- 菜单结构变更
+
+---
+
 ## 2026-03-27 安装器完整实现与优化
 
 ### 背景

@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Card, Button, Upload, Select, Table, Tag, Space, Typography, message,
+  Card, Button, Upload, Table, Tag, Space, Typography, message,
   Divider, Alert, Spin, Empty, Form, Input, Transfer
 } from 'antd';
 import {
-  CloudUploadOutlined,
   CloudDownloadOutlined,
   FileZipOutlined,
 } from '@ant-design/icons';
@@ -49,7 +48,6 @@ const assetTypeOptions = [
 
 const AssetPackageManagement: React.FC = () => {
   // 导入状态
-  const [importFile, setImportFile] = useState<File | null>(null);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [importing, setImporting] = useState(false);
 
@@ -103,7 +101,6 @@ const AssetPackageManagement: React.FC = () => {
 
   // 处理文件导入
   const handleImport = async (file: File) => {
-    setImportFile(file);
     setImporting(true);
     setImportResult(null);
     try {
@@ -115,7 +112,6 @@ const AssetPackageManagement: React.FC = () => {
     } catch (error: any) {
       const errorMsg = error.response?.data?.error || error.message || '导入失败';
       message.error(errorMsg);
-      setImportFile(null);
     } finally {
       setImporting(false);
     }
@@ -132,7 +128,6 @@ const AssetPackageManagement: React.FC = () => {
 
   // 清除导入结果
   const handleClearImport = () => {
-    setImportFile(null);
     setImportResult(null);
   };
 

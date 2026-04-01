@@ -605,6 +605,33 @@ class APIClient {
     },
   };
 
+  // Team Package API
+  teamPackages = {
+    import: async (file: File): Promise<any> => {
+      const formData = new FormData();
+      formData.append('file', file);
+      const response = await this.client.post('/team-packages/import', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      return response.data;
+    },
+    importConfirm: async (file: File, confirm: any): Promise<any> => {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('confirm', new Blob([JSON.stringify(confirm)], { type: 'application/json' }));
+      const response = await this.client.post('/team-packages/import/confirm', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      return response.data;
+    },
+    export: async (workflowId: string): Promise<Blob> => {
+      const response = await this.client.post('/team-packages/export', { workflowId }, {
+        responseType: 'blob',
+      });
+      return response.data;
+    },
+  };
+
   // Settings API
   settings = {
     list: (query?: SettingsListQuery): Promise<SettingsListResponse> => {

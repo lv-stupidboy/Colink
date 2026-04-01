@@ -6,21 +6,35 @@ import {
 import {
   CloudUploadOutlined,
   CloudDownloadOutlined,
-  InboxOutlined,
   FileZipOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
 import type { UploadProps } from 'antd';
-import { teamPackageApi, TeamPackagePreview, ImportConfirm } from '@/api/teamPackage';
+import api from '@/api/client';
 
 const { Title, Text } = Typography;
 const { Dragger } = Upload;
 
-// 状态标签颜色
-const statusColors: Record<string, string> = {
-  exists: 'warning',  // 已存在 - 需要处理
-  new: 'success',     // 新增 - 无冲突
-};
+// TeamPackagePreview 类型定义
+interface TeamPackagePreview {
+  workflow: { name: string; exists: boolean };
+  roles: Array<{ name: string; exists: boolean; localId?: string }>;
+  assets: {
+    skills: Array<{ name: string; exists: boolean }>;
+    commands: Array<{ name: string; exists: boolean }>;
+    subagents: Array<{ name: string; exists: boolean }>;
+    rules: Array<{ name: string; exists: boolean }>;
+    settings: Array<{ name: string; exists: boolean }>;
+  };
+}
+
+// ImportConfirm 类型定义
+interface ImportConfirm {
+  mode: 'overwrite' | 'skip' | 'selective';
+  workflowAction: 'overwrite' | 'skip';
+  roleActions: Array<{ name: string; action: 'overwrite' | 'skip' }>;
+  assetActions: Array<{ assetType: string; name: string; action: 'overwrite' | 'skip' }>;
+}
 
 const TeamPackageManagement: React.FC = () => {
   // 工作流列表
@@ -45,7 +59,7 @@ const TeamPackageManagement: React.FC = () => {
   const loadWorkflows = async () => {
     setLoadingWorkflows(true);
     try {
-      const result = await teamPackageApi.getWorkflows();
+      const result = await api.workflows.list();
       setWorkflows(result);
     } catch (error) {
       message.error('加载工作流列表失败');
@@ -60,7 +74,7 @@ const TeamPackageManagement: React.FC = () => {
     setLoadingPreview(true);
     setPreview(null);
     try {
-      const result = await teamPackageApi.import(file);
+      const result = await api.teamPackages.import(file);
       setPreview(result);
     } catch (error: any) {
       const errorMsg = error.response?.data?.error || error.message || '解析团队包失败';
@@ -109,7 +123,7 @@ const TeamPackageManagement: React.FC = () => {
     setImporting(true);
     try {
       const confirm = buildImportConfirm(mode);
-      const result = await teamPackageApi.importConfirm(importFile, confirm);
+      const result = await api.teamPackages.importConfirm(importFile, confirm);
       message.success(`导入成功：工作流 ${result.workflow?.name || ''}，角色 ${result.roles?.length || 0} 个，资产 ${result.assets?.length || 0} 个`);
       // 清理状态
       setImportFile(null);
@@ -133,7 +147,7 @@ const TeamPackageManagement: React.FC = () => {
 
     setExporting(true);
     try {
-      const blob = await teamPackageApi.export(selectedWorkflowId);
+      const blob = await api.teamPackages.export(selectedWorkflowId);
       const workflow = workflows.find(w => w.id === selectedWorkflowId);
       const fileName = `${workflow?.name || 'team-package'}.zip`;
 
