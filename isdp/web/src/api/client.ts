@@ -49,9 +49,6 @@ import type {
   RuleListResponse,
   CommandSkillsResponse,
   AgentRulesResponse,
-  AssetPackage,
-  AssetPackageListQuery,
-  AssetPackageListResponse,
   ExportAssetPackageRequest,
   ImportResult,
   Settings,
@@ -590,19 +587,8 @@ class APIClient {
       this.request(`/agents/${agentId}/rules/${ruleId}`, 'DELETE'),
   };
 
-  // Asset Package API
+  // Asset Package API (只保留导入和导出)
   assetPackages = {
-    list: (query?: AssetPackageListQuery): Promise<AssetPackageListResponse> => {
-      const params = new URLSearchParams();
-      if (query?.search) params.append('search', query.search);
-      if (query?.page) params.append('page', query.page.toString());
-      if (query?.pageSize) params.append('page_size', query.pageSize.toString());
-
-      const url = params.toString() ? `/asset-packages?${params.toString()}` : '/asset-packages';
-      return this.request(url, 'GET');
-    },
-    get: (id: string): Promise<AssetPackage> =>
-      this.request(`/asset-packages/${id}`, 'GET'),
     import: async (file: File): Promise<ImportResult> => {
       const formData = new FormData();
       formData.append('file', file);
@@ -617,8 +603,6 @@ class APIClient {
       });
       return response.data;
     },
-    delete: (id: string): Promise<void> =>
-      this.request(`/asset-packages/${id}`, 'DELETE'),
   };
 
   // Settings API

@@ -1,21 +1,16 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  Card, Button, Modal, Form, Input, message, Space, Tag, Typography,
-  Popconfirm, Empty, Spin, Table, Divider, Upload, Transfer, Descriptions,
-  Pagination, Alert
+  Card, Button, Upload, Select, Table, Tag, Space, Typography, message,
+  Divider, Alert, Spin, Empty, Form, Input, Transfer
 } from 'antd';
 import {
   CloudUploadOutlined,
   CloudDownloadOutlined,
-  DeleteOutlined,
-  InboxOutlined,
   FileZipOutlined,
-  EyeOutlined,
 } from '@ant-design/icons';
 import type { UploadProps } from 'antd';
 import api from '@/api/client';
 import type {
-  AssetPackage,
   ImportResult,
   Skill,
   Command,
@@ -25,15 +20,7 @@ import type {
 } from '@/types';
 
 const { Title, Text } = Typography;
-
-// 资产类型选项
-const assetTypeOptions = [
-  { key: 'skills', title: '技能' },
-  { key: 'commands', title: '命令' },
-  { key: 'subagents', title: '子代理' },
-  { key: 'rules', title: '规则' },
-  { key: 'settings', title: '配置' },
-];
+const { Dragger } = Upload;
 
 // 资产类型标签颜色
 const assetTypeColors: Record<string, string> = {
@@ -51,24 +38,24 @@ const statusColors: Record<string, string> = {
   failed: 'error',
 };
 
-const AssetPackageManagement: React.FC = () => {
-  // 资产包列表状态
-  const [packages, setPackages] = useState<AssetPackage[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
-  const [searchText, setSearchText] = useState('');
+// 资产类型选项
+const assetTypeOptions = [
+  { key: 'skills', title: '技能' },
+  { key: 'commands', title: '命令' },
+  { key: 'subagents', title: '子代理' },
+  { key: 'rules', title: '规则' },
+  { key: 'settings', title: '配置' },
+];
 
-  // 导入模态框状态
-  const [importModalVisible, setImportModalVisible] = useState(false);
+const AssetPackageManagement: React.FC = () => {
+  // 导入状态
+  const [importFile, setImportFile] = useState<File | null>(null);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [importing, setImporting] = useState(false);
 
-  // 导出模态框状态
-  const [exportModalVisible, setExportModalVisible] = useState(false);
-  const [exportForm] = Form.useForm();
+  // 导出状态
   const [exporting, setExporting] = useState(false);
+  const [exportForm] = Form.useForm();
 
   // 资产选择状态
   const [skills, setSkills] = useState<Skill[]>([]);
@@ -77,6 +64,7 @@ const AssetPackageManagement: React.FC = () => {
   const [rules, setRules] = useState<Rule[]>([]);
   const [settings, setSettings] = useState<Settings[]>([]);
   const [selectedAssetType, setSelectedAssetType] = useState<string>('skills');
+  const [loadingAssets, setLoadingAssets] = useState(false);
 
   // 选中的资产ID
   const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
@@ -85,30 +73,9 @@ const AssetPackageManagement: React.FC = () => {
   const [selectedRuleIds, setSelectedRuleIds] = useState<string[]>([]);
   const [selectedSettingsIds, setSelectedSettingsIds] = useState<string[]>([]);
 
-  // 详情模态框状态
-  const [detailModalVisible, setDetailModalVisible] = useState(false);
-  const [selectedPackage, setSelectedPackage] = useState<AssetPackage | null>(null);
-
-  // 加载资产包列表
-  const loadPackages = useCallback(async () => {
-    setLoading(true);
-    try {
-      const result = await api.assetPackages.list({
-        page,
-        pageSize,
-        search: searchText,
-      });
-      setPackages(result.data || []);
-      setTotal(result.total);
-    } catch (error) {
-      message.error('加载资产包列表失败');
-    } finally {
-      setLoading(false);
-    }
-  }, [page, pageSize, searchText]);
-
   // 加载各类资产列表（用于导出选择）
-  const loadAssets = useCallback(async () => {
+  const loadAssets = async () => {
+    setLoadingAssets(true);
     try {
       const [skillsRes, commandsRes, subagentsRes, rulesRes, settingsRes] = await Promise.all([
         api.skills.list({ pageSize: 100 }),
@@ -124,30 +91,31 @@ const AssetPackageManagement: React.FC = () => {
       setSettings(settingsRes.data || []);
     } catch (error) {
       // 忽略错误
+    } finally {
+      setLoadingAssets(false);
     }
-  }, []);
-
-  useEffect(() => {
-    loadPackages();
-  }, [loadPackages]);
-
-  // 打开导入模态框
-  const handleImportOpen = () => {
-    setImportResult(null);
-    setImportModalVisible(true);
   };
+
+  // 初始化加载资产
+  useEffect(() => {
+    loadAssets();
+  }, []);
 
   // 处理文件导入
   const handleImport = async (file: File) => {
+    setImportFile(file);
     setImporting(true);
+    setImportResult(null);
     try {
       const result = await api.assetPackages.import(file);
       setImportResult(result);
       message.success('导入完成');
-      loadPackages();
+      // 刷新资产列表
+      loadAssets();
     } catch (error: any) {
       const errorMsg = error.response?.data?.error || error.message || '导入失败';
       message.error(errorMsg);
+      setImportFile(null);
     } finally {
       setImporting(false);
     }
@@ -162,17 +130,10 @@ const AssetPackageManagement: React.FC = () => {
     disabled: importing,
   };
 
-  // 打开导出模态框
-  const handleExportOpen = () => {
-    exportForm.resetFields();
-    setSelectedSkillIds([]);
-    setSelectedCommandIds([]);
-    setSelectedSubagentIds([]);
-    setSelectedRuleIds([]);
-    setSelectedSettingsIds([]);
-    setSelectedAssetType('skills');
-    loadAssets();
-    setExportModalVisible(true);
+  // 清除导入结果
+  const handleClearImport = () => {
+    setImportFile(null);
+    setImportResult(null);
   };
 
   // 执行导出
@@ -201,8 +162,6 @@ const AssetPackageManagement: React.FC = () => {
       document.body.removeChild(a);
 
       message.success('导出成功');
-      setExportModalVisible(false);
-      loadPackages();
     } catch (error: any) {
       const errorMsg = error.response?.data?.error || error.message || '导出失败';
       message.error(errorMsg);
@@ -210,91 +169,6 @@ const AssetPackageManagement: React.FC = () => {
       setExporting(false);
     }
   };
-
-  // 删除资产包
-  const handleDelete = async (id: string) => {
-    try {
-      await api.assetPackages.delete(id);
-      message.success('删除成功');
-      loadPackages();
-    } catch (error) {
-      message.error('删除失败');
-    }
-  };
-
-  // 查看详情
-  const handleViewDetail = async (pkg: AssetPackage) => {
-    try {
-      const detail = await api.assetPackages.get(pkg.id);
-      setSelectedPackage(detail);
-      setDetailModalVisible(true);
-    } catch (error) {
-      message.error('获取详情失败');
-    }
-  };
-
-  // 格式化日期
-  const formatDate = (dateStr: string) => {
-    if (!dateStr) return '-';
-    return new Date(dateStr).toLocaleString('zh-CN');
-  };
-
-  // 表格列定义
-  const columns = [
-    {
-      title: '名称',
-      dataIndex: 'name',
-      key: 'name',
-      render: (name: string) => (
-        <Space>
-          <InboxOutlined style={{ color: '#1890ff' }} />
-          <Text strong>{name}</Text>
-        </Space>
-      ),
-    },
-    {
-      title: '版本',
-      dataIndex: 'version',
-      key: 'version',
-      render: (version: string) => <Tag color="blue">{version}</Tag>,
-    },
-    {
-      title: '描述',
-      dataIndex: 'description',
-      key: 'description',
-      ellipsis: true,
-      render: (desc: string) => desc || '-',
-    },
-    {
-      title: '创建时间',
-      dataIndex: 'createdAt',
-      key: 'createdAt',
-      width: 180,
-      render: formatDate,
-    },
-    {
-      title: '操作',
-      key: 'action',
-      width: 150,
-      render: (_: any, record: AssetPackage) => (
-        <Space>
-          <Button
-            type="text"
-            icon={<EyeOutlined />}
-            onClick={() => handleViewDetail(record)}
-          />
-          <Popconfirm
-            title="确定要删除这个资产包吗？"
-            onConfirm={() => handleDelete(record.id)}
-            okText="确定"
-            cancelText="取消"
-          >
-            <Button type="text" icon={<DeleteOutlined />} danger />
-          </Popconfirm>
-        </Space>
-      ),
-    },
-  ];
 
   // 获取当前选中资产类型的列表
   const getCurrentAssetList = () => {
@@ -354,38 +228,41 @@ const AssetPackageManagement: React.FC = () => {
   };
 
   // 渲染导入结果详情
-  const renderImportDetails = () => {
+  const renderImportResult = () => {
     if (!importResult) return null;
 
     return (
-      <div style={{ marginTop: 16 }}>
+      <div>
         <Alert
           type={importResult.failed > 0 ? 'warning' : 'success'}
           message={`导入完成：成功 ${importResult.success}，跳过 ${importResult.skipped}，失败 ${importResult.failed}`}
           showIcon
+          style={{ marginBottom: 16 }}
         />
         {importResult.details && importResult.details.length > 0 && (
           <Table
-            style={{ marginTop: 12 }}
             dataSource={importResult.details}
             rowKey={(item, index) => `${item.assetType}-${item.name}-${index}`}
             pagination={false}
             size="small"
+            scroll={{ y: 300 }}
             columns={[
               {
                 title: '类型',
                 dataIndex: 'assetType',
                 key: 'assetType',
+                width: 100,
                 render: (type: string) => (
                   <Tag color={assetTypeColors[type] || 'default'}>{type}</Tag>
                 ),
               },
               { title: '名称', dataIndex: 'name', key: 'name' },
-              { title: '版本', dataIndex: 'version', key: 'version' },
+              { title: '版本', dataIndex: 'version', key: 'version', width: 80 },
               {
                 title: '状态',
                 dataIndex: 'status',
                 key: 'status',
+                width: 80,
                 render: (status: string) => (
                   <Tag color={statusColors[status] || 'default'}>{status}</Tag>
                 ),
@@ -399,201 +276,135 @@ const AssetPackageManagement: React.FC = () => {
   };
 
   return (
-    <div style={{ padding: 12 }}>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <Title level={2} style={{ margin: 0 }}>资产包管理</Title>
-          <Text type="secondary">导入导出资产包，便于团队协作和版本管理</Text>
-        </div>
-        <Space>
-          <Button icon={<CloudUploadOutlined />} onClick={handleImportOpen}>
-            导入
-          </Button>
-          <Button type="primary" icon={<CloudDownloadOutlined />} onClick={handleExportOpen}>
-            导出
-          </Button>
-        </Space>
-      </div>
+    <div style={{ padding: 24 }}>
+      <Title level={2}>资产包管理</Title>
+      <Text type="secondary">导入导出资产包，便于团队协作和版本管理</Text>
 
-      {/* 搜索区域 */}
-      <Card style={{ marginBottom: 16 }}>
-        <Input.Search
-          placeholder="搜索资产包..."
-          allowClear
-          style={{ width: 300 }}
-          onSearch={(value) => { setSearchText(value); setPage(1); }}
-        />
-      </Card>
+      <Divider />
 
-      {/* 资产包列表 */}
-      <Card>
-        <Spin spinning={loading}>
-          {packages.length === 0 ? (
-            <Empty description="暂无资产包" style={{ padding: 48 }} />
-          ) : (
-            <Table
-              dataSource={packages}
-              columns={columns}
-              rowKey="id"
-              pagination={false}
-            />
+      <div style={{ display: 'flex', gap: 24 }}>
+        {/* 左侧：导入区域 */}
+        <Card
+          title="导入资产包"
+          style={{ flex: 1, minHeight: 400 }}
+          extra={importResult && (
+            <Button size="small" onClick={handleClearImport}>
+              清除
+            </Button>
           )}
-        </Spin>
-
-        {/* 分页 */}
-        {total > pageSize && (
-          <div style={{ marginTop: 16, display: 'flex', justifyContent: 'center' }}>
-            <Pagination
-              current={page}
-              pageSize={pageSize}
-              total={total}
-              onChange={(p, ps) => {
-                setPage(p);
-                setPageSize(ps);
-              }}
-              showSizeChanger
-              showTotal={(t) => `共 ${t} 条`}
-              pageSizeOptions={['10', '20', '50']}
-            />
-          </div>
-        )}
-      </Card>
-
-      {/* 导入模态框 */}
-      <Modal
-        title="导入资产包"
-        open={importModalVisible}
-        onCancel={() => setImportModalVisible(false)}
-        footer={importResult ? [
-          <Button key="close" onClick={() => setImportModalVisible(false)}>
-            关闭
-          </Button>,
-        ] : null}
-        width={600}
-      >
-        {!importResult ? (
-          <Upload.Dragger {...uploadProps}>
-            <p className="ant-upload-drag-icon">
-              <FileZipOutlined style={{ fontSize: 48, color: '#1890ff' }} />
-            </p>
-            <p className="ant-upload-text">点击或拖拽文件到此区域上传</p>
-            <p className="ant-upload-hint">支持 .zip 格式的资产包文件</p>
-          </Upload.Dragger>
-        ) : (
-          renderImportDetails()
-        )}
-        {importing && !importResult && (
-          <div style={{ textAlign: 'center', marginTop: 16 }}>
-            <Spin tip="正在导入..." />
-          </div>
-        )}
-      </Modal>
-
-      {/* 导出模态框 */}
-      <Modal
-        title="导出资产包"
-        open={exportModalVisible}
-        onOk={() => exportForm.submit()}
-        onCancel={() => setExportModalVisible(false)}
-        okText="导出"
-        confirmLoading={exporting}
-        width={700}
-      >
-        <Form
-          form={exportForm}
-          layout="vertical"
-          onFinish={handleExport}
         >
-          <Form.Item
-            name="name"
-            label="包名称"
-            rules={[{ required: true, message: '请输入包名称' }]}
-          >
-            <Input placeholder="如：my-team-assets" />
-          </Form.Item>
+          {!importResult ? (
+            <Spin spinning={importing}>
+              <Dragger {...uploadProps}>
+                <p className="ant-upload-drag-icon">
+                  <FileZipOutlined style={{ fontSize: 48, color: '#1890ff' }} />
+                </p>
+                <p className="ant-upload-text">点击或拖拽文件到此区域上传</p>
+                <p className="ant-upload-hint">支持 .zip 格式的资产包文件</p>
+              </Dragger>
+            </Spin>
+          ) : (
+            renderImportResult()
+          )}
+        </Card>
 
-          <Form.Item
-            name="version"
-            label="版本号"
-            rules={[
-              { required: true, message: '请输入版本号' },
-              { pattern: /^\d+\.\d+\.\d+$/, message: '版本号格式如 1.0.0' },
-            ]}
-          >
-            <Input placeholder="如：1.0.0" />
-          </Form.Item>
-
-          <Form.Item name="description" label="描述">
-            <Input.TextArea rows={3} placeholder="资产包描述" />
-          </Form.Item>
-        </Form>
-
-        <Divider>选择资产</Divider>
-
-        {/* 资产类型选择 */}
-        <Space style={{ marginBottom: 12 }}>
-          {assetTypeOptions.map(opt => (
-            <Tag
-              key={opt.key}
-              color={selectedAssetType === opt.key ? assetTypeColors[opt.key] : 'default'}
-              style={{ cursor: 'pointer' }}
-              onClick={() => setSelectedAssetType(opt.key)}
+        {/* 右侧：导出区域 */}
+        <Card
+          title="导出资产包"
+          style={{ flex: 1, minHeight: 400 }}
+        >
+          <Spin spinning={exporting || loadingAssets}>
+            <Form
+              form={exportForm}
+              layout="vertical"
+              onFinish={handleExport}
             >
-              {opt.title} ({getCurrentAssetList().length})
-            </Tag>
-          ))}
-        </Space>
+              <Form.Item
+                name="name"
+                label="包名称"
+                rules={[{ required: true, message: '请输入包名称' }]}
+              >
+                <Input placeholder="如：my-team-assets" />
+              </Form.Item>
 
-        {/* 已选资产统计 */}
-        <div style={{ marginBottom: 12, color: '#666' }}>
-          已选：技能 {selectedSkillIds.length} / 命令 {selectedCommandIds.length} /
-          子代理 {selectedSubagentIds.length} / 规则 {selectedRuleIds.length} /
-          配置 {selectedSettingsIds.length}
-        </div>
+              <Form.Item
+                name="version"
+                label="版本号"
+                rules={[
+                  { required: true, message: '请输入版本号' },
+                  { pattern: /^\d+\.\d+\.\d+$/, message: '版本号格式如 1.0.0' },
+                ]}
+              >
+                <Input placeholder="如：1.0.0" />
+              </Form.Item>
 
-        {/* Transfer 选择器 */}
-        <Transfer
-          dataSource={getCurrentAssetList()}
-          titles={['可选', '已选']}
-          targetKeys={getCurrentSelectedIds()}
-          onChange={(targetKeys) => setCurrentSelectedIds(targetKeys as string[])}
-          render={(item) => item.title}
-          listStyle={{ width: 280, height: 300 }}
-          showSearch
-          filterOption={(input, option) =>
-            (option.title as string).toLowerCase().includes(input.toLowerCase())
-          }
-        />
-      </Modal>
+              <Form.Item name="description" label="描述">
+                <Input.TextArea rows={2} placeholder="资产包描述" />
+              </Form.Item>
+            </Form>
 
-      {/* 详情模态框 */}
-      <Modal
-        title="资产包详情"
-        open={detailModalVisible}
-        onCancel={() => setDetailModalVisible(false)}
-        footer={[
-          <Button key="close" onClick={() => setDetailModalVisible(false)}>
-            关闭
-          </Button>,
-        ]}
-        width={600}
-      >
-        {selectedPackage && (
-          <Descriptions column={2} bordered size="small">
-            <Descriptions.Item label="名称">{selectedPackage.name}</Descriptions.Item>
-            <Descriptions.Item label="版本">{selectedPackage.version}</Descriptions.Item>
-            <Descriptions.Item label="描述" span={2}>
-              {selectedPackage.description || '-'}
-            </Descriptions.Item>
-            <Descriptions.Item label="创建时间">
-              {formatDate(selectedPackage.createdAt)}
-            </Descriptions.Item>
-            <Descriptions.Item label="更新时间">
-              {formatDate(selectedPackage.updatedAt)}
-            </Descriptions.Item>
-          </Descriptions>
-        )}
-      </Modal>
+            <Divider>选择资产</Divider>
+
+            {/* 资产类型选择 */}
+            <Space style={{ marginBottom: 12 }}>
+              {assetTypeOptions.map(opt => (
+                <Tag
+                  key={opt.key}
+                  color={selectedAssetType === opt.key ? assetTypeColors[opt.key] : 'default'}
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => setSelectedAssetType(opt.key)}
+                >
+                  {opt.title} ({getCurrentAssetList().length})
+                </Tag>
+              ))}
+            </Space>
+
+            {/* 已选资产统计 */}
+            <div style={{ marginBottom: 12, color: '#666' }}>
+              已选：技能 {selectedSkillIds.length} / 命令 {selectedCommandIds.length} /
+              子代理 {selectedSubagentIds.length} / 规则 {selectedRuleIds.length} /
+              配置 {selectedSettingsIds.length}
+            </div>
+
+            {/* Transfer 选择器 */}
+            <Transfer
+              dataSource={getCurrentAssetList()}
+              titles={['可选', '已选']}
+              targetKeys={getCurrentSelectedIds()}
+              onChange={(targetKeys) => setCurrentSelectedIds(targetKeys as string[])}
+              render={(item) => item.title}
+              listStyle={{ width: 200, height: 250 }}
+              showSearch
+              filterOption={(input, option) =>
+                (option.title as string).toLowerCase().includes(input.toLowerCase())
+              }
+            />
+
+            {getCurrentAssetList().length === 0 && !loadingAssets && (
+              <Empty description="暂无可用资产" style={{ marginTop: 24 }} />
+            )}
+
+            <div style={{ marginTop: 16, textAlign: 'center' }}>
+              <Button
+                type="primary"
+                icon={<CloudDownloadOutlined />}
+                size="large"
+                onClick={() => exportForm.submit()}
+                loading={exporting}
+                disabled={
+                  selectedSkillIds.length === 0 &&
+                  selectedCommandIds.length === 0 &&
+                  selectedSubagentIds.length === 0 &&
+                  selectedRuleIds.length === 0 &&
+                  selectedSettingsIds.length === 0
+                }
+              >
+                导出资产包
+              </Button>
+            </div>
+          </Spin>
+        </Card>
+      </div>
     </div>
   );
 };
