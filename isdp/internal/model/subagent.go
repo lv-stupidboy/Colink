@@ -14,7 +14,6 @@ type Subagent struct {
 	Name        string    `json:"name"`
 	Description string    `json:"description,omitempty"`
 	Content     string    `json:"content"`           // Markdown内容
-	Version     string    `json:"version"`           // 版本号
 	SkillID     uuid.UUID `json:"skillId,omitempty"` // 所属技能包ID（可选）
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
@@ -41,7 +40,6 @@ type CreateSubagentRequest struct {
 	Name        string    `json:"name" binding:"required"`
 	Description string    `json:"description"`
 	Content     string    `json:"content" binding:"required"`
-	Version     string    `json:"version"` // 版本号
 	SkillID     uuid.UUID `json:"skillId"`
 }
 
@@ -49,7 +47,6 @@ type CreateSubagentRequest struct {
 type UpdateSubagentRequest struct {
 	Description string `json:"description"`
 	Content     string `json:"content"`
-	Version     string `json:"version"` // 版本号
 }
 
 // SubagentListQuery Subagent列表查询参数

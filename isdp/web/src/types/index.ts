@@ -348,7 +348,6 @@ export interface Skill {
   authorId?: string;
   projectId?: string;
   supportedAgents?: string[];
-  version: string;
   useCount: number;
   status: SkillStatus;
   isPublic: boolean;
@@ -363,7 +362,6 @@ export interface CreateSkillRequest {
   tags?: string[];
   sourceType: SkillSourceType;
   supportedAgents?: string[];
-  version?: string;
   isPublic?: boolean;
 }
 
@@ -372,7 +370,6 @@ export interface UpdateSkillRequest {
   description?: string;
   tags?: string[];
   supportedAgents?: string[];
-  version?: string;
   status?: SkillStatus;
   isPublic?: boolean;
 }
@@ -723,7 +720,6 @@ export interface Settings {
   name: string;
   description?: string;
   directoryPath?: string;
-  version: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -762,22 +758,9 @@ export interface AgentSettingsResponse {
 
 // ========== Asset Package 相关类型 ==========
 
-// AssetPackage 资产包
-export interface AssetPackage {
-  id: string;
-  name: string;
-  version: string;
-  description?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-// AssetPackageManifest 资产包 manifest
+// AssetPackageManifest 资产包 manifest（简化版，无版本概念）
 export interface AssetPackageManifest {
-  name: string;
-  version: string;
   exportedAt: string;
-  description: string;
   assets: AssetPackageAssetsList;
 }
 
@@ -793,47 +776,33 @@ export interface AssetPackageAssetsList {
 // AssetPackageSkillItem 技能项
 export interface AssetPackageSkillItem {
   name: string;
-  version: string;
+  file: string;
 }
 
 // AssetPackageCommandItem 命令项
 export interface AssetPackageCommandItem {
   name: string;
-  version: string;
+  file: string;
   boundSkills?: string[];
 }
 
 // AssetPackageSubagentItem 子代理项
 export interface AssetPackageSubagentItem {
   name: string;
-  version: string;
+  file: string;
   boundSkills?: string[];
 }
 
 // AssetPackageRuleItem 规则项
 export interface AssetPackageRuleItem {
   name: string;
-  version: string;
+  file: string;
 }
 
 // AssetPackageSettingsItem 配置项
 export interface AssetPackageSettingsItem {
   name: string;
-}
-
-// AssetPackageListQuery 资产包列表查询参数
-export interface AssetPackageListQuery {
-  search?: string;
-  page?: number;
-  pageSize?: number;
-}
-
-// AssetPackageListResponse 资产包列表响应
-export interface AssetPackageListResponse {
-  data: AssetPackage[];
-  total: number;
-  page: number;
-  pageSize: number;
+  dir: string;
 }
 
 // ExportAssetPackageRequest 导出资产包请求（简化版，无版本概念）

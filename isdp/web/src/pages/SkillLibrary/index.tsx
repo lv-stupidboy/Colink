@@ -231,7 +231,6 @@ const SkillLibrary: React.FC = () => {
       description: record.description,
       tags: record.tags || [],
       sourceType: record.sourceType,
-      version: record.version || '',
       supportedAgents: record.supportedAgents || [],
       isPublic: record.isPublic,
     });
@@ -284,10 +283,9 @@ const SkillLibrary: React.FC = () => {
         }
 
         // 更新额外字段（如果有）
-        if (values.tags?.length || values.version || values.supportedAgents?.length) {
+        if (values.tags?.length || values.supportedAgents?.length) {
           await api.skills.update(result.id, {
             tags: values.tags,
-            version: values.version,
             supportedAgents: values.supportedAgents,
           });
         }
@@ -543,7 +541,6 @@ const SkillLibrary: React.FC = () => {
         description: response.description || '',
         tags: response.tags || [],
         sourceType: response.sourceType || 'personal',
-        version: response.version || '',
         isPublic: response.isPublic !== undefined ? response.isPublic : true,
       });
       setSourceType(response.sourceType || 'personal');
@@ -573,7 +570,6 @@ const SkillLibrary: React.FC = () => {
           description: response.description || '',
           tags: response.tags || [],
           sourceType: response.sourceType || 'federated',
-          version: response.version || '',
           isPublic: response.isPublic !== undefined ? response.isPublic : true,
         });
         setSourceType(response.sourceType || 'federated');

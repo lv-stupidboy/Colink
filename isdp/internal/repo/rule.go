@@ -23,11 +23,11 @@ func NewRuleRepository(db *sql.DB) *RuleRepository {
 // Create 创建Rule
 func (r *RuleRepository) Create(ctx context.Context, rule *model.Rule) error {
 	query := `
-		INSERT INTO rules (id, name, description, visibility, version, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO rules (id, name, description, visibility, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)
 	`
 	_, err := r.db.ExecContext(ctx, query,
-		rule.ID.String(), rule.Name, rule.Description, string(rule.Visibility), rule.Version, rule.CreatedAt, rule.UpdatedAt,
+		rule.ID.String(), rule.Name, rule.Description, string(rule.Visibility), rule.CreatedAt, rule.UpdatedAt,
 	)
 	return err
 }
@@ -39,10 +39,9 @@ func scanRule(scanner interface {
 	rule := &model.Rule{}
 	var idStr string
 	var description sql.NullString
-	var version sql.NullString
 
 	err := scanner.Scan(
-		&idStr, &rule.Name, &description, &rule.Visibility, &version, &rule.CreatedAt, &rule.UpdatedAt,
+		&idStr, &rule.Name, &description, &rule.Visibility, &rule.CreatedAt, &rule.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -52,9 +51,6 @@ func scanRule(scanner interface {
 	if description.Valid {
 		rule.Description = description.String
 	}
-	if version.Valid {
-		rule.Version = version.String
-	}
 
 	return rule, nil
 }
@@ -62,7 +58,7 @@ func scanRule(scanner interface {
 // FindByID 根据ID查找
 func (r *RuleRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.Rule, error) {
 	query := `
-		SELECT id, name, description, visibility, version, created_at, updated_at
+		SELECT id, name, description, visibility, created_at, updated_at
 		FROM rules WHERE id = ?
 	`
 	rule, err := scanRule(r.db.QueryRowContext(ctx, query, id.String()))
@@ -78,7 +74,7 @@ func (r *RuleRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.Rul
 // FindByName 根据名称查找
 func (r *RuleRepository) FindByName(ctx context.Context, name string) (*model.Rule, error) {
 	query := `
-		SELECT id, name, description, visibility, version, created_at, updated_at
+		SELECT id, name, description, visibility, created_at, updated_at
 		FROM rules WHERE name = ?
 	`
 	rule, err := scanRule(r.db.QueryRowContext(ctx, query, name))
@@ -135,7 +131,7 @@ func (r *RuleRepository) List(ctx context.Context, query *model.RuleListQuery) (
 
 	// 查询列表
 	listQuery := `
-		SELECT id, name, description, visibility, version, created_at, updated_at
+		SELECT id, name, description, visibility, created_at, updated_at
 		FROM rules ` + whereClause + ` ORDER BY created_at DESC LIMIT ? OFFSET ?
 	`
 	args = append(args, pageSize, offset)
@@ -161,7 +157,7 @@ func (r *RuleRepository) List(ctx context.Context, query *model.RuleListQuery) (
 // FindByVisibility 根据可见性查找
 func (r *RuleRepository) FindByVisibility(ctx context.Context, visibility model.RuleVisibility) ([]*model.Rule, error) {
 	query := `
-		SELECT id, name, description, visibility, version, created_at, updated_at
+		SELECT id, name, description, visibility, created_at, updated_at
 		FROM rules WHERE visibility = ? ORDER BY created_at DESC
 	`
 	rows, err := r.db.QueryContext(ctx, query, string(visibility))
@@ -186,11 +182,11 @@ func (r *RuleRepository) FindByVisibility(ctx context.Context, visibility model.
 func (r *RuleRepository) Update(ctx context.Context, rule *model.Rule) error {
 	query := `
 		UPDATE rules
-		SET name = ?, description = ?, visibility = ?, version = ?, updated_at = ?
+		SET name = ?, description = ?, visibility = ?, updated_at = ?
 		WHERE id = ?
 	`
 	_, err := r.db.ExecContext(ctx, query,
-		rule.Name, rule.Description, string(rule.Visibility), rule.Version, rule.UpdatedAt, rule.ID.String(),
+		rule.Name, rule.Description, string(rule.Visibility), rule.UpdatedAt, rule.ID.String(),
 	)
 	return err
 }
@@ -200,20 +196,4 @@ func (r *RuleRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	query := `DELETE FROM rules WHERE id = ?`
 	_, err := r.db.ExecContext(ctx, query, id.String())
 	return err
-}
-
-// FindByNameAndVersion 根据名称和版本查找
-func (r *RuleRepository) FindByNameAndVersion(ctx context.Context, name, version string) (*model.Rule, error) {
-	query := `
-		SELECT id, name, description, visibility, version, created_at, updated_at
-		FROM rules WHERE name = ? AND version = ?
-	`
-	rule, err := scanRule(r.db.QueryRowContext(ctx, query, name, version))
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("rule not found: %w", err)
-		}
-		return nil, fmt.Errorf("failed to find rule: %w", err)
-	}
-	return rule, nil
 }

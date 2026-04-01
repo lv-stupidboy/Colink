@@ -95,7 +95,6 @@ func (s *Service) Create(ctx context.Context, req *model.CreateSettingsRequest) 
 		ID:          uuid.New(),
 		Name:        req.Name,
 		Description: req.Description,
-		Version:     "1.0.0",
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
@@ -172,17 +171,12 @@ func (s *Service) CreateFromFile(ctx context.Context, req *CreateFromFileRequest
 	}
 
 	now := time.Now()
-	version := req.Version
-	if version == "" {
-		version = "1.0.0"
-	}
 
 	settings := &model.Settings{
 		ID:            uuid.New(),
 		Name:          req.Name,
 		Description:   req.Description,
 		DirectoryPath: settingsDir,
-		Version:       version,
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	}
@@ -226,9 +220,6 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, req *model.UpdateSet
 	// 更新字段
 	if req.Description != "" {
 		settings.Description = req.Description
-	}
-	if req.Version != "" {
-		settings.Version = req.Version
 	}
 	settings.UpdatedAt = time.Now()
 

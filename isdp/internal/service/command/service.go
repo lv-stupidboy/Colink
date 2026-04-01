@@ -126,14 +126,8 @@ func (s *Service) Create(ctx context.Context, req *model.CreateCommandRequest) (
 		ID:          uuid.New(),
 		Name:        req.Name,
 		Description: req.Description,
-		Version:     req.Version,
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
-	}
-
-	// 设置默认版本
-	if command.Version == "" {
-		command.Version = "1.0.0"
 	}
 
 	// 写入 content 到文件
@@ -211,9 +205,6 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, req *model.UpdateCom
 			}
 		}
 		command.Content = req.Content
-	}
-	if req.Version != "" {
-		command.Version = req.Version
 	}
 	command.UpdatedAt = time.Now()
 

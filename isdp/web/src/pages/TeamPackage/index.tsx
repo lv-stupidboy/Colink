@@ -62,7 +62,7 @@ const TeamPackageManagement: React.FC = () => {
       const result = await api.workflows.list();
       setWorkflows(result);
     } catch (error) {
-      message.error('加载工作流列表失败');
+      message.error('加载团队列表失败');
     } finally {
       setLoadingWorkflows(false);
     }
@@ -124,7 +124,7 @@ const TeamPackageManagement: React.FC = () => {
     try {
       const confirm = buildImportConfirm(mode);
       const result = await api.teamPackages.importConfirm(importFile, confirm);
-      message.success(`导入成功：工作流 ${result.workflow?.name || ''}，角色 ${result.roles?.length || 0} 个，资产 ${result.assets?.length || 0} 个`);
+      message.success(`导入成功：团队 ${result.workflow?.name || ''}，角色 ${result.roles?.length || 0} 个，资产 ${result.assets?.length || 0} 个`);
       // 清理状态
       setImportFile(null);
       setPreview(null);
@@ -186,7 +186,7 @@ const TeamPackageManagement: React.FC = () => {
     // 工作流
     dataSource.push({
       key: 'workflow',
-      type: '工作流',
+      type: 'Team',
       name: preview.workflow.name,
       exists: preview.workflow.exists,
       action: preview.workflow.exists ? '待处理' : '新增',
@@ -196,7 +196,7 @@ const TeamPackageManagement: React.FC = () => {
     preview.roles.forEach((role, idx) => {
       dataSource.push({
         key: `role-${idx}`,
-        type: '角色',
+        type: 'Role',
         name: role.name,
         exists: role.exists,
         action: role.exists ? '待处理' : '新增',
@@ -207,7 +207,7 @@ const TeamPackageManagement: React.FC = () => {
     preview.assets.skills.forEach((skill, idx) => {
       dataSource.push({
         key: `skill-${idx}`,
-        type: '技能',
+        type: 'Skill',
         name: skill.name,
         exists: skill.exists,
         action: skill.exists ? '待处理' : '新增',
@@ -218,7 +218,7 @@ const TeamPackageManagement: React.FC = () => {
     preview.assets.commands.forEach((cmd, idx) => {
       dataSource.push({
         key: `command-${idx}`,
-        type: '命令',
+        type: 'Command',
         name: cmd.name,
         exists: cmd.exists,
         action: cmd.exists ? '待处理' : '新增',
@@ -229,7 +229,7 @@ const TeamPackageManagement: React.FC = () => {
     preview.assets.subagents.forEach((sub, idx) => {
       dataSource.push({
         key: `subagent-${idx}`,
-        type: '子代理',
+        type: 'Subagent',
         name: sub.name,
         exists: sub.exists,
         action: sub.exists ? '待处理' : '新增',
@@ -240,7 +240,7 @@ const TeamPackageManagement: React.FC = () => {
     preview.assets.rules.forEach((rule, idx) => {
       dataSource.push({
         key: `rule-${idx}`,
-        type: '规则',
+        type: 'Rule',
         name: rule.name,
         exists: rule.exists,
         action: rule.exists ? '待处理' : '新增',
@@ -251,7 +251,7 @@ const TeamPackageManagement: React.FC = () => {
     preview.assets.settings.forEach((setting, idx) => {
       dataSource.push({
         key: `setting-${idx}`,
-        type: '配置',
+        type: 'Settings',
         name: setting.name,
         exists: setting.exists,
         action: setting.exists ? '待处理' : '新增',
@@ -323,7 +323,7 @@ const TeamPackageManagement: React.FC = () => {
   return (
     <div style={{ padding: 24 }}>
       <Title level={2}>团队包管理</Title>
-      <Text type="secondary">导入导出团队配置包，包含工作流、角色和资产</Text>
+      <Text type="secondary">导入导出团队配置包，包含团队、角色和资产</Text>
 
       <Divider />
 
@@ -402,10 +402,10 @@ const TeamPackageManagement: React.FC = () => {
         >
           <Spin spinning={loadingWorkflows || exporting}>
             <div style={{ marginBottom: 24 }}>
-              <Text>选择要导出的工作流：</Text>
+              <Text>选择要导出的团队：</Text>
               <Select
                 style={{ width: '100%', marginTop: 8 }}
-                placeholder="请选择工作流"
+                placeholder="请选择团队"
                 value={selectedWorkflowId}
                 onChange={setSelectedWorkflowId}
                 loading={loadingWorkflows}
@@ -417,7 +417,7 @@ const TeamPackageManagement: React.FC = () => {
             </div>
 
             {workflows.length === 0 && !loadingWorkflows && (
-              <Empty description="暂无可用工作流" style={{ marginTop: 48 }} />
+              <Empty description="暂无可用团队" style={{ marginTop: 48 }} />
             )}
 
             {selectedWorkflowId && (
@@ -426,9 +426,9 @@ const TeamPackageManagement: React.FC = () => {
                 message="导出内容包括"
                 description={
                   <ul style={{ margin: 0, paddingLeft: 20 }}>
-                    <li>工作流配置（阶段、流转规则）</li>
+                    <li>团队配置（阶段、流转规则）</li>
                     <li>关联的角色 Agent 配置</li>
-                    <li>角色绑定的技能、命令、子代理、规则、配置</li>
+                    <li>角色绑定的 Skills、Commands、Subagents、Rules、Settings</li>
                   </ul>
                 }
                 style={{ marginBottom: 24 }}

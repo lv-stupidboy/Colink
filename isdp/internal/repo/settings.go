@@ -23,11 +23,11 @@ func NewSettingsRepository(db *sql.DB) *SettingsRepository {
 // Create 创建Settings
 func (r *SettingsRepository) Create(ctx context.Context, settings *model.Settings) error {
 	query := `
-		INSERT INTO settings (id, name, description, directory_path, version, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO settings (id, name, description, directory_path, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)
 	`
 	_, err := r.db.ExecContext(ctx, query,
-		settings.ID.String(), settings.Name, settings.Description, settings.DirectoryPath, settings.Version, settings.CreatedAt, settings.UpdatedAt,
+		settings.ID.String(), settings.Name, settings.Description, settings.DirectoryPath, settings.CreatedAt, settings.UpdatedAt,
 	)
 	return err
 }
@@ -41,7 +41,7 @@ func scanSettings(scanner interface {
 	var description, directoryPath sql.NullString
 
 	err := scanner.Scan(
-		&idStr, &settings.Name, &description, &directoryPath, &settings.Version, &settings.CreatedAt, &settings.UpdatedAt,
+		&idStr, &settings.Name, &description, &directoryPath, &settings.CreatedAt, &settings.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -61,7 +61,7 @@ func scanSettings(scanner interface {
 // FindByID 根据ID查找
 func (r *SettingsRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.Settings, error) {
 	query := `
-		SELECT id, name, description, directory_path, version, created_at, updated_at
+		SELECT id, name, description, directory_path, created_at, updated_at
 		FROM settings WHERE id = ?
 	`
 	settings, err := scanSettings(r.db.QueryRowContext(ctx, query, id.String()))
@@ -77,7 +77,7 @@ func (r *SettingsRepository) FindByID(ctx context.Context, id uuid.UUID) (*model
 // FindByName 根据名称查找
 func (r *SettingsRepository) FindByName(ctx context.Context, name string) (*model.Settings, error) {
 	query := `
-		SELECT id, name, description, directory_path, version, created_at, updated_at
+		SELECT id, name, description, directory_path, created_at, updated_at
 		FROM settings WHERE name = ?
 	`
 	settings, err := scanSettings(r.db.QueryRowContext(ctx, query, name))
@@ -131,7 +131,7 @@ func (r *SettingsRepository) List(ctx context.Context, query *model.SettingsList
 
 	// 查询列表
 	listQuery := `
-		SELECT id, name, description, directory_path, version, created_at, updated_at
+		SELECT id, name, description, directory_path, created_at, updated_at
 		FROM settings ` + whereClause + ` ORDER BY created_at DESC LIMIT ? OFFSET ?
 	`
 	args = append(args, pageSize, offset)
@@ -158,11 +158,11 @@ func (r *SettingsRepository) List(ctx context.Context, query *model.SettingsList
 func (r *SettingsRepository) Update(ctx context.Context, settings *model.Settings) error {
 	query := `
 		UPDATE settings
-		SET name = ?, description = ?, directory_path = ?, version = ?, updated_at = NOW()
+		SET name = ?, description = ?, directory_path = ?, updated_at = NOW()
 		WHERE id = ?
 	`
 	_, err := r.db.ExecContext(ctx, query,
-		settings.Name, settings.Description, settings.DirectoryPath, settings.Version, settings.ID.String(),
+		settings.Name, settings.Description, settings.DirectoryPath, settings.ID.String(),
 	)
 	return err
 }

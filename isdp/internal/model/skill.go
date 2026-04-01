@@ -41,9 +41,6 @@ type Skill struct {
 	// 兼容性
 	SupportedAgents []string `json:"supportedAgents,omitempty"`
 
-	// 版本
-	Version string `json:"version"`
-
 	// 统计数据
 	UseCount int `json:"useCount"`
 
@@ -78,7 +75,6 @@ type CreateSkillRequest struct {
 	Tags            []string        `json:"tags"`
 	SourceType      SkillSourceType `json:"sourceType" binding:"required"`
 	SupportedAgents []string        `json:"supportedAgents" binding:"required,min=1"`
-	Version         string          `json:"version"`
 	IsPublic        bool            `json:"isPublic"` // 仅对 uploaded 类型有效
 }
 
@@ -87,7 +83,6 @@ type UpdateSkillRequest struct {
 	Description     string   `json:"description"`
 	Tags            []string `json:"tags"`
 	SupportedAgents []string `json:"supportedAgents"`
-	Version         string   `json:"version"`
 	Status          string   `json:"status"`
 	IsPublic        bool     `json:"isPublic"` // 仅对 uploaded 类型有效
 }

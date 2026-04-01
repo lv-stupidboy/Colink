@@ -192,6 +192,31 @@ const transitions = Array.isArray(template.transitions) ? template.transitions :
 const transitions = template.transitions || [];
 ```
 
+## 术语规范
+
+### 资产类型命名
+
+在 UI 界面、文档、代码注释中，资产类型统一使用以下英文命名：
+
+| 资产类型 | 英文名称 | 说明 |
+|----------|----------|------|
+| 技能 | **Skills** | 技能包，包含提示词模板和工作流 |
+| 命令 | **Commands** | 斜杠命令，如 `/commit`、`/review` |
+| 子代理 | **Subagents** | 子代理配置，可被主 Agent 调用 |
+| 规则 | **Rules** | 规约文件，定义编码规范和约束 |
+| 配置 | **Settings** | 配置目录，包含项目级配置文件 |
+
+### 团队相关命名
+
+| 概念 | 英文名称 | 说明 |
+|------|----------|------|
+| 团队 | **Team** | 一个工作流及其关联的角色和资产 |
+| 角色 | **Role** | Agent 角色配置 |
+| 团队包 | **Team Package** | 导出的团队配置包（ZIP 文件） |
+| 资产包 | **Asset Package** | 导出的资产集合（ZIP 文件） |
+
+**注意：** 这些术语在 UI 显示时使用英文，后端代码中仍使用原有命名（如 workflow、agentRoleConfig 等）。
+
 ## 服务端口
 
 - **后端**: 8080

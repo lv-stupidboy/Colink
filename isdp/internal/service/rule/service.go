@@ -68,7 +68,6 @@ func (s *Service) Create(ctx context.Context, req *model.CreateRuleRequest) (*mo
 		Name:        req.Name,
 		Description: req.Description,
 		Visibility:  req.Visibility,
-		Version:     req.Version,
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
 	}
@@ -83,11 +82,6 @@ func (s *Service) Create(ctx context.Context, req *model.CreateRuleRequest) (*mo
 			return nil, fmt.Errorf("写入规约文件失败: %w", err)
 		}
 		rule.Content = req.Content
-	}
-
-	// 设置默认版本
-	if rule.Version == "" {
-		rule.Version = "1.0.0"
 	}
 
 	if err := s.repo.Create(ctx, rule); err != nil {
@@ -170,9 +164,6 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, req *model.UpdateRul
 			return nil, errors.New("visibility 必须是 public 或 private")
 		}
 		rule.Visibility = req.Visibility
-	}
-	if req.Version != "" {
-		rule.Version = req.Version
 	}
 	// 更新内容文件
 	if s.storagePath != "" && req.Content != "" {

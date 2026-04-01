@@ -165,7 +165,6 @@ func (s *RegistryService) Sync(ctx context.Context, id uuid.UUID) (*model.SyncRe
 				SourceType:       model.SkillSourceFederated,
 				SourceRegistryID: registry.ID,
 				SupportedAgents:  remoteSkill.SupportedAgents,
-				Version:          remoteSkill.Version,
 				IsPublic:         true, // 联邦技能固定公开
 				Status:           model.SkillStatusActive,
 				UseCount:         0,
@@ -180,7 +179,6 @@ func (s *RegistryService) Sync(ctx context.Context, id uuid.UUID) (*model.SyncRe
 			// 已存在，更新技能
 			existing.Description = remoteSkill.Description
 			existing.Tags = remoteSkill.Tags
-			existing.Version = remoteSkill.Version
 			existing.SupportedAgents = remoteSkill.SupportedAgents
 			existing.UpdatedAt = time.Now()
 			if err := s.skillRepo.Update(ctx, existing); err != nil {
@@ -296,7 +294,6 @@ func (s *RegistryService) downloadGitHubSkill(ctx context.Context, client *http.
 	return &RemoteSkill{
 		Name:        skillName,
 		Description: string(content),
-		Version:     "1.0.0",
 	}, nil
 }
 

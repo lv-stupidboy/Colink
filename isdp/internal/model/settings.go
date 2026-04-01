@@ -14,7 +14,6 @@ type Settings struct {
 	Name          string    `json:"name"`
 	Description   string    `json:"description,omitempty"`
 	DirectoryPath string    `json:"directoryPath,omitempty"` // 存储路径
-	Version       string    `json:"version"`
 	CreatedAt     time.Time `json:"createdAt"`
 	UpdatedAt     time.Time `json:"updatedAt"`
 }
@@ -44,7 +43,6 @@ type CreateSettingsRequest struct {
 // UpdateSettingsRequest 更新Settings请求
 type UpdateSettingsRequest struct {
 	Description string `json:"description"`
-	Version     string `json:"version"`
 }
 
 // SettingsListQuery Settings列表查询参数

@@ -944,7 +944,6 @@ func (s *Service) importSkill(ctx context.Context, tempDir string, item model.As
 	skill := &model.Skill{
 		ID:              uuid.New(),
 		Name:            item.Name,
-		Version:         "1.0.0",
 		SourceType:      model.SkillSourcePersonal,
 		Status:          model.SkillStatusActive,
 		IsPublic:        true,
@@ -995,7 +994,6 @@ func (s *Service) importCommand(ctx context.Context, tempDir string, item model.
 	command := &model.Command{
 		ID:        uuid.New(),
 		Name:      item.Name,
-		Version:   "1.0.0",
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
@@ -1040,7 +1038,6 @@ func (s *Service) importSubagent(ctx context.Context, tempDir string, item model
 	subagent := &model.Subagent{
 		ID:        uuid.New(),
 		Name:      item.Name,
-		Version:   "1.0.0",
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
@@ -1085,7 +1082,6 @@ func (s *Service) importRule(ctx context.Context, tempDir string, item model.Ass
 	rule := &model.Rule{
 		ID:         uuid.New(),
 		Name:       item.Name,
-		Version:    "1.0.0",
 		Visibility: model.RuleVisibilityPublic,
 		CreatedAt:  now,
 		UpdatedAt:  now,
@@ -1136,7 +1132,6 @@ func (s *Service) importSettings(ctx context.Context, tempDir string, item model
 		ID:            uuid.New(),
 		Name:          item.Name,
 		DirectoryPath: targetDir,
-		Version:       "1.0.0",
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	}

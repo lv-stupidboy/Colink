@@ -198,9 +198,6 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, req *model.UpdateSub
 		}
 		subagent.Content = req.Content
 	}
-	if req.Version != "" {
-		subagent.Version = req.Version
-	}
 	subagent.UpdatedAt = time.Now()
 
 	if err := s.repo.Update(ctx, subagent); err != nil {

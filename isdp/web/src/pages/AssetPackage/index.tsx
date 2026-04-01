@@ -354,7 +354,8 @@ const AssetPackageManagement: React.FC = () => {
               targetKeys={getCurrentSelectedIds()}
               onChange={(targetKeys) => setCurrentSelectedIds(targetKeys as string[])}
               render={(item) => item.title}
-              listStyle={{ width: 200, height: 250 }}
+              listStyle={{ flex: 1, height: 250 }}
+              style={{ width: '100%' }}
               showSearch
               filterOption={(input, option) =>
                 (option.title as string).toLowerCase().includes(input.toLowerCase())

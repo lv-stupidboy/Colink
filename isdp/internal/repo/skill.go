@@ -24,8 +24,8 @@ func NewSkillRepository(db *sql.DB) *SkillRepository {
 // Create 创建Skill
 func (r *SkillRepository) Create(ctx context.Context, skill *model.Skill) error {
 	query := `
-		INSERT INTO skills (id, name, description, tags, source_type, source_registry_id, author_id, project_id, supported_agents, version, use_count, status, is_public, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO skills (id, name, description, tags, source_type, source_registry_id, author_id, project_id, supported_agents, use_count, status, is_public, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	supportedAgents, _ := json.Marshal(skill.SupportedAgents)
 	tags, _ := json.Marshal(skill.Tags)
@@ -42,7 +42,7 @@ func (r *SkillRepository) Create(ctx context.Context, skill *model.Skill) error 
 	}
 
 	_, err := r.db.ExecContext(ctx, query,
-		skill.ID.String(), skill.Name, skill.Description, tags, skill.SourceType, sourceRegistryID, authorID, projectID, supportedAgents, skill.Version, skill.UseCount, skill.Status, skill.IsPublic, skill.CreatedAt, skill.UpdatedAt,
+		skill.ID.String(), skill.Name, skill.Description, tags, skill.SourceType, sourceRegistryID, authorID, projectID, supportedAgents, skill.UseCount, skill.Status, skill.IsPublic, skill.CreatedAt, skill.UpdatedAt,
 	)
 	return err
 }
@@ -58,7 +58,7 @@ func scanSkill(scanner interface {
 	var sourceRegistryID, authorID, projectID sql.NullString
 
 	err := scanner.Scan(
-		&idStr, &skill.Name, &description, &tags, &skill.SourceType, &sourceRegistryID, &authorID, &projectID, &supportedAgents, &skill.Version, &skill.UseCount, &skill.Status, &skill.IsPublic, &skill.CreatedAt, &skill.UpdatedAt,
+		&idStr, &skill.Name, &description, &tags, &skill.SourceType, &sourceRegistryID, &authorID, &projectID, &supportedAgents, &skill.UseCount, &skill.Status, &skill.IsPublic, &skill.CreatedAt, &skill.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -86,7 +86,7 @@ func scanSkill(scanner interface {
 // FindByID 根据ID查找
 func (r *SkillRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.Skill, error) {
 	query := `
-		SELECT id, name, description, tags, source_type, source_registry_id, author_id, project_id, supported_agents, version, use_count, status, is_public, created_at, updated_at
+		SELECT id, name, description, tags, source_type, source_registry_id, author_id, project_id, supported_agents, use_count, status, is_public, created_at, updated_at
 		FROM skills WHERE id = ?
 	`
 	skill, err := scanSkill(r.db.QueryRowContext(ctx, query, id.String()))
@@ -102,26 +102,10 @@ func (r *SkillRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.Sk
 // FindByName 根据名称查找
 func (r *SkillRepository) FindByName(ctx context.Context, name string) (*model.Skill, error) {
 	query := `
-		SELECT id, name, description, tags, source_type, source_registry_id, author_id, project_id, supported_agents, version, use_count, status, is_public, created_at, updated_at
+		SELECT id, name, description, tags, source_type, source_registry_id, author_id, project_id, supported_agents, use_count, status, is_public, created_at, updated_at
 		FROM skills WHERE name = ?
 	`
 	skill, err := scanSkill(r.db.QueryRowContext(ctx, query, name))
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("skill not found: %w", err)
-		}
-		return nil, fmt.Errorf("failed to find skill: %w", err)
-	}
-	return skill, nil
-}
-
-// FindByNameAndVersion 根据名称和版本查找
-func (r *SkillRepository) FindByNameAndVersion(ctx context.Context, name, version string) (*model.Skill, error) {
-	query := `
-		SELECT id, name, description, tags, source_type, source_registry_id, author_id, project_id, supported_agents, version, use_count, status, is_public, created_at, updated_at
-		FROM skills WHERE name = ? AND version = ?
-	`
-	skill, err := scanSkill(r.db.QueryRowContext(ctx, query, name, version))
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("skill not found: %w", err)
@@ -184,7 +168,7 @@ func (r *SkillRepository) List(ctx context.Context, query *model.SkillListQuery)
 
 	// 查询列表
 	listQuery := `
-		SELECT id, name, description, tags, source_type, source_registry_id, author_id, project_id, supported_agents, version, use_count, status, is_public, created_at, updated_at
+		SELECT id, name, description, tags, source_type, source_registry_id, author_id, project_id, supported_agents, use_count, status, is_public, created_at, updated_at
 		FROM skills ` + whereClause + ` ORDER BY created_at DESC LIMIT ? OFFSET ?
 	`
 	args = append(args, pageSize, offset)
@@ -211,7 +195,7 @@ func (r *SkillRepository) List(ctx context.Context, query *model.SkillListQuery)
 func (r *SkillRepository) Update(ctx context.Context, skill *model.Skill) error {
 	query := `
 		UPDATE skills
-		SET name = ?, description = ?, tags = ?, source_type = ?, source_registry_id = ?, author_id = ?, project_id = ?, supported_agents = ?, version = ?, use_count = ?, status = ?, is_public = ?, updated_at = NOW()
+		SET name = ?, description = ?, tags = ?, source_type = ?, source_registry_id = ?, author_id = ?, project_id = ?, supported_agents = ?, use_count = ?, status = ?, is_public = ?, updated_at = NOW()
 		WHERE id = ?
 	`
 	supportedAgents, _ := json.Marshal(skill.SupportedAgents)
@@ -229,7 +213,7 @@ func (r *SkillRepository) Update(ctx context.Context, skill *model.Skill) error 
 	}
 
 	_, err := r.db.ExecContext(ctx, query,
-		skill.Name, skill.Description, tags, skill.SourceType, sourceRegistryID, authorID, projectID, supportedAgents, skill.Version, skill.UseCount, skill.Status, skill.IsPublic, skill.ID.String(),
+		skill.Name, skill.Description, tags, skill.SourceType, sourceRegistryID, authorID, projectID, supportedAgents, skill.UseCount, skill.Status, skill.IsPublic, skill.ID.String(),
 	)
 	return err
 }
