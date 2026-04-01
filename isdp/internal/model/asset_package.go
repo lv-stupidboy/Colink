@@ -19,33 +19,28 @@ type AssetPackageAssetsList struct {
 // AssetPackageSkillItem 技能项
 type AssetPackageSkillItem struct {
 	Name string `json:"name"`
-	File string `json:"file"`
 }
 
 // AssetPackageCommandItem 命令项
 type AssetPackageCommandItem struct {
 	Name        string   `json:"name"`
-	File        string   `json:"file"`
 	BoundSkills []string `json:"boundSkills,omitempty"`
 }
 
 // AssetPackageSubagentItem 子代理项
 type AssetPackageSubagentItem struct {
 	Name        string   `json:"name"`
-	File        string   `json:"file"`
 	BoundSkills []string `json:"boundSkills,omitempty"`
 }
 
 // AssetPackageRuleItem 规则项
 type AssetPackageRuleItem struct {
 	Name string `json:"name"`
-	File string `json:"file"`
 }
 
 // AssetPackageSettingsItem 配置项
 type AssetPackageSettingsItem struct {
 	Name string `json:"name"`
-	Dir  string `json:"dir"`
 }
 
 // ExportAssetPackageRequest 导出资产包请求（简化版）

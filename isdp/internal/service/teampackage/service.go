@@ -288,7 +288,6 @@ func (s *Service) Export(ctx context.Context, workflowID string) ([]byte, string
 
 		manifest.Assets.Skills = append(manifest.Assets.Skills, model.AssetPackageSkillItem{
 			Name: skill.Name,
-			File: skill.Name,
 		})
 	}
 
@@ -310,7 +309,6 @@ func (s *Service) Export(ctx context.Context, workflowID string) ([]byte, string
 
 		manifest.Assets.Commands = append(manifest.Assets.Commands, model.AssetPackageCommandItem{
 			Name: command.Name,
-			File: command.Name,
 		})
 	}
 
@@ -332,7 +330,7 @@ func (s *Service) Export(ctx context.Context, workflowID string) ([]byte, string
 
 		manifest.Assets.Subagents = append(manifest.Assets.Subagents, model.AssetPackageSubagentItem{
 			Name: subagent.Name,
-			File: subagent.Name,
+			
 		})
 	}
 
@@ -354,7 +352,7 @@ func (s *Service) Export(ctx context.Context, workflowID string) ([]byte, string
 
 		manifest.Assets.Rules = append(manifest.Assets.Rules, model.AssetPackageRuleItem{
 			Name: rule.Name,
-			File: rule.Name,
+			
 		})
 	}
 
@@ -378,7 +376,7 @@ func (s *Service) Export(ctx context.Context, workflowID string) ([]byte, string
 
 		manifest.Assets.Settings = append(manifest.Assets.Settings, model.AssetPackageSettingsItem{
 			Name: settingsRecord.Name,
-			Dir:  settingsRecord.Name,
+			
 		})
 	}
 
@@ -931,7 +929,7 @@ func (s *Service) importSkill(ctx context.Context, tempDir string, item model.As
 	}
 
 	// 复制 Skill 目录
-	srcDir := filepath.Join(tempDir, "assets", "skills", item.File)
+	srcDir := filepath.Join(tempDir, "assets", "skills", item.Name)
 	targetDir := filepath.Join(s.skillStoragePath, item.Name)
 	if err := copyDir(srcDir, targetDir); err != nil {
 		detail.Status = "failed"
@@ -981,7 +979,7 @@ func (s *Service) importCommand(ctx context.Context, tempDir string, item model.
 	}
 
 	// 复制文件
-	srcFile := filepath.Join(tempDir, "assets", "commands", item.File+".md")
+	srcFile := filepath.Join(tempDir, "assets", "commands", item.Name+".md")
 	targetFile := filepath.Join(s.commandStoragePath, item.Name+".md")
 	if err := copyFile(srcFile, targetFile); err != nil {
 		detail.Status = "failed"
@@ -1025,7 +1023,7 @@ func (s *Service) importSubagent(ctx context.Context, tempDir string, item model
 	}
 
 	// 复制文件
-	srcFile := filepath.Join(tempDir, "assets", "subagents", item.File+".md")
+	srcFile := filepath.Join(tempDir, "assets", "subagents", item.Name+".md")
 	targetFile := filepath.Join(s.subagentStoragePath, item.Name+".md")
 	if err := copyFile(srcFile, targetFile); err != nil {
 		detail.Status = "failed"
@@ -1069,7 +1067,7 @@ func (s *Service) importRule(ctx context.Context, tempDir string, item model.Ass
 	}
 
 	// 复制文件
-	srcFile := filepath.Join(tempDir, "assets", "rules", item.File+".md")
+	srcFile := filepath.Join(tempDir, "assets", "rules", item.Name+".md")
 	targetFile := filepath.Join(s.ruleStoragePath, item.Name+".md")
 	if err := copyFile(srcFile, targetFile); err != nil {
 		detail.Status = "failed"
@@ -1118,7 +1116,7 @@ func (s *Service) importSettings(ctx context.Context, tempDir string, item model
 	}
 
 	// 复制目录
-	srcDir := filepath.Join(tempDir, "assets", "settings", item.Dir)
+	srcDir := filepath.Join(tempDir, "assets", "settings", item.Name)
 	targetDir := filepath.Join(s.settingsStoragePath, item.Name)
 	if err := copyDir(srcDir, targetDir); err != nil {
 		detail.Status = "failed"
