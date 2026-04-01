@@ -15,7 +15,7 @@
 1. 移除资产包的版本概念，简化为纯粹的导入导出工具
 2. 删除 asset_packages 元数据表
 3. 新增团队包功能，支持导出工作流+角色+资产的完整配置
-4. 菜单结构调整：在 Agent团队 下新增"管理工具"二级菜单
+4. 菜单结构调整：管理工具作为 Agent团队的二级菜单
 
 ### 核心变更
 
@@ -39,11 +39,14 @@
 #### 前端改动
 
 **菜单结构：**
-- `isdp/web/src/layouts/MainLayout.tsx` - 新增"管理工具"菜单（团队包、资产包）
+- `isdp/web/src/layouts/MainLayout.tsx` - 管理工具作为 Agent团队的二级菜单，团队包和资产包为三级
 
 **页面组件：**
 - `isdp/web/src/pages/AssetPackage/index.tsx` - 重写为双卡片布局（导入+导出）
 - `isdp/web/src/pages/TeamPackage/index.tsx` - 新增团队包页面（导入预览+导出）
+
+**路由配置：**
+- `isdp/web/src/App.tsx` - 路由路径改为 `/agents/team-packages` 和 `/agents/asset-packages`
 
 **API 客户端：**
 - `isdp/web/src/api/client.ts` - 简化 assetPackages，新增 teamPackages API
@@ -60,17 +63,17 @@
 | `isdp/internal/api/asset_package_handler.go` | 修改 | 简化端点 |
 | `isdp/internal/api/team_package_handler.go` | 新建 | 团队包 Handler |
 | `isdp/cmd/server/main.go` | 修改 | 更新服务注册 |
-| `isdp/web/src/layouts/MainLayout.tsx` | 修改 | 新增管理工具菜单 |
+| `isdp/web/src/layouts/MainLayout.tsx` | 修改 | 管理工具改为二级菜单 |
 | `isdp/web/src/pages/AssetPackage/index.tsx` | 重写 | 双卡片布局 |
 | `isdp/web/src/pages/TeamPackage/index.tsx` | 新建 | 团队包页面 |
 | `isdp/web/src/api/client.ts` | 修改 | 更新 API 客户端 |
-| `isdp/web/src/App.tsx` | 修改 | 新增路由 |
+| `isdp/web/src/App.tsx` | 修改 | 更新路由路径 |
 
 ### 验证方法
 
 1. 启动后端服务：`cd isdp && go run ./cmd/server`
 2. 启动前端：`cd web && npm run dev`
-3. 访问管理工具菜单，验证资产包和团队包页面
+3. 访问 Agent团队 → 管理工具 菜单，验证团队包和资产包页面
 4. 测试资产包导入导出功能
 5. 测试团队包导入（包含冲突预览）导出功能
 
@@ -78,7 +81,7 @@
 
 - 资产包功能完全重构，原有版本管理功能移除
 - 新增团队包功能模块
-- 菜单结构变更
+- 菜单结构变更：管理工具从一级菜单改为 Agent团队的二级菜单
 
 ---
 
