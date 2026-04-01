@@ -189,8 +189,17 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, req *model.UpdateSub
 	if req.Description != "" {
 		subagent.Description = req.Description
 	}
+	// 更新 content 文件
 	if req.Content != "" {
+		if s.storagePath != "" {
+			if err := s.writeContentToFile(subagent.Name, req.Content); err != nil {
+				return nil, fmt.Errorf("更新子代理文件失败: %w", err)
+			}
+		}
 		subagent.Content = req.Content
+	}
+	if req.Version != "" {
+		subagent.Version = req.Version
 	}
 	subagent.UpdatedAt = time.Now()
 
