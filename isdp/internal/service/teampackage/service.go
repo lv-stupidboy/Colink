@@ -948,12 +948,13 @@ func (s *Service) importSkill(ctx context.Context, tempDir string, item model.As
 	skill := &model.Skill{
 		ID:              uuid.New(),
 		Name:            item.Name,
+		Description:     item.Description,
+		Tags:            item.Tags,
 		SourceType:      model.SkillSourcePersonal,
 		Status:          model.SkillStatusActive,
-		IsPublic:        true,
+		IsPublic:        item.IsPublic,
 		UseCount:        0,
-		SupportedAgents: []string{},
-		Tags:            []string{},
+		SupportedAgents: item.SupportedAgents,
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}
@@ -996,10 +997,11 @@ func (s *Service) importCommand(ctx context.Context, tempDir string, item model.
 	// 创建记录
 	now := time.Now()
 	command := &model.Command{
-		ID:        uuid.New(),
-		Name:      item.Name,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:          uuid.New(),
+		Name:        item.Name,
+		Description: item.Description,
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 
 	if err := s.commandRepo.Create(ctx, command); err != nil {
@@ -1040,10 +1042,11 @@ func (s *Service) importSubagent(ctx context.Context, tempDir string, item model
 	// 创建记录
 	now := time.Now()
 	subagent := &model.Subagent{
-		ID:        uuid.New(),
-		Name:      item.Name,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:          uuid.New(),
+		Name:        item.Name,
+		Description: item.Description,
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 
 	if err := s.subagentRepo.Create(ctx, subagent); err != nil {
@@ -1083,12 +1086,17 @@ func (s *Service) importRule(ctx context.Context, tempDir string, item model.Ass
 
 	// 创建记录
 	now := time.Now()
+	visibility := item.Visibility
+	if visibility == "" {
+		visibility = model.RuleVisibilityPublic
+	}
 	rule := &model.Rule{
-		ID:         uuid.New(),
-		Name:       item.Name,
-		Visibility: model.RuleVisibilityPublic,
-		CreatedAt:  now,
-		UpdatedAt:  now,
+		ID:          uuid.New(),
+		Name:        item.Name,
+		Description: item.Description,
+		Visibility:  visibility,
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 
 	if err := s.ruleRepo.Create(ctx, rule); err != nil {
@@ -1135,6 +1143,7 @@ func (s *Service) importSettings(ctx context.Context, tempDir string, item model
 	settingsRecord := &model.Settings{
 		ID:            uuid.New(),
 		Name:          item.Name,
+		Description:   item.Description,
 		DirectoryPath: targetDir,
 		CreatedAt:     now,
 		UpdatedAt:     now,
