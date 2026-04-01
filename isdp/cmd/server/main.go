@@ -30,6 +30,7 @@ import (
 	"github.com/anthropic/isdp/internal/service/settings"
 	"github.com/anthropic/isdp/internal/service/skill"
 	"github.com/anthropic/isdp/internal/service/subagent"
+	"github.com/anthropic/isdp/internal/service/teampackage"
 	"github.com/anthropic/isdp/internal/service/thread"
 	"github.com/anthropic/isdp/internal/service/workflow"
 	"github.com/anthropic/isdp/internal/ws"
@@ -162,7 +163,6 @@ func main() {
 	// Settings 和 AssetPackage 相关 Repositories
 	settingsRepo := repo.NewSettingsRepository(db)
 	agentSettingsBindingRepo := repo.NewAgentSettingsBindingRepository(db)
-	assetPackageRepo := repo.NewAssetPackageRepository(db)
 
 	// 初始化Services
 	projectService := project.NewService(projectRepo, workflowRepo)
@@ -238,9 +238,21 @@ func main() {
 
 	// 创建 AssetPackage Service
 	assetPackageSvc := assetpackage.NewService(
-		assetPackageRepo, skillRepo, commandRepo, subagentRepo, ruleRepo, settingsRepo,
+		skillRepo, commandRepo, subagentRepo, ruleRepo, settingsRepo,
 		settingsSvc,
 		commandSkillBindingRepo, subagentSkillBindingRepo,
+		cfg.GetSkillStoragePath(), cfg.GetSubagentStoragePath(),
+		cfg.GetCommandStoragePath(), cfg.GetRuleStoragePath(),
+		cfg.GetSettingsStoragePath(),
+		logger,
+	)
+
+	// 创建 TeamPackage Service
+	teamPackageSvc := teampackage.NewService(
+		workflowRepo, agentConfigRepo,
+		skillRepo, commandRepo, subagentRepo, ruleRepo, settingsRepo,
+		agentSkillBindingRepo, agentCommandBindingRepo, agentSubagentBindingRepo,
+		agentRuleBindingRepo, agentSettingsBindingRepo,
 		cfg.GetSkillStoragePath(), cfg.GetSubagentStoragePath(),
 		cfg.GetCommandStoragePath(), cfg.GetRuleStoragePath(),
 		cfg.GetSettingsStoragePath(),
@@ -430,6 +442,10 @@ func main() {
 	// AssetPackage Handler
 	assetPackageHandler := api.NewAssetPackageHandler(assetPackageSvc)
 	assetPackageHandler.RegisterRoutes(v1)
+
+	// TeamPackage Handler
+	teamPackageHandler := api.NewTeamPackageHandler(teamPackageSvc)
+	teamPackageHandler.RegisterRoutes(v1)
 
 	// MCP Callback Handler
 	callbackHandler := api.NewCallbackHandler(invocationRegistry, mcpAuthService, messageService, messageRepo, wsHub, orchestrator, baseAgentRepo, invocationQueue, queueProcessor, mentionParser)
