@@ -39,11 +39,11 @@ const statusColors: Record<string, string> = {
 
 // 资产类型选项
 const assetTypeOptions = [
-  { key: 'skills', title: '技能' },
-  { key: 'commands', title: '命令' },
-  { key: 'subagents', title: '子代理' },
-  { key: 'rules', title: '规则' },
-  { key: 'settings', title: '配置' },
+  { key: 'skills', title: 'Skills' },
+  { key: 'commands', title: 'Commands' },
+  { key: 'subagents', title: 'Subagents' },
+  { key: 'rules', title: 'Rules' },
+  { key: 'settings', title: 'Settings' },
 ];
 
 const AssetPackageManagement: React.FC = () => {
@@ -137,8 +137,6 @@ const AssetPackageManagement: React.FC = () => {
     try {
       const blob = await api.assetPackages.export({
         name: values.name,
-        version: values.version,
-        description: values.description,
         skillIds: selectedSkillIds,
         commandIds: selectedCommandIds,
         subagentIds: selectedSubagentIds,
@@ -150,7 +148,7 @@ const AssetPackageManagement: React.FC = () => {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${values.name}-v${values.version}.zip`;
+      a.download = `${values.name}.zip`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -252,7 +250,6 @@ const AssetPackageManagement: React.FC = () => {
                 ),
               },
               { title: '名称', dataIndex: 'name', key: 'name' },
-              { title: '版本', dataIndex: 'version', key: 'version', width: 80 },
               {
                 title: '状态',
                 dataIndex: 'status',
@@ -273,7 +270,7 @@ const AssetPackageManagement: React.FC = () => {
   return (
     <div style={{ padding: 24 }}>
       <Title level={2}>资产包管理</Title>
-      <Text type="secondary">导入导出资产包，便于团队协作和版本管理</Text>
+      <Text type="secondary">导入导出资产包，便于团队协作和资产共享</Text>
 
       <Divider />
 
@@ -319,18 +316,7 @@ const AssetPackageManagement: React.FC = () => {
                 label="包名称"
                 rules={[{ required: true, message: '请输入包名称' }]}
               >
-                <Input placeholder="如：my-team-assets" />
-              </Form.Item>
-
-              <Form.Item
-                name="version"
-                label="版本号"
-                rules={[
-                  { required: true, message: '请输入版本号' },
-                  { pattern: /^\d+\.\d+\.\d+$/, message: '版本号格式如 1.0.0' },
-                ]}
-              >
-                <Input placeholder="如：1.0.0" />
+                <Input placeholder="如：my-assets" />
               </Form.Item>
 
               <Form.Item name="description" label="描述">
@@ -356,9 +342,9 @@ const AssetPackageManagement: React.FC = () => {
 
             {/* 已选资产统计 */}
             <div style={{ marginBottom: 12, color: '#666' }}>
-              已选：技能 {selectedSkillIds.length} / 命令 {selectedCommandIds.length} /
-              子代理 {selectedSubagentIds.length} / 规则 {selectedRuleIds.length} /
-              配置 {selectedSettingsIds.length}
+              已选：Skills {selectedSkillIds.length} / Commands {selectedCommandIds.length} /
+              Subagents {selectedSubagentIds.length} / Rules {selectedRuleIds.length} /
+              Settings {selectedSettingsIds.length}
             </div>
 
             {/* Transfer 选择器 */}

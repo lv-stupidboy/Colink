@@ -836,11 +836,9 @@ export interface AssetPackageListResponse {
   pageSize: number;
 }
 
-// ExportAssetPackageRequest 导出资产包请求
+// ExportAssetPackageRequest 导出资产包请求（简化版，无版本概念）
 export interface ExportAssetPackageRequest {
   name: string;
-  version: string;
-  description?: string;
   skillIds?: string[];
   commandIds?: string[];
   subagentIds?: string[];
@@ -848,21 +846,18 @@ export interface ExportAssetPackageRequest {
   settingsIds?: string[];
 }
 
-// ImportResult 导入结果
+// ImportResult 导入结果（简化版）
 export interface ImportResult {
-  packageName: string;
-  packageId: string;
   success: number;
   skipped: number;
   failed: number;
-  details: ImportDetail[];
+  details?: ImportDetail[];
 }
 
-// ImportDetail 导入详情
+// ImportDetail 导入详情（简化版，无版本）
 export interface ImportDetail {
   assetType: string;
   name: string;
-  version: string;
   status: string; // success, skipped, failed
   message?: string;
 }
