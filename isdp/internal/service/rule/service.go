@@ -68,11 +68,34 @@ func (s *Service) Create(ctx context.Context, req *model.CreateRuleRequest) (*mo
 		Name:        req.Name,
 		Description: req.Description,
 		Visibility:  req.Visibility,
+		Version:     req.Version,
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
 	}
 
+	// 如果有内容，写入文件
+	if s.storagePath != "" && req.Content != "" {
+		if err := os.MkdirAll(s.storagePath, 0755); err != nil {
+			return nil, fmt.Errorf("创建存储目录失败: %w", err)
+		}
+		filePath := filepath.Join(s.storagePath, req.Name+".md")
+		if err := os.WriteFile(filePath, []byte(req.Content), 0644); err != nil {
+			return nil, fmt.Errorf("写入规约文件失败: %w", err)
+		}
+		rule.Content = req.Content
+	}
+
+	// 设置默认版本
+	if rule.Version == "" {
+		rule.Version = "1.0.0"
+	}
+
 	if err := s.repo.Create(ctx, rule); err != nil {
+		// 回滚：删除已创建的文件
+		if s.storagePath != "" && req.Content != "" {
+			filePath := filepath.Join(s.storagePath, req.Name+".md")
+			os.Remove(filePath)
+		}
 		return nil, fmt.Errorf("创建规约失败: %w", err)
 	}
 
@@ -87,17 +110,49 @@ func (s *Service) Create(ctx context.Context, req *model.CreateRuleRequest) (*mo
 
 // Get 根据ID获取Rule
 func (s *Service) Get(ctx context.Context, id uuid.UUID) (*model.Rule, error) {
-	return s.repo.FindByID(ctx, id)
+	rule, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	// 从文件读取内容
+	s.populateContent(rule)
+	return rule, nil
 }
 
 // GetByName 根据名称获取Rule
 func (s *Service) GetByName(ctx context.Context, name string) (*model.Rule, error) {
-	return s.repo.FindByName(ctx, name)
+	rule, err := s.repo.FindByName(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	// 从文件读取内容
+	s.populateContent(rule)
+	return rule, nil
 }
 
 // List 列出Rules
 func (s *Service) List(ctx context.Context, query *model.RuleListQuery) ([]*model.Rule, int64, error) {
-	return s.repo.List(ctx, query)
+	rules, total, err := s.repo.List(ctx, query)
+	if err != nil {
+		return nil, 0, err
+	}
+	// 从文件读取内容
+	for _, rule := range rules {
+		s.populateContent(rule)
+	}
+	return rules, total, nil
+}
+
+// populateContent 从文件填充内容
+func (s *Service) populateContent(rule *model.Rule) {
+	if s.storagePath == "" || rule == nil {
+		return
+	}
+	filePath := filepath.Join(s.storagePath, rule.Name+".md")
+	content, err := os.ReadFile(filePath)
+	if err == nil {
+		rule.Content = string(content)
+	}
 }
 
 // Update 更新Rule
@@ -115,6 +170,17 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, req *model.UpdateRul
 			return nil, errors.New("visibility 必须是 public 或 private")
 		}
 		rule.Visibility = req.Visibility
+	}
+	if req.Version != "" {
+		rule.Version = req.Version
+	}
+	// 更新内容文件
+	if s.storagePath != "" && req.Content != "" {
+		filePath := filepath.Join(s.storagePath, rule.Name+".md")
+		if err := os.WriteFile(filePath, []byte(req.Content), 0644); err != nil {
+			return nil, fmt.Errorf("更新规约文件失败: %w", err)
+		}
+		rule.Content = req.Content
 	}
 	rule.UpdatedAt = time.Now()
 

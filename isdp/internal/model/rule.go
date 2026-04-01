@@ -57,6 +57,7 @@ type CreateRuleRequest struct {
 type UpdateRuleRequest struct {
 	Description string         `json:"description"`
 	Visibility  RuleVisibility `json:"visibility"`
+	Content     string         `json:"content"` // 规约内容（可选，传入则保存文件）
 	Version     string         `json:"version"` // 版本号
 }
 
