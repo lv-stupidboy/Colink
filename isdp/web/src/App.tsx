@@ -21,6 +21,7 @@ import CommandList from '@/pages/CommandList';
 import RuleList from '@/pages/RuleList';
 import SettingsManagement from '@/pages/SettingsManagement';
 import AssetPackageManagement from '@/pages/AssetPackage';
+import TeamPackagePage from '@/pages/TeamPackage';
 import PlaceholderPage from '@/pages/PlaceholderPage';
 import { useThemeStore } from '@/store/themeStore';
 import '@/themes/themeVariables.css';
@@ -156,7 +157,13 @@ const App: React.FC = () => {
               <Route path="sandbox" element={<SandboxPage />} />
               <Route path="registries" element={<RegistryManagement />} />
               <Route path="knowledge" element={<Navigate to="/agents/knowledge" replace />} />
-              <Route path="asset-packages" element={<AssetPackageManagement />} />
+
+              {/* 管理工具路由 */}
+              <Route path="management-tools/team-package" element={<TeamPackagePage />} />
+              <Route path="management-tools/asset-package" element={<AssetPackageManagement />} />
+
+              {/* 旧路由重定向 */}
+              <Route path="asset-packages" element={<Navigate to="/management-tools/asset-package" replace />} />
 
               {/* 设置页面 - 二级菜单 */}
               <Route path="settings" element={<SettingsLayout />}>
