@@ -19,6 +19,8 @@ import {
   ControlOutlined,
   CompassOutlined,
   ContainerOutlined,
+  ToolOutlined,
+  TeamOutlined,
 } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import ThemeSwitcher from '@/components/ThemeSwitcher';
@@ -45,8 +47,7 @@ const MainLayout: React.FC = () => {
       setOpenKeys(['settings']);
     } else if (path.startsWith('/agents')) {
       // Agent团队下的路径，需要展开到三级菜单
-      if (path.startsWith('/asset-packages') ||
-          path.startsWith('/agents/commands') || path.startsWith('/agents/subagents') ||
+      if (path.startsWith('/agents/commands') || path.startsWith('/agents/subagents') ||
           path.startsWith('/agents/skills') || path.startsWith('/agents/rules') ||
           path.startsWith('/agents/settings') ||
           path.startsWith('/agents/plugins')) {
@@ -54,6 +55,8 @@ const MainLayout: React.FC = () => {
       } else {
         setOpenKeys(['agents']);
       }
+    } else if (path.startsWith('/team-packages') || path.startsWith('/asset-packages')) {
+      setOpenKeys(['management-tools']);
     } else if (path.startsWith('/planning') || path.startsWith('/knowledge') || path.startsWith('/sandbox')) {
       setOpenKeys(['planning']);
     } else if (path === '/workflow') {
@@ -96,11 +99,6 @@ const MainLayout: React.FC = () => {
           label: '角色资产',
           children: [
             {
-              key: '/asset-packages',
-              icon: <ContainerOutlined />,
-              label: '资产包',
-            },
-            {
               key: '/agents/commands',
               icon: <CodeOutlined />,
               label: 'Commands',
@@ -131,6 +129,23 @@ const MainLayout: React.FC = () => {
               label: 'Plugins',
             },
           ],
+        },
+      ],
+    },
+    {
+      key: 'management-tools',
+      icon: <ToolOutlined />,
+      label: '管理工具',
+      children: [
+        {
+          key: '/team-packages',
+          icon: <TeamOutlined />,
+          label: '团队包',
+        },
+        {
+          key: '/asset-packages',
+          icon: <ContainerOutlined />,
+          label: '资产包',
         },
       ],
     },
@@ -184,6 +199,7 @@ const MainLayout: React.FC = () => {
     if (path.startsWith('/sandbox')) return '/sandbox';
     if (path === '/workflow') return '/workflow';
     // Agent 团队子菜单路由
+    if (path.startsWith('/team-packages')) return '/team-packages';
     if (path.startsWith('/asset-packages')) return '/asset-packages';
     if (path.startsWith('/agents/roles')) return '/agents/roles';
     if (path.startsWith('/agents/commands')) return '/agents/commands';
