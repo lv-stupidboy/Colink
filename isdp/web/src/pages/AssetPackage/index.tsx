@@ -163,6 +163,24 @@ const AssetPackageManagement: React.FC = () => {
     }
   };
 
+  // 获取指定资产类型的数量
+  const getAssetCount = (type: string) => {
+    switch (type) {
+      case 'skills':
+        return skills.length;
+      case 'commands':
+        return commands.length;
+      case 'subagents':
+        return subagents.length;
+      case 'rules':
+        return rules.length;
+      case 'settings':
+        return settings.length;
+      default:
+        return 0;
+    }
+  };
+
   // 获取当前选中资产类型的列表
   const getCurrentAssetList = () => {
     switch (selectedAssetType) {
@@ -331,7 +349,7 @@ const AssetPackageManagement: React.FC = () => {
                   style={{ cursor: 'pointer' }}
                   onClick={() => setSelectedAssetType(opt.key)}
                 >
-                  {opt.title} ({getCurrentAssetList().length})
+                  {opt.title} ({getAssetCount(opt.key)})
                 </Tag>
               ))}
             </Space>
