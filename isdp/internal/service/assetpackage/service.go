@@ -23,26 +23,24 @@ import (
 
 // Service 资产包业务服务
 type Service struct {
-	packageRepo          *repo.AssetPackageRepository
 	skillRepo            *repo.SkillRepository
 	commandRepo          *repo.CommandRepository
 	subagentRepo         *repo.SubagentRepository
-	ruleRepo             *repo.RuleRepository
-	settingsRepo         *repo.SettingsRepository
-	settingsService      *settings.Service
-	commandSkillBinding  *repo.CommandSkillBindingRepository
+	ruleRepo            *repo.RuleRepository
+	settingsRepo        *repo.SettingsRepository
+	settingsService     *settings.Service
+	commandSkillBinding *repo.CommandSkillBindingRepository
 	subagentSkillBinding *repo.SubagentSkillBindingRepository
-	skillStoragePath     string
-	subagentStoragePath  string
-	commandStoragePath   string
-	ruleStoragePath      string
-	settingsStoragePath  string
-	logger               *zap.Logger
+	skillStoragePath    string
+	subagentStoragePath string
+	commandStoragePath  string
+	ruleStoragePath     string
+	settingsStoragePath string
+	logger              *zap.Logger
 }
 
 // NewService 创建 AssetPackage Service
 func NewService(
-	packageRepo *repo.AssetPackageRepository,
 	skillRepo *repo.SkillRepository,
 	commandRepo *repo.CommandRepository,
 	subagentRepo *repo.SubagentRepository,
@@ -59,7 +57,6 @@ func NewService(
 	logger *zap.Logger,
 ) *Service {
 	return &Service{
-		packageRepo:          packageRepo,
 		skillRepo:            skillRepo,
 		commandRepo:          commandRepo,
 		subagentRepo:         subagentRepo,
@@ -77,26 +74,9 @@ func NewService(
 	}
 }
 
-// List 列出资产包
-func (s *Service) List(ctx context.Context, query *model.AssetPackageListQuery) ([]*model.AssetPackage, int64, error) {
-	return s.packageRepo.List(ctx, query)
-}
-
-// GetByID 根据ID获取资产包
-func (s *Service) GetByID(ctx context.Context, id uuid.UUID) (*model.AssetPackage, error) {
-	return s.packageRepo.FindByID(ctx, id)
-}
-
-// Delete 删除资产包
-func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
-	return s.packageRepo.Delete(ctx, id)
-}
-
 // Export 导出资产包
 func (s *Service) Export(ctx context.Context, req *model.ExportAssetPackageRequest) ([]byte, string, error) {
-	// 生成完整版本号: v{version}-{YYYYMMDD}-{HHMMSS}
 	now := time.Now()
-	fullVersion := fmt.Sprintf("v%s-%s-%s", req.Version, now.Format("20060102"), now.Format("150456"))
 
 	// 创建临时目录
 	tempDir, err := os.MkdirTemp("", "asset-package-export-*")
@@ -107,18 +87,21 @@ func (s *Service) Export(ctx context.Context, req *model.ExportAssetPackageReque
 
 	// 构建 manifest
 	manifest := &model.AssetPackageManifest{
-		Name:        req.Name,
-		Version:     fullVersion,
-		ExportedAt:  now.Format(time.RFC3339),
-		Description: req.Description,
-		Assets:      model.AssetPackageAssetsList{},
+		ExportedAt: now.Format(time.RFC3339),
+		Assets:     model.AssetPackageAssetsList{},
 	}
 
 	// 导出 Skills
-	for _, skillID := range req.SkillIDs {
+	for _, skillIDStr := range req.SkillIDs {
+		skillID, err := uuid.Parse(skillIDStr)
+		if err != nil {
+			s.logger.Warn("解析技能ID失败，跳过", zap.String("skillId", skillIDStr), zap.Error(err))
+			continue
+		}
+
 		skill, err := s.skillRepo.FindByID(ctx, skillID)
 		if err != nil {
-			s.logger.Warn("导出技能失败，跳过", zap.String("skillId", skillID.String()), zap.Error(err))
+			s.logger.Warn("导出技能失败，跳过", zap.String("skillId", skillIDStr), zap.Error(err))
 			continue
 		}
 
@@ -131,16 +114,22 @@ func (s *Service) Export(ctx context.Context, req *model.ExportAssetPackageReque
 		}
 
 		manifest.Assets.Skills = append(manifest.Assets.Skills, model.AssetPackageSkillItem{
-			Name:    skill.Name,
-			Version: skill.Version,
+			Name: skill.Name,
+			File: skill.Name,
 		})
 	}
 
 	// 导出 Commands
-	for _, commandID := range req.CommandIDs {
+	for _, commandIDStr := range req.CommandIDs {
+		commandID, err := uuid.Parse(commandIDStr)
+		if err != nil {
+			s.logger.Warn("解析命令ID失败，跳过", zap.String("commandId", commandIDStr), zap.Error(err))
+			continue
+		}
+
 		command, err := s.commandRepo.FindByID(ctx, commandID)
 		if err != nil {
-			s.logger.Warn("导出命令失败，跳过", zap.String("commandId", commandID.String()), zap.Error(err))
+			s.logger.Warn("导出命令失败，跳过", zap.String("commandId", commandIDStr), zap.Error(err))
 			continue
 		}
 
@@ -155,7 +144,7 @@ func (s *Service) Export(ctx context.Context, req *model.ExportAssetPackageReque
 		// 获取 Command 绑定的 Skills
 		boundSkillIDs, err := s.commandSkillBinding.FindByCommandID(ctx, commandID)
 		if err != nil {
-			s.logger.Warn("获取命令绑定的技能失败", zap.String("commandId", commandID.String()), zap.Error(err))
+			s.logger.Warn("获取命令绑定的技能失败", zap.String("commandId", commandIDStr), zap.Error(err))
 		}
 		boundSkills := make([]string, 0, len(boundSkillIDs))
 		for _, skillID := range boundSkillIDs {
@@ -167,16 +156,22 @@ func (s *Service) Export(ctx context.Context, req *model.ExportAssetPackageReque
 
 		manifest.Assets.Commands = append(manifest.Assets.Commands, model.AssetPackageCommandItem{
 			Name:        command.Name,
-			Version:     command.Version,
+			File:        command.Name,
 			BoundSkills: boundSkills,
 		})
 	}
 
 	// 导出 Subagents
-	for _, subagentID := range req.SubagentIDs {
+	for _, subagentIDStr := range req.SubagentIDs {
+		subagentID, err := uuid.Parse(subagentIDStr)
+		if err != nil {
+			s.logger.Warn("解析子代理ID失败，跳过", zap.String("subagentId", subagentIDStr), zap.Error(err))
+			continue
+		}
+
 		subagent, err := s.subagentRepo.FindByID(ctx, subagentID)
 		if err != nil {
-			s.logger.Warn("导出子代理失败，跳过", zap.String("subagentId", subagentID.String()), zap.Error(err))
+			s.logger.Warn("导出子代理失败，跳过", zap.String("subagentId", subagentIDStr), zap.Error(err))
 			continue
 		}
 
@@ -191,7 +186,7 @@ func (s *Service) Export(ctx context.Context, req *model.ExportAssetPackageReque
 		// 获取 Subagent 绑定的 Skills
 		boundSkillIDs, err := s.subagentSkillBinding.FindBySubagentID(ctx, subagentID)
 		if err != nil {
-			s.logger.Warn("获取子代理绑定的技能失败", zap.String("subagentId", subagentID.String()), zap.Error(err))
+			s.logger.Warn("获取子代理绑定的技能失败", zap.String("subagentId", subagentIDStr), zap.Error(err))
 		}
 		boundSkills := make([]string, 0, len(boundSkillIDs))
 		for _, skillID := range boundSkillIDs {
@@ -203,16 +198,22 @@ func (s *Service) Export(ctx context.Context, req *model.ExportAssetPackageReque
 
 		manifest.Assets.Subagents = append(manifest.Assets.Subagents, model.AssetPackageSubagentItem{
 			Name:        subagent.Name,
-			Version:     subagent.Version,
+			File:        subagent.Name,
 			BoundSkills: boundSkills,
 		})
 	}
 
 	// 导出 Rules
-	for _, ruleID := range req.RuleIDs {
+	for _, ruleIDStr := range req.RuleIDs {
+		ruleID, err := uuid.Parse(ruleIDStr)
+		if err != nil {
+			s.logger.Warn("解析规约ID失败，跳过", zap.String("ruleId", ruleIDStr), zap.Error(err))
+			continue
+		}
+
 		rule, err := s.ruleRepo.FindByID(ctx, ruleID)
 		if err != nil {
-			s.logger.Warn("导出规约失败，跳过", zap.String("ruleId", ruleID.String()), zap.Error(err))
+			s.logger.Warn("导出规约失败，跳过", zap.String("ruleId", ruleIDStr), zap.Error(err))
 			continue
 		}
 
@@ -225,16 +226,22 @@ func (s *Service) Export(ctx context.Context, req *model.ExportAssetPackageReque
 		}
 
 		manifest.Assets.Rules = append(manifest.Assets.Rules, model.AssetPackageRuleItem{
-			Name:    rule.Name,
-			Version: rule.Version,
+			Name: rule.Name,
+			File: rule.Name,
 		})
 	}
 
 	// 导出 Settings
-	for _, settingsID := range req.SettingsIDs {
+	for _, settingsIDStr := range req.SettingsIDs {
+		settingsID, err := uuid.Parse(settingsIDStr)
+		if err != nil {
+			s.logger.Warn("解析配置ID失败，跳过", zap.String("settingsId", settingsIDStr), zap.Error(err))
+			continue
+		}
+
 		settingsRecord, err := s.settingsRepo.FindByID(ctx, settingsID)
 		if err != nil {
-			s.logger.Warn("导出配置失败，跳过", zap.String("settingsId", settingsID.String()), zap.Error(err))
+			s.logger.Warn("导出配置失败，跳过", zap.String("settingsId", settingsIDStr), zap.Error(err))
 			continue
 		}
 
@@ -250,6 +257,7 @@ func (s *Service) Export(ctx context.Context, req *model.ExportAssetPackageReque
 
 		manifest.Assets.Settings = append(manifest.Assets.Settings, model.AssetPackageSettingsItem{
 			Name: settingsRecord.Name,
+			Dir:  settingsRecord.Name,
 		})
 	}
 
@@ -269,26 +277,12 @@ func (s *Service) Export(ctx context.Context, req *model.ExportAssetPackageReque
 		return nil, "", fmt.Errorf("创建 ZIP 失败: %w", err)
 	}
 
-	// 创建 AssetPackage 记录
-	pkg := &model.AssetPackage{
-		ID:          uuid.New(),
-		Name:        req.Name,
-		Version:     fullVersion,
-		Description: req.Description,
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	}
-	if err := s.packageRepo.Create(ctx, pkg); err != nil {
-		return nil, "", fmt.Errorf("保存资产包记录失败: %w", err)
-	}
-
-	// 生成文件名
-	filename := fmt.Sprintf("%s-%s.zip", req.Name, fullVersion)
+	// 生成文件名: asset-{timestamp}.zip
+	timestamp := now.Format("20060102-150405")
+	filename := fmt.Sprintf("asset-%s.zip", timestamp)
 
 	s.logger.Info("导出资产包成功",
-		zap.String("id", pkg.ID.String()),
-		zap.String("name", pkg.Name),
-		zap.String("version", pkg.Version),
+		zap.String("filename", filename),
 		zap.Int("skills", len(manifest.Assets.Skills)),
 		zap.Int("commands", len(manifest.Assets.Commands)),
 		zap.Int("subagents", len(manifest.Assets.Subagents)),
@@ -323,27 +317,11 @@ func (s *Service) Import(ctx context.Context, zipData []byte) (*model.ImportResu
 		return nil, fmt.Errorf("解析 manifest 失败: %w", err)
 	}
 
-	// 创建 AssetPackage 记录
-	now := time.Now()
-	pkg := &model.AssetPackage{
-		ID:          uuid.New(),
-		Name:        manifest.Name,
-		Version:     manifest.Version,
-		Description: manifest.Description,
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	}
-	if err := s.packageRepo.Create(ctx, pkg); err != nil {
-		return nil, fmt.Errorf("保存资产包记录失败: %w", err)
-	}
-
 	result := &model.ImportResult{
-		PackageName: manifest.Name,
-		PackageID:   pkg.ID,
-		Success:     0,
-		Skipped:     0,
-		Failed:      0,
-		Details:     make([]model.ImportDetail, 0),
+		Success: 0,
+		Skipped: 0,
+		Failed:  0,
+		Details: make([]model.ImportDetail, 0),
 	}
 
 	// 导入 Skills
@@ -358,7 +336,7 @@ func (s *Service) Import(ctx context.Context, zipData []byte) (*model.ImportResu
 		case "skipped":
 			result.Skipped++
 			// 获取已存在的 Skill ID
-			existing, _ := s.skillRepo.FindByNameAndVersion(ctx, skillItem.Name, skillItem.Version)
+			existing, _ := s.skillRepo.FindByName(ctx, skillItem.Name)
 			if existing != nil {
 				skillNameToID[skillItem.Name] = existing.ID
 			}
@@ -428,8 +406,6 @@ func (s *Service) Import(ctx context.Context, zipData []byte) (*model.ImportResu
 	}
 
 	s.logger.Info("导入资产包完成",
-		zap.String("id", pkg.ID.String()),
-		zap.String("name", pkg.Name),
 		zap.Int("success", result.Success),
 		zap.Int("skipped", result.Skipped),
 		zap.Int("failed", result.Failed))
@@ -442,19 +418,18 @@ func (s *Service) importSkill(ctx context.Context, tempDir string, item model.As
 	detail := model.ImportDetail{
 		AssetType: "skill",
 		Name:      item.Name,
-		Version:   item.Version,
 	}
 
-	// 检查是否已存在相同名称和版本的 Skill
-	existing, err := s.skillRepo.FindByNameAndVersion(ctx, item.Name, item.Version)
+	// 检查是否已存在相同名称的 Skill
+	existing, err := s.skillRepo.FindByName(ctx, item.Name)
 	if err == nil && existing != nil {
 		detail.Status = "skipped"
-		detail.Message = "已存在相同名称和版本的技能"
+		detail.Message = "已存在相同名称的技能"
 		return uuid.Nil, detail
 	}
 
 	// 复制 Skill 目录
-	srcDir := filepath.Join(tempDir, "skills", item.Name)
+	srcDir := filepath.Join(tempDir, "skills", item.File)
 	targetDir := filepath.Join(s.skillStoragePath, item.Name)
 	if err := copyDir(srcDir, targetDir); err != nil {
 		detail.Status = "failed"
@@ -467,7 +442,7 @@ func (s *Service) importSkill(ctx context.Context, tempDir string, item model.As
 	skill := &model.Skill{
 		ID:              uuid.New(),
 		Name:            item.Name,
-		Version:         item.Version,
+		Version:         "1.0.0",
 		SourceType:      model.SkillSourcePersonal,
 		Status:          model.SkillStatusActive,
 		IsPublic:        true,
@@ -495,19 +470,18 @@ func (s *Service) importCommand(ctx context.Context, tempDir string, item model.
 	detail := model.ImportDetail{
 		AssetType: "command",
 		Name:      item.Name,
-		Version:   item.Version,
 	}
 
-	// 检查是否已存在相同名称和版本的 Command
-	existing, err := s.commandRepo.FindByNameAndVersion(ctx, item.Name, item.Version)
+	// 检查是否已存在相同名称的 Command
+	existing, err := s.commandRepo.FindByName(ctx, item.Name)
 	if err == nil && existing != nil {
 		detail.Status = "skipped"
-		detail.Message = "已存在相同名称和版本的命令"
+		detail.Message = "已存在相同名称的命令"
 		return uuid.Nil, detail
 	}
 
 	// 复制 Command 文件
-	srcFile := filepath.Join(tempDir, "commands", item.Name+".md")
+	srcFile := filepath.Join(tempDir, "commands", item.File+".md")
 	targetFile := filepath.Join(s.commandStoragePath, item.Name+".md")
 	if err := copyFile(srcFile, targetFile); err != nil {
 		detail.Status = "failed"
@@ -518,11 +492,11 @@ func (s *Service) importCommand(ctx context.Context, tempDir string, item model.
 	// 创建 Command 记录
 	now := time.Now()
 	command := &model.Command{
-		ID:          uuid.New(),
-		Name:        item.Name,
-		Version:     item.Version,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:        uuid.New(),
+		Name:      item.Name,
+		Version:   "1.0.0",
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
 
 	if err := s.commandRepo.Create(ctx, command); err != nil {
@@ -542,19 +516,18 @@ func (s *Service) importSubagent(ctx context.Context, tempDir string, item model
 	detail := model.ImportDetail{
 		AssetType: "subagent",
 		Name:      item.Name,
-		Version:   item.Version,
 	}
 
-	// 检查是否已存在相同名称和版本的 Subagent
-	existing, err := s.subagentRepo.FindByNameAndVersion(ctx, item.Name, item.Version)
+	// 检查是否已存在相同名称的 Subagent
+	existing, err := s.subagentRepo.FindByName(ctx, item.Name)
 	if err == nil && existing != nil {
 		detail.Status = "skipped"
-		detail.Message = "已存在相同名称和版本的子代理"
+		detail.Message = "已存在相同名称的子代理"
 		return uuid.Nil, detail
 	}
 
 	// 复制 Subagent 文件
-	srcFile := filepath.Join(tempDir, "subagents", item.Name+".md")
+	srcFile := filepath.Join(tempDir, "subagents", item.File+".md")
 	targetFile := filepath.Join(s.subagentStoragePath, item.Name+".md")
 	if err := copyFile(srcFile, targetFile); err != nil {
 		detail.Status = "failed"
@@ -567,7 +540,7 @@ func (s *Service) importSubagent(ctx context.Context, tempDir string, item model
 	subagent := &model.Subagent{
 		ID:        uuid.New(),
 		Name:      item.Name,
-		Version:   item.Version,
+		Version:   "1.0.0",
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
@@ -589,19 +562,18 @@ func (s *Service) importRule(ctx context.Context, tempDir string, item model.Ass
 	detail := model.ImportDetail{
 		AssetType: "rule",
 		Name:      item.Name,
-		Version:   item.Version,
 	}
 
-	// 检查是否已存在相同名称和版本的 Rule
-	existing, err := s.ruleRepo.FindByNameAndVersion(ctx, item.Name, item.Version)
+	// 检查是否已存在相同名称的 Rule
+	existing, err := s.ruleRepo.FindByName(ctx, item.Name)
 	if err == nil && existing != nil {
 		detail.Status = "skipped"
-		detail.Message = "已存在相同名称和版本的规约"
+		detail.Message = "已存在相同名称的规约"
 		return uuid.Nil, detail
 	}
 
 	// 复制 Rule 文件
-	srcFile := filepath.Join(tempDir, "rules", item.Name+".md")
+	srcFile := filepath.Join(tempDir, "rules", item.File+".md")
 	targetFile := filepath.Join(s.ruleStoragePath, item.Name+".md")
 	if err := copyFile(srcFile, targetFile); err != nil {
 		detail.Status = "failed"
@@ -612,12 +584,12 @@ func (s *Service) importRule(ctx context.Context, tempDir string, item model.Ass
 	// 创建 Rule 记录
 	now := time.Now()
 	rule := &model.Rule{
-		ID:          uuid.New(),
-		Name:        item.Name,
-		Version:     item.Version,
-		Visibility:  model.RuleVisibilityPublic,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:         uuid.New(),
+		Name:       item.Name,
+		Version:    "1.0.0",
+		Visibility: model.RuleVisibilityPublic,
+		CreatedAt:  now,
+		UpdatedAt:  now,
 	}
 
 	if err := s.ruleRepo.Create(ctx, rule); err != nil {
@@ -637,10 +609,9 @@ func (s *Service) importSettings(ctx context.Context, tempDir string, item model
 	detail := model.ImportDetail{
 		AssetType: "settings",
 		Name:      item.Name,
-		Version:   "",
 	}
 
-	// 检查是否已存在相同名称的 Settings（Settings 没有 Version）
+	// 检查是否已存在相同名称的 Settings
 	existing, err := s.settingsRepo.FindByName(ctx, item.Name)
 	if err == nil && existing != nil {
 		detail.Status = "skipped"
@@ -653,7 +624,7 @@ func (s *Service) importSettings(ctx context.Context, tempDir string, item model
 	}
 
 	// 复制 Settings 目录
-	srcDir := filepath.Join(tempDir, "settings", item.Name)
+	srcDir := filepath.Join(tempDir, "settings", item.Dir)
 	targetDir := filepath.Join(s.settingsStoragePath, item.Name)
 	if err := copyDir(srcDir, targetDir); err != nil {
 		detail.Status = "failed"
@@ -876,9 +847,9 @@ func extractZip(zipReader io.Reader, dstDir string) error {
 
 	// ZIP bomb 防护常量
 	const (
-		maxTotalSize  = int64(500 * 1024 * 1024) // 500MB 总大小限制
-		maxFileCount  = 1000                      // 最大文件数量
-		maxFileSize   = int64(100 * 1024 * 1024)  // 单文件最大 100MB
+		maxTotalSize = int64(500 * 1024 * 1024) // 500MB 总大小限制
+		maxFileCount = 1000                      // 最大文件数量
+		maxFileSize  = int64(100 * 1024 * 1024) // 单文件最大 100MB
 	)
 
 	var totalSize int64
