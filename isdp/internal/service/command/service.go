@@ -51,6 +51,64 @@ func NewService(
 	}
 }
 
+// getContentFilePath 获取 content 文件路径
+func (s *Service) getContentFilePath(name string) string {
+	return filepath.Join(s.storagePath, name+".md")
+}
+
+// readContentFromFile 从文件读取 content
+func (s *Service) readContentFromFile(name string) string {
+	filePath := s.getContentFilePath(name)
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		s.logger.Debug("读取命令文件失败，返回空内容",
+			zap.String("path", filePath),
+			zap.Error(err),
+		)
+		return ""
+	}
+	return string(content)
+}
+
+// writeContentToFile 将 content 写入文件
+func (s *Service) writeContentToFile(name, content string) error {
+	// 确保存储目录存在
+	if err := os.MkdirAll(s.storagePath, 0755); err != nil {
+		return fmt.Errorf("创建存储目录失败: %w", err)
+	}
+
+	filePath := s.getContentFilePath(name)
+	if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
+		return fmt.Errorf("写入文件失败: %w", err)
+	}
+
+	s.logger.Debug("写入命令文件成功", zap.String("path", filePath))
+	return nil
+}
+
+// deleteContentFile 删除 content 文件
+func (s *Service) deleteContentFile(name string) error {
+	filePath := s.getContentFilePath(name)
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return nil // 文件不存在，无需删除
+	}
+	return os.Remove(filePath)
+}
+
+// populateContent 为 Command 填充 content（从文件读取）
+func (s *Service) populateContent(command *model.Command) {
+	if s.storagePath != "" && command != nil {
+		command.Content = s.readContentFromFile(command.Name)
+	}
+}
+
+// populateContentList 为 Command 列表填充 content
+func (s *Service) populateContentList(commands []*model.Command) {
+	for _, command := range commands {
+		s.populateContent(command)
+	}
+}
+
 // Create 创建Command
 func (s *Service) Create(ctx context.Context, req *model.CreateCommandRequest) (*model.Command, error) {
 	// 检查名称格式
@@ -68,11 +126,29 @@ func (s *Service) Create(ctx context.Context, req *model.CreateCommandRequest) (
 		ID:          uuid.New(),
 		Name:        req.Name,
 		Description: req.Description,
+		Version:     req.Version,
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
 	}
 
+	// 设置默认版本
+	if command.Version == "" {
+		command.Version = "1.0.0"
+	}
+
+	// 写入 content 到文件
+	if s.storagePath != "" && req.Content != "" {
+		if err := s.writeContentToFile(req.Name, req.Content); err != nil {
+			return nil, fmt.Errorf("写入命令文件失败: %w", err)
+		}
+		command.Content = req.Content
+	}
+
 	if err := s.repo.Create(ctx, command); err != nil {
+		// 回滚：删除已创建的文件
+		if s.storagePath != "" && req.Content != "" {
+			s.deleteContentFile(req.Name)
+		}
 		return nil, fmt.Errorf("创建命令失败: %w", err)
 	}
 
@@ -86,17 +162,35 @@ func (s *Service) Create(ctx context.Context, req *model.CreateCommandRequest) (
 
 // Get 根据ID获取Command
 func (s *Service) Get(ctx context.Context, id uuid.UUID) (*model.Command, error) {
-	return s.repo.FindByID(ctx, id)
+	command, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	// 从文件填充 content
+	s.populateContent(command)
+	return command, nil
 }
 
 // GetByName 根据名称获取Command
 func (s *Service) GetByName(ctx context.Context, name string) (*model.Command, error) {
-	return s.repo.FindByName(ctx, name)
+	command, err := s.repo.FindByName(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	// 从文件填充 content
+	s.populateContent(command)
+	return command, nil
 }
 
 // List 列出Commands
 func (s *Service) List(ctx context.Context, query *model.CommandListQuery) ([]*model.Command, int64, error) {
-	return s.repo.List(ctx, query)
+	commands, total, err := s.repo.List(ctx, query)
+	if err != nil {
+		return nil, 0, err
+	}
+	// 从文件填充 content
+	s.populateContentList(commands)
+	return commands, total, nil
 }
 
 // Update 更新Command
@@ -108,6 +202,18 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, req *model.UpdateCom
 
 	if req.Description != "" {
 		command.Description = req.Description
+	}
+	// 更新 content 文件
+	if req.Content != "" {
+		if s.storagePath != "" {
+			if err := s.writeContentToFile(command.Name, req.Content); err != nil {
+				return nil, fmt.Errorf("更新命令文件失败: %w", err)
+			}
+		}
+		command.Content = req.Content
+	}
+	if req.Version != "" {
+		command.Version = req.Version
 	}
 	command.UpdatedAt = time.Now()
 

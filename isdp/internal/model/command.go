@@ -58,6 +58,7 @@ type CreateCommandRequest struct {
 // UpdateCommandRequest 更新Command请求
 type UpdateCommandRequest struct {
 	Description string `json:"description"`
+	Content     string `json:"content"` // 命令内容（可选，传入则保存文件）
 	Version     string `json:"version"` // 版本号
 }
 
