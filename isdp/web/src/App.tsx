@@ -158,12 +158,15 @@ const App: React.FC = () => {
               <Route path="registries" element={<RegistryManagement />} />
               <Route path="knowledge" element={<Navigate to="/agents/knowledge" replace />} />
 
-              {/* 管理工具路由 */}
-              <Route path="management-tools/team-package" element={<TeamPackagePage />} />
-              <Route path="management-tools/asset-package" element={<AssetPackageManagement />} />
+              {/* 管理工具路由 - 作为 Agent团队的二级菜单 */}
+              <Route path="agents/team-packages" element={<TeamPackagePage />} />
+              <Route path="agents/asset-packages" element={<AssetPackageManagement />} />
 
               {/* 旧路由重定向 */}
-              <Route path="asset-packages" element={<Navigate to="/management-tools/asset-package" replace />} />
+              <Route path="management-tools/team-package" element={<Navigate to="/agents/team-packages" replace />} />
+              <Route path="management-tools/asset-package" element={<Navigate to="/agents/asset-packages" replace />} />
+              <Route path="team-packages" element={<Navigate to="/agents/team-packages" replace />} />
+              <Route path="asset-packages" element={<Navigate to="/agents/asset-packages" replace />} />
 
               {/* 设置页面 - 二级菜单 */}
               <Route path="settings" element={<SettingsLayout />}>

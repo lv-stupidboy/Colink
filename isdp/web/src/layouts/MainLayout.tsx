@@ -52,11 +52,11 @@ const MainLayout: React.FC = () => {
           path.startsWith('/agents/settings') ||
           path.startsWith('/agents/plugins')) {
         setOpenKeys(['agents', 'assets']);
+      } else if (path.startsWith('/agents/team-packages') || path.startsWith('/agents/asset-packages')) {
+        setOpenKeys(['agents', 'management-tools']);
       } else {
         setOpenKeys(['agents']);
       }
-    } else if (path.startsWith('/team-packages') || path.startsWith('/asset-packages')) {
-      setOpenKeys(['management-tools']);
     } else if (path.startsWith('/planning') || path.startsWith('/knowledge') || path.startsWith('/sandbox')) {
       setOpenKeys(['planning']);
     } else if (path === '/workflow') {
@@ -130,22 +130,22 @@ const MainLayout: React.FC = () => {
             },
           ],
         },
-      ],
-    },
-    {
-      key: 'management-tools',
-      icon: <ToolOutlined />,
-      label: '管理工具',
-      children: [
         {
-          key: '/team-packages',
-          icon: <TeamOutlined />,
-          label: '团队包',
-        },
-        {
-          key: '/asset-packages',
-          icon: <ContainerOutlined />,
-          label: '资产包',
+          key: 'management-tools',
+          icon: <ToolOutlined />,
+          label: '管理工具',
+          children: [
+            {
+              key: '/agents/team-packages',
+              icon: <TeamOutlined />,
+              label: '团队包',
+            },
+            {
+              key: '/agents/asset-packages',
+              icon: <ContainerOutlined />,
+              label: '资产包',
+            },
+          ],
         },
       ],
     },
@@ -199,8 +199,8 @@ const MainLayout: React.FC = () => {
     if (path.startsWith('/sandbox')) return '/sandbox';
     if (path === '/workflow') return '/workflow';
     // Agent 团队子菜单路由
-    if (path.startsWith('/team-packages')) return '/team-packages';
-    if (path.startsWith('/asset-packages')) return '/asset-packages';
+    if (path.startsWith('/agents/team-packages')) return '/agents/team-packages';
+    if (path.startsWith('/agents/asset-packages')) return '/agents/asset-packages';
     if (path.startsWith('/agents/roles')) return '/agents/roles';
     if (path.startsWith('/agents/commands')) return '/agents/commands';
     if (path.startsWith('/agents/subagents')) return '/agents/subagents';
