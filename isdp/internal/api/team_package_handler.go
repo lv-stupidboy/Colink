@@ -55,12 +55,18 @@ func (h *TeamPackageHandler) Import(c *gin.Context) {
 
 // ImportConfirm 确认导入团队包
 func (h *TeamPackageHandler) ImportConfirm(c *gin.Context) {
-	file, _, err := c.Request.FormFile("file")
+	file, header, err := c.Request.FormFile("file")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请选择要上传的文件"})
 		return
 	}
 	defer file.Close()
+
+	ext := strings.ToLower(filepath.Ext(header.Filename))
+	if ext != ".zip" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "只支持 .zip 格式的文件"})
+		return
+	}
 
 	zipData, err := io.ReadAll(file)
 	if err != nil {
@@ -102,7 +108,7 @@ func (h *TeamPackageHandler) Export(c *gin.Context) {
 
 	c.Header("Content-Description", "File Transfer")
 	c.Header("Content-Type", "application/zip")
-	c.Header("Content-Disposition", "attachment; filename="+filename)
+	c.Header("Content-Disposition", `attachment; filename="`+filename+`"`)
 	c.Header("Content-Transfer-Encoding", "binary")
 	c.Header("Expires", "0")
 	c.Header("Cache-Control", "must-revalidate")
