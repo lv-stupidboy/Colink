@@ -18,29 +18,38 @@ type AssetPackageAssetsList struct {
 
 // AssetPackageSkillItem 技能项
 type AssetPackageSkillItem struct {
-	Name string `json:"name"`
+	Name            string   `json:"name"`
+	Description     string   `json:"description,omitempty"`
+	Tags            []string `json:"tags,omitempty"`
+	SupportedAgents []string `json:"supportedAgents,omitempty"`
+	IsPublic        bool     `json:"isPublic"`
 }
 
 // AssetPackageCommandItem 命令项
 type AssetPackageCommandItem struct {
 	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
 	BoundSkills []string `json:"boundSkills,omitempty"`
 }
 
 // AssetPackageSubagentItem 子代理项
 type AssetPackageSubagentItem struct {
 	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
 	BoundSkills []string `json:"boundSkills,omitempty"`
 }
 
 // AssetPackageRuleItem 规则项
 type AssetPackageRuleItem struct {
-	Name string `json:"name"`
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	Visibility  RuleVisibility `json:"visibility"`
 }
 
 // AssetPackageSettingsItem 配置项
 type AssetPackageSettingsItem struct {
-	Name string `json:"name"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
 }
 
 // ExportAssetPackageRequest 导出资产包请求（简化版）

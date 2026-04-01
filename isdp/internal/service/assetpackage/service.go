@@ -114,7 +114,11 @@ func (s *Service) Export(ctx context.Context, req *model.ExportAssetPackageReque
 		}
 
 		manifest.Assets.Skills = append(manifest.Assets.Skills, model.AssetPackageSkillItem{
-			Name: skill.Name,
+			Name:            skill.Name,
+			Description:     skill.Description,
+			Tags:            skill.Tags,
+			SupportedAgents: skill.SupportedAgents,
+			IsPublic:        skill.IsPublic,
 		})
 	}
 
@@ -155,6 +159,7 @@ func (s *Service) Export(ctx context.Context, req *model.ExportAssetPackageReque
 
 		manifest.Assets.Commands = append(manifest.Assets.Commands, model.AssetPackageCommandItem{
 			Name:        command.Name,
+			Description: command.Description,
 			BoundSkills: boundSkills,
 		})
 	}
@@ -196,6 +201,7 @@ func (s *Service) Export(ctx context.Context, req *model.ExportAssetPackageReque
 
 		manifest.Assets.Subagents = append(manifest.Assets.Subagents, model.AssetPackageSubagentItem{
 			Name:        subagent.Name,
+			Description: subagent.Description,
 			BoundSkills: boundSkills,
 		})
 	}
@@ -223,7 +229,9 @@ func (s *Service) Export(ctx context.Context, req *model.ExportAssetPackageReque
 		}
 
 		manifest.Assets.Rules = append(manifest.Assets.Rules, model.AssetPackageRuleItem{
-			Name: rule.Name,
+			Name:        rule.Name,
+			Description: rule.Description,
+			Visibility:  rule.Visibility,
 		})
 	}
 
@@ -252,7 +260,8 @@ func (s *Service) Export(ctx context.Context, req *model.ExportAssetPackageReque
 		}
 
 		manifest.Assets.Settings = append(manifest.Assets.Settings, model.AssetPackageSettingsItem{
-			Name: settingsRecord.Name,
+			Name:        settingsRecord.Name,
+			Description: settingsRecord.Description,
 		})
 	}
 
@@ -437,12 +446,13 @@ func (s *Service) importSkill(ctx context.Context, tempDir string, item model.As
 	skill := &model.Skill{
 		ID:              uuid.New(),
 		Name:            item.Name,
+		Description:     item.Description,
+		Tags:            item.Tags,
 		SourceType:      model.SkillSourcePersonal,
 		Status:          model.SkillStatusActive,
-		IsPublic:        true,
+		IsPublic:        item.IsPublic,
 		UseCount:        0,
-		SupportedAgents: []string{},
-		Tags:            []string{},
+		SupportedAgents: item.SupportedAgents,
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}
@@ -486,10 +496,11 @@ func (s *Service) importCommand(ctx context.Context, tempDir string, item model.
 	// 创建 Command 记录
 	now := time.Now()
 	command := &model.Command{
-		ID:        uuid.New(),
-		Name:      item.Name,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:          uuid.New(),
+		Name:        item.Name,
+		Description: item.Description,
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 
 	if err := s.commandRepo.Create(ctx, command); err != nil {
@@ -531,10 +542,11 @@ func (s *Service) importSubagent(ctx context.Context, tempDir string, item model
 	// 创建 Subagent 记录
 	now := time.Now()
 	subagent := &model.Subagent{
-		ID:        uuid.New(),
-		Name:      item.Name,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:          uuid.New(),
+		Name:        item.Name,
+		Description: item.Description,
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 
 	if err := s.subagentRepo.Create(ctx, subagent); err != nil {
@@ -575,12 +587,17 @@ func (s *Service) importRule(ctx context.Context, tempDir string, item model.Ass
 
 	// 创建 Rule 记录
 	now := time.Now()
+	visibility := item.Visibility
+	if visibility == "" {
+		visibility = model.RuleVisibilityPublic
+	}
 	rule := &model.Rule{
-		ID:         uuid.New(),
-		Name:       item.Name,
-		Visibility: model.RuleVisibilityPublic,
-		CreatedAt:  now,
-		UpdatedAt:  now,
+		ID:          uuid.New(),
+		Name:        item.Name,
+		Description: item.Description,
+		Visibility:  visibility,
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 
 	if err := s.ruleRepo.Create(ctx, rule); err != nil {
@@ -628,6 +645,7 @@ func (s *Service) importSettings(ctx context.Context, tempDir string, item model
 	settingsRecord := &model.Settings{
 		ID:            uuid.New(),
 		Name:          item.Name,
+		Description:   item.Description,
 		DirectoryPath: targetDir,
 		CreatedAt:     now,
 		UpdatedAt:     now,

@@ -287,7 +287,11 @@ func (s *Service) Export(ctx context.Context, workflowID string) ([]byte, string
 		}
 
 		manifest.Assets.Skills = append(manifest.Assets.Skills, model.AssetPackageSkillItem{
-			Name: skill.Name,
+			Name:            skill.Name,
+			Description:     skill.Description,
+			Tags:            skill.Tags,
+			SupportedAgents: skill.SupportedAgents,
+			IsPublic:        skill.IsPublic,
 		})
 	}
 
@@ -308,7 +312,8 @@ func (s *Service) Export(ctx context.Context, workflowID string) ([]byte, string
 		}
 
 		manifest.Assets.Commands = append(manifest.Assets.Commands, model.AssetPackageCommandItem{
-			Name: command.Name,
+			Name:        command.Name,
+			Description: command.Description,
 		})
 	}
 
@@ -329,8 +334,8 @@ func (s *Service) Export(ctx context.Context, workflowID string) ([]byte, string
 		}
 
 		manifest.Assets.Subagents = append(manifest.Assets.Subagents, model.AssetPackageSubagentItem{
-			Name: subagent.Name,
-			
+			Name:        subagent.Name,
+			Description: subagent.Description,
 		})
 	}
 
@@ -351,8 +356,9 @@ func (s *Service) Export(ctx context.Context, workflowID string) ([]byte, string
 		}
 
 		manifest.Assets.Rules = append(manifest.Assets.Rules, model.AssetPackageRuleItem{
-			Name: rule.Name,
-			
+			Name:        rule.Name,
+			Description: rule.Description,
+			Visibility:  rule.Visibility,
 		})
 	}
 
@@ -375,8 +381,8 @@ func (s *Service) Export(ctx context.Context, workflowID string) ([]byte, string
 		}
 
 		manifest.Assets.Settings = append(manifest.Assets.Settings, model.AssetPackageSettingsItem{
-			Name: settingsRecord.Name,
-			
+			Name:        settingsRecord.Name,
+			Description: settingsRecord.Description,
 		})
 	}
 

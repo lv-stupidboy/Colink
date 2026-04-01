@@ -727,3 +727,88 @@ code {
 [data-theme='dark'] .workflow-editor-container .react-flow__edge.selected .react-flow__edge-path {
   stroke: var(--color-primary-hover);
 }
+
+/* 深色模式下 Card 组件修复 */
+[data-theme='dark'] .ant-card {
+  background: var(--bg-container);
+  border-color: var(--border-color);
+}
+
+[data-theme='dark'] .ant-card-body {
+  background: var(--bg-container);
+}
+
+/* 深色模式下 Form 组件修复 */
+[data-theme='dark'] .ant-form-item-label > label {
+  color: var(--text-primary);
+}
+
+[data-theme='dark'] .ant-input,
+[data-theme='dark'] .ant-input-affix-wrapper,
+[data-theme='dark'] .ant-input-number,
+[data-theme='dark'] .ant-select-selector,
+[data-theme='dark'] .ant-picker {
+  background: var(--bg-elevated);
+  border-color: var(--border-color);
+  color: var(--text-primary);
+}
+
+[data-theme='dark'] .ant-input::placeholder,
+[data-theme='dark'] .ant-input-affix-wrapper input::placeholder {
+  color: var(--text-secondary);
+}
+
+[data-theme='dark'] .ant-input:hover,
+[data-theme='dark'] .ant-input-affix-wrapper:hover,
+[data-theme='dark'] .ant-input-number:hover,
+[data-theme='dark'] .ant-select-selector:hover,
+[data-theme='dark'] .ant-picker:hover {
+  border-color: var(--color-primary);
+}
+
+[data-theme='dark'] .ant-input:focus,
+[data-theme='dark'] .ant-input-affix-wrapper-focused,
+[data-theme='dark'] .ant-input-number-focused,
+[data-theme='dark'] .ant-select-focused .ant-select-selector,
+[data-theme='dark'] .ant-picker-focused {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-primary-opacity-15);
+}
+
+/* 深色模式下 Transfer 组件修复 */
+[data-theme='dark'] .ant-transfer-list {
+  background: var(--bg-elevated);
+  border-color: var(--border-color);
+}
+
+[data-theme='dark'] .ant-transfer-list-header {
+  background: var(--bg-container);
+  border-bottom-color: var(--border-color);
+  color: var(--text-primary);
+}
+
+[data-theme='dark'] .ant-transfer-list-body {
+  background: var(--bg-elevated);
+}
+
+[data-theme='dark'] .ant-transfer-list-content-item {
+  color: var(--text-primary);
+}
+
+[data-theme='dark'] .ant-transfer-list-content-item:hover {
+  background: var(--color-primary-opacity-10);
+}
+
+[data-theme='dark'] .ant-transfer-list-search-action,
+[data-theme='dark'] .ant-transfer-list-search .ant-input {
+  color: var(--text-primary);
+}
+
+/* 深色模式下 Divider 组件修复 */
+[data-theme='dark'] .ant-divider-inner-text {
+  color: var(--text-secondary);
+}
+
+[data-theme='dark'] .ant-divider-horizontal.ant-divider-with-text {
+  border-top-color: var(--border-color);
+}
