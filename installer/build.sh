@@ -46,9 +46,13 @@ echo "[2/6] Building backend..."
 cd ../isdp
 go build -ldflags "-X main.Version=$FULL_VERSION" -o bin/isdp-server.exe ./cmd/server
 
-# 3. Build frontend
+# 3. Build frontend (ensure dependencies first)
 echo "[3/6] Building frontend..."
 cd web
+if [ ! -d "node_modules" ]; then
+    echo "  Installing frontend dependencies..."
+    npm install
+fi
 npm run build
 
 # 4. Build installer

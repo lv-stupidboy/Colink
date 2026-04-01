@@ -40,9 +40,13 @@ Push-Location ..\isdp
 go build -ldflags "-X main.Version=$FULL_VERSION" -o bin\isdp-server.exe .\cmd\server
 Pop-Location
 
-# 3. Build frontend
+# 3. Build frontend (ensure dependencies first)
 Write-Host "[3/6] Building frontend..." -ForegroundColor Cyan
 Push-Location ..\isdp\web
+if (-not (Test-Path "node_modules")) {
+    Write-Host "  Installing frontend dependencies..." -ForegroundColor Yellow
+    npm install
+}
 npm run build
 Pop-Location
 
