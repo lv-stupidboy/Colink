@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
-  Card, Button, Modal, Form, Input, Select, message, Space, Tag, Typography,
+  Card, Button, Modal, Form, Input, Select, message, Space, Typography,
   Popconfirm, Empty, Spin, Divider, Tooltip, Table
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -67,35 +67,9 @@ const SettingsAvatar: React.FC<{ name: string }> = ({ name }) => {
   );
 };
 
-// 验证Settings名称格式
-const validateSettingsName = (name: string): { valid: boolean; message?: string } => {
-  if (!name) {
-    return { valid: false, message: '请输入名称' };
-  }
-  const pattern = /^[a-z][a-z0-9-]*$/;
-  if (!pattern.test(name)) {
-    return { valid: false, message: '名称只能包含小写字母、数字和中划线，且必须以字母开头' };
-  }
-  if (name.includes('--')) {
-    return { valid: false, message: '名称不能包含连续的中划线' };
-  }
-  if (name.endsWith('-')) {
-    return { valid: false, message: '名称不能以中划线结尾' };
-  }
-  return { valid: true };
-};
-
-// 清理名称格式
+// 清理名称格式（只去除首尾空格）
 const cleanName = (name: string): string => {
-  if (!name) return '';
-  // 只保留小写字母、数字、中划线
-  let cleaned = name.toLowerCase().replace(/[^a-z0-9-]/g, '-');
-  cleaned = cleaned.replace(/^-+|-+$/g, '');
-  // 确保以字母开头
-  if (cleaned && !/^[a-z]/.test(cleaned)) {
-    cleaned = 's-' + cleaned;
-  }
-  return cleaned;
+  return name ? name.trim() : '';
 };
 
 const SettingsManagement: React.FC = () => {
@@ -158,70 +132,13 @@ const SettingsManagement: React.FC = () => {
     setIsAfterUpload(false);
     pendingZipBlobRef.current = null;
     form.resetFields();
-    form.setFieldsValue({ name: '', description: '', version: '' });
+    form.setFieldsValue({ name: '', description: '' });
     setModalVisible(true);
   };
 
   // 目录选择
   const handleDirectorySelect = () => {
     directoryInputRef.current?.click();
-  };
-
-  // 解析 SETTINGS.md 内容提取描述
-  const parseSettingsMD = (content: string): { name: string; description: string; version: string } => {
-    let name = '';
-    let description = '';
-    let version = '';
-
-    // 1. 首先尝试解析 YAML front matter
-    const frontMatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---/);
-    if (frontMatterMatch) {
-      const frontMatter = frontMatterMatch[1];
-      // 提取 description
-      const descMatch = frontMatter.match(/description:\s*(.+)/i);
-      if (descMatch) {
-        description = descMatch[1].trim();
-        description = description.replace(/^["']|["']$/g, '');
-      }
-      // 提取 name
-      const nameMatch = frontMatter.match(/name:\s*(.+)/i);
-      if (nameMatch) {
-        name = nameMatch[1].trim();
-        name = name.replace(/^["']|["']$/g, '');
-      }
-      // 提取 version
-      const versionMatch = frontMatter.match(/version:\s*(.+)/i);
-      if (versionMatch) {
-        version = versionMatch[1].trim();
-        version = version.replace(/^["']|["']$/g, '');
-      }
-    }
-
-    // 2. 如果没有从 front matter 获取到 name，尝试从标题获取
-    if (!name) {
-      const titleMatch = content.match(/^#\s+(.+)$/m);
-      if (titleMatch) {
-        name = titleMatch[1].trim();
-      }
-    }
-
-    // 3. 如果没有从 front matter 获取到 description，尝试从 ## Description 获取
-    if (!description) {
-      const patterns = [
-        /##\s*(?:Description|描述)\s*\n+([\s\S]*?)(?=\n##|$)/i,
-        /##\s*(?:Description|描述)\s*[:：]?\s*([\s\S]*?)(?=\n##|$)/i,
-      ];
-
-      for (const pattern of patterns) {
-        const descMatch = content.match(pattern);
-        if (descMatch && descMatch[1]) {
-          description = descMatch[1].trim();
-          break;
-        }
-      }
-    }
-
-    return { name, description, version };
   };
 
   // 处理目录选择
@@ -235,18 +152,7 @@ const SettingsManagement: React.FC = () => {
     const directoryName = cleanName(pathParts[0]);
 
     if (!directoryName) {
-      message.error('目录名格式无效');
-      return;
-    }
-
-    // 检查是否包含 SETTINGS.md
-    const settingsMdFile = Array.from(files).find(f => {
-      const parts = f.webkitRelativePath.split('/');
-      return parts[parts.length - 1].toLowerCase() === 'settings.md';
-    });
-
-    if (!settingsMdFile) {
-      message.error('目录中未找到 SETTINGS.md 文件');
+      message.error('目录名不能为空');
       return;
     }
 
@@ -258,10 +164,6 @@ const SettingsManagement: React.FC = () => {
     }
 
     try {
-      // 解析 SETTINGS.md 获取描述
-      const settingsMdContent = await settingsMdFile.text();
-      const metadata = parseSettingsMD(settingsMdContent);
-
       message.loading({ content: '正在解析目录...', key: 'packing' });
 
       // 打包 zip
@@ -284,8 +186,7 @@ const SettingsManagement: React.FC = () => {
       setIsAfterUpload(true);
       form.setFieldsValue({
         name: directoryName,
-        description: metadata.description || '',
-        version: metadata.version || '',
+        description: '',
       });
       setModalVisible(true);
     } catch (error) {
@@ -298,9 +199,8 @@ const SettingsManagement: React.FC = () => {
 
   // 提交表单
   const handleSubmit = async (values: any) => {
-    const validation = validateSettingsName(values.name);
-    if (!validation.valid) {
-      message.error(validation.message);
+    if (!values.name || !values.name.trim()) {
+      message.error('请输入名称');
       return;
     }
 
@@ -310,9 +210,8 @@ const SettingsManagement: React.FC = () => {
 
         const formData = new FormData();
         formData.append('file', pendingZipBlobRef.current, 'settings.zip');
-        formData.append('name', values.name);
+        formData.append('name', values.name.trim());
         formData.append('description', values.description || '');
-        formData.append('version', values.version || '');
 
         await settingsApi.create(formData);
 
@@ -417,13 +316,6 @@ const SettingsManagement: React.FC = () => {
       key: 'description',
       ellipsis: true,
       render: (desc: string) => desc || '-',
-    },
-    {
-      title: '版本',
-      dataIndex: 'version',
-      key: 'version',
-      width: 100,
-      render: (version: string) => version ? <Tag color="blue">{version}</Tag> : '-',
     },
     {
       title: '创建时间',
@@ -553,7 +445,7 @@ const SettingsManagement: React.FC = () => {
             </p>
             <p style={{ color: 'var(--ant-color-text)', fontSize: 14 }}>点击选择配置目录</p>
             <p style={{ fontSize: 12, color: 'var(--ant-color-text-secondary)' }}>
-              目录需包含 SETTINGS.md 文件，最大 10MB
+              支持任意配置目录，最大 10MB
             </p>
           </div>
         )}
@@ -575,17 +467,12 @@ const SettingsManagement: React.FC = () => {
             name="name"
             label="名称"
             rules={[{ required: true, message: '请输入名称' }]}
-            extra="只允许小写字母、数字和中划线，如：claude-project-settings"
           >
-            <Input placeholder="claude-project-settings" disabled={isAfterUpload} />
+            <Input placeholder="输入配置名称" disabled={isAfterUpload} />
           </Form.Item>
 
           <Form.Item name="description" label="描述">
-            <Input.TextArea rows={3} placeholder="Settings描述" />
-          </Form.Item>
-
-          <Form.Item name="version" label="版本">
-            <Input placeholder="如：1.0.0" />
+            <Input.TextArea rows={3} placeholder="配置描述（可选）" />
           </Form.Item>
         </Form>
       </Modal>
