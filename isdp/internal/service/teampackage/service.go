@@ -34,6 +34,8 @@ type Service struct {
 	agentSubagentBindingRepo *repo.AgentSubagentBindingRepository
 	agentRuleBindingRepo    *repo.AgentRuleBindingRepository
 	agentSettingsBindingRepo *repo.AgentSettingsBindingRepository
+	commandSkillBindingRepo *repo.CommandSkillBindingRepository
+	subagentSkillBindingRepo *repo.SubagentSkillBindingRepository
 	skillStoragePath        string
 	subagentStoragePath     string
 	commandStoragePath      string
@@ -56,6 +58,8 @@ func NewService(
 	agentSubagentBindingRepo *repo.AgentSubagentBindingRepository,
 	agentRuleBindingRepo *repo.AgentRuleBindingRepository,
 	agentSettingsBindingRepo *repo.AgentSettingsBindingRepository,
+	commandSkillBindingRepo *repo.CommandSkillBindingRepository,
+	subagentSkillBindingRepo *repo.SubagentSkillBindingRepository,
 	skillStoragePath string,
 	subagentStoragePath string,
 	commandStoragePath string,
@@ -76,6 +80,8 @@ func NewService(
 		agentSubagentBindingRepo: agentSubagentBindingRepo,
 		agentRuleBindingRepo:    agentRuleBindingRepo,
 		agentSettingsBindingRepo: agentSettingsBindingRepo,
+		commandSkillBindingRepo: commandSkillBindingRepo,
+		subagentSkillBindingRepo: subagentSkillBindingRepo,
 		skillStoragePath:        skillStoragePath,
 		subagentStoragePath:     subagentStoragePath,
 		commandStoragePath:      commandStoragePath,
@@ -292,6 +298,7 @@ func (s *Service) Export(ctx context.Context, workflowID string) ([]byte, string
 			Tags:            skill.Tags,
 			SupportedAgents: skill.SupportedAgents,
 			IsPublic:        skill.IsPublic,
+			SourceType:      skill.SourceType,
 		})
 	}
 
@@ -311,9 +318,21 @@ func (s *Service) Export(ctx context.Context, workflowID string) ([]byte, string
 			continue
 		}
 
+		// 获取绑定的 Skills
+		boundSkills := []string{}
+		if s.commandSkillBindingRepo != nil {
+			skills, err := s.commandSkillBindingRepo.FindSkillsByCommandID(ctx, command.ID)
+			if err == nil {
+				for _, skill := range skills {
+					boundSkills = append(boundSkills, skill.Name)
+				}
+			}
+		}
+
 		manifest.Assets.Commands = append(manifest.Assets.Commands, model.AssetPackageCommandItem{
 			Name:        command.Name,
 			Description: command.Description,
+			BoundSkills: boundSkills,
 		})
 	}
 
@@ -333,9 +352,21 @@ func (s *Service) Export(ctx context.Context, workflowID string) ([]byte, string
 			continue
 		}
 
+		// 获取绑定的 Skills
+		boundSkills := []string{}
+		if s.subagentSkillBindingRepo != nil {
+			skills, err := s.subagentSkillBindingRepo.FindSkillsBySubagentID(ctx, subagent.ID)
+			if err == nil {
+				for _, skill := range skills {
+					boundSkills = append(boundSkills, skill.Name)
+				}
+			}
+		}
+
 		manifest.Assets.Subagents = append(manifest.Assets.Subagents, model.AssetPackageSubagentItem{
 			Name:        subagent.Name,
 			Description: subagent.Description,
+			BoundSkills: boundSkills,
 		})
 	}
 
@@ -662,6 +693,8 @@ func (s *Service) ImportConfirm(ctx context.Context, zipData []byte, confirm *mo
 		case "success":
 			result.Success++
 			commandNameToID[commandItem.Name] = id
+			// 绑定 Skills
+			s.bindSkillsToCommand(ctx, id, commandItem.BoundSkills, skillNameToID)
 		case "skipped":
 			result.Skipped++
 			existing, _ := s.commandRepo.FindByName(ctx, commandItem.Name)
@@ -697,6 +730,8 @@ func (s *Service) ImportConfirm(ctx context.Context, zipData []byte, confirm *mo
 		case "success":
 			result.Success++
 			subagentNameToID[subagentItem.Name] = id
+			// 绑定 Skills
+			s.bindSkillsToSubagent(ctx, id, subagentItem.BoundSkills, skillNameToID)
 		case "skipped":
 			result.Skipped++
 			existing, _ := s.subagentRepo.FindByName(ctx, subagentItem.Name)
@@ -1212,6 +1247,14 @@ func (s *Service) importRole(ctx context.Context, role model.TeamPackageRole, ov
 		Name:      role.Name,
 	}
 
+	// 解析原始角色ID
+	originalID, err := uuid.Parse(role.ID)
+	if err != nil {
+		detail.Status = "failed"
+		detail.Message = fmt.Sprintf("无效的角色ID: %v", err)
+		return uuid.Nil, detail
+	}
+
 	// 检查是否已存在
 	agents, err := s.agentRepo.List(ctx)
 	if err == nil {
@@ -1236,10 +1279,10 @@ func (s *Service) importRole(ctx context.Context, role model.TeamPackageRole, ov
 		}
 	}
 
-	// 创建角色
+	// 创建角色，使用原始ID
 	now := time.Now()
 	agentConfig := &model.AgentRoleConfig{
-		ID:           uuid.New(),
+		ID:           originalID,
 		Name:         role.Name,
 		Role:         model.AgentRole(role.Role),
 		Description:  role.Description,
@@ -1282,27 +1325,8 @@ func (s *Service) importWorkflow(ctx context.Context, wf model.TeamPackageWorkfl
 		}
 	}
 
-	// 转换角色名称到ID
-	agentIDs := make([]string, 0)
-	for _, roleIDStr := range wf.AgentIDs {
-		// 尝试从 manifest 中的角色查找映射
-		roleID, err := uuid.Parse(roleIDStr)
-		if err != nil {
-			// 可能是旧ID，需要通过角色名称查找新ID
-			// 由于 manifest 中的 AgentIDs 可能是原始ID，我们需要处理这种情况
-			continue
-		}
-		// 如果能解析为UUID，使用新的ID映射
-		agentIDs = append(agentIDs, roleID.String())
-	}
-
-	// 直接使用 roleNameToID 中的所有角色
-	newAgentIDs := make([]string, 0)
-	for _, id := range roleNameToID {
-		newAgentIDs = append(newAgentIDs, id.String())
-	}
-
-	agentIDsJSON, _ := json.Marshal(newAgentIDs)
+	// 由于角色导入时保留了原始ID，直接使用manifest中的agentIds
+	agentIDsJSON, _ := json.Marshal(wf.AgentIDs)
 	transitionsJSON, _ := json.Marshal(wf.Transitions)
 	checkpointsJSON, _ := json.Marshal(wf.Checkpoints)
 
@@ -1656,4 +1680,63 @@ func extractZip(zipReader io.Reader, dstDir string) error {
 	}
 
 	return nil
+}
+// bindSkillsToCommand 绑定 Skills 到 Command
+func (s *Service) bindSkillsToCommand(ctx context.Context, commandID uuid.UUID, skillNames []string, skillNameToID map[string]uuid.UUID) {
+	if s.commandSkillBindingRepo == nil {
+		return
+	}
+	for _, skillName := range skillNames {
+		skillID, ok := skillNameToID[skillName]
+		if !ok {
+			s.logger.Warn("绑定技能到命令失败，技能不存在", zap.String("skill", skillName))
+			continue
+		}
+
+		// 检查是否已存在绑定
+		exists, err := s.commandSkillBindingRepo.ExistsBinding(ctx, commandID, skillID)
+		if err != nil || exists {
+			continue
+		}
+
+		binding := &model.CommandSkillBinding{
+			ID:        uuid.New(),
+			CommandID: commandID,
+			SkillID:   skillID,
+			CreatedAt: time.Now(),
+		}
+		if err := s.commandSkillBindingRepo.Create(ctx, binding); err != nil {
+			s.logger.Warn("创建命令技能绑定失败", zap.Error(err))
+		}
+	}
+}
+
+// bindSkillsToSubagent 绑定 Skills 到 Subagent
+func (s *Service) bindSkillsToSubagent(ctx context.Context, subagentID uuid.UUID, skillNames []string, skillNameToID map[string]uuid.UUID) {
+	if s.subagentSkillBindingRepo == nil {
+		return
+	}
+	for _, skillName := range skillNames {
+		skillID, ok := skillNameToID[skillName]
+		if !ok {
+			s.logger.Warn("绑定技能到子代理失败，技能不存在", zap.String("skill", skillName))
+			continue
+		}
+
+		// 检查是否已存在绑定
+		exists, err := s.subagentSkillBindingRepo.ExistsBinding(ctx, subagentID, skillID)
+		if err != nil || exists {
+			continue
+		}
+
+		binding := &model.SubagentSkillBinding{
+			ID:         uuid.New(),
+			SubagentID: subagentID,
+			SkillID:    skillID,
+			CreatedAt:  time.Now(),
+		}
+		if err := s.subagentSkillBindingRepo.Create(ctx, binding); err != nil {
+			s.logger.Warn("创建子代理技能绑定失败", zap.Error(err))
+		}
+	}
 }

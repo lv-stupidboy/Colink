@@ -15,6 +15,17 @@ import api from '@/api/client';
 const { Title, Text } = Typography;
 const { Dragger } = Upload;
 
+// 资产类型标签颜色（与资产包页面一致）
+const typeColors: Record<string, string> = {
+  Team: 'magenta',
+  Role: 'geekblue',
+  Skill: 'blue',
+  Command: 'green',
+  Subagent: 'purple',
+  Rule: 'orange',
+  Settings: 'cyan',
+};
+
 // TeamPackagePreview 类型定义
 interface TeamPackagePreview {
   workflow: { name: string; exists: boolean };
@@ -274,7 +285,7 @@ const TeamPackageManagement: React.FC = () => {
         dataIndex: 'type',
         key: 'type',
         width: 100,
-        render: (type: string) => <Tag>{type}</Tag>,
+        render: (type: string) => <Tag color={typeColors[type] || 'default'}>{type}</Tag>,
       },
       {
         title: '名称',

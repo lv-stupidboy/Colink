@@ -253,6 +253,7 @@ func main() {
 		skillRepo, commandRepo, subagentRepo, ruleRepo, settingsRepo,
 		agentSkillBindingRepo, agentCommandBindingRepo, agentSubagentBindingRepo,
 		agentRuleBindingRepo, agentSettingsBindingRepo,
+		commandSkillBindingRepo, subagentSkillBindingRepo,
 		cfg.GetSkillStoragePath(), cfg.GetSubagentStoragePath(),
 		cfg.GetCommandStoragePath(), cfg.GetRuleStoragePath(),
 		cfg.GetSettingsStoragePath(),

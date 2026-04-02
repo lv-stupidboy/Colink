@@ -551,6 +551,11 @@ const CommandList: React.FC = () => {
               onChange={setSelectedSkillIds}
               style={{ width: '100%' }}
               optionLabelProp="label"
+              showSearch
+              filterOption={(input, option) =>
+                (option?.label as string)?.toLowerCase().includes(input.toLowerCase()) ||
+                (option?.desc as string)?.toLowerCase().includes(input.toLowerCase())
+              }
               options={allSkills.map(s => ({
                 label: s.name,
                 value: s.id,
@@ -560,7 +565,7 @@ const CommandList: React.FC = () => {
                 <div style={{ display: 'flex', flexDirection: 'column' }}>
                   <span style={{ fontWeight: 500 }}>{option.label}</span>
                   <span style={{ fontSize: 12, color: '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 400 }}>
-                    {option.data.desc}
+                    {option.data?.desc}
                   </span>
                 </div>
               )}
