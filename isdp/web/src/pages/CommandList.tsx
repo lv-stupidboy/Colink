@@ -297,7 +297,7 @@ const CommandList: React.FC = () => {
       ),
     },
     {
-      title: '关联技能',
+      title: '关联 Skills',
       dataIndex: 'id',
       key: 'skillCount',
       width: 200,
@@ -310,7 +310,7 @@ const CommandList: React.FC = () => {
         return (
           <Tooltip title={skills.map(s => s.name).join('、')}>
             <Tag color="blue" style={{ cursor: 'pointer' }}>
-              {count} 个技能
+              {count} 个 Skills
             </Tag>
           </Tooltip>
         );
@@ -351,7 +351,7 @@ const CommandList: React.FC = () => {
             编辑
           </Button>
           <Popconfirm
-            title="确定要删除这个命令吗？"
+            title="确定要删除这个 Command 吗？"
             description="删除后将无法恢复"
             onConfirm={() => handleDelete(record.id)}
             okText="确定"
@@ -380,17 +380,17 @@ const CommandList: React.FC = () => {
             <CodeOutlined style={{ marginRight: 8, color: 'var(--ant-color-primary)' }} />
             命令集管理
           </Title>
-          <Text type="secondary">管理可复用的命令配置</Text>
+          <Text type="secondary">管理可复用的 Commands</Text>
         </div>
         <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-          新建命令
+          新建 Command
         </Button>
       </div>
 
       {/* 搜索区域 */}
       <Card style={{ marginBottom: 16 }} styles={{ body: { padding: '12px 16px' } }}>
         <Input.Search
-          placeholder="搜索命令名称或描述..."
+          placeholder="搜索 Commands..."
           allowClear
           style={{ width: 300 }}
           onSearch={handleSearch}
@@ -409,7 +409,7 @@ const CommandList: React.FC = () => {
             locale={{
               emptyText: (
                 <Empty
-                  description="暂无命令"
+                  description="暂无 Commands"
                   image={Empty.PRESENTED_IMAGE_SIMPLE}
                 />
               ),
@@ -436,7 +436,7 @@ const CommandList: React.FC = () => {
 
       {/* 新建/编辑弹窗 */}
       <Modal
-        title={editingCommand ? '编辑命令' : '新建命令'}
+        title={editingCommand ? '编辑 Command' : '新建 Command'}
         open={modalVisible}
         onOk={() => form.submit()}
         onCancel={() => setModalVisible(false)}
@@ -526,27 +526,27 @@ const CommandList: React.FC = () => {
           >
             <Input.TextArea
               rows={3}
-              placeholder="简要描述这个命令的用途"
+              placeholder="简要描述这个 Command 的用途"
             />
           </Form.Item>
 
           <Form.Item
             name="content"
-            label="命令内容"
-            extra="命令的具体内容，保存在文件中"
+            label="Command 内容"
+            extra="Command 的具体内容，保存在文件中"
           >
             <Input.TextArea
               rows={10}
-              placeholder="输入命令的具体内容..."
+              placeholder="输入 Command 的具体内容..."
               style={{ fontFamily: 'monospace' }}
               disabled={isAfterUpload}
             />
           </Form.Item>
 
-          <Form.Item label="绑定技能">
+          <Form.Item label="绑定 Skills">
             <Select
               mode="multiple"
-              placeholder="选择要绑定的技能"
+              placeholder="选择要绑定的 Skill"
               value={selectedSkillIds}
               onChange={setSelectedSkillIds}
               style={{ width: '100%' }}
@@ -614,7 +614,7 @@ const CommandList: React.FC = () => {
             </Paragraph>
 
             <Paragraph>
-              <Text strong>命令内容：</Text>
+              <Text strong>Command 内容：</Text>
             </Paragraph>
             <div
               style={{

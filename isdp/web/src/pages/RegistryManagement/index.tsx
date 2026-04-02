@@ -214,7 +214,7 @@ const RegistryManagement: React.FC = () => {
         <Tooltip title={record.lastSyncAt ? `最后同步: ${new Date(record.lastSyncAt).toLocaleString()}` : '从未同步'}>
           <Space>
             {getSyncStatusIcon(status)}
-            <Text>{record.skillCount} 技能</Text>
+            <Text>{record.skillCount} Skills</Text>
           </Space>
         </Tooltip>
       ),
@@ -266,8 +266,8 @@ const RegistryManagement: React.FC = () => {
     <div className="registry-management" style={{ padding: 12 }}>
       <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <Title level={2} style={{ margin: 0 }}>联邦技能源</Title>
-          <Text type="secondary">管理外部技能仓库，同步联邦技能</Text>
+          <Title level={2} style={{ margin: 0 }}>联邦 Skills 源</Title>
+          <Text type="secondary">管理外部 Skills 仓库，同步联邦 Skills</Text>
         </div>
         <Space>
           <Button
@@ -328,7 +328,7 @@ const RegistryManagement: React.FC = () => {
             <Input placeholder="例如: my-github-skills" disabled={!!editingRegistry} />
           </Form.Item>
           <Form.Item name="displayName" label="显示名称">
-            <Input placeholder="我的 GitHub 技能库" />
+            <Input placeholder="我的 GitHub Skills 库" />
           </Form.Item>
           <Form.Item name="type" label="类型" rules={[{ required: true }]}>
             <Select disabled={!!editingRegistry}>

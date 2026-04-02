@@ -124,7 +124,17 @@ const TeamPackageManagement: React.FC = () => {
     try {
       const confirm = buildImportConfirm(mode);
       const result = await api.teamPackages.importConfirm(importFile, confirm);
-      message.success(`导入成功：团队 ${result.workflow?.name || ''}，角色 ${result.roles?.length || 0} 个，资产 ${result.assets?.length || 0} 个`);
+      // 从 details 中统计各类型的成功数量
+      const countByType = (type: string) =>
+        result.details?.filter((d: any) => d.assetType === type && d.status === 'success').length || 0;
+      const skillsCount = countByType('skill');
+      const commandsCount = countByType('command');
+      const subagentsCount = countByType('subagent');
+      const rulesCount = countByType('rule');
+      const settingsCount = countByType('settings');
+      const rolesCount = countByType('role');
+      const workflowName = result.details?.find((d: any) => d.assetType === 'workflow')?.name || '';
+      message.success(`导入成功：团队 ${workflowName}，角色 ${rolesCount} 个，Skills ${skillsCount}、Commands ${commandsCount}、Subagents ${subagentsCount}、Rules ${rulesCount}、Settings ${settingsCount}`);
       // 清理状态
       setImportFile(null);
       setPreview(null);

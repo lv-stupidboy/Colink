@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
-  Card, Button, Modal, Form, Input, message, Space, Typography, Tag,
-  Popconfirm, Empty, Spin, Pagination, Table, Tooltip, Radio, Select
+  Card, Button, Modal, Form, Input, message, Space, Typography,
+  Popconfirm, Empty, Spin, Pagination, Table, Tooltip, Radio
 } from 'antd';
 import {
   PlusOutlined,
@@ -12,7 +12,7 @@ import {
   CloudUploadOutlined
 } from '@ant-design/icons';
 import api from '@/api/client';
-import type { Rule, RuleListResponse, RuleVisibility } from '@/types';
+import type { Rule, RuleListResponse } from '@/types';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -74,7 +74,6 @@ const RuleList: React.FC = () => {
   const [editingRule, setEditingRule] = useState<Rule | null>(null);
   const [viewingRule, setViewingRule] = useState<Rule | null>(null);
   const [searchText, setSearchText] = useState('');
-  const [visibilityFilter, setVisibilityFilter] = useState<RuleVisibility | ''>('');
   const [form] = Form.useForm();
   const [createMethod, setCreateMethod] = useState<'upload' | 'manual'>('upload');
   const [isAfterUpload, setIsAfterUpload] = useState(false);
@@ -87,7 +86,6 @@ const RuleList: React.FC = () => {
     try {
       const result: RuleListResponse = await api.rules.list({
         search: searchText,
-        visibility: visibilityFilter || undefined,
         page,
         pageSize,
       });
@@ -98,7 +96,7 @@ const RuleList: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, searchText, visibilityFilter]);
+  }, [page, pageSize, searchText]);
 
   useEffect(() => {
     loadRules();
@@ -121,7 +119,6 @@ const RuleList: React.FC = () => {
     form.setFieldsValue({
       name: record.name,
       description: record.description,
-      visibility: record.visibility,
     });
     setModalVisible(true);
   };
@@ -151,7 +148,6 @@ const RuleList: React.FC = () => {
       if (editingRule) {
         await api.rules.update(editingRule.id, {
           description: values.description,
-          visibility: values.visibility,
         });
         message.success('更新成功');
       } else {
@@ -159,7 +155,6 @@ const RuleList: React.FC = () => {
         await api.rules.create({
           name: values.name,
           description: values.description,
-          visibility: values.visibility,
           content: isAfterUpload ? pendingContentRef.current : undefined,
         });
         message.success('创建成功');
@@ -178,11 +173,6 @@ const RuleList: React.FC = () => {
 
   const handleSearch = (value: string) => {
     setSearchText(value);
-    setPage(1);
-  };
-
-  const handleVisibilityFilter = (value: RuleVisibility | '') => {
-    setVisibilityFilter(value);
     setPage(1);
   };
 
@@ -227,21 +217,13 @@ const RuleList: React.FC = () => {
     }
   };
 
-  // Visibility 标签颜色
-  const getVisibilityTag = (visibility: RuleVisibility) => {
-    if (visibility === 'public') {
-      return <Tag color="blue">公开</Tag>;
-    }
-    return <Tag color="default">私有</Tag>;
-  };
-
   // 表格列定义
   const columns = [
     {
       title: '名称',
       dataIndex: 'name',
       key: 'name',
-      width: 180,
+      width: 200,
       render: (name: string) => (
         <Space>
           <SafetyOutlined style={{ color: 'var(--ant-color-primary)', fontSize: 16 }} />
@@ -253,22 +235,15 @@ const RuleList: React.FC = () => {
       title: '描述',
       dataIndex: 'description',
       key: 'description',
-      width: 200,
+      width: 300,
       ellipsis: true,
       render: (description: string) => (
         <Tooltip title={description} placement="topLeft">
-          <Text type="secondary" style={{ maxWidth: 180, display: 'inline-block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <Text type="secondary" style={{ maxWidth: 280, display: 'inline-block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {description || '暂无描述'}
           </Text>
         </Tooltip>
       ),
-    },
-    {
-      title: '可见性',
-      dataIndex: 'visibility',
-      key: 'visibility',
-      width: 110,
-      render: (visibility: RuleVisibility) => getVisibilityTag(visibility),
     },
     {
       title: '创建时间',
@@ -305,7 +280,7 @@ const RuleList: React.FC = () => {
             编辑
           </Button>
           <Popconfirm
-            title="确定要删除这个规约吗？"
+            title="确定要删除这个 Rule 吗？"
             description="删除后将无法恢复"
             onConfirm={() => handleDelete(record.id)}
             okText="确定"
@@ -332,38 +307,24 @@ const RuleList: React.FC = () => {
         <div>
           <Title level={2} style={{ margin: 0 }}>
             <SafetyOutlined style={{ marginRight: 8, color: 'var(--ant-color-primary)' }} />
-            规约管理
+            Rules 管理
           </Title>
-          <Text type="secondary">管理 Agent 行为规约</Text>
+          <Text type="secondary">管理 Agent 行为 Rules</Text>
         </div>
         <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-          新建规约
+          新建 Rule
         </Button>
       </div>
 
-      {/* 搜索和过滤区域 */}
+      {/* 搜索区域 */}
       <Card style={{ marginBottom: 16 }} styles={{ body: { padding: '12px 16px' } }}>
-        <Space>
-          <Input.Search
-            placeholder="搜索规约名称或描述..."
-            allowClear
-            style={{ width: 300 }}
-            onSearch={handleSearch}
-            enterButton
-          />
-          <Select
-            style={{ width: 150 }}
-            placeholder="选择可见性"
-            allowClear
-            value={visibilityFilter || undefined}
-            onChange={handleVisibilityFilter}
-            options={[
-              { label: '全部', value: '' },
-              { label: '公开', value: 'public' },
-              { label: '私有', value: 'private' },
-            ]}
-          />
-        </Space>
+        <Input.Search
+          placeholder="搜索 Rules..."
+          allowClear
+          style={{ width: 300 }}
+          onSearch={handleSearch}
+          enterButton
+        />
       </Card>
 
       {/* 数据表格 */}
@@ -377,7 +338,7 @@ const RuleList: React.FC = () => {
             locale={{
               emptyText: (
                 <Empty
-                  description="暂无规约"
+                  description="暂无 Rules"
                   image={Empty.PRESENTED_IMAGE_SIMPLE}
                 />
               ),
@@ -404,7 +365,7 @@ const RuleList: React.FC = () => {
 
       {/* 新建/编辑弹窗 */}
       <Modal
-        title={editingRule ? '编辑规约' : '新建规约'}
+        title={editingRule ? '编辑 Rule' : '新建 Rule'}
         open={modalVisible}
         onOk={() => form.submit()}
         onCancel={() => setModalVisible(false)}
@@ -416,7 +377,6 @@ const RuleList: React.FC = () => {
           form={form}
           layout="vertical"
           onFinish={handleSubmit}
-          initialValues={{ visibility: 'private' }}
         >
           {/* 创建方式选择 - 仅新建时显示 */}
           {!editingRule && !isAfterUpload && (
@@ -495,30 +455,8 @@ const RuleList: React.FC = () => {
           >
             <Input.TextArea
               rows={3}
-              placeholder="简要描述这个规约的内容"
+              placeholder="简要描述这个 Rule 的内容"
             />
-          </Form.Item>
-
-          <Form.Item
-            name="visibility"
-            label="可见性"
-            rules={[{ required: true, message: '请选择可见性' }]}
-            extra="公开：对所有 Agent 可见；私有：仅对绑定的 Agent 可见"
-          >
-            <Radio.Group>
-              <Radio value="public">
-                <Space>
-                  <Tag color="blue">公开</Tag>
-                  <Text type="secondary" style={{ fontSize: 12 }}>对所有 Agent 可见</Text>
-                </Space>
-              </Radio>
-              <Radio value="private">
-                <Space>
-                  <Tag>私有</Tag>
-                  <Text type="secondary" style={{ fontSize: 12 }}>仅对绑定的 Agent 可见</Text>
-                </Space>
-              </Radio>
-            </Radio.Group>
           </Form.Item>
         </Form>
       </Modal>
@@ -568,16 +506,7 @@ const RuleList: React.FC = () => {
             </Paragraph>
 
             <Paragraph>
-              <Text strong>可见性：</Text>
-              <br />
-              {getVisibilityTag(viewingRule.visibility)}
-              <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
-                {viewingRule.visibility === 'public' ? '对所有 Agent 可见' : '仅对绑定的 Agent 可见'}
-              </Text>
-            </Paragraph>
-
-            <Paragraph>
-              <Text strong>规约内容：</Text>
+              <Text strong>Rule 内容：</Text>
             </Paragraph>
             <div
               style={{

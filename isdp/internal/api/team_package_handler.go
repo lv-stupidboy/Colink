@@ -2,6 +2,7 @@
 package api
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"path/filepath"
@@ -74,9 +75,16 @@ func (h *TeamPackageHandler) ImportConfirm(c *gin.Context) {
 		return
 	}
 
+	// 解析确认参数 - 从 form 中读取 confirm 字段
 	var confirm model.TeamPackageImportConfirm
-	if err := c.ShouldBindJSON(&confirm); err != nil {
-		// 如果没有 JSON body，使用默认策略
+	confirmStr := c.PostForm("confirm")
+	if confirmStr != "" {
+		if err := json.Unmarshal([]byte(confirmStr), &confirm); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "解析确认参数失败: " + err.Error()})
+			return
+		}
+	} else {
+		// 使用默认策略
 		confirm = model.TeamPackageImportConfirm{
 			Mode:           "overwrite",
 			WorkflowAction: "overwrite",

@@ -44,8 +44,7 @@ const AgentRoleList: React.FC = () => {
   const [selectedSubagentIds, setSelectedSubagentIds] = useState<string[]>([]);
   const [commands, setCommands] = useState<Command[]>([]);
   const [selectedCommandIds, setSelectedCommandIds] = useState<string[]>([]);
-  const [publicRules, setPublicRules] = useState<Rule[]>([]);
-  const [instanceRules, setInstanceRules] = useState<Rule[]>([]);
+  const [rules, setRules] = useState<Rule[]>([]);
   const [selectedRuleIds, setSelectedRuleIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
@@ -152,16 +151,11 @@ const AgentRoleList: React.FC = () => {
 
   const loadRules = async () => {
     try {
-      const [publicResult, instanceResult] = await Promise.all([
-        api.rules.getPublicRules(),
-        api.rules.getPrivateRules(),
-      ]);
-      setPublicRules(publicResult || []);
-      setInstanceRules(instanceResult || []);
+      const result = await api.rules.list({ pageSize: 100 });
+      setRules(result.data || []);
     } catch (error) {
       console.error('加载规约列表失败', error);
-      setPublicRules([]);
-      setInstanceRules([]);
+      setRules([]);
     }
   };
 
@@ -181,8 +175,8 @@ const AgentRoleList: React.FC = () => {
     setSelectedSkillIds([]);
     setSelectedSubagentIds([]);
     setSelectedCommandIds([]);
-    // 公共规约默认选中
-    setSelectedRuleIds(publicRules.map(r => r.id));
+    // 默认选中所有规约
+    setSelectedRuleIds(rules.map(r => r.id));
     setModalVisible(true);
   };
 
@@ -342,7 +336,7 @@ const AgentRoleList: React.FC = () => {
     setGenerateLoading(previewData.agentId);
     try {
       const result = await api.agents.generateConfig(previewData.agentId, 'claude_code');
-      message.success(`配置生成成功，包含 ${result.commandsCount} 个命令、${result.subagentsCount} 个子代理、${result.skillsCount} 个技能、${result.rulesCount} 个规约`);
+      message.success(`配置生成成功，包含 ${result.commandsCount} 个 Commands、${result.subagentsCount} 个 Subagents、${result.skillsCount} 个 Skills、${result.rulesCount} 个 Rules`);
       setPreviewVisible(false);
       setPreviewData(null);
       loadConfigs();
@@ -679,17 +673,13 @@ const AgentRoleList: React.FC = () => {
           <Form.Item label="绑定 Rules">
             <div style={{ marginBottom: 8 }}>
               <Text type="secondary" style={{ fontSize: 12 }}>
-                公共 Rules（默认选中，可取消）：
+                Rules（默认全选，可取消）：
               </Text>
               <Select
                 mode="multiple"
-                placeholder="选择公共 Rules"
-                value={selectedRuleIds.filter(id => publicRules.some(r => r.id === id))}
-                onChange={(ids) => {
-                  // 合并公共 Rules 和实例 Rules 的选择
-                  const instanceSelected = selectedRuleIds.filter(id => instanceRules.some(r => r.id === id));
-                  setSelectedRuleIds([...ids, ...instanceSelected]);
-                }}
+                placeholder="选择 Rules"
+                value={selectedRuleIds}
+                onChange={setSelectedRuleIds}
                 style={{ width: '100%', marginTop: 4 }}
                 optionLabelProp="label"
                 showSearch
@@ -697,42 +687,7 @@ const AgentRoleList: React.FC = () => {
                   (option?.label as string)?.toLowerCase().includes(input.toLowerCase()) ||
                   (option?.desc as string)?.toLowerCase().includes(input.toLowerCase())
                 }
-                options={publicRules.map(r => ({
-                  label: r.name,
-                  value: r.id,
-                  desc: r.description || '暂无描述',
-                }))}
-                optionRender={(option) => (
-                  <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <span style={{ fontWeight: 500 }}>{option.label}</span>
-                    <span style={{ fontSize: 12, color: '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 400 }}>
-                      {option.data.desc}
-                    </span>
-                  </div>
-                )}
-              />
-            </div>
-            <div>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                实例 Rules（按需绑定）：
-              </Text>
-              <Select
-                mode="multiple"
-                placeholder="选择实例 Rules"
-                value={selectedRuleIds.filter(id => instanceRules.some(r => r.id === id))}
-                onChange={(ids) => {
-                  // 合并公共 Rules 和实例 Rules 的选择
-                  const publicSelected = selectedRuleIds.filter(id => publicRules.some(r => r.id === id));
-                  setSelectedRuleIds([...publicSelected, ...ids]);
-                }}
-                style={{ width: '100%', marginTop: 4 }}
-                optionLabelProp="label"
-                showSearch
-                filterOption={(input, option) =>
-                  (option?.label as string)?.toLowerCase().includes(input.toLowerCase()) ||
-                  (option?.desc as string)?.toLowerCase().includes(input.toLowerCase())
-                }
-                options={instanceRules.map(r => ({
+                options={rules.map(r => ({
                   label: r.name,
                   value: r.id,
                   desc: r.description || '暂无描述',
@@ -793,7 +748,7 @@ const AgentRoleList: React.FC = () => {
             <Alert
               type="info"
               message="即将生成以下资产配置"
-              description="配置将包含角色直接绑定的资产，以及命令、子代理关联的技能"
+              description="配置将包含角色直接绑定的资产，以及 Command、Subagent 关联的 Skill"
               style={{ marginBottom: 16 }}
               showIcon
             />

@@ -364,7 +364,7 @@ const SubagentList: React.FC = () => {
       ),
     },
     {
-      title: '关联技能',
+      title: '关联 Skills',
       dataIndex: 'id',
       key: 'skillCount',
       width: 200,
@@ -377,7 +377,7 @@ const SubagentList: React.FC = () => {
         return (
           <Tooltip title={skillList.map(s => s.name).join('、')}>
             <Tag color="blue" style={{ cursor: 'pointer' }}>
-              {count} 个技能
+              {count} 个 Skills
             </Tag>
           </Tooltip>
         );
@@ -418,7 +418,7 @@ const SubagentList: React.FC = () => {
             编辑
           </Button>
           <Popconfirm
-            title="确定要删除这个子代理吗？"
+            title="确定要删除这个 Subagent 吗？"
             description="删除后将无法恢复"
             onConfirm={() => handleDelete(record.id)}
             okText="确定"
@@ -445,19 +445,19 @@ const SubagentList: React.FC = () => {
         <div>
           <Title level={2} style={{ margin: 0 }}>
             <RobotOutlined style={{ marginRight: 8, color: 'var(--ant-color-primary)' }} />
-            子代理管理
+            Subagents 管理
           </Title>
-          <Text type="secondary">管理可复用的子代理配置</Text>
+          <Text type="secondary">管理可复用的 Subagent 配置</Text>
         </div>
         <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-          新建子代理
+          新建 Subagent
         </Button>
       </div>
 
       {/* 搜索区域 */}
       <Card style={{ marginBottom: 16 }} styles={{ body: { padding: '12px 16px' } }}>
         <Input.Search
-          placeholder="搜索子代理名称或描述..."
+          placeholder="搜索 Subagents..."
           allowClear
           style={{ width: 300 }}
           onSearch={handleSearch}
@@ -476,7 +476,7 @@ const SubagentList: React.FC = () => {
             locale={{
               emptyText: (
                 <Empty
-                  description="暂无子代理"
+                  description="暂无 Subagents"
                   image={Empty.PRESENTED_IMAGE_SIMPLE}
                 />
               ),
@@ -503,7 +503,7 @@ const SubagentList: React.FC = () => {
 
       {/* 新建/编辑弹窗 */}
       <Modal
-        title={editingSubagent ? '编辑子代理' : '新建子代理'}
+        title={editingSubagent ? '编辑 Subagent' : '新建 Subagent'}
         open={modalVisible}
         onOk={() => form.submit()}
         onCancel={() => setModalVisible(false)}
@@ -593,7 +593,7 @@ const SubagentList: React.FC = () => {
           >
             <Input.TextArea
               rows={2}
-              placeholder="简要描述这个子代理的用途"
+              placeholder="简要描述这个 Subagent 的用途"
             />
           </Form.Item>
 
@@ -601,19 +601,19 @@ const SubagentList: React.FC = () => {
             name="content"
             label="配置内容"
             rules={[{ required: true, message: '请输入配置内容' }]}
-            extra="子代理的完整配置内容，支持 Markdown 格式"
+            extra="Subagent 的完整配置内容，支持 Markdown 格式"
           >
             <TextArea
               rows={12}
-              placeholder="输入子代理的配置内容..."
+              placeholder="输入 Subagent 的配置内容..."
               style={{ fontFamily: 'monospace' }}
             />
           </Form.Item>
 
-          <Form.Item label="绑定技能">
+          <Form.Item label="绑定 Skills">
             <Select
               mode="multiple"
-              placeholder="选择要绑定的技能"
+              placeholder="选择要绑定的 Skill"
               value={selectedSkillIds}
               onChange={setSelectedSkillIds}
               style={{ width: '100%' }}

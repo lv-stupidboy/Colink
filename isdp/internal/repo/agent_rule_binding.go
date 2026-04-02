@@ -56,7 +56,7 @@ func (r *AgentRuleBindingRepository) FindByAgentRoleID(ctx context.Context, agen
 // FindRulesByAgentRoleID 根据AgentRole ID查找绑定的Rule详情列表
 func (r *AgentRuleBindingRepository) FindRulesByAgentRoleID(ctx context.Context, agentRoleID uuid.UUID) ([]*model.Rule, error) {
 	query := `
-		SELECT r.id, r.name, r.description, r.visibility, r.created_at, r.updated_at
+		SELECT r.id, r.name, r.description, r.created_at, r.updated_at
 		FROM rules r
 		INNER JOIN agent_rule_bindings b ON r.id = b.rule_id
 		WHERE b.agent_role_id = ?

@@ -217,7 +217,7 @@ const SkillLibrary: React.FC = () => {
     setIsAfterUpload(false);
     pendingZipBlobRef.current = null;
     form.resetFields();
-    form.setFieldsValue({ sourceType: 'personal', tags: [], isPublic: true, version: '', supportedAgents: [] });
+    form.setFieldsValue({ sourceType: 'personal', tags: [], isPublic: true, supportedAgents: [] });
     setModalVisible(true);
   };
 
@@ -511,7 +511,6 @@ const SkillLibrary: React.FC = () => {
         description: metadata.description || '',
         tags: [],
         sourceType: sourceType,
-        version: '',
         supportedAgents: [],
         isPublic: sourceType !== 'personal', // 个人类型私有，其他类型公开
       });
@@ -748,10 +747,7 @@ const SkillLibrary: React.FC = () => {
         </Form.Item>
       </Form.Item>
 
-      <Form.Item name="version" label="版本">
-        <Input placeholder="如：1.0.0" />
-      </Form.Item>
-
+      
       <Form.Item
         name="supportedAgents"
         label="兼容 Agent"
@@ -789,11 +785,11 @@ const SkillLibrary: React.FC = () => {
     <div style={{ padding: 12 }}>
       <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <Title level={2} style={{ margin: 0 }}>技能库</Title>
+          <Title level={2} style={{ margin: 0 }}>Skills</Title>
           <Text type="secondary">管理可复用的技能</Text>
         </div>
         <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-          新建技能
+          新建 Skill
         </Button>
       </div>
 
@@ -844,7 +840,7 @@ const SkillLibrary: React.FC = () => {
             </Space>
           )}
           <Input.Search
-            placeholder="搜索技能..."
+            placeholder="搜索 Skills..."
             allowClear
             style={{ width: 250 }}
             onSearch={(value) => { setSearchText(value); setPage(1); }}
@@ -855,7 +851,7 @@ const SkillLibrary: React.FC = () => {
       {/* 技能卡片列表 */}
       <Spin spinning={loading}>
         {skills.length === 0 ? (
-          <Empty description="暂无技能" style={{ padding: 48 }} />
+          <Empty description="暂无 Skills" style={{ padding: 48 }} />
         ) : (
           <div style={{
             display: 'grid',
@@ -893,7 +889,7 @@ const SkillLibrary: React.FC = () => {
                   <EditOutlined key="edit" style={{ fontSize: 16 }} onClick={() => handleEdit(skill)} />,
                   <Popconfirm
                     key="delete"
-                    title="确定要删除这个技能吗？"
+                    title="确定要删除这个 Skill 吗？"
                     onConfirm={() => handleDelete(skill.id)}
                     okText="确定"
                     cancelText="取消"
@@ -976,7 +972,7 @@ const SkillLibrary: React.FC = () => {
 
       {/* 新建/编辑弹窗 */}
       <Modal
-        title={editingSkill ? '编辑技能' : '新建技能'}
+        title={editingSkill ? '编辑 Skill' : '新建 Skill'}
         open={modalVisible}
         onOk={() => form.submit()}
         onCancel={() => setModalVisible(false)}

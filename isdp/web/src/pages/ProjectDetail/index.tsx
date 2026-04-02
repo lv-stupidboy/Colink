@@ -172,7 +172,7 @@ const ProjectDetail: React.FC = () => {
           if (result.error) {
             message.error(result.error);
           } else {
-            message.success(`配置同步成功：${result.skillsCount} 个技能，${result.rulesCount} 个规则`);
+            message.success(`配置同步成功：${result.skillsCount} 个 Skills，${result.rulesCount} 个 Rules`);
           }
         } catch (error) {
           message.error('同步失败');

@@ -656,16 +656,12 @@ export interface CommandListResponse {
 
 // ========== Rule 相关类型 ==========
 
-// RuleVisibility 规约可见性
-export type RuleVisibility = 'public' | 'private';
-
 // Rule
 export interface Rule {
   id: string;
   name: string;
   description?: string;
   content?: string;
-  visibility: RuleVisibility;
   createdAt: string;
   updatedAt: string;
 }
@@ -674,20 +670,17 @@ export interface Rule {
 export interface CreateRuleRequest {
   name: string;
   description?: string;
-  visibility?: RuleVisibility;
   content?: string; // 规约内容（可选，传入则保存文件）
 }
 
 // 更新Rule请求
 export interface UpdateRuleRequest {
   description?: string;
-  visibility?: RuleVisibility;
 }
 
 // Rule列表查询参数
 export interface RuleListQuery {
   search?: string;
-  visibility?: RuleVisibility;
   page?: number;
   pageSize?: number;
 }
@@ -800,7 +793,6 @@ export interface AssetPackageSubagentItem {
 export interface AssetPackageRuleItem {
   name: string;
   description?: string;
-  visibility: 'public' | 'private';
 }
 
 // AssetPackageSettingsItem 配置项

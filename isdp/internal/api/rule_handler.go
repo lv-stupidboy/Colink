@@ -50,10 +50,10 @@ func (h *RuleHandler) List(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"data":       rules,
-		"total":      total,
-		"page":       query.Page,
-		"page_size":  query.PageSize,
+		"data":      rules,
+		"total":     total,
+		"page":      query.Page,
+		"page_size": query.PageSize,
 	})
 }
 
@@ -94,11 +94,6 @@ func (h *RuleHandler) Create(c *gin.Context) {
 	if !isValidRuleName(req.Name) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "名称只能包含小写字母、数字和中划线，且必须以字母开头"})
 		return
-	}
-
-	// 设置默认 visibility
-	if req.Visibility == "" {
-		req.Visibility = model.RuleVisibilityPrivate
 	}
 
 	r, err := h.svc.Create(c.Request.Context(), &req)
@@ -180,34 +175,6 @@ func isValidRuleName(name string) bool {
 	return true
 }
 
-// GetPublicRules 获取所有公共规约
-func (h *RuleHandler) GetPublicRules(c *gin.Context) {
-	rules, err := h.svc.GetPublicRules(c.Request.Context())
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"rules": rules,
-		"count": len(rules),
-	})
-}
-
-// GetPrivateRules 获取所有私有规约
-func (h *RuleHandler) GetPrivateRules(c *gin.Context) {
-	rules, err := h.svc.GetPrivateRules(c.Request.Context())
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"rules": rules,
-		"count": len(rules),
-	})
-}
-
 // GetAgentRules 获取Agent绑定的Rules
 func (h *RuleHandler) GetAgentRules(c *gin.Context) {
 	agentRoleID, err := uuid.Parse(c.Param("id"))
@@ -278,8 +245,6 @@ func (h *RuleHandler) RegisterRoutes(r *gin.RouterGroup) {
 	rules := r.Group("/rules")
 	{
 		rules.GET("", h.List)
-		rules.GET("/public", h.GetPublicRules)
-		rules.GET("/private", h.GetPrivateRules)
 		rules.POST("", h.Create)
 		rules.GET("/:id", h.Get)
 		rules.PUT("/:id", h.Update)

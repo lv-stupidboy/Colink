@@ -553,7 +553,6 @@ class APIClient {
     list: (query?: RuleListQuery): Promise<RuleListResponse> => {
       const params = new URLSearchParams();
       if (query?.search) params.append('search', query.search);
-      if (query?.visibility) params.append('visibility', query.visibility);
       if (query?.page) params.append('page', query.page.toString());
       if (query?.pageSize) params.append('page_size', query.pageSize.toString());
 
@@ -573,11 +572,6 @@ class APIClient {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
     },
-    // 公开规约和私有规约
-    getPublicRules: (): Promise<Rule[]> =>
-      this.request<{ rules: Rule[] }>('/rules/public', 'GET').then(res => res.rules || []),
-    getPrivateRules: (): Promise<Rule[]> =>
-      this.request<{ rules: Rule[] }>('/rules/private', 'GET').then(res => res.rules || []),
     // Agent 绑定的 Rules
     getAgentRules: (agentId: string): Promise<AgentRulesResponse> =>
       this.request(`/agents/${agentId}/rules`, 'GET'),
@@ -589,10 +583,19 @@ class APIClient {
 
   // Asset Package API (只保留导入和导出)
   assetPackages = {
-    import: async (file: File): Promise<ImportResult> => {
+    import: async (file: File): Promise<any> => {
       const formData = new FormData();
       formData.append('file', file);
       const response = await this.client.post('/asset-packages/import', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      return response.data;
+    },
+    importConfirm: async (file: File, confirm: any): Promise<ImportResult> => {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('confirm', new Blob([JSON.stringify(confirm)], { type: 'application/json' }));
+      const response = await this.client.post('/asset-packages/import/confirm', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       return response.data;
