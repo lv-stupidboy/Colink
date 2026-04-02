@@ -46,24 +46,12 @@ type ExecutionService struct {
 	// Mention 解析器（支持动态 patterns）
 	mentionParser *mention.Parser
 
-	// Multi-Mention 编排器（可选，后续注入）
-	multiMentionOrchestrator interface {
-		IsActiveTarget(threadID uuid.UUID, agentID string) bool
-	}
-
 	runningAgents  map[uuid.UUID]*RunningAgent
 	mu             sync.RWMutex
 
 	// A2A 上下文追踪
 	a2aContexts    map[uuid.UUID]*A2AContext // threadID -> A2AContext
 	a2aMu          sync.RWMutex
-}
-
-// SetMultiMentionOrchestrator 设置 Multi-Mention 编排器
-func (es *ExecutionService) SetMultiMentionOrchestrator(orch interface {
-	IsActiveTarget(threadID uuid.UUID, agentID string) bool
-}) {
-	es.multiMentionOrchestrator = orch
 }
 
 // NewExecutionService 创建统一执行服务

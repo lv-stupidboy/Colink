@@ -39,7 +39,6 @@ import {
   FullscreenOutlined,
   ThunderboltOutlined,
   ApartmentOutlined,
-  TeamOutlined,
 } from '@ant-design/icons';
 import { useAppStore } from '@/store';
 import { useDebugThreadStore } from '@/store/debugThread';
@@ -50,8 +49,6 @@ import { ReviewReport } from '@/components/ReviewReport';
 import { RightPanel, MessageContent, ContentCard, CodePreviewButton, TaskList } from '@/components/thread';
 import { parseContentBlocks, shouldShowInPanel, shouldShowInBubble, parseCodeFiles } from '@/utils/contentDetector';
 import FileTree from '@/components/FileTree';
-import TeammateRoster from '@/components/TeammateRoster';
-import MultiMentionModal from '@/components/MultiMentionModal';
 import api from '@/api/client';
 import type { Thread } from '@/types';
 import './ThreadView.css';
@@ -183,7 +180,6 @@ const ThreadView: React.FC = () => {
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [fileSidebarVisible, setFileSidebarVisible] = useState(true);
   const [artifactsSidebarVisible, setArtifactsSidebarVisible] = useState(false);
-  const [multiMentionModalVisible, setMultiMentionModalVisible] = useState(false);
 
   // 右侧面板状态（代码/沙箱统一管理）
   const [rightPanelVisible, setRightPanelVisible] = useState(false);
@@ -990,7 +986,7 @@ const ThreadView: React.FC = () => {
           // 如果需要更新名称，可以调用 updateStatus 或其他 API
         } else if (projectId) {
           // 团队模式：使用 threads.create API
-          newThread = await api.threads.create(projectId, { name: taskName });
+          newThread = await api.threads.create(projectId, taskName);
         } else {
           message.error('无法创建任务：缺少项目信息');
           return;
@@ -1482,11 +1478,6 @@ const ThreadView: React.FC = () => {
     label: `${agent.name} (${AgentRoleLabels[agent.role as keyof typeof AgentRoleLabels] || agent.role})`,
   }));
 
-  // 输入框占位符文本（根据线程类型）
-  const inputPlaceholder = currentThread?.type === 'free_discussion'
-    ? `自由协作模式：使用 @Agent名 触发协作，或直接描述您的问题...`
-    : `输入消息或使用 @需求分析师 @架构师 @开发者 等触发 Agent...`;
-
   // 获取工作目录
   const displayProjectPath = isDebugMode ? debugProjectPath : (currentProject?.localPath || '');
 
@@ -1585,16 +1576,6 @@ const ThreadView: React.FC = () => {
               </div>
             )}
           </div>
-          {/* 自由讨论模式：显示团队成员列表 */}
-          {currentThread?.type === 'free_discussion' && (
-            <div style={{ padding: '0 8px', borderTop: '1px solid #f0f0f0' }}>
-              <TeammateRoster
-                agents={mentionableAgents}
-                loading={loadingProjectContext}
-                currentAgentId={currentThread.currentAgent}
-              />
-            </div>
-          )}
         </div>
       )}
 
@@ -1741,30 +1722,12 @@ const ThreadView: React.FC = () => {
                   </Button>
                   <Tag color={wsConnected ? 'green' : 'red'}>{wsConnected ? '已连接' : '未连接'}</Tag>
                   {isDebugMode && debugAgentConfig && <Tag color="purple">调试: {debugAgentConfig.name}</Tag>}
-                  {currentThread?.type === 'free_discussion' && (
-                    <Tag color="cyan" icon={<TeamOutlined />}>自由协作</Tag>
-                  )}
-                  {currentThread?.type !== 'free_discussion' && (
-                    <Tag color="blue">工作流</Tag>
-                  )}
                   {isRunning && <Badge status="processing" text={`${activeAgents.length} 个 Agent 运行中`} />}
                 </Space>
                 <Space>
                   <Tooltip title="进入 Solo 模式">
                     <Button icon={<FullscreenOutlined />} onClick={toggleSoloMode} size="small" type={soloMode ? 'primary' : 'default'}>Solo</Button>
                   </Tooltip>
-                  {currentThread?.type === 'free_discussion' && (
-                    <Tooltip title="发起多 Agent 讨论">
-                      <Button
-                        icon={<TeamOutlined />}
-                        onClick={() => setMultiMentionModalVisible(true)}
-                        size="small"
-                        type="primary"
-                      >
-                        协作
-                      </Button>
-                    </Tooltip>
-                  )}
                   <Tooltip title={artifactsSidebarVisible ? '隐藏产物' : '查看产物列表'}>
                     <Button
                       icon={<UnorderedListOutlined />}
@@ -1789,27 +1752,9 @@ const ThreadView: React.FC = () => {
             <div className="thread-messages">
               {messages.length === 0 && Object.keys(streamingMessages).length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '60px 20px', color: '#999' }}>
-                  {currentThread?.type === 'free_discussion' ? (
-                    <>
-                      <TeamOutlined style={{ fontSize: 48, marginBottom: 16 }} />
-                      <Title level={4} type="secondary">自由协作模式</Title>
-                      <Text type="secondary">
-                        使用 @Agent名 触发协作，多 Agent 将并行讨论您的问题
-                      </Text>
-                      <div style={{ marginTop: 16 }}>
-                        <Text type="secondary">可用 Agent：</Text>
-                        {agentOptions.map(opt => (
-                          <Tag key={opt.id} style={{ margin: 4 }} color="blue">{opt.name}</Tag>
-                        ))}
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <RobotOutlined style={{ fontSize: 48, marginBottom: 16 }} />
-                      <Title level={4} type="secondary">开始您的开发任务</Title>
-                      <Text type="secondary">在下方输入您的需求，或使用 @需求分析师、@架构师、@开发者 等 Agent 协助开发</Text>
-                    </>
-                  )}
+                  <RobotOutlined style={{ fontSize: 48, marginBottom: 16 }} />
+                  <Title level={4} type="secondary">开始您的开发任务</Title>
+                  <Text type="secondary">在下方输入您的需求，或使用 @需求分析师、@架构师、@开发者 等 Agent 协助开发</Text>
                 </div>
               ) : (
                 <>
@@ -1866,7 +1811,7 @@ const ThreadView: React.FC = () => {
                   value={inputValue}
                   onChange={handleInputChange}
                   onKeyPress={handleKeyPress}
-                  placeholder={inputPlaceholder}
+                  placeholder="输入消息或使用 @需求分析师 @架构师 @开发者 等触发 Agent..."
                   autoSize={{ minRows: 2, maxRows: 6 }}
                 />
                 {mentionListVisible && (
@@ -1977,19 +1922,6 @@ const ThreadView: React.FC = () => {
           )}
         </>
       )}
-
-      {/* MultiMentionModal - 发起多 Agent 讨论 */}
-      <MultiMentionModal
-        visible={multiMentionModalVisible}
-        agents={mentionableAgents}
-        onCancel={() => setMultiMentionModalVisible(false)}
-        onSubmit={(msg) => {
-          setInputValue(msg);
-          setMultiMentionModalVisible(false);
-          // Focus the input
-          inputRef.current?.focus();
-        }}
-      />
     </div>
   );
 };

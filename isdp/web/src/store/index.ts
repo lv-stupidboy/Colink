@@ -386,16 +386,9 @@ export const useAppStore = create<AppState & AppActions>()(
     },
 
     getFilteredAgents: () => {
-      const { currentWorkflowTemplate, agentConfigs, currentThread } = get();
+      const { currentWorkflowTemplate, agentConfigs } = get();
 
-      // 自由讨论模式：使用 thread.availableAgents
-      if (currentThread?.type === 'free_discussion' && currentThread.availableAgents?.length) {
-        return agentConfigs.filter(agent =>
-          currentThread.availableAgents!.includes(agent.id)
-        );
-      }
-
-      // 工作流模式：If no workflow template or no agentIds, return all agents
+      // If no workflow template or no agentIds, return all agents
       if (!currentWorkflowTemplate || !currentWorkflowTemplate.agentIds?.length) {
         return agentConfigs;
       }

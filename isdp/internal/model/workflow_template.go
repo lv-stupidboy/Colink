@@ -16,14 +16,6 @@ const (
 	TransitionTypeMerge    TransitionType = "merge"    // 汇聚执行（等待上游）
 )
 
-// TeamMode 团队模式
-type TeamMode string
-
-const (
-	TeamModeWorkflow TeamMode = "workflow" // 工作流模式（顺序执行）
-	TeamModeFree     TeamMode = "free"     // 自由模式（并行协作）
-)
-
 // Transition Agent间协作转换规则
 type Transition struct {
 	FromAgentID string         `json:"fromAgentId"` // 源 Agent ID
@@ -42,13 +34,12 @@ type WorkflowTemplate struct {
 	ID            uuid.UUID       `json:"id"`
 	Name          string          `json:"name"`
 	Description   string          `json:"description"`
-	Mode          TeamMode        `json:"mode"`          // 团队模式：workflow/free
 	AgentIDs      json.RawMessage `json:"agentIds"`      // Agent实例ID列表 (JSON数组)
-	Transitions   json.RawMessage `json:"transitions"`   // Agent间转换规则 (JSON数组)
-	Checkpoints   json.RawMessage `json:"checkpoints"`   // 人工检查点列表 (JSON数组)
+	Transitions   json.RawMessage `json:"transitions"`    // Agent间转换规则 (JSON数组)
+	Checkpoints   json.RawMessage `json:"checkpoints"`    // 人工检查点列表 (JSON数组)
 	EstimatedTime string          `json:"estimatedTime"` // 预计耗时
 	IsSystem      bool            `json:"isSystem"`      // 是否系统预设
-	IsDefault     bool            `json:"isDefault"`     // 是否为默认工作流
+	IsDefault     bool            `json:"isDefault"`     // 新增：是否为默认工作流
 	CreatedAt     time.Time       `json:"createdAt"`
 	UpdatedAt     time.Time       `json:"updatedAt"`
 }

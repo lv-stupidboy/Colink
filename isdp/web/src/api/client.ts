@@ -227,13 +227,8 @@ class APIClient {
   threads = {
     list: (projectId: string): Promise<Thread[]> => this.request(`/threads/project/${projectId}`, 'GET'),
     get: (id: string): Promise<Thread> => this.request(`/threads/${id}`, 'GET'),
-    create: (projectId: string, options?: { name?: string; type?: string; availableAgents?: string[] }): Promise<Thread> => {
-      const body: any = {};
-      if (options?.name) body.name = options.name;
-      if (options?.type) body.type = options.type;
-      if (options?.availableAgents) body.availableAgents = options.availableAgents;
-      return this.request(`/threads/project/${projectId}`, 'POST', body);
-    },
+    create: (projectId: string, name?: string): Promise<Thread> =>
+      this.request(`/threads/project/${projectId}`, 'POST', name ? { name } : {}),
     updateStatus: (id: string, status: string): Promise<Thread> =>
       this.request(`/threads/${id}/status`, 'PUT', { status }),
     setPhase: (id: string, phase: string, agent: string): Promise<Thread> =>

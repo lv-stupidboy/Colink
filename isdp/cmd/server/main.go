@@ -254,13 +254,7 @@ func main() {
 	// 默认适配器设为 nil，在执行时根据 AgentRoleConfig.BaseAgentID 动态创建适配器
 	// 这样可以支持多种类型的 Agent（Claude、OpenCode 等）
 	var defaultAdapter agent.AgentAdapter = nil
-
-	// 创建 TeammateRosterBuilder（用于协作信息注入）
-	rosterBuilder := agent.NewTeammateRosterBuilder(threadRepo, workflowRepo, agentConfigRepo)
-
-	// ContextBuilder（注入协作信息）
-	_ = agent.NewContextBuilder(threadRepo, messageRepo, artifactRepo, rosterBuilder, workflowRepo) // TODO: wire into orchestrator
-
+	_ = agent.NewContextBuilder(threadRepo, messageRepo, artifactRepo) // TODO: wire into orchestrator
 	tracker := agent.NewInvocationTracker(invocationRepo)
 	orchestrator := agent.NewOrchestrator(
 		invocationRepo, threadRepo, messageRepo,
@@ -405,15 +399,7 @@ func main() {
 	ruleHandler.RegisterRoutes(v1)
 
 	// MCP Callback Handler
-	// 创建 MultiMention 组件
-	multiMentionRepo := repo.NewMultiMentionRepository(db)
-	multiMentionOrchestrator := a2a.NewMultiMentionOrchestrator(multiMentionRepo)
-
-	callbackHandler := api.NewCallbackHandler(
-		invocationRegistry, mcpAuthService, messageService, messageRepo, wsHub,
-		orchestrator, baseAgentRepo, invocationQueue, queueProcessor, mentionParser,
-		multiMentionOrchestrator, multiMentionRepo, threadRepo,
-	)
+	callbackHandler := api.NewCallbackHandler(invocationRegistry, mcpAuthService, messageService, messageRepo, wsHub, orchestrator, baseAgentRepo, invocationQueue, queueProcessor, mentionParser)
 	callbackHandler.RegisterRoutes(v1)
 
 	// WebSocket
