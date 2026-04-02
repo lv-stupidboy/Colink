@@ -47,6 +47,7 @@ import type { FileChange } from '@/types/content';
 import { AgentRoleLabels, ArtifactTypeLabels } from '@/types';
 import { ReviewReport } from '@/components/ReviewReport';
 import { RightPanel, MessageContent, ContentCard, CodePreviewButton, TaskList } from '@/components/thread';
+import { StatusPanel } from '@/components/thread/StatusPanel';
 import { parseContentBlocks, shouldShowInPanel, shouldShowInBubble, parseCodeFiles } from '@/utils/contentDetector';
 import FileTree from '@/components/FileTree';
 import api from '@/api/client';
@@ -124,6 +125,8 @@ const ThreadView: React.FC = () => {
     setDockerAvailable,
     // 当前项目
     currentProject,
+    // Agent Usage
+    updateAgentUsage,
   } = useAppStore();
 
   // 调试模式的独立 store
@@ -641,7 +644,8 @@ const ThreadView: React.FC = () => {
       case 'agent_status': {
         const status = data.payload.status as string;
         const invocId = data.payload.invocationId as string;
-        updateAgentStatus(invocId, status);
+        const agentName = data.payload.agentName as string;
+        updateAgentStatus(invocId, status, agentName);
         // Agent 完成时，如果有流式消息缓存，转为正式消息
         if (status === 'completed' || status === 'failed') {
           // 使用 getState() 避免闭包陷阱
@@ -649,6 +653,24 @@ const ThreadView: React.FC = () => {
           if (currentStreaming[invocId]) {
             finalizeStreamingMessage(invocId);
           }
+        }
+        break;
+      }
+      case 'usage_update': {
+        // Token 使用更新
+        const invocId = data.payload.invocationId as string;
+        const usage = data.payload.usage as {
+          inputTokens?: number;
+          outputTokens?: number;
+          cacheReadTokens?: number;
+          cacheCreationTokens?: number;
+          costUsd?: number;
+          durationMs?: number;
+          durationApiMs?: number;
+          numTurns?: number;
+        };
+        if (invocId && usage) {
+          updateAgentUsage(invocId, usage);
         }
         break;
       }
@@ -1705,6 +1727,9 @@ const ThreadView: React.FC = () => {
               </div>
             </>
           )}
+
+          {/* Solo 模式下的状态栏 */}
+          <StatusPanel width={320} threadId={threadId || debugThreadId || undefined} />
         </div>
       ) : (
         /* 非Solo模式：原有结构 */
@@ -1895,6 +1920,8 @@ const ThreadView: React.FC = () => {
           )}
 
           {/* 右侧面板（代码/沙箱） */}
+          {/* StatusPanel - 状态栏 */}
+          <StatusPanel width={320} threadId={threadId || debugThreadId || undefined} />
           {rightPanelVisible && (
             <>
               <div className={`resize-handle ${isResizing ? 'resizing' : ''}`} onMouseDown={handleResizeStart} style={{ width: isResizing ? 3 : 6 }} />

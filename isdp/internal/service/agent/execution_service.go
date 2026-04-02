@@ -130,7 +130,7 @@ func (es *ExecutionService) SpawnAgent(ctx context.Context, req *SpawnRequest) (
 	es.mu.Unlock()
 
 	// 广播状态更新
-	es.broadcastStatus(req.ThreadID, invocation.ID, "started", config.Role)
+	es.broadcastStatus(req.ThreadID, invocation.ID, "started", config.Role, config.Name)
 
 	// 异步执行Agent
 	go es.executeAgent(agentCtx, invocation, config, baseAgent, req)
@@ -210,7 +210,7 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 	es.saveAgentMessage(ctx, req.ThreadID, config, output)
 
 	// 广播完成状态
-	es.broadcastStatus(req.ThreadID, invocation.ID, "completed", config.Role)
+	es.broadcastStatus(req.ThreadID, invocation.ID, "completed", config.Role, config.Name)
 
 	// 检查是否需要路由到下一个Agent
 	es.checkRouting(ctx, req.ThreadID, config, output)
@@ -316,7 +316,7 @@ func (es *ExecutionService) handleAgentError(ctx context.Context, invocation *mo
 		logError("Failed to update invocation on error", zap.Error(updateErr))
 	}
 
-	es.broadcastStatus(invocation.ThreadID, invocation.ID, "failed", invocation.Role)
+	es.broadcastStatus(invocation.ThreadID, invocation.ID, "failed", invocation.Role, "")
 }
 
 // buildContextLayers 构建上下文层
@@ -975,7 +975,7 @@ func (es *ExecutionService) CancelAgent(ctx context.Context, invocationID uuid.U
 }
 
 // broadcastStatus 广播状态
-func (es *ExecutionService) broadcastStatus(threadID, invocationID uuid.UUID, status string, role model.AgentRole) {
+func (es *ExecutionService) broadcastStatus(threadID, invocationID uuid.UUID, status string, role model.AgentRole, agentName string) {
 	logInfo("broadcastStatus called", zap.String("threadId", threadID.String()), zap.String("invocationId", invocationID.String()), zap.String("status", status))
 	if es.wsHub != nil {
 		es.wsHub.BroadcastToThread(threadID.String(), ws.WSMessage{
@@ -986,6 +986,7 @@ func (es *ExecutionService) broadcastStatus(threadID, invocationID uuid.UUID, st
 				"invocationId": invocationID.String(),
 				"status":       status,
 				"role":         string(role),
+				"agentName":    agentName,
 			},
 		})
 	}
@@ -995,6 +996,29 @@ func (es *ExecutionService) broadcastStatus(threadID, invocationID uuid.UUID, st
 func (es *ExecutionService) broadcastChunk(threadID, invocationID uuid.UUID, chunk Chunk, agentID, agentName string) {
 	logInfo("broadcastChunk called", zap.String("threadId", threadID.String()), zap.String("chunkType", string(chunk.Type)), zap.String("toolName", chunk.ToolName))
 	if es.wsHub != nil {
+		// 处理 Usage 类型的 Chunk
+		if chunk.Type == ChunkTypeUsage && chunk.Usage != nil {
+			es.wsHub.BroadcastToThread(threadID.String(), ws.WSMessage{
+				Type:      "usage_update",
+				ThreadID:  threadID.String(),
+				Timestamp: time.Now().UnixMilli(),
+				Payload: map[string]interface{}{
+					"invocationId": invocationID.String(),
+					"usage": map[string]interface{}{
+						"inputTokens":         chunk.Usage.InputTokens,
+						"outputTokens":        chunk.Usage.OutputTokens,
+						"cacheReadTokens":     chunk.Usage.CacheReadTokens,
+						"cacheCreationTokens": chunk.Usage.CacheCreationTokens,
+						"costUsd":             chunk.Usage.CostUsd,
+						"durationMs":          chunk.Usage.DurationMs,
+						"durationApiMs":       chunk.Usage.DurationApiMs,
+						"numTurns":            chunk.Usage.NumTurns,
+					},
+				},
+			})
+			return
+		}
+
 		payload := map[string]interface{}{
 			"invocationId": invocationID.String(),
 			"chunk":        chunk.Content,

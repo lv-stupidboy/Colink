@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import type { Thread, Message, AgentInvocation, AgentConfig, Phase, AgentRole, Project, WorkflowTemplate, SandboxServer } from '@/types';
+import type { TokenUsage, TaskProgress } from '@/types/status';
 import api from '@/api/client';
 
 interface AppState {
@@ -62,6 +63,13 @@ interface AppState {
   sandboxLoading: boolean;
   dockerAvailable: boolean;
   sandboxDrawerVisible: boolean;
+
+  // Agent Usage 和 TaskProgress
+  agentUsage: Record<string, TokenUsage>;
+  agentTaskProgress: Record<string, TaskProgress>;
+
+  // 已完成的 Agent 历史
+  completedAgents: AgentInvocation[];
 }
 
 interface AppActions {
@@ -90,7 +98,7 @@ interface AppActions {
   addMessage: (message: Message) => void;
 
   // 更新Agent状态
-  updateAgentStatus: (invocationId: string, status: string) => void;
+  updateAgentStatus: (invocationId: string, status: string, agentName?: string) => void;
 
   // 设置WebSocket连接状态
   setWsConnected: (connected: boolean) => void;
@@ -144,6 +152,11 @@ interface AppActions {
   setSandboxLoading: (loading: boolean) => void;
   setDockerAvailable: (available: boolean) => void;
   setSandboxDrawerVisible: (visible: boolean) => void;
+
+  // Agent Usage 和 TaskProgress actions
+  updateAgentUsage: (invocationId: string, usage: TokenUsage) => void;
+  updateAgentTaskProgress: (invocationId: string, progress: TaskProgress) => void;
+  clearAgentUsage: (invocationId: string) => void;
 }
 
 const initialState: AppState = {
@@ -172,6 +185,11 @@ const initialState: AppState = {
   sandboxLoading: false,
   dockerAvailable: false,
   sandboxDrawerVisible: false,
+  // Agent Usage 和 TaskProgress
+  agentUsage: {},
+  agentTaskProgress: {},
+  // 已完成的 Agent 历史
+  completedAgents: [],
 };
 
 export const useAppStore = create<AppState & AppActions>()(
@@ -292,12 +310,43 @@ export const useAppStore = create<AppState & AppActions>()(
       });
     },
 
-    updateAgentStatus: (invocationId, status) => {
+    updateAgentStatus: (invocationId, status, agentName?: string) => {
       set((state) => {
         if (status === 'completed' || status === 'failed' || status === 'cancelled') {
+          // 找到完成的 agent 并移到历史列表
+          const completedAgent = state.activeAgents.find((a) => a.id === invocationId);
+          const newCompletedAgents = completedAgent
+            ? [
+                ...state.completedAgents.filter((a) => a.id !== invocationId),
+                {
+                  ...completedAgent,
+                  status: status as 'completed' | 'failed' | 'cancelled',
+                  completedAt: new Date().toISOString(),
+                },
+              ]
+            : state.completedAgents;
+
           return {
             activeAgents: state.activeAgents.filter((a) => a.id !== invocationId),
+            completedAgents: newCompletedAgents,
           };
+        }
+        // Agent 启动时添加到 activeAgents
+        if (status === 'started' || status === 'running') {
+          const exists = state.activeAgents.some((a) => a.id === invocationId);
+          if (!exists) {
+            return {
+              activeAgents: [
+                ...state.activeAgents,
+                {
+                  id: invocationId,
+                  status: 'running',
+                  agentName: agentName,
+                  startedAt: new Date().toISOString(),
+                } as AgentInvocation,
+              ],
+            };
+          }
         }
         return state;
       });
@@ -525,6 +574,39 @@ export const useAppStore = create<AppState & AppActions>()(
 
     setSandboxDrawerVisible: (visible) => {
       set({ sandboxDrawerVisible: visible });
+    },
+
+    // Agent Usage 和 TaskProgress actions
+    updateAgentUsage: (invocationId, usage) => {
+      set((state) => ({
+        agentUsage: {
+          ...state.agentUsage,
+          [invocationId]: {
+            ...state.agentUsage[invocationId],
+            ...usage,
+          },
+        },
+      }));
+    },
+
+    updateAgentTaskProgress: (invocationId, progress) => {
+      set((state) => ({
+        agentTaskProgress: {
+          ...state.agentTaskProgress,
+          [invocationId]: progress,
+        },
+      }));
+    },
+
+    clearAgentUsage: (invocationId) => {
+      set((state) => {
+        const { [invocationId]: _, ...remainingUsage } = state.agentUsage;
+        const { [invocationId]: __, ...remainingProgress } = state.agentTaskProgress;
+        return {
+          agentUsage: remainingUsage,
+          agentTaskProgress: remainingProgress,
+        };
+      });
     },
   }))
 );

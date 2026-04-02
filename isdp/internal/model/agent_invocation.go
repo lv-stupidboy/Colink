@@ -30,6 +30,15 @@ type AgentInvocation struct {
 	StartedAt     *time.Time       `json:"startedAt,omitempty"`
 	CompletedAt   *time.Time       `json:"completedAt,omitempty"`
 	CreatedAt     time.Time        `json:"createdAt"`
+
+	// Token 使用统计
+	InputTokens         int64   `json:"inputTokens,omitempty"`
+	OutputTokens        int64   `json:"outputTokens,omitempty"`
+	CacheReadTokens     int64   `json:"cacheReadTokens,omitempty"`
+	CacheCreationTokens int64   `json:"cacheCreationTokens,omitempty"`
+	CostUsd             float64 `json:"costUsd,omitempty"`
+	DurationMs          int64   `json:"durationMs,omitempty"`
+	DurationApiMs       int64   `json:"durationApiMs,omitempty"`
 }
 
 func (a *AgentInvocation) TableName() string {

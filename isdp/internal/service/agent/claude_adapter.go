@@ -376,8 +376,29 @@ func (a *ClaudeAdapter) parseStreamJSONLine(line string, isStreaming bool) []Chu
 				ID     string                 `json:"id"`
 				Input  map[string]interface{} `json:"input"`
 			} `json:"content"`
+			Usage *struct {
+				InputTokens           int64   `json:"input_tokens"`
+				OutputTokens          int64   `json:"output_tokens"`
+				CacheReadInputTokens  int64   `json:"cache_read_input_tokens"`
+				CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
+			} `json:"usage"`
 		} `json:"message"`
-		Result string `json:"result"`
+		Usage struct {
+			InputTokens           int64   `json:"input_tokens"`
+			OutputTokens          int64   `json:"output_tokens"`
+			CacheReadInputTokens  int64   `json:"cache_read_input_tokens"`
+			CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
+		} `json:"usage"`
+		Delta struct {
+			Usage struct {
+				OutputTokens int64 `json:"output_tokens"`
+			} `json:"usage"`
+		} `json:"delta"`
+		Result   string  `json:"result"`
+		CostUsd  float64 `json:"cost_usd"`
+		DurationMs int64  `json:"duration_ms"`
+		DurationApiMs int64 `json:"duration_api_ms"`
+		NumTurns int     `json:"num_turns"`
 	}
 
 	if err := json.Unmarshal([]byte(line), &msg); err != nil {
@@ -418,6 +439,28 @@ func (a *ClaudeAdapter) parseStreamJSONLine(line string, isStreaming bool) []Chu
 				// 暂不返回，避免干扰主要输出
 			}
 		}
+	case "message_start":
+		// 解析 message.usage 字段（input tokens）
+		if msg.Message.Usage != nil {
+			chunks = append(chunks, Chunk{
+				Type: ChunkTypeUsage,
+				Usage: &TokenUsage{
+					InputTokens:           msg.Message.Usage.InputTokens,
+					CacheReadTokens:       msg.Message.Usage.CacheReadInputTokens,
+					CacheCreationTokens:   msg.Message.Usage.CacheCreationInputTokens,
+				},
+			})
+		}
+	case "message_delta":
+		// 解析 usage 字段（output tokens 通常在这里）
+		if msg.Delta.Usage.OutputTokens > 0 {
+			chunks = append(chunks, Chunk{
+				Type: ChunkTypeUsage,
+				Usage: &TokenUsage{
+					OutputTokens: msg.Delta.Usage.OutputTokens,
+				},
+			})
+		}
 	case "assistant":
 		// 完整消息（非增量模式下的输出）
 		// 在增量模式下忽略，避免重复（内容已通过 stream_event.content_block_delta 发送）
@@ -448,6 +491,23 @@ func (a *ClaudeAdapter) parseStreamJSONLine(line string, isStreaming bool) []Chu
 			chunks = append(chunks, Chunk{
 				Type:    ChunkTypeText,
 				Content: msg.Result,
+			})
+		}
+		// 解析完整 usage: input_tokens, output_tokens, cache_read_input_tokens
+		// 解析 total_cost_usd, duration_ms, duration_api_ms, num_turns
+		if msg.Usage.InputTokens > 0 || msg.Usage.OutputTokens > 0 || msg.CostUsd > 0 {
+			chunks = append(chunks, Chunk{
+				Type: ChunkTypeUsage,
+				Usage: &TokenUsage{
+					InputTokens:           msg.Usage.InputTokens,
+					OutputTokens:          msg.Usage.OutputTokens,
+					CacheReadTokens:       msg.Usage.CacheReadInputTokens,
+					CacheCreationTokens:   msg.Usage.CacheCreationInputTokens,
+					CostUsd:               msg.CostUsd,
+					DurationMs:            msg.DurationMs,
+					DurationApiMs:         msg.DurationApiMs,
+					NumTurns:              msg.NumTurns,
+				},
 			})
 		}
 	}

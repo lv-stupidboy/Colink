@@ -130,12 +130,13 @@ export interface AgentInvocation {
   threadId: string;
   agentConfigId: string;
   role: AgentRole;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+  status: 'pending' | 'running' | 'streaming' | 'completed' | 'failed' | 'cancelled';
   input: string;
   output?: string;
   startedAt?: string;
   completedAt?: string;
   createdAt: string;
+  agentName?: string;
 }
 
 // 工作产物
