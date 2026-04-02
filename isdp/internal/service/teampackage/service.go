@@ -648,6 +648,18 @@ func (s *Service) ImportConfirm(ctx context.Context, zipData []byte, confirm *mo
 		return nil, fmt.Errorf("解析 manifest 失败: %w", err)
 	}
 
+	// 调试日志：输出 manifest 中的 Commands 和 BoundSkills
+	s.logger.Info("解析 manifest 完成",
+		zap.Int("commandsCount", len(manifest.Assets.Commands)),
+		zap.Int("subagentsCount", len(manifest.Assets.Subagents)),
+		zap.Int("skillsCount", len(manifest.Assets.Skills)))
+	for _, cmd := range manifest.Assets.Commands {
+		s.logger.Info("Command 信息",
+			zap.String("name", cmd.Name),
+			zap.Int("boundSkillsCount", len(cmd.BoundSkills)),
+			zap.Strings("boundSkills", cmd.BoundSkills))
+	}
+
 	result := &model.ImportResult{
 		Success: 0,
 		Skipped: 0,
@@ -727,6 +739,11 @@ func (s *Service) ImportConfirm(ctx context.Context, zipData []byte, confirm *mo
 			result.Success++
 			commandNameToID[commandItem.Name] = id
 			// 绑定 Skills
+			s.logger.Info("导入Command成功，准备绑定Skills",
+				zap.String("command", commandItem.Name),
+				zap.String("commandID", id.String()),
+				zap.Int("boundSkillsCount", len(commandItem.BoundSkills)),
+				zap.Strings("boundSkills", commandItem.BoundSkills))
 			s.bindSkillsToCommand(ctx, id, commandItem.BoundSkills, skillNameToID)
 		case "skipped":
 			result.Skipped++
