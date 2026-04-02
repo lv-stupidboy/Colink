@@ -3,7 +3,7 @@ import { Table, Button, Card, Modal, Form, Input, Select, message, Space, Tag, T
 import { PlusOutlined, EditOutlined, DeleteOutlined, RobotOutlined, BugOutlined, CopyOutlined, CrownOutlined, UserOutlined, ExclamationCircleOutlined, EyeOutlined, SettingOutlined, BookOutlined, ApiOutlined, CodeOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '@/api/client';
-import type { AgentConfig, BaseAgent, Skill, Subagent, Command, Rule } from '@/types';
+import type { AgentConfig, BaseAgent, Skill, Subagent, Command, Rule, Settings } from '@/types';
 
 const { Title, Text } = Typography;
 
@@ -46,6 +46,8 @@ const AgentRoleList: React.FC = () => {
   const [selectedCommandIds, setSelectedCommandIds] = useState<string[]>([]);
   const [rules, setRules] = useState<Rule[]>([]);
   const [selectedRuleIds, setSelectedRuleIds] = useState<string[]>([]);
+  const [settings, setSettings] = useState<Settings[]>([]);
+  const [selectedSettingsIds, setSelectedSettingsIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingConfig, setEditingConfig] = useState<AgentConfig | null>(null);
@@ -63,6 +65,7 @@ const AgentRoleList: React.FC = () => {
     loadSubagents();
     loadCommands();
     loadRules();
+    loadSettings();
   }, []);
 
   const loadConfigs = async () => {
@@ -169,12 +172,33 @@ const AgentRoleList: React.FC = () => {
     }
   };
 
+  const loadSettings = async () => {
+    try {
+      const result = await api.settings.list({ pageSize: 100 });
+      setSettings(result.data || []);
+    } catch (error) {
+      console.error('加载配置列表失败', error);
+      setSettings([]);
+    }
+  };
+
+  const loadAgentSettings = async (agentId: string) => {
+    try {
+      const result = await api.settings.getAgentSettings(agentId);
+      setSelectedSettingsIds(result.settings?.map(s => s.id) || []);
+    } catch (error) {
+      console.error('加载Agent绑定的配置失败', error);
+      setSelectedSettingsIds([]);
+    }
+  };
+
   const handleCreate = () => {
     setEditingConfig(null);
     form.resetFields();
     setSelectedSkillIds([]);
     setSelectedSubagentIds([]);
     setSelectedCommandIds([]);
+    setSelectedSettingsIds([]);
     // 默认选中所有规约
     setSelectedRuleIds(rules.map(r => r.id));
     setModalVisible(true);
@@ -188,6 +212,7 @@ const AgentRoleList: React.FC = () => {
       loadAgentSubagents(record.id),
       loadAgentCommands(record.id),
       loadAgentRules(record.id),
+      loadAgentSettings(record.id),
     ]);
     setModalVisible(true);
   };
@@ -245,6 +270,8 @@ const AgentRoleList: React.FC = () => {
         await api.commands.bindCommandsToAgent(editingConfig.id, selectedCommandIds);
         // 更新规约绑定 - 无论是否为空都调用，以支持清空绑定
         await api.rules.bindRulesToAgent(editingConfig.id, selectedRuleIds);
+        // 更新配置绑定 - 无论是否为空都调用，以支持清空绑定
+        await api.settings.bindToAgent(editingConfig.id, selectedSettingsIds);
         message.success('更新成功');
       } else {
         const newAgent = await api.agents.create(values);
@@ -263,6 +290,10 @@ const AgentRoleList: React.FC = () => {
         // 为新创建的Agent绑定规约
         if (selectedRuleIds.length > 0) {
           await api.rules.bindRulesToAgent(newAgent.id, selectedRuleIds);
+        }
+        // 为新创建的Agent绑定配置
+        if (selectedSettingsIds.length > 0) {
+          await api.settings.bindToAgent(newAgent.id, selectedSettingsIds);
         }
         message.success('创建成功');
       }
@@ -702,6 +733,35 @@ const AgentRoleList: React.FC = () => {
                 )}
               />
             </div>
+          </Form.Item>
+
+          <Form.Item label="绑定 Settings">
+            <Select
+              mode="multiple"
+              placeholder="选择要绑定的 Settings（配置目录）"
+              value={selectedSettingsIds}
+              onChange={setSelectedSettingsIds}
+              style={{ width: '100%' }}
+              optionLabelProp="label"
+              showSearch
+              filterOption={(input, option) =>
+                (option?.label as string)?.toLowerCase().includes(input.toLowerCase()) ||
+                (option?.desc as string)?.toLowerCase().includes(input.toLowerCase())
+              }
+              options={settings.map(s => ({
+                label: s.name,
+                value: s.id,
+                desc: s.description || '暂无描述',
+              }))}
+              optionRender={(option) => (
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <span style={{ fontWeight: 500 }}>{option.label}</span>
+                  <span style={{ fontSize: 12, color: '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 400 }}>
+                    {option.data?.desc}
+                  </span>
+                </div>
+              )}
+            />
           </Form.Item>
         </Form>
       </Modal>
