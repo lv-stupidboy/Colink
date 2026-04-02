@@ -1723,18 +1723,34 @@ func extractZip(zipReader io.Reader, dstDir string) error {
 // bindSkillsToCommand 绑定 Skills 到 Command
 func (s *Service) bindSkillsToCommand(ctx context.Context, commandID uuid.UUID, skillNames []string, skillNameToID map[string]uuid.UUID) {
 	if s.commandSkillBindingRepo == nil {
+		s.logger.Warn("commandSkillBindingRepo 为 nil，无法绑定技能到命令")
 		return
 	}
+	s.logger.Info("开始绑定技能到命令",
+		zap.String("commandID", commandID.String()),
+		zap.Int("skillCount", len(skillNames)),
+		zap.Strings("skillNames", skillNames))
 	for _, skillName := range skillNames {
 		skillID, ok := skillNameToID[skillName]
 		if !ok {
-			s.logger.Warn("绑定技能到命令失败，技能不存在", zap.String("skill", skillName))
+			s.logger.Warn("绑定技能到命令失败，技能名称映射中不存在",
+				zap.String("skill", skillName),
+				zap.String("commandID", commandID.String()))
 			continue
 		}
 
 		// 检查是否已存在绑定
 		exists, err := s.commandSkillBindingRepo.ExistsBinding(ctx, commandID, skillID)
-		if err != nil || exists {
+		if err != nil {
+			s.logger.Warn("检查绑定关系失败，仍尝试创建",
+				zap.String("commandID", commandID.String()),
+				zap.String("skillID", skillID.String()),
+				zap.Error(err))
+		}
+		if exists {
+			s.logger.Debug("绑定关系已存在，跳过",
+				zap.String("commandID", commandID.String()),
+				zap.String("skillID", skillID.String()))
 			continue
 		}
 
@@ -1746,6 +1762,11 @@ func (s *Service) bindSkillsToCommand(ctx context.Context, commandID uuid.UUID, 
 		}
 		if err := s.commandSkillBindingRepo.Create(ctx, binding); err != nil {
 			s.logger.Warn("创建命令技能绑定失败", zap.Error(err))
+		} else {
+			s.logger.Info("创建命令技能绑定成功",
+				zap.String("commandID", commandID.String()),
+				zap.String("skillID", skillID.String()),
+				zap.String("skillName", skillName))
 		}
 	}
 }
@@ -1753,18 +1774,34 @@ func (s *Service) bindSkillsToCommand(ctx context.Context, commandID uuid.UUID, 
 // bindSkillsToSubagent 绑定 Skills 到 Subagent
 func (s *Service) bindSkillsToSubagent(ctx context.Context, subagentID uuid.UUID, skillNames []string, skillNameToID map[string]uuid.UUID) {
 	if s.subagentSkillBindingRepo == nil {
+		s.logger.Warn("subagentSkillBindingRepo 为 nil，无法绑定技能到子代理")
 		return
 	}
+	s.logger.Info("开始绑定技能到子代理",
+		zap.String("subagentID", subagentID.String()),
+		zap.Int("skillCount", len(skillNames)),
+		zap.Strings("skillNames", skillNames))
 	for _, skillName := range skillNames {
 		skillID, ok := skillNameToID[skillName]
 		if !ok {
-			s.logger.Warn("绑定技能到子代理失败，技能不存在", zap.String("skill", skillName))
+			s.logger.Warn("绑定技能到子代理失败，技能名称映射中不存在",
+				zap.String("skill", skillName),
+				zap.String("subagentID", subagentID.String()))
 			continue
 		}
 
 		// 检查是否已存在绑定
 		exists, err := s.subagentSkillBindingRepo.ExistsBinding(ctx, subagentID, skillID)
-		if err != nil || exists {
+		if err != nil {
+			s.logger.Warn("检查绑定关系失败，仍尝试创建",
+				zap.String("subagentID", subagentID.String()),
+				zap.String("skillID", skillID.String()),
+				zap.Error(err))
+		}
+		if exists {
+			s.logger.Debug("绑定关系已存在，跳过",
+				zap.String("subagentID", subagentID.String()),
+				zap.String("skillID", skillID.String()))
 			continue
 		}
 
@@ -1776,6 +1813,11 @@ func (s *Service) bindSkillsToSubagent(ctx context.Context, subagentID uuid.UUID
 		}
 		if err := s.subagentSkillBindingRepo.Create(ctx, binding); err != nil {
 			s.logger.Warn("创建子代理技能绑定失败", zap.Error(err))
+		} else {
+			s.logger.Info("创建子代理技能绑定成功",
+				zap.String("subagentID", subagentID.String()),
+				zap.String("skillID", skillID.String()),
+				zap.String("skillName", skillName))
 		}
 	}
 }
