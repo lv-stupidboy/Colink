@@ -40,6 +40,20 @@ const MainLayout: React.FC = () => {
   // 从 store 读取 soloMode 状态
   const soloMode = useAppStore((state) => state.soloMode);
 
+  // 根据路由自动收起/展开导航栏（进入对话页面时收起，退出后展开）
+  useEffect(() => {
+    const path = location.pathname;
+    // 对话页面路径：/threads/:id, /projects/:projectId/threads/:threadId, /agents/:agentId
+    const isThreadPage = path.startsWith('/threads') ||
+                         path.includes('/threads/') ||
+                         (path.startsWith('/agents/') && !path.includes('/commands') && !path.includes('/subagents') &&
+                          !path.includes('/skills') && !path.includes('/rules') && !path.includes('/settings') &&
+                          !path.includes('/plugins') && !path.includes('/team-packages') && !path.includes('/asset-packages') &&
+                          !path.includes('/roles') && !path.includes('/knowledge'));
+
+    setCollapsed(isThreadPage);
+  }, [location.pathname]);
+
   // 根据路径初始化展开的子菜单
   useEffect(() => {
     const path = location.pathname;

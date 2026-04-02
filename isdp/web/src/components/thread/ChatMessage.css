@@ -1,0 +1,157 @@
+/* isdp/web/src/components/thread/ChatMessage.css */
+
+/* 聊天消息基础样式 */
+.chat-message {
+  position: relative;
+}
+
+/* 消息气泡动画 */
+.chat-message-bubble {
+  transition: box-shadow 0.2s ease;
+}
+
+.chat-message-bubble:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+/* 流式光标动画 */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+.streaming-cursor {
+  animation: pulse 1s infinite;
+}
+
+/* @提及高亮样式 */
+.mention-highlight {
+  display: inline;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.mention-highlight:hover {
+  filter: brightness(0.95);
+}
+
+/* 文件路径链接样式 */
+.filepath-link {
+  display: inline;
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.filepath-link:hover {
+  color: #40a9ff !important;
+  text-decoration: underline;
+}
+
+/* 思考块样式 */
+.thinking-block {
+  margin-bottom: 8px;
+}
+
+.thinking-block-header {
+  transition: background-color 0.2s ease;
+}
+
+.thinking-block-header:hover {
+  background-color: #ebebeb !important;
+}
+
+.thinking-block-content {
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 系统消息特殊样式 */
+.chat-message-system .chat-message-bubble {
+  background-color: #f0f5ff !important;
+  border-color: #1890ff !important;
+  border-width: 1px;
+}
+
+/* 圆角样式 */
+.rounded-2xl {
+  border-radius: 16px;
+}
+
+.rounded-xl {
+  border-radius: 12px;
+}
+
+.rounded-lg {
+  border-radius: 8px;
+}
+
+.rounded-bl-sm {
+  border-bottom-left-radius: 4px;
+}
+
+.rounded-br-sm {
+  border-bottom-right-radius: 4px;
+}
+
+.rounded-tr-sm {
+  border-top-right-radius: 4px;
+}
+
+.rounded-tl-sm {
+  border-top-left-radius: 4px;
+}
+
+.rounded-bl-md {
+  border-bottom-left-radius: 6px;
+}
+
+.rounded-br-md {
+  border-bottom-right-radius: 6px;
+}
+
+.rounded-tr-md {
+  border-top-right-radius: 6px;
+}
+
+/* 消息列表样式 */
+.chat-message-list {
+  scrollbar-width: thin;
+  scrollbar-color: #d9d9d9 transparent;
+}
+
+.chat-message-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.chat-message-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chat-message-list::-webkit-scrollbar-thumb {
+  background-color: #d9d9d9;
+  border-radius: 3px;
+}
+
+.chat-message-list::-webkit-scrollbar-thumb:hover {
+  background-color: #bfbfbf;
+}
+
+/* 空状态 */
+.chat-message-list-empty {
+  text-align: center;
+  padding: 32px;
+}

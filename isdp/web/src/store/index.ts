@@ -14,16 +14,17 @@ interface AppState {
   // 消息列表
   messages: Message[];
 
-  // 流式消息缓存（key: invocationId, value: 正在生成的消息）
-  streamingMessages: Record<string, { content: string; agentId: string; agentName?: string }>;
+  // 流式消息状态（简化：只追踪当前活跃的流式输出）
+  isStreaming: boolean;
+  streamingContent: string;
+  streamingAgentId: string | null;
+  streamingAgentName: string | null;
+  streamingInvocationId: string | null;
 
-  // 进度状态（key: invocationId, value: 进度信息）
-  progressState: Record<string, {
-    status: 'thinking' | 'tool_use' | 'generating' | 'idle';
-    toolName?: string;
-    toolInput?: Record<string, unknown>;
-    thinkingText?: string;
-  }>;
+  // 当前进度状态（简化：只追踪当前活跃 agent）
+  progressStatus: 'thinking' | 'tool_use' | 'generating' | 'idle';
+  progressToolName: string | null;
+  progressToolInput: Record<string, unknown> | null;
 
   // 运行中的Agent
   activeAgents: AgentInvocation[];
@@ -163,8 +164,16 @@ const initialState: AppState = {
   currentProjectId: null,
   currentThread: null,
   messages: [],
-  streamingMessages: {},
-  progressState: {},
+  // 简化的流式状态
+  isStreaming: false,
+  streamingContent: '',
+  streamingAgentId: null,
+  streamingAgentName: null,
+  streamingInvocationId: null,
+  // 简化的进度状态
+  progressStatus: 'idle',
+  progressToolName: null,
+  progressToolInput: null,
   activeAgents: [],
   agentConfigs: [],
   wsConnected: false,
@@ -206,7 +215,16 @@ export const useAppStore = create<AppState & AppActions>()(
         loading: true,
         error: null,
         messages: [],
-        streamingMessages: {},
+        // 重置流式状态
+        isStreaming: false,
+        streamingContent: '',
+        streamingAgentId: null,
+        streamingAgentName: null,
+        streamingInvocationId: null,
+        // 重置进度状态
+        progressStatus: 'idle',
+        progressToolName: null,
+        progressToolInput: null,
         currentThread: null,
         activeAgents: [],
       });
@@ -299,10 +317,8 @@ export const useAppStore = create<AppState & AppActions>()(
         // 去重检查：如果消息 ID 已存在，不重复添加
         const exists = state.messages.some(m => m.id === message.id);
         if (exists) {
-          console.log('[Store] addMessage: duplicate ignored, id=', message.id);
           return state;
         }
-        console.log('[Store] addMessage: adding message, id=', message.id, 'role=', message.role);
 
         return {
           messages: [...state.messages, message],
@@ -376,10 +392,18 @@ export const useAppStore = create<AppState & AppActions>()(
     clearThreadMessages: () => {
       set({
         messages: [],
-        streamingMessages: {},
+        // 重置流式状态
+        isStreaming: false,
+        streamingContent: '',
+        streamingAgentId: null,
+        streamingAgentName: null,
+        streamingInvocationId: null,
+        // 重置进度状态
+        progressStatus: 'idle',
+        progressToolName: null,
+        progressToolInput: null,
         currentThread: null,
         activeAgents: [],
-        progressState: {},
       });
     },
 
@@ -449,90 +473,92 @@ export const useAppStore = create<AppState & AppActions>()(
     },
 
     updateStreamingMessage: (invocationId, chunk, agentId, agentName) => {
-      console.log('[Store] updateStreamingMessage:', invocationId, 'chunkLen:', chunk?.length);
       set((state) => {
-        const existing = state.streamingMessages[invocationId];
-        const newContent = (existing?.content || '') + chunk;
-        console.log('[Store] New content length:', newContent.length);
+        // 追加流式内容
+        const newContent = state.streamingContent + chunk;
         return {
-          streamingMessages: {
-            ...state.streamingMessages,
-            [invocationId]: {
-              content: newContent,
-              agentId,
-              agentName: agentName || existing?.agentName,
-            },
-          },
+          isStreaming: true,
+          streamingContent: newContent,
+          streamingAgentId: agentId,
+          streamingAgentName: agentName || state.streamingAgentName,
+          streamingInvocationId: invocationId,
         };
       });
     },
 
     finalizeStreamingMessage: (invocationId) => {
-      console.log('[Store] finalizeStreamingMessage called, invocationId=', invocationId);
       set((state) => {
-        const streamingMsg = state.streamingMessages[invocationId];
-        if (!streamingMsg) {
-          console.log('[Store] finalizeStreamingMessage: no streaming message found');
-          return state;
+        // 如果没有流式内容，直接返回
+        if (!state.streamingContent || state.streamingInvocationId !== invocationId) {
+          return {
+            isStreaming: false,
+            streamingContent: '',
+            streamingAgentId: null,
+            streamingAgentName: null,
+            streamingInvocationId: null,
+            progressStatus: 'idle',
+            progressToolName: null,
+            progressToolInput: null,
+          };
         }
 
         // 去重检查：如果消息已存在，只清理流式缓存
         const messageId = `agent-${invocationId}`;
         const exists = state.messages.some(m => m.id === messageId);
         if (exists) {
-          console.log('[Store] finalizeStreamingMessage: message already exists, just clearing streaming cache');
-          const { [invocationId]: _, ...remainingStreaming } = state.streamingMessages;
-          const { [invocationId]: __, ...remainingProgress } = state.progressState;
           return {
-            streamingMessages: remainingStreaming,
-            progressState: remainingProgress,
+            isStreaming: false,
+            streamingContent: '',
+            streamingAgentId: null,
+            streamingAgentName: null,
+            streamingInvocationId: null,
+            progressStatus: 'idle',
+            progressToolName: null,
+            progressToolInput: null,
           };
         }
 
-        console.log('[Store] finalizeStreamingMessage: creating message, id=', messageId);
         // Create the final message from streaming content
         const finalMessage: Message = {
           id: messageId,
           threadId: state.currentThread?.id || '',
           role: 'agent',
-          agentId: streamingMsg.agentId,
-          content: streamingMsg.content,
+          agentId: state.streamingAgentId || '',
+          content: state.streamingContent,
           messageType: 'text',
           metadata: {
-            agentName: streamingMsg.agentName,
+            agentName: state.streamingAgentName,
           },
           createdAt: new Date().toISOString(),
         };
 
-        // Remove from streaming and add to messages
-        const { [invocationId]: _, ...remainingStreaming } = state.streamingMessages;
-        // Also clear progress state
-        const { [invocationId]: __, ...remainingProgress } = state.progressState;
         return {
-          streamingMessages: remainingStreaming,
-          progressState: remainingProgress,
+          isStreaming: false,
+          streamingContent: '',
+          streamingAgentId: null,
+          streamingAgentName: null,
+          streamingInvocationId: null,
+          progressStatus: 'idle',
+          progressToolName: null,
+          progressToolInput: null,
           messages: [...state.messages, finalMessage],
         };
       });
     },
 
-    updateProgress: (invocationId, status, toolName, toolInput) => {
-      set((state) => ({
-        progressState: {
-          ...state.progressState,
-          [invocationId]: {
-            status: status as 'thinking' | 'tool_use' | 'generating' | 'idle',
-            toolName,
-            toolInput,
-          },
-        },
-      }));
+    updateProgress: (_invocationId, status, toolName, toolInput) => {
+      set({
+        progressStatus: status as 'thinking' | 'tool_use' | 'generating' | 'idle',
+        progressToolName: toolName || null,
+        progressToolInput: toolInput || null,
+      });
     },
 
-    clearProgress: (invocationId) => {
-      set((state) => {
-        const { [invocationId]: _, ...remaining } = state.progressState;
-        return { progressState: remaining };
+    clearProgress: (_invocationId) => {
+      set({
+        progressStatus: 'idle',
+        progressToolName: null,
+        progressToolInput: null,
       });
     },
 

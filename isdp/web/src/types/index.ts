@@ -290,6 +290,19 @@ export interface AgentOutputChunk {
   agentName: string;
 }
 
+// 工具调用事件
+export interface ToolEvent {
+  id: string;
+  invocationId: string;
+  name: string;           // Bash, Read, Edit, etc.
+  status: 'running' | 'success' | 'failed';
+  input?: Record<string, unknown>;
+  output?: string;
+  startedAt: number;
+  completedAt?: number;
+  duration?: number;      // ms
+}
+
 // Agent完整消息
 export interface AgentMessage {
   messageId: string;

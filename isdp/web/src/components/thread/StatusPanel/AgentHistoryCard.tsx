@@ -15,6 +15,13 @@ const formatTokens = (n: number): string => {
   return String(n);
 };
 
+// 格式化时间显示（只显示时分秒）
+const formatStartTime = (isoString?: string): string => {
+  if (!isoString) return '—';
+  const date = new Date(isoString);
+  return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+};
+
 export const AgentHistoryCard: React.FC<Props> = ({ completedAgents, agentUsage }) => {
   const [expanded, setExpanded] = useState(true);
 
@@ -42,7 +49,7 @@ export const AgentHistoryCard: React.FC<Props> = ({ completedAgents, agentUsage 
       </div>
 
       {expanded && (
-        <div className="history-list" style={{ marginTop: 8 }}>
+        <div className="history-list" style={{ marginTop: 8, maxHeight: 200, overflowY: 'auto' }}>
           {completedAgents.length === 0 ? (
             <div className="idle-status">暂无历史调用</div>
           ) : (
@@ -57,6 +64,9 @@ export const AgentHistoryCard: React.FC<Props> = ({ completedAgents, agentUsage 
                       completedAt={agent.completedAt}
                       compact
                     />
+                  </div>
+                  <div className="history-time">
+                    <span>开始: {formatStartTime(agent.startedAt)}</span>
                   </div>
                   {agentUsage[agent.id] && (
                     <div className="history-usage">
@@ -75,6 +85,9 @@ export const AgentHistoryCard: React.FC<Props> = ({ completedAgents, agentUsage 
                     <CloseCircleOutlined style={{ color: '#ef4444', fontSize: 14 }} />
                     <span className="history-name">{agent.agentName || agent.role || agent.id.slice(0, 8)}</span>
                     <span className="agent-status-badge failed">失败</span>
+                  </div>
+                  <div className="history-time">
+                    <span>开始: {formatStartTime(agent.startedAt)}</span>
                   </div>
                 </div>
               ))}

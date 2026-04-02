@@ -42,12 +42,22 @@ type Orchestrator struct {
 
 // RunningAgent 运行中的Agent
 type RunningAgent struct {
-	InvocationID uuid.UUID
-	ThreadID     uuid.UUID
-	AgentConfig  *model.AgentRoleConfig
-	BaseAgent    *model.BaseAgent // 关联的基础Agent配置
-	StartedAt    time.Time
-	CancelFunc   context.CancelFunc
+	InvocationID  uuid.UUID
+	ThreadID      uuid.UUID
+	AgentConfig   *model.AgentRoleConfig
+	BaseAgent     *model.BaseAgent // 关联的基础Agent配置
+	StartedAt     time.Time
+	LastActiveAt  time.Time // 最后一次输出活动时间
+	CancelFunc    context.CancelFunc
+
+	// 工具执行状态跟踪（区分"无输出"和"真正卡死"）
+	ActiveToolCount  int       // 当前活跃的工具调用数量
+	HeartbeatCancel  context.CancelFunc // 心跳取消函数（工具执行期间定期更新 LastActiveAt）
+	HeartbeatMu      sync.Mutex // 保护心跳相关字段
+
+	// 流式输出累积（用于 WebSocket 重连恢复）
+	AccumulatedOutput string // 累积的输出内容
+	OutputMu          sync.Mutex // 保护输出累积字段
 }
 
 // NewOrchestrator 创建编排器
@@ -236,6 +246,11 @@ func (o *Orchestrator) GetInvocationStatus(ctx context.Context, invocationID uui
 	return o.executionService.GetInvocationStatus(ctx, invocationID)
 }
 
+// GetRunningAgentsForThread 获取 Thread 中运行中的 Agent 状态（用于 WebSocket 重连恢复）
+func (o *Orchestrator) GetRunningAgentsForThread(threadID uuid.UUID) any {
+	return o.executionService.GetRunningAgentsForThread(threadID)
+}
+
 // SpawnRequest 启动请求
 type SpawnRequest struct {
 	ThreadID    uuid.UUID
@@ -243,6 +258,7 @@ type SpawnRequest struct {
 	Role        model.AgentRole
 	Input       string
 	ProjectPath string // 工作目录
+	SessionID   string // 会话ID（用于 --resume 复用已有会话）
 }
 
 // ContextLayers 上下文层

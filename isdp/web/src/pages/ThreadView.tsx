@@ -7,10 +7,8 @@ import {
   Tag,
   Spin,
   message,
-  Avatar,
   Tooltip,
   Modal,
-  Card,
   Typography,
   Collapse,
   Alert,
@@ -20,8 +18,6 @@ import {
   Empty,
 } from 'antd';
 import {
-  SendOutlined,
-  UserOutlined,
   RobotOutlined,
   ArrowLeftOutlined,
   FileTextOutlined,
@@ -30,8 +26,6 @@ import {
   CheckCircleOutlined,
   ExclamationCircleOutlined,
   FileSearchOutlined,
-  StopOutlined,
-  ReloadOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   DesktopOutlined,
@@ -42,19 +36,18 @@ import {
 } from '@ant-design/icons';
 import { useAppStore } from '@/store';
 import { useDebugThreadStore } from '@/store/debugThread';
-import type { Message, Artifact, ReviewIssue, MergeCheckResult, AgentRole, AgentConfig } from '@/types';
+import type { Message, Artifact, ReviewIssue, MergeCheckResult, AgentConfig, ToolEvent } from '@/types';
 import type { FileChange } from '@/types/content';
 import { AgentRoleLabels, ArtifactTypeLabels } from '@/types';
 import { ReviewReport } from '@/components/ReviewReport';
-import { RightPanel, MessageContent, ContentCard, CodePreviewButton, TaskList } from '@/components/thread';
+import { RightPanel, TaskList, ThreadInput } from '@/components/thread';
+import { ChatMessageList } from '@/components/thread/ChatMessageList';
 import { StatusPanel } from '@/components/thread/StatusPanel';
-import { parseContentBlocks, shouldShowInPanel, shouldShowInBubble, parseCodeFiles } from '@/utils/contentDetector';
 import FileTree from '@/components/FileTree';
 import api from '@/api/client';
 import type { Thread } from '@/types';
 import './ThreadView.css';
 
-const { TextArea } = Input;
 const { Title, Text } = Typography;
 const { Panel } = Collapse;
 
@@ -73,67 +66,60 @@ const ThreadView: React.FC = () => {
   const navigate = useNavigate();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const inputRef = useRef<any>(null);
   const threadIdRef = useRef<string | null>(null);
   const wsConnectedRef = useRef(false);
 
   // 判断是否为调试模式
   const isDebugMode = Boolean(agentId);
 
-  // 团队模式的 store
-  const {
-    currentThread,
-    messages: workflowMessages,
-    streamingMessages: workflowStreamingMessages,
-    progressState,
-    activeAgents,
-    loading: workflowLoading,
-    wsConnected: workflowWsConnected,
-    loadThread,
-    sendMessage,
-    spawnAgent,
-    setWsConnected,
-    addMessage,
-    updateAgentStatus,
-    updateStreamingMessage,
-    finalizeStreamingMessage,
-    updateProgress,
-    loadingProjectContext,
-    loadProjectContext,
-    loadWorkflowTemplate,
-    clearProjectContext,
-    clearThreadMessages,
-    setCurrentThread,
-    getFilteredAgents,
-    loadAgentConfigs,
-    // 调试模式状态
-    debugAgentConfig,
-    debugProjectPath,
-    sandboxServer,
-    sandboxLoading,
-    dockerAvailable,
-    // 调试模式 actions
-    setDebugMode,
-    setDebugAgentConfig,
-    setDebugProjectPath,
-    // Solo 模式状态
-    soloMode,
-    setSoloMode,
-    // 沙箱 actions
-    setSandboxServer,
-    setSandboxLoading,
-    setDockerAvailable,
-    // 当前项目
-    currentProject,
-    // Agent Usage
-    updateAgentUsage,
-  } = useAppStore();
+  // 团队模式的 store - 使用 selector 订阅避免整体重渲染
+  // 低频状态 - 只在切换 thread 时变化
+  const currentThread = useAppStore((s) => s.currentThread);
+  const activeAgents = useAppStore((s) => s.activeAgents);
+  const loadingProjectContext = useAppStore((s) => s.loadingProjectContext);
+  const currentProject = useAppStore((s) => s.currentProject);
+  const debugAgentConfig = useAppStore((s) => s.debugAgentConfig);
+  const debugProjectPath = useAppStore((s) => s.debugProjectPath);
+  const sandboxServer = useAppStore((s) => s.sandboxServer);
+  const sandboxLoading = useAppStore((s) => s.sandboxLoading);
+  const dockerAvailable = useAppStore((s) => s.dockerAvailable);
+  const soloMode = useAppStore((s) => s.soloMode);
+
+  // 高频状态 - 只订阅 messages（流式消息由 StreamingMessage 组件独立处理）
+  const workflowMessages = useAppStore((s) => s.messages);
+  const workflowLoading = useAppStore((s) => s.loading);
+  const workflowWsConnected = useAppStore((s) => s.wsConnected);
+
+  // Actions - 使用 getState() 获取避免订阅
+  const loadThread = useAppStore((s) => s.loadThread);
+  const sendMessage = useAppStore((s) => s.sendMessage);
+  const spawnAgent = useAppStore((s) => s.spawnAgent);
+  const setWsConnected = useAppStore((s) => s.setWsConnected);
+  const addMessage = useAppStore((s) => s.addMessage);
+  const updateAgentStatus = useAppStore((s) => s.updateAgentStatus);
+  const updateStreamingMessage = useAppStore((s) => s.updateStreamingMessage);
+  const finalizeStreamingMessage = useAppStore((s) => s.finalizeStreamingMessage);
+  const updateProgress = useAppStore((s) => s.updateProgress);
+  const loadProjectContext = useAppStore((s) => s.loadProjectContext);
+  const loadWorkflowTemplate = useAppStore((s) => s.loadWorkflowTemplate);
+  const clearProjectContext = useAppStore((s) => s.clearProjectContext);
+  const clearThreadMessages = useAppStore((s) => s.clearThreadMessages);
+  const setCurrentThread = useAppStore((s) => s.setCurrentThread);
+  const getFilteredAgents = useAppStore((s) => s.getFilteredAgents);
+  const loadAgentConfigs = useAppStore((s) => s.loadAgentConfigs);
+  const setDebugMode = useAppStore((s) => s.setDebugMode);
+  const setDebugAgentConfig = useAppStore((s) => s.setDebugAgentConfig);
+  const setDebugProjectPath = useAppStore((s) => s.setDebugProjectPath);
+  const setSoloMode = useAppStore((s) => s.setSoloMode);
+  const setSandboxServer = useAppStore((s) => s.setSandboxServer);
+  const setSandboxLoading = useAppStore((s) => s.setSandboxLoading);
+  const setDockerAvailable = useAppStore((s) => s.setDockerAvailable);
+  const updateAgentUsage = useAppStore((s) => s.updateAgentUsage);
 
   // 调试模式的独立 store
   const {
     threadId: debugThreadId,
     messages: debugMessages,
-    streamingContent: debugStreamingContent,
     status: debugStatus,
     sandboxServer: debugSandboxServer,
     sandboxLoading: debugSandboxLoading,
@@ -151,14 +137,36 @@ const ThreadView: React.FC = () => {
   // 必须在使用之前定义
   const [debugWsConnected, setDebugWsConnected] = useState(false);
 
-  // 任务抽屉状态
-  const [taskDrawerOpen, setTaskDrawerOpen] = useState(true);
+  // 工具事件本地状态（用于 CLI 输出块显示）
+  const [toolEvents, setToolEvents] = useState<Record<string, ToolEvent[]>>({});
+
+  // 更新工具事件
+  const updateToolEvent = useCallback((invocationId: string, eventId: string, update: Partial<ToolEvent>) => {
+    setToolEvents(prev => ({
+      ...prev,
+      [invocationId]: prev[invocationId]?.map(e =>
+        e.id === eventId ? { ...e, ...update } : e
+      ) || []
+    }));
+  }, []);
+
+  // invocation 完成后延迟清理工具事件
+  const clearToolEvents = useCallback((invocationId: string, delay = 5000) => {
+    setTimeout(() => {
+      setToolEvents(prev => {
+        const next = { ...prev };
+        delete next[invocationId];
+        return next;
+      });
+    }, delay);
+  }, []);
+
+  // 任务抽屉状态（默认收起）
+  const [taskDrawerOpen, setTaskDrawerOpen] = useState(false);
 
   // 根据模式选择使用哪个状态
   const messages = isDebugMode ? debugMessages : workflowMessages;
-  const streamingMessages = isDebugMode
-    ? (debugStreamingContent ? { 'debug': { content: debugStreamingContent, agentId: agentId || '', agentName: debugAgentConfig?.name } } : {})
-    : workflowStreamingMessages;
+
   // 调试模式下，不使用全屏 loading，只在消息区显示加载状态
   // 因为 debugStatus === 'running' 只是表示 Agent 正在执行，不应该阻止用户交互
   const loading = isDebugMode ? false : workflowLoading;
@@ -168,7 +176,6 @@ const ThreadView: React.FC = () => {
   const currentSandboxServer = isDebugMode ? debugSandboxServer : sandboxServer;
   const currentSandboxLoading = isDebugMode ? debugSandboxLoading : sandboxLoading;
 
-  const [inputValue, setInputValue] = useState('');
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [reviewResult, setReviewResult] = useState<MergeCheckResult | undefined>();
   const [reviewIssues, setReviewIssues] = useState<ReviewIssue[]>([]);
@@ -178,10 +185,7 @@ const ThreadView: React.FC = () => {
     title: string;
     content: string;
   } | null>(null);
-  const [mentionListVisible, setMentionListVisible] = useState(false);
-  const [mentionFilter, setMentionFilter] = useState('');
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
-  const [fileSidebarVisible, setFileSidebarVisible] = useState(true);
+  const [fileSidebarVisible, setFileSidebarVisible] = useState(false);
   const [artifactsSidebarVisible, setArtifactsSidebarVisible] = useState(false);
 
   // 右侧面板状态（代码/沙箱统一管理）
@@ -242,20 +246,16 @@ const ThreadView: React.FC = () => {
     wsRef.current = ws;
 
     ws.onopen = () => {
-      // 确保这是当前的 WebSocket
       if (wsRef.current === ws) {
         wsConnectedRef.current = true;
         setDebugWsConnected(true);
-        console.log('[Debug] WebSocket connected');
       }
     };
 
     ws.onclose = () => {
-      // 确保这是当前的 WebSocket
       if (wsRef.current === ws) {
         wsConnectedRef.current = false;
         setDebugWsConnected(false);
-        console.log('[Debug] WebSocket disconnected');
       }
     };
 
@@ -270,8 +270,6 @@ const ThreadView: React.FC = () => {
 
   // 调试模式的 WebSocket 消息处理
   const handleDebugWsMessage = (data: { type: string; payload: Record<string, unknown> }) => {
-    console.log('[Debug] WS message:', data.type);
-
     switch (data.type) {
       case 'agent_output_chunk':
         const chunk = data.payload.chunk as string;
@@ -333,6 +331,28 @@ const ThreadView: React.FC = () => {
             status: 'running',
           });
           message.success('沙箱已启动');
+        }
+        break;
+
+      case 'agent_state_restore':
+        // WebSocket 重连时恢复运行中的 Agent 状态
+        const runningAgents = data.payload.runningAgents as Array<{
+          invocationId: string;
+          agentId: string;
+          agentName: string;
+          accumulatedOutput: string;
+          status: string;
+        }>;
+        if (runningAgents && runningAgents.length > 0) {
+          console.log('[WebSocket] Restoring debug agent state:', runningAgents);
+          runningAgents.forEach(agent => {
+            // 恢复累积的输出内容
+            if (agent.accumulatedOutput) {
+              appendDebugStreamChunk(agent.accumulatedOutput);
+            }
+            setDebugStatus('running');
+          });
+          message.info('已恢复 Agent 执行状态');
         }
         break;
     }
@@ -464,11 +484,6 @@ const ThreadView: React.FC = () => {
     scrollToBottom();
   }, [messages]);
 
-  // 流式消息更新时也滚动
-  useEffect(() => {
-    scrollToBottom();
-  }, [streamingMessages]);
-
   // 沙箱面板拖拽调整大小
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -514,20 +529,16 @@ const ThreadView: React.FC = () => {
     wsRef.current = ws;
 
     ws.onopen = () => {
-      // 确保这是当前的 WebSocket
       if (wsRef.current === ws) {
         wsConnectedRef.current = true;
         setWsConnected(true);
-        console.log('WebSocket connected');
       }
     };
 
     ws.onclose = () => {
-      // 确保这是当前的 WebSocket
       if (wsRef.current === ws) {
         wsConnectedRef.current = false;
         setWsConnected(false);
-        console.log('WebSocket disconnected');
       }
     };
 
@@ -541,11 +552,6 @@ const ThreadView: React.FC = () => {
   };
 
   const handleWsMessage = (data: { type: string; threadId?: string; payload: Record<string, unknown> }) => {
-    // 调试：打印收到的消息
-    if (data.type === 'agent_output_chunk') {
-      console.log('[WebSocket] Received chunk:', data.payload.invocationId, 'len:', (data.payload.chunk as string)?.length);
-    }
-
     // 验证消息是否属于当前 thread，防止跨 thread 数据泄露
     const currentThreadId = useAppStore.getState().currentThread?.id;
     if (data.threadId && currentThreadId && data.threadId !== currentThreadId) {
@@ -564,12 +570,51 @@ const ThreadView: React.FC = () => {
           updateProgress(invocId, 'thinking');
         } else if (chunkType === 'tool_use') {
           // 工具调用
-          updateProgress(
-            invocId,
-            'tool_use',
-            data.payload.toolName as string,
-            data.payload.toolInput as Record<string, unknown>
-          );
+          const toolName = data.payload.toolName as string;
+          const toolInput = data.payload.toolInput as Record<string, unknown>;
+          const toolId = data.payload.toolId as string;
+          updateProgress(invocId, 'tool_use', toolName, toolInput);
+
+          // 使用 toolId 作为唯一标识，避免重复添加
+          const toolEventId = toolId || `tool-${invocId}-${toolName}-${Date.now()}`;
+
+          // 检查是否已存在相同的工具事件（避免重复）
+          setToolEvents(prev => {
+            const existing = prev[invocId];
+            if (existing) {
+              const exists = existing.some(e => e.id === toolEventId);
+              if (exists) {
+                return prev; // 已存在，不重复添加
+              }
+            }
+            // 添加新的工具事件
+            return {
+              ...prev,
+              [invocId]: [...(prev[invocId] || []), {
+                id: toolEventId,
+                invocationId: invocId,
+                name: toolName || 'Unknown',
+                status: 'running',
+                input: toolInput,
+                startedAt: Date.now(),
+              }]
+            };
+          });
+        } else if (chunkType === 'tool_result') {
+          // 工具调用结果
+          const toolEventId = data.payload.toolEventId as string;
+          const toolStatus = data.payload.toolStatus as 'success' | 'failed';
+          const toolOutput = data.payload.toolOutput as string;
+          const duration = data.payload.duration as number;
+
+          if (toolEventId) {
+            updateToolEvent(invocId, toolEventId, {
+              status: toolStatus || 'success',
+              output: toolOutput,
+              completedAt: Date.now(),
+              duration,
+            });
+          }
         } else if (chunkType === 'text') {
           // 文本输出
           updateProgress(invocId, 'generating');
@@ -590,20 +635,20 @@ const ThreadView: React.FC = () => {
         // 使用统一的消息 ID 格式
         const messageId = `agent-${invocId}`;
         // 使用 getState() 避免闭包陷阱
-        const currentStreaming = useAppStore.getState().streamingMessages;
-        const existingMessages = useAppStore.getState().messages;
+        const state = useAppStore.getState();
+        const existingMessages = state.messages;
 
         // 检查消息是否已存在（去重）
         const alreadyExists = existingMessages.some(m => m.id === messageId);
         if (alreadyExists) {
           // 消息已存在，只清理流式缓存
-          if (invocId && currentStreaming[invocId]) {
+          if (invocId && state.isStreaming && state.streamingInvocationId === invocId) {
             finalizeStreamingMessage(invocId);
           }
           break;
         }
 
-        if (invocId && currentStreaming[invocId]) {
+        if (invocId && state.isStreaming && state.streamingInvocationId === invocId) {
           finalizeStreamingMessage(invocId);
         } else {
           // 直接添加消息（非流式场景），使用统一的 ID 格式
@@ -649,10 +694,12 @@ const ThreadView: React.FC = () => {
         // Agent 完成时，如果有流式消息缓存，转为正式消息
         if (status === 'completed' || status === 'failed') {
           // 使用 getState() 避免闭包陷阱
-          const currentStreaming = useAppStore.getState().streamingMessages;
-          if (currentStreaming[invocId]) {
+          const state = useAppStore.getState();
+          if (state.isStreaming && state.streamingInvocationId === invocId) {
             finalizeStreamingMessage(invocId);
           }
+          // 延迟清理工具事件
+          clearToolEvents(invocId);
         }
         break;
       }
@@ -692,6 +739,34 @@ const ThreadView: React.FC = () => {
             status: 'running',
           });
           message.success('沙箱已启动');
+        }
+        break;
+      }
+      case 'agent_state_restore': {
+        // WebSocket 重连时恢复运行中的 Agent 状态
+        const runningAgents = data.payload.runningAgents as Array<{
+          invocationId: string;
+          agentId: string;
+          agentName: string;
+          accumulatedOutput: string;
+          status: string;
+        }>;
+        if (runningAgents && runningAgents.length > 0) {
+          console.log('[WebSocket] Restoring agent state:', runningAgents);
+          runningAgents.forEach(agent => {
+            // 更新 Agent 状态为运行中
+            updateAgentStatus(agent.invocationId, 'running', agent.agentName);
+            // 恢复累积的输出内容
+            if (agent.accumulatedOutput) {
+              updateStreamingMessage(
+                agent.invocationId,
+                agent.accumulatedOutput,
+                agent.agentId,
+                agent.agentName
+              );
+            }
+          });
+          message.info(`已恢复 ${runningAgents.length} 个运行中的 Agent`);
         }
         break;
       }
@@ -754,65 +829,6 @@ const ThreadView: React.FC = () => {
   };
 
   /**
-   * 处理发送消息
-   * 调试模式：直接发送给当前 Agent
-   * 团队模式：支持 @mention 触发特定 Agent
-   */
-  const handleSend = async () => {
-    if (!inputValue.trim()) return;
-
-    const content = inputValue.trim();
-    setInputValue('');
-    setMentionListVisible(false);
-
-    console.log('[handleSend] soloMode:', soloMode, 'isDebugMode:', isDebugMode, 'projectId:', projectId, 'soloNewTaskPending:', soloNewTaskPending);
-
-    // Solo 模式 - 使用特殊的发送逻辑（处理新任务创建）
-    if (soloMode) {
-      await handleSoloSend(content);
-      return;
-    }
-
-    // 调试模式
-    if (isDebugMode) {
-      await handleDebugSend(content);
-      return;
-    }
-
-    // 团队模式 - 检查是否是 @mention 命令
-    const mentionMatch = content.match(/^@(\S+)\s*(.*)/);
-    if (mentionMatch) {
-      const agentName = mentionMatch[1].toLowerCase();
-      const input = mentionMatch[2] || content;
-
-      if (selectedAgentId) {
-        await sendMessage(content, true);
-        await spawnAgent('custom', input, selectedAgentId);
-        setSelectedAgentId(null);
-        return;
-      }
-
-      const agentByName = agentOptions.find(opt =>
-        opt.name.toLowerCase() === agentName ||
-        opt.label.toLowerCase() === agentName
-      );
-      if (agentByName) {
-        await sendMessage(content, true);
-        await spawnAgent('custom', input, agentByName.id);
-        setSelectedAgentId(null);
-        return;
-      }
-
-      message.warning(`未找到 Agent: ${agentName}，请从下拉列表中选择`);
-      setSelectedAgentId(null);
-      return;
-    } else {
-      await sendMessage(content);
-      setSelectedAgentId(null);
-    }
-  };
-
-  /**
    * 调试模式发送消息
    */
   const handleDebugSend = async (content: string) => {
@@ -841,12 +857,9 @@ const ThreadView: React.FC = () => {
     try {
       if (!needNewSession && debugThreadId && wsConnectedRef.current) {
         // 已有会话且 WebSocket 已连接，继续发送
-        console.log('[handleDebugSend] Continuing session:', debugThreadId);
         await api.agents.continueDebug(debugThreadId, content);
       } else {
         // 新会话：创建 thread -> 连接 WebSocket -> 调用 debug
-        console.log('[handleDebugSend] Creating new session, needNewSession:', needNewSession);
-
         // 先关闭旧连接
         if (wsRef.current) {
           wsRef.current.close();
@@ -857,7 +870,6 @@ const ThreadView: React.FC = () => {
 
         const threadResult = await api.agents.createDebugThread(debugProjectPath || undefined);
         const newThreadId = threadResult.threadId;
-        console.log('[handleDebugSend] Created thread:', newThreadId);
 
         setDebugThreadId(newThreadId);
         setSoloNewTaskPending(false);
@@ -870,7 +882,6 @@ const ThreadView: React.FC = () => {
           const startTime = Date.now();
           const check = () => {
             if (wsConnectedRef.current) {
-              console.log('[handleDebugSend] WebSocket connected');
               resolve();
             } else if (Date.now() - startTime > 5000) {
               reject(new Error('WebSocket connection timeout'));
@@ -882,7 +893,6 @@ const ThreadView: React.FC = () => {
         });
 
         // 调用 debug API
-        console.log('[handleDebugSend] Calling debug API with threadId:', newThreadId);
         await api.agents.debug(debugAgentConfig.id, content, debugProjectPath || undefined, newThreadId);
       }
     } catch (error: any) {
@@ -972,7 +982,6 @@ const ThreadView: React.FC = () => {
 
   // 新建任务
   const handleCreateSoloTask = useCallback(() => {
-    console.log('[SoloMode] handleCreateSoloTask called, isDebugMode:', isDebugMode);
     // 1. 清空当前消息和状态
     if (isDebugMode) {
       clearDebugAll();
@@ -984,14 +993,12 @@ const ThreadView: React.FC = () => {
     // 2. 重置活跃任务状态，标记为新任务待创建
     setSoloActiveTask(null);
     setSoloNewTaskPending(true);
-    console.log('[SoloMode] soloNewTaskPending set to true');
 
     // 3. 不再导航跳转，保持在当前页面
   }, [isDebugMode, clearDebugAll, clearThreadMessages]);
 
   // Solo 模式发送消息（处理新任务命名）
   const handleSoloSend = useCallback(async (content: string) => {
-    console.log('[handleSoloSend] soloNewTaskPending:', soloNewTaskPending, 'isDebugMode:', isDebugMode);
     // 如果是新任务，先创建 thread
     if (soloNewTaskPending) {
       try {
@@ -1079,48 +1086,6 @@ const ThreadView: React.FC = () => {
       }
     }
   }, [soloNewTaskPending, projectId, isDebugMode, agentId, navigate, setDebugThreadId, handleDebugSend, sendMessage, debugProjectPath, connectDebugWebSocket, setCurrentThread, debugAgentConfig, addDebugMessage, setDebugStatus]);
-
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
-
-  /**
-   * 处理输入变化，检测 @ 符号
-   */
-  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const value = e.target.value;
-    setInputValue(value);
-
-    // 检测 @ 符号
-    const lastAtIndex = value.lastIndexOf('@');
-    if (lastAtIndex >= 0 && lastAtIndex === value.length - 1) {
-      setMentionListVisible(true);
-      setMentionFilter('');
-      setSelectedAgentId(null); // 清除之前选中的 Agent
-    } else if (lastAtIndex >= 0 && value.indexOf(' ', lastAtIndex) === -1) {
-      setMentionListVisible(true);
-      setMentionFilter(value.substring(lastAtIndex + 1).toLowerCase());
-      setSelectedAgentId(null); // 清除之前选中的 Agent（用户正在输入新的 @）
-    } else {
-      setMentionListVisible(false);
-    }
-  };
-
-  /**
-   * 选择 Agent mention
-   */
-  const selectMention = (agentId: string, _agentRole: AgentRole, label: string) => {
-    const lastAtIndex = inputValue.lastIndexOf('@');
-    if (lastAtIndex >= 0) {
-      setInputValue(inputValue.substring(0, lastAtIndex) + '@' + label + ' ');
-    }
-    setSelectedAgentId(agentId);
-    setMentionListVisible(false);
-    inputRef.current?.focus();
-  };
 
   /**
    * 处理终止Agent
@@ -1258,175 +1223,6 @@ const ThreadView: React.FC = () => {
   };
 
   /**
-   * 渲染消息
-   * PRD: 支持多种消息类型 - 用户消息、Agent消息、系统消息、产物卡片
-   */
-  const renderMessage = (msg: Message) => {
-    // 系统消息
-    if (msg.role === 'system') {
-      const alertType = (msg.metadata?.alertType as string) || 'info';
-      return (
-        <div key={msg.id} className="message message-system">
-          <div className="system-message-content">
-            <Alert
-              type={alertType === 'error' ? 'error' : alertType === 'warning' ? 'warning' : 'info'}
-              message={msg.metadata?.title as string || '系统消息'}
-              description={msg.content}
-              showIcon
-              banner
-            />
-          </div>
-        </div>
-      );
-    }
-
-    // Agent 消息 - 可能包含产物卡片
-    if (msg.role === 'agent') {
-      const hasArtifact = Boolean(msg.metadata?.artifact);
-      const hasReview = Boolean(msg.metadata?.reviewReport);
-
-      // 优先使用消息的 agentName 字段，其次 metadata 中的 agentName，最后 fallback 到 agentId
-      const agentName = msg.agentName ||
-        (msg.metadata?.agentName as string) ||
-        AgentRoleLabels[(msg.metadata?.agentRole as keyof typeof AgentRoleLabels)] ||
-        AgentRoleLabels[msg.agentId as keyof typeof AgentRoleLabels] ||
-        msg.agentId ||
-        'Agent';
-
-      // 解析内容块
-      const contentBlocks = parseContentBlocks(msg.content);
-
-      return (
-        <div key={msg.id} className="message-container message-container-agent">
-          <Avatar
-            className="message-avatar"
-            icon={<RobotOutlined />}
-            style={{ backgroundColor: '#1890ff' }}
-          />
-          <div className="message message-agent">
-            <div className="message-content">
-              <div className="message-header">
-                <span className="message-role">
-                  {agentName}
-                </span>
-                <div className="message-header-right">
-                  <span className="message-time">
-                    {new Date(msg.createdAt).toLocaleString()}
-                  </span>
-                  {/* 重试按钮 */}
-                  <Tooltip title="重试">
-                    <Button
-                      type="text"
-                      size="small"
-                      icon={<ReloadOutlined />}
-                      className="message-action-btn"
-                      onClick={() => handleRetryAgent(msg)}
-                    />
-                  </Tooltip>
-                </div>
-              </div>
-
-              {/* 内容块渲染 */}
-              <div className="message-body">
-                {contentBlocks.map((block, index) => {
-                  // 视觉内容：气泡内卡片
-                  if (shouldShowInBubble(block.type)) {
-                    return (
-                      <ContentCard
-                        key={index}
-                        type={block.type}
-                        content={block.content}
-                        title={block.filename}
-                        language={block.language}
-                      />
-                    );
-                  }
-
-                  // 代码：预览入口按钮
-                  if (shouldShowInPanel(block.type)) {
-                    const files = parseCodeFiles(block);
-                    return (
-                      <CodePreviewButton
-                        key={index}
-                        files={files}
-                        onClick={() => openCodePanel(files)}
-                      />
-                    );
-                  }
-
-                  // 默认：使用 MessageContent 渲染
-                  return (
-                    <MessageContent key={index} content={block.content} />
-                  );
-                })}
-              </div>
-
-              {/* 产物卡片 */}
-              {hasArtifact && (
-                <Card
-                  size="small"
-                  className="artifact-card-in-message"
-                  style={{ marginTop: 12 }}
-                  title={
-                    <Space>
-                      <FileTextOutlined />
-                      <span>产物: {String((msg.metadata?.artifact as Record<string, unknown>)?.name || '产物')}</span>
-                    </Space>
-                  }
-                >
-                  <Text type="secondary">{String((msg.metadata?.artifact as Record<string, unknown>)?.description || '点击查看详情')}</Text>
-                </Card>
-              )}
-
-              {/* 审查报告卡片 */}
-              {hasReview && (
-                <Card
-                  size="small"
-                  className="review-card-in-message"
-                  style={{ marginTop: 12 }}
-                  title={
-                    <Space>
-                      <ExclamationCircleOutlined />
-                      <span>审查报告</span>
-                    </Space>
-                  }
-                >
-                  <ReviewReport
-                    result={msg.metadata?.reviewReport as any}
-                    issues={msg.metadata?.reviewIssues as ReviewIssue[] || []}
-                  />
-                </Card>
-              )}
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    // 用户消息 - 微信风格：消息框在右，头像在消息框右边
-    return (
-      <div key={msg.id} className="message-container message-container-user">
-        <div className="message message-user">
-          <div className="message-content">
-            <div className="message-header">
-              <span className="message-role">用户</span>
-              <span className="message-time">
-                {new Date(msg.createdAt).toLocaleString()}
-              </span>
-            </div>
-            <MessageContent content={msg.content} className="message-body" />
-          </div>
-        </div>
-        <Avatar
-          className="message-avatar"
-          icon={<UserOutlined />}
-          style={{ backgroundColor: '#52c41a' }}
-        />
-      </div>
-    );
-  };
-
-  /**
    * 渲染产物列表项
    */
   const renderArtifactItem = (artifact: Artifact) => {
@@ -1468,22 +1264,11 @@ const ThreadView: React.FC = () => {
    * 处理文件选择
    */
   const handleFileSelect = (path: string, isDir: boolean) => {
-    console.log('Selected file:', path, 'isDir:', isDir);
     // TODO: 可以添加文件预览或其他操作
     if (!isDir) {
       message.info(`选中文件: ${path}`);
     }
   };
-
-  if (loading) {
-    return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
-        <Spin size="large" />
-      </div>
-    );
-  }
-
-  const isRunning = isDebugMode ? debugStatus === 'running' : activeAgents.length > 0;
 
   // Get agents available for @mention
   // 调试模式：只显示当前调试的 Agent
@@ -1499,6 +1284,59 @@ const ThreadView: React.FC = () => {
     name: agent.name,
     label: `${agent.name} (${AgentRoleLabels[agent.role as keyof typeof AgentRoleLabels] || agent.role})`,
   }));
+
+  /**
+   * 处理发送消息
+   * 调试模式：直接发送给当前 Agent
+   * 团队模式：支持 @mention 触发特定 Agent
+   */
+  const handleSend = useCallback(async (content: string) => {
+    if (!content.trim()) return;
+
+    // Solo 模式 - 使用特殊的发送逻辑（处理新任务创建）
+    if (soloMode) {
+      await handleSoloSend(content);
+      return;
+    }
+
+    // 调试模式
+    if (isDebugMode) {
+      await handleDebugSend(content);
+      return;
+    }
+
+    // 团队模式 - 检查是否是 @mention 命令
+    const mentionMatch = content.match(/^@(\S+)\s*(.*)/);
+    if (mentionMatch) {
+      const agentName = mentionMatch[1].toLowerCase();
+      const input = mentionMatch[2] || content;
+
+      const agentByName = agentOptions.find(opt =>
+        opt.name.toLowerCase() === agentName ||
+        opt.label.toLowerCase() === agentName
+      );
+      if (agentByName) {
+        await sendMessage(content, true);
+        await spawnAgent('custom', input, agentByName.id);
+        return;
+      }
+
+      message.warning(`未找到 Agent: ${agentName}，请从下拉列表中选择`);
+      return;
+    } else {
+      await sendMessage(content);
+    }
+  }, [soloMode, isDebugMode, agentOptions, sendMessage, spawnAgent, handleSoloSend, handleDebugSend]);
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+        <Spin size="large" />
+      </div>
+    );
+  }
+
+  const isRunning = isDebugMode ? debugStatus === 'running' : activeAgents.length > 0;
 
   // 获取工作目录
   const displayProjectPath = isDebugMode ? debugProjectPath : (currentProject?.localPath || '');
@@ -1621,7 +1459,7 @@ const ThreadView: React.FC = () => {
             <div className="thread-view">
               {/* 消息区域 */}
               <div className="thread-messages">
-              {messages.length === 0 && Object.keys(streamingMessages).length === 0 ? (
+              {messages.length === 0 ? (
                 <div className="solo-mode-welcome">
                   <RobotOutlined className="solo-mode-welcome-icon" />
                   <Title level={3} type="secondary" className="solo-mode-welcome-title">
@@ -1632,72 +1470,27 @@ const ThreadView: React.FC = () => {
                   </Text>
                 </div>
               ) : (
-                <>
-                  {messages.map(renderMessage)}
-                  {Object.entries(streamingMessages).filter(([invocationId]) => {
-                    const messageId = `agent-${invocationId}`;
-                    return !messages.some(m => m.id === messageId);
-                  }).map(([invocationId, streamMsg]) => {
-                    const progress = progressState[invocationId];
-                    const isThinking = progress?.status === 'thinking';
-                    const isToolUse = progress?.status === 'tool_use';
-                    const isGenerating = progress?.status === 'generating';
-
-                    return (
-                      <div key={invocationId} className="message-container message-container-agent">
-                        <Avatar
-                          className="message-avatar"
-                          icon={<RobotOutlined />}
-                          style={{ backgroundColor: '#1890ff' }}
-                        />
-                        <div className="message message-agent streaming">
-                          <div className="message-content">
-                            <div className="message-header">
-                              <span className="message-role">{streamMsg.agentName || 'Agent'}</span>
-                              <div className="message-header-right">
-                                {isThinking && <Tag color="blue" style={{ marginLeft: 8 }}>💭 思考中...</Tag>}
-                                {isToolUse && progress?.toolName && <Tag color="orange" style={{ marginLeft: 8 }}>🔧 执行: {progress.toolName}</Tag>}
-                                {isGenerating && <Tag color="processing" style={{ marginLeft: 8 }}>生成中...</Tag>}
-                                <Tooltip title="终止">
-                                  <Button type="text" size="small" danger icon={<StopOutlined />} className="message-action-btn" onClick={() => handleStopAgent(invocationId)} />
-                                </Tooltip>
-                              </div>
-                            </div>
-                            {isToolUse && progress?.toolInput && Object.keys(progress.toolInput).length > 0 && (
-                              <div style={{ marginBottom: 8, padding: '4px 8px', background: '#fafafa', borderRadius: 4, fontSize: 12, color: '#666' }}>
-                                {String(progress.toolInput.description || progress.toolInput.command || JSON.stringify(progress.toolInput).slice(0, 100))}
-                              </div>
-                            )}
-                            <div className="message-body">
-                              <MessageContent content={streamMsg.content} />
-                              {isGenerating && <span className="streaming-cursor">▌</span>}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </>
+                <ChatMessageList
+                  messages={messages}
+                  agentConfigs={mentionableAgents}
+                  projectPath={displayProjectPath}
+                  toolEvents={toolEvents}
+                  onStopAgent={handleStopAgent}
+                  onRetryAgent={handleRetryAgent}
+                  onOpenCodePanel={openCodePanel}
+                  autoScroll={true}
+                />
               )}
               <div ref={messagesEndRef} />
             </div>
 
-            {/* 底部输入区 */}
-            <div className="thread-input">
-              <div style={{ position: 'relative', flex: 1 }}>
-                <TextArea
-                  ref={inputRef}
-                  value={inputValue}
-                  onChange={handleInputChange}
-                  onKeyPress={handleKeyPress}
-                  placeholder="输入您的需求..."
-                  autoSize={{ minRows: 2, maxRows: 6 }}
-                />
-              </div>
-              <Space direction="vertical">
-                <Button type="primary" icon={<SendOutlined />} onClick={handleSend}>发送</Button>
-              </Space>
-            </div>
+            {/* 底部输入区 - 独立组件 */}
+            <ThreadInput
+              placeholder="输入您的需求..."
+              loadingContext={loadingProjectContext}
+              agentOptions={agentOptions}
+              onSend={handleSend}
+            />
             </div>
           </div>
 
@@ -1775,92 +1568,34 @@ const ThreadView: React.FC = () => {
 
             {/* 消息区域 */}
             <div className="thread-messages">
-              {messages.length === 0 && Object.keys(streamingMessages).length === 0 ? (
+              {messages.length === 0 ? (
                 <div style={{ textAlign: 'center', padding: '60px 20px', color: '#999' }}>
                   <RobotOutlined style={{ fontSize: 48, marginBottom: 16 }} />
                   <Title level={4} type="secondary">开始您的开发任务</Title>
                   <Text type="secondary">在下方输入您的需求，或使用 @需求分析师、@架构师、@开发者 等 Agent 协助开发</Text>
                 </div>
               ) : (
-                <>
-                  {messages.map(renderMessage)}
-                  {Object.entries(streamingMessages).filter(([invocationId]) => {
-                    const messageId = `agent-${invocationId}`;
-                    return !messages.some(m => m.id === messageId);
-                  }).map(([invocationId, streamMsg]) => {
-                    const progress = progressState[invocationId];
-                    const isThinking = progress?.status === 'thinking';
-                    const isToolUse = progress?.status === 'tool_use';
-                    const isGenerating = progress?.status === 'generating';
-
-                    return (
-                      <div key={invocationId} className="message-container message-container-agent">
-                        <Avatar className="message-avatar" icon={<RobotOutlined />} style={{ backgroundColor: '#1890ff' }} />
-                        <div className="message message-agent streaming">
-                          <div className="message-content">
-                            <div className="message-header">
-                              <span className="message-role">{streamMsg.agentName || 'Agent'}</span>
-                              <div className="message-header-right">
-                                {isThinking && <Tag color="blue" style={{ marginLeft: 8 }}>💭 思考中...</Tag>}
-                                {isToolUse && progress?.toolName && <Tag color="orange" style={{ marginLeft: 8 }}>🔧 执行: {progress.toolName}</Tag>}
-                                {isGenerating && <Tag color="processing" style={{ marginLeft: 8 }}>生成中...</Tag>}
-                                <Tooltip title="终止">
-                                  <Button type="text" size="small" danger icon={<StopOutlined />} className="message-action-btn" onClick={() => handleStopAgent(invocationId)} />
-                                </Tooltip>
-                              </div>
-                            </div>
-                            {isToolUse && progress?.toolInput && Object.keys(progress.toolInput).length > 0 && (
-                              <div style={{ marginBottom: 8, padding: '4px 8px', background: '#fafafa', borderRadius: 4, fontSize: 12, color: '#666' }}>
-                                {String(progress.toolInput.description || progress.toolInput.command || JSON.stringify(progress.toolInput).slice(0, 100))}
-                              </div>
-                            )}
-                            <div className="message-body">
-                              <MessageContent content={streamMsg.content} />
-                              {isGenerating && <span className="streaming-cursor">▌</span>}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </>
+                <ChatMessageList
+                  messages={messages}
+                  agentConfigs={mentionableAgents}
+                  projectPath={displayProjectPath}
+                  toolEvents={toolEvents}
+                  onStopAgent={handleStopAgent}
+                  onRetryAgent={handleRetryAgent}
+                  onOpenCodePanel={openCodePanel}
+                  autoScroll={true}
+                />
               )}
               <div ref={messagesEndRef} />
             </div>
 
-            {/* 底部输入区 */}
-            <div className="thread-input">
-              <div style={{ position: 'relative', flex: 1 }}>
-                <TextArea
-                  ref={inputRef}
-                  value={inputValue}
-                  onChange={handleInputChange}
-                  onKeyPress={handleKeyPress}
-                  placeholder="输入消息或使用 @需求分析师 @架构师 @开发者 等触发 Agent..."
-                  autoSize={{ minRows: 2, maxRows: 6 }}
-                />
-                {mentionListVisible && (
-                  <Card size="small" className="mention-dropdown" style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: 4, minWidth: 200, zIndex: 1000 }}>
-                    {loadingProjectContext ? (
-                      <div style={{ padding: 16, textAlign: 'center' }}><Spin size="small" /><span style={{ marginLeft: 8 }}>加载中...</span></div>
-                    ) : agentOptions.length === 0 ? (
-                      <div style={{ padding: 16, textAlign: 'center', color: '#999' }}>当前团队没有可用的 Agent</div>
-                    ) : (
-                      <List size="small" dataSource={agentOptions.filter(opt => !mentionFilter || opt.label.toLowerCase().includes(mentionFilter.toLowerCase()) || opt.role.toLowerCase().includes(mentionFilter.toLowerCase()))}
-                        renderItem={(opt) => (
-                          <List.Item className="mention-list-item" style={{ cursor: 'pointer', padding: '8px 12px' }} onClick={() => selectMention(opt.id, opt.role as AgentRole, opt.name)}>
-                            <Space><Avatar size="small" icon={<RobotOutlined />} /><span>{opt.label}</span></Space>
-                          </List.Item>
-                        )}
-                      />
-                    )}
-                  </Card>
-                )}
-              </div>
-              <Space direction="vertical">
-                <Button type="primary" icon={<SendOutlined />} onClick={handleSend}>发送</Button>
-              </Space>
-            </div>
+            {/* 底部输入区 - 独立组件 */}
+            <ThreadInput
+              placeholder="输入消息或使用 @需求分析师 @架构师 @开发者 等触发 Agent..."
+              loadingContext={loadingProjectContext}
+              agentOptions={agentOptions}
+              onSend={handleSend}
+            />
 
             {/* 检查点确认弹窗 */}
             <Modal

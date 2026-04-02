@@ -18,6 +18,13 @@ import (
 	"go.uber.org/zap"
 )
 
+const (
+	// Agent 执行超时时间（10分钟）
+	agentExecutionTimeout = 10 * time.Minute
+	// 工具执行心跳间隔（30秒更新一次 LastActiveAt）
+	toolHeartbeatInterval = 30 * time.Second
+)
+
 // MaxA2ADepth A2A 最大深度限制
 const MaxA2ADepth = 15
 
@@ -26,6 +33,17 @@ type A2AContext struct {
 	Depth           int                // 当前深度
 	InvokedAgents   map[uuid.UUID]bool // 已调用的 Agent ID 集合
 	CompletedAgents map[uuid.UUID]bool // 已完成的 Agent ID 集合（用于汇聚判断）
+}
+
+// ThreadContext 预加载的 Thread 上下文，避免重复数据库查询
+type ThreadContext struct {
+	Thread             *model.Thread
+	Project            *model.Project
+	WorkflowTemplate   *model.WorkflowTemplate
+	WorkflowAgentIDs   []string
+	Transitions        []model.Transition
+	AllowedAgents      []*model.AgentRoleConfig
+	LoadedAt           time.Time
 }
 
 // ExecutionService 统一执行服务，整合Orchestrator和InteractiveSession的功能
@@ -52,6 +70,15 @@ type ExecutionService struct {
 	// A2A 上下文追踪
 	a2aContexts    map[uuid.UUID]*A2AContext // threadID -> A2AContext
 	a2aMu          sync.RWMutex
+
+	// Thread 上下文缓存（避免重复查询）
+	threadContexts map[uuid.UUID]*ThreadContext
+	tcMu           sync.RWMutex
+
+	// CLI 会话ID缓存（用于 --resume 复用会话，避免冷启动延迟）
+	// key: "threadID:agentID" -> value: sessionID
+	cliSessions map[string]string
+	csMu        sync.RWMutex
 }
 
 // NewExecutionService 创建统一执行服务
@@ -86,20 +113,99 @@ func NewExecutionService(
 		mentionParser:    mentionParser,
 		runningAgents:    make(map[uuid.UUID]*RunningAgent),
 		a2aContexts:      make(map[uuid.UUID]*A2AContext),
+		threadContexts:   make(map[uuid.UUID]*ThreadContext),
+		cliSessions:      make(map[string]string),
 	}
+
+	// 启动后台清理 goroutine，定期清理超时的 Agent
+	go es.cleanupStaleAgents()
 
 	return es
 }
 
+// cleanupStaleAgents 定期清理超时的 Agent entry
+// 防止 goroutine 卡住导致 runningAgents 残留
+// 超时判断考虑工具执行状态：有活跃工具调用时延长超时
+func (es *ExecutionService) cleanupStaleAgents() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		es.mu.Lock()
+		now := time.Now()
+		for id, agent := range es.runningAgents {
+			// 获取工具执行状态
+			agent.HeartbeatMu.Lock()
+			hasActiveTool := agent.ActiveToolCount > 0
+			agent.HeartbeatMu.Unlock()
+
+			// 超时判断：有活跃工具时使用更长超时（20分钟），否则使用默认超时（10分钟）
+			timeout := agentExecutionTimeout
+			if hasActiveTool {
+				timeout = 2 * agentExecutionTimeout // 工具执行中，延长超时
+			}
+
+			inactiveDuration := now.Sub(agent.LastActiveAt)
+			if inactiveDuration > timeout {
+				logInfo("清理无活动 Agent",
+					zap.String("invocationID", id.String()),
+					zap.String("threadID", agent.ThreadID.String()),
+					zap.Duration("inactiveTime", inactiveDuration),
+					zap.Duration("totalRunningTime", now.Sub(agent.StartedAt)),
+					zap.Bool("hadActiveTools", hasActiveTool))
+
+				// 停止心跳 goroutine
+				agent.HeartbeatMu.Lock()
+				if agent.HeartbeatCancel != nil {
+					agent.HeartbeatCancel()
+				}
+				agent.HeartbeatMu.Unlock()
+
+				// 取消 goroutine
+				agent.CancelFunc()
+				delete(es.runningAgents, id)
+
+				// 更新数据库状态为失败
+				go es.markInvocationFailed(id, "agent inactive for timeout, no output activity")
+			}
+		}
+		es.mu.Unlock()
+	}
+}
+
+// markInvocationFailed 标记 invocation 为失败状态
+func (es *ExecutionService) markInvocationFailed(invocationID uuid.UUID, reason string) {
+	ctx := context.Background()
+	invocation, err := es.invocationRepo.FindByID(ctx, invocationID)
+	if err != nil {
+		logError("Failed to get invocation for timeout cleanup", zap.Error(err))
+		return
+	}
+
+	invocation.Status = model.InvocationStatusFailed
+	invocation.Output = reason
+	invocation.CompletedAt = timePtr(time.Now())
+	if err := es.invocationRepo.Update(ctx, invocation); err != nil {
+		logError("Failed to update invocation status on timeout", zap.Error(err))
+	}
+
+	es.broadcastStatus(invocation.ThreadID, invocation.ID, "failed", invocation.Role, "")
+}
+
 // SpawnAgent 启动Agent（统一执行入口）
 func (es *ExecutionService) SpawnAgent(ctx context.Context, req *SpawnRequest) (*model.AgentInvocation, error) {
+	spawnStart := time.Now()
+
 	// 解析配置和BaseAgent
+	resolveStart := time.Now()
 	config, baseAgent, err := es.resolveConfigAndBaseAgent(ctx, req)
 	if err != nil {
 		return nil, err
 	}
+	logInfo("[PERF] resolveConfigAndBaseAgent", zap.Duration("duration", time.Since(resolveStart)))
 
 	// 创建调用记录
+	invocationCreateStart := time.Now()
 	invocation := &model.AgentInvocation{
 		ID:            uuid.New(),
 		ThreadID:      req.ThreadID,
@@ -113,6 +219,9 @@ func (es *ExecutionService) SpawnAgent(ctx context.Context, req *SpawnRequest) (
 	if err := es.invocationRepo.Create(ctx, invocation); err != nil {
 		return nil, fmt.Errorf("failed to create invocation: %w", err)
 	}
+	logInfo("[PERF] createInvocationRecord", zap.Duration("duration", time.Since(invocationCreateStart)))
+
+	logInfo("[PERF] SpawnAgent total", zap.Duration("duration", time.Since(spawnStart)), zap.String("invocationID", invocation.ID.String()))
 
 	// 创建上下文 - 使用独立的context，不受HTTP请求生命周期影响
 	agentCtx, cancel := context.WithCancel(context.Background())
@@ -120,12 +229,14 @@ func (es *ExecutionService) SpawnAgent(ctx context.Context, req *SpawnRequest) (
 	// 记录运行中的Agent
 	es.mu.Lock()
 	es.runningAgents[invocation.ID] = &RunningAgent{
-		InvocationID: invocation.ID,
-		ThreadID:     req.ThreadID,
-		AgentConfig:  config,
-		BaseAgent:    baseAgent,
-		StartedAt:    time.Now(),
-		CancelFunc:   cancel,
+		InvocationID:    invocation.ID,
+		ThreadID:        req.ThreadID,
+		AgentConfig:     config,
+		BaseAgent:       baseAgent,
+		StartedAt:       time.Now(),
+		LastActiveAt:    time.Now(), // 初始化活动时间
+		CancelFunc:      cancel,
+		ActiveToolCount: 0,          // 初始化工具计数
 	}
 	es.mu.Unlock()
 
@@ -140,6 +251,7 @@ func (es *ExecutionService) SpawnAgent(ctx context.Context, req *SpawnRequest) (
 
 // executeAgent 执行Agent（统一执行路径）
 func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.AgentInvocation, config *model.AgentRoleConfig, baseAgent *model.BaseAgent, req *SpawnRequest) {
+	startTime := time.Now()
 	defer func() {
 		// 恢复可能的panic
 		if r := recover(); r != nil {
@@ -149,29 +261,49 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 		es.mu.Lock()
 		delete(es.runningAgents, invocation.ID)
 		es.mu.Unlock()
+		logInfo("executeAgent completed",
+			zap.String("invocationID", invocation.ID.String()),
+			zap.Duration("totalDuration", time.Since(startTime)))
 	}()
 
 	logInfo("executeAgent started", zap.String("invocationID", invocation.ID.String()))
 
+	// 立即更新状态为 running，确保状态同步
+	invocation.Status = model.InvocationStatusRunning
+	if err := es.invocationRepo.Update(ctx, invocation); err != nil {
+		logError("Failed to update invocation status to running", zap.Error(err))
+	}
+	es.broadcastStatus(req.ThreadID, invocation.ID, "running", config.Role, config.Name)
+
 	// 构建上下文
+	contextStart := time.Now()
 	contextLayers, err := es.buildContextLayers(ctx, req.ThreadID, config)
 	if err != nil {
 		logError("buildContextLayers failed", zap.Error(err))
 		es.handleAgentError(ctx, invocation, fmt.Errorf("failed to build context layers: %w", err))
 		return
 	}
-	logDebug("Context layers built")
+	logInfo("[PERF] buildContextLayers", zap.Duration("duration", time.Since(contextStart)))
 
 	// 获取适配器
+	adapterStart := time.Now()
 	adapter, err := es.getAdapter(ctx, config, baseAgent)
 	if err != nil {
 		logError("getAdapter failed", zap.Error(err))
 		es.handleAgentError(ctx, invocation, fmt.Errorf("failed to get adapter: %w", err))
 		return
 	}
-	logDebug("Adapter obtained", zap.String("adapterType", fmt.Sprintf("%T", adapter)))
+	logInfo("[PERF] getAdapter", zap.Duration("duration", time.Since(adapterStart)))
 
 	// 构建ExecutionRequest
+	execReqBuildStart := time.Now()
+
+	// 获取已有的会话ID（用于 --resume 复用会话）
+	sessionKey := fmt.Sprintf("%s:%s", req.ThreadID.String(), config.ID.String())
+	es.csMu.RLock()
+	sessionID := es.cliSessions[sessionKey]
+	es.csMu.RUnlock()
+
 	execReq := &ExecutionRequest{
 		Config:    config,
 		BaseAgent: baseAgent,
@@ -179,20 +311,37 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 		Input:     req.Input,
 		WorkDir:   req.ProjectPath,
 		ConfigDir: config.ConfigPath, // 使用生成的配置目录
+		SessionID: sessionID,          // 传递会话ID以支持 --resume
 	}
+	logInfo("[PERF] buildExecutionRequest", zap.Duration("duration", time.Since(execReqBuildStart)), zap.String("sessionID", sessionID), zap.Bool("isResume", sessionID != ""))
+
+	// CLI 执行阶段（这是主要耗时点）
+	cliStart := time.Now()
+	logInfo("[PERF] CLI execution starting", zap.String("invocationID", invocation.ID.String()))
 
 	// 使用流式执行，实时广播输出
 	var outputBuilder strings.Builder
-	_, err = adapter.ExecuteWithStream(ctx, execReq, func(chunk Chunk) {
+	result, err := adapter.ExecuteWithStream(ctx, execReq, func(chunk Chunk) {
 		outputBuilder.WriteString(chunk.Content)
 		// 实时广播输出块
 		es.broadcastChunk(req.ThreadID, invocation.ID, chunk, config.ID.String(), config.Name)
 	})
 
+	cliDuration := time.Since(cliStart)
+	logInfo("[PERF] CLI execution completed", zap.Duration("duration", cliDuration), zap.String("invocationID", invocation.ID.String()))
+
 	if err != nil {
 		logError("Adapter.ExecuteWithStream failed", zap.Error(err))
 		es.handleAgentError(ctx, invocation, fmt.Errorf("adapter execution failed: %w", err))
 		return
+	}
+
+	// 保存会话ID供后续复用（避免冷启动延迟）
+	if result != nil && result.SessionID != "" {
+		es.csMu.Lock()
+		es.cliSessions[sessionKey] = result.SessionID
+		es.csMu.Unlock()
+		logInfo("Session ID saved for future resume", zap.String("sessionKey", sessionKey), zap.String("sessionId", result.SessionID))
 	}
 
 	output := outputBuilder.String()
@@ -319,12 +468,122 @@ func (es *ExecutionService) handleAgentError(ctx context.Context, invocation *mo
 	es.broadcastStatus(invocation.ThreadID, invocation.ID, "failed", invocation.Role, "")
 }
 
+// loadThreadContext 预加载 Thread 上下文，一次性获取所有需要的数据
+// 避免在后续流程中重复查询数据库
+func (es *ExecutionService) loadThreadContext(ctx context.Context, threadID uuid.UUID) (*ThreadContext, error) {
+	tc := &ThreadContext{
+		LoadedAt: time.Now(),
+	}
+
+	// 1. 获取 Thread
+	thread, err := es.threadRepo.FindByID(ctx, threadID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find thread: %w", err)
+	}
+	tc.Thread = thread
+
+	// 2. 获取 Project（并行）
+	var project *model.Project
+	if es.projectRepo != nil {
+		project, _ = es.projectRepo.GetByThreadID(ctx, threadID)
+	}
+	tc.Project = project
+
+	// 3. 确定工作流模板ID
+	var workflowTemplateID *uuid.UUID
+	if project != nil && project.WorkflowTemplateID != nil {
+		workflowTemplateID = project.WorkflowTemplateID
+	} else if thread.WorkflowTemplateID != nil {
+		workflowTemplateID = thread.WorkflowTemplateID
+	}
+
+	// 4. 获取工作流模板和 Agent 列表
+	if workflowTemplateID != nil && es.workflowRepo != nil {
+		workflow, err := es.workflowRepo.FindByID(ctx, *workflowTemplateID)
+		if err == nil && workflow != nil {
+			tc.WorkflowTemplate = workflow
+
+			// 解析 AgentIDs
+			if len(workflow.AgentIDs) > 0 {
+				var agentIDs []string
+				if err := json.Unmarshal(workflow.AgentIDs, &agentIDs); err == nil {
+					tc.WorkflowAgentIDs = agentIDs
+				}
+			}
+
+			// 解析 Transitions
+			if len(workflow.Transitions) > 0 {
+				var transitions []model.Transition
+				if err := json.Unmarshal(workflow.Transitions, &transitions); err == nil {
+					tc.Transitions = transitions
+				}
+			}
+		}
+	}
+
+	// 5. 获取所有 Agent 配置（一次性查询）
+	if len(tc.WorkflowAgentIDs) > 0 {
+		var agents []*model.AgentRoleConfig
+		for _, idStr := range tc.WorkflowAgentIDs {
+			id, err := uuid.Parse(idStr)
+			if err != nil {
+				continue
+			}
+			agent, err := es.configSvc.GetByID(ctx, id)
+			if err == nil {
+				agents = append(agents, agent)
+			}
+		}
+		tc.AllowedAgents = agents
+	}
+
+	// 6. 缓存上下文
+	es.tcMu.Lock()
+	es.threadContexts[threadID] = tc
+	es.tcMu.Unlock()
+
+	logInfo("loadThreadContext: loaded",
+		zap.String("threadID", threadID.String()),
+		zap.Int("agentCount", len(tc.AllowedAgents)),
+		zap.Int("transitionCount", len(tc.Transitions)))
+
+	return tc, nil
+}
+
+// getThreadContext 获取 Thread 上下文（优先使用缓存）
+func (es *ExecutionService) getThreadContext(ctx context.Context, threadID uuid.UUID) (*ThreadContext, error) {
+	// 检查缓存
+	es.tcMu.RLock()
+	tc, exists := es.threadContexts[threadID]
+	es.tcMu.RUnlock()
+
+	if exists && time.Since(tc.LoadedAt) < 5*time.Minute {
+		return tc, nil
+	}
+
+	// 缓存不存在或过期，重新加载
+	return es.loadThreadContext(ctx, threadID)
+}
+
+// ClearThreadContext 清除 Thread 上下文缓存（Thread 状态变化时调用）
+func (es *ExecutionService) ClearThreadContext(threadID uuid.UUID) {
+	es.tcMu.Lock()
+	delete(es.threadContexts, threadID)
+	es.tcMu.Unlock()
+}
+
 // buildContextLayers 构建上下文层
 func (es *ExecutionService) buildContextLayers(ctx context.Context, threadID uuid.UUID, config *model.AgentRoleConfig) (*ContextLayers, error) {
 	layers := &ContextLayers{}
 
-	// Layer 0: 系统提示（动态注入工作流触发点和出口检查）
-	layers.Layer0 = es.buildDynamicSystemPrompt(ctx, threadID, config)
+	// 预加载上下文（一次性获取所有数据）
+	tc, err := es.getThreadContext(ctx, threadID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Layer 0: 系统提示（使用缓存的上下文）
+	layers.Layer0 = es.buildDynamicSystemPromptFromContext(tc, config)
 
 	// Layer 1: Thread历史
 	messages, err := es.msgRepo.FindByThreadID(ctx, threadID, 100)
@@ -333,15 +592,11 @@ func (es *ExecutionService) buildContextLayers(ctx context.Context, threadID uui
 	}
 	layers.Layer1 = es.formatMessages(messages)
 
-	// Layer 2: 工作产物
-	thread, err := es.threadRepo.FindByID(ctx, threadID)
-	if err != nil {
-		return nil, err
-	}
-	layers.Layer2 = es.getArtifacts(thread)
+	// Layer 2: 工作产物（使用缓存的 Thread）
+	layers.Layer2 = es.getArtifacts(tc.Thread)
 
-	// Layer 3: 环境信息
-	layers.Layer3 = es.getEnvironmentInfo(thread)
+	// Layer 3: 环境信息（使用缓存的 Thread）
+	layers.Layer3 = es.getEnvironmentInfo(tc.Thread)
 
 	return layers, nil
 }
@@ -373,7 +628,69 @@ func generateTriggerHint(toAgent *model.AgentRoleConfig) string {
 	return fmt.Sprintf("@%s", toAgent.Name)
 }
 
+// buildDynamicSystemPromptFromContext 使用预加载的上下文构建动态系统提示
+func (es *ExecutionService) buildDynamicSystemPromptFromContext(tc *ThreadContext, config *model.AgentRoleConfig) string {
+	var sb strings.Builder
+
+	// 原始系统提示
+	sb.WriteString(config.SystemPrompt)
+
+	// 从缓存中过滤当前 Agent 的转换规则
+	var transitions []model.Transition
+	agentIDStr := config.ID.String()
+	for _, t := range tc.Transitions {
+		if t.FromAgentID == agentIDStr {
+			transitions = append(transitions, t)
+		}
+	}
+
+	// 构建 Agent ID -> AgentConfig 映射（使用缓存）
+	agentMap := make(map[string]*model.AgentRoleConfig)
+	for _, agent := range tc.AllowedAgents {
+		agentMap[agent.ID.String()] = agent
+	}
+
+	// 注入协作提示（使用 trigger_hint 或智能生成）
+	if len(transitions) > 0 {
+		sb.WriteString("\n\n## 下游协作方（需要时 @ 触发）\n")
+		sb.WriteString("**重要格式规则**：@mention 必须单独成行，不能嵌入句子中。\n")
+		sb.WriteString("正确示例：\n```\n@后端开发工程师 请实现用户登录 API\n```\n")
+		sb.WriteString("错误示例：\n```\n确认后我将 @后端开发工程师 进行实现  ← 无效，不会触发\n```\n\n")
+		sb.WriteString("可用的下游协作方：\n")
+		for _, t := range transitions {
+			toAgent := agentMap[t.ToAgentID]
+			var hint string
+
+			// 优先使用用户填写的 trigger_hint
+			if t.TriggerHint != "" {
+				hint = t.TriggerHint
+			} else if toAgent != nil {
+				// 智能生成
+				hint = generateTriggerHint(toAgent)
+			} else {
+				hint = fmt.Sprintf("@%s", t.ToAgentID[:8])
+			}
+
+			sb.WriteString(fmt.Sprintf("- %s\n", hint))
+		}
+		sb.WriteString("\n**角色边界**：你的职责是输出分析结果，不要直接进行代码实现。实现工作由下游协作方负责。\n")
+	}
+
+	// 注入出口检查提示
+	sb.WriteString("\n\n## 发送消息前的出口检查\n")
+	sb.WriteString("回复前问\"到我这里结束了吗？\"\n")
+	sb.WriteString("- 如果不是，想想谁需要接下来处理 → @ 对方\n")
+	sb.WriteString("- @ 前三问自检（短路规则）：\n")
+	sb.WriteString("  1. 需要对方采取行动？= 是 → 直接 @（跳过后续问题）\n")
+	sb.WriteString("  2. 对方需要知道这个信息？\n")
+	sb.WriteString("  3. 会影响对方的工作？\n")
+	sb.WriteString("  - 三个都否 → 不 @\n")
+
+	return sb.String()
+}
+
 // buildDynamicSystemPrompt 构建动态系统提示，注入工作流协作关系
+// 注意：此方法会进行数据库查询，建议使用 buildDynamicSystemPromptFromContext
 func (es *ExecutionService) buildDynamicSystemPrompt(ctx context.Context, threadID uuid.UUID, config *model.AgentRoleConfig) string {
 	var sb strings.Builder
 
@@ -435,70 +752,29 @@ func (es *ExecutionService) buildDynamicSystemPrompt(ctx context.Context, thread
 
 // getTransitionsForAgent 获取当前 Agent 的转换规则
 func (es *ExecutionService) getTransitionsForAgent(ctx context.Context, threadID uuid.UUID, agentConfigID uuid.UUID) []model.Transition {
-	logInfo("getTransitionsForAgent: starting", zap.String("threadID", threadID.String()), zap.String("agentConfigID", agentConfigID.String()))
+	// 优先使用缓存
+	es.tcMu.RLock()
+	tc, exists := es.threadContexts[threadID]
+	es.tcMu.RUnlock()
 
-	// 获取 Thread
-	thread, err := es.threadRepo.FindByID(ctx, threadID)
-	if err != nil {
-		logError("getTransitionsForAgent: failed to find thread", zap.Error(err))
-		return nil
-	}
-
-	// 优先使用 Project 的工作流模板，如果没有则使用 Thread 的
-	var workflowTemplateID *uuid.UUID
-	if es.projectRepo != nil {
-		project, err := es.projectRepo.GetByThreadID(ctx, threadID)
-		if err == nil && project != nil && project.WorkflowTemplateID != nil {
-			workflowTemplateID = project.WorkflowTemplateID
-			logInfo("getTransitionsForAgent: using project's workflow template", zap.String("workflowTemplateID", workflowTemplateID.String()))
+	if !exists || len(tc.Transitions) == 0 {
+		// 缓存不存在，尝试加载
+		var err error
+		tc, err = es.loadThreadContext(ctx, threadID)
+		if err != nil {
+			return nil
 		}
 	}
-	if workflowTemplateID == nil && thread.WorkflowTemplateID != nil {
-		workflowTemplateID = thread.WorkflowTemplateID
-		logInfo("getTransitionsForAgent: using thread's workflow template", zap.String("workflowTemplateID", workflowTemplateID.String()))
-	}
-
-	if workflowTemplateID == nil {
-		logInfo("getTransitionsForAgent: no workflow template found", zap.String("threadID", threadID.String()))
-		return nil
-	}
-
-	// 获取工作流模板
-	workflow, err := es.workflowRepo.FindByID(ctx, *workflowTemplateID)
-	if err != nil {
-		logError("getTransitionsForAgent: failed to find workflow template", zap.Error(err))
-		return nil
-	}
-	if workflow == nil {
-		logInfo("getTransitionsForAgent: workflow is nil")
-		return nil
-	}
-
-	// 解析 Transitions JSON
-	if len(workflow.Transitions) == 0 {
-		logInfo("getTransitionsForAgent: workflow has no Transitions JSON")
-		return nil
-	}
-	logInfo("getTransitionsForAgent: raw Transitions JSON", zap.String("transitions", string(workflow.Transitions)))
-
-	var transitions []model.Transition
-	if err := json.Unmarshal(workflow.Transitions, &transitions); err != nil {
-		logError("getTransitionsForAgent: failed to parse transitions JSON", zap.Error(err))
-		return nil
-	}
-	logInfo("getTransitionsForAgent: parsed transitions", zap.Int("count", len(transitions)))
 
 	// 过滤出当前 Agent 作为源头的转换规则
 	var result []model.Transition
 	agentIDStr := agentConfigID.String()
-	for _, t := range transitions {
-		logInfo("getTransitionsForAgent: checking transition", zap.String("fromAgentID", t.FromAgentID), zap.String("currentAgentID", agentIDStr))
+	for _, t := range tc.Transitions {
 		if t.FromAgentID == agentIDStr {
 			result = append(result, t)
 		}
 	}
 
-	logInfo("getTransitionsForAgent: result", zap.Int("matchedCount", len(result)))
 	return result
 }
 
@@ -728,57 +1004,21 @@ func (es *ExecutionService) stripPureMentionLines(output string) string {
 // getAllowedAgentsFromWorkflow 从工作流模板获取允许路由的 Agent 列表
 // 数据流: Thread → WorkflowTemplate → AgentIDs → AgentConfigs
 func (es *ExecutionService) getAllowedAgentsFromWorkflow(ctx context.Context, threadID uuid.UUID) []*model.AgentRoleConfig {
-	// 1. 获取 Thread
-	thread, err := es.threadRepo.FindByID(ctx, threadID)
+	// 优先使用缓存
+	es.tcMu.RLock()
+	tc, exists := es.threadContexts[threadID]
+	es.tcMu.RUnlock()
+
+	if exists && len(tc.AllowedAgents) > 0 {
+		return tc.AllowedAgents
+	}
+
+	// 缓存不存在，加载上下文
+	tc, err := es.loadThreadContext(ctx, threadID)
 	if err != nil {
 		return nil
 	}
-
-	// 优先使用 Project 的工作流模板，如果没有则使用 Thread 的
-	var workflowTemplateID *uuid.UUID
-	if es.projectRepo != nil {
-		project, err := es.projectRepo.GetByThreadID(ctx, threadID)
-		if err == nil && project != nil && project.WorkflowTemplateID != nil {
-			workflowTemplateID = project.WorkflowTemplateID
-		}
-	}
-	if workflowTemplateID == nil && thread.WorkflowTemplateID != nil {
-		workflowTemplateID = thread.WorkflowTemplateID
-	}
-
-	if workflowTemplateID == nil {
-		return nil
-	}
-
-	// 2. 获取工作流模板
-	workflow, err := es.workflowRepo.FindByID(ctx, *workflowTemplateID)
-	if err != nil || workflow == nil {
-		return nil
-	}
-
-	// 3. 解析 AgentIDs JSON
-	var agentIDs []string
-	if len(workflow.AgentIDs) == 0 {
-		return nil
-	}
-	if err := json.Unmarshal(workflow.AgentIDs, &agentIDs); err != nil {
-		return nil
-	}
-
-	// 4. 查询每个 Agent 的配置
-	var agents []*model.AgentRoleConfig
-	for _, idStr := range agentIDs {
-		id, err := uuid.Parse(idStr)
-		if err != nil {
-			continue
-		}
-		agent, err := es.configSvc.GetByID(ctx, id)
-		if err == nil {
-			agents = append(agents, agent)
-		}
-	}
-
-	return agents
+	return tc.AllowedAgents
 }
 
 // findAgentByRole 在 Agent 列表中按角色查找
@@ -995,6 +1235,53 @@ func (es *ExecutionService) broadcastStatus(threadID, invocationID uuid.UUID, st
 // broadcastChunk 广播输出块（实时流式输出）
 func (es *ExecutionService) broadcastChunk(threadID, invocationID uuid.UUID, chunk Chunk, agentID, agentName string) {
 	logInfo("broadcastChunk called", zap.String("threadId", threadID.String()), zap.String("chunkType", string(chunk.Type)), zap.String("toolName", chunk.ToolName))
+
+	// 更新 Agent 的最后活动时间，并处理工具执行状态
+	es.mu.Lock()
+	agent, exists := es.runningAgents[invocationID]
+	if exists {
+		agent.LastActiveAt = time.Now()
+
+		// 累积文本输出（用于 WebSocket 重连恢复）
+		if chunk.Type == ChunkTypeText && chunk.Content != "" {
+			agent.OutputMu.Lock()
+			agent.AccumulatedOutput += chunk.Content
+			agent.OutputMu.Unlock()
+		}
+
+		// 工具调用开始：增加计数并启动心跳
+		if chunk.Type == ChunkTypeToolUse {
+			agent.HeartbeatMu.Lock()
+			agent.ActiveToolCount++
+			logInfo("工具调用开始", zap.String("toolName", chunk.ToolName), zap.Int("activeToolCount", agent.ActiveToolCount))
+
+			// 如果是第一个工具调用，启动心跳 goroutine
+			if agent.ActiveToolCount == 1 && agent.HeartbeatCancel == nil {
+				heartbeatCtx, heartbeatCancel := context.WithCancel(context.Background())
+				agent.HeartbeatCancel = heartbeatCancel
+				go es.toolHeartbeat(heartbeatCtx, invocationID, chunk.ToolName)
+			}
+			agent.HeartbeatMu.Unlock()
+		}
+
+		// 工具调用结果：减少计数并可能停止心跳
+		if chunk.Type == ChunkTypeToolResult {
+			agent.HeartbeatMu.Lock()
+			if agent.ActiveToolCount > 0 {
+				agent.ActiveToolCount--
+				logInfo("工具调用完成", zap.String("toolName", chunk.ToolName), zap.Int("activeToolCount", agent.ActiveToolCount))
+			}
+			// 如果没有活跃的工具调用，停止心跳
+			if agent.ActiveToolCount == 0 && agent.HeartbeatCancel != nil {
+				agent.HeartbeatCancel()
+				agent.HeartbeatCancel = nil
+				logInfo("所有工具调用完成，停止心跳")
+			}
+			agent.HeartbeatMu.Unlock()
+		}
+	}
+	es.mu.Unlock()
+
 	if es.wsHub != nil {
 		// 处理 Usage 类型的 Chunk
 		if chunk.Type == ChunkTypeUsage && chunk.Usage != nil {
@@ -1047,6 +1334,35 @@ func (es *ExecutionService) broadcastChunk(threadID, invocationID uuid.UUID, chu
 	}
 }
 
+// toolHeartbeat 工具执行心跳，定期更新 LastActiveAt 防止误判超时
+func (es *ExecutionService) toolHeartbeat(ctx context.Context, invocationID uuid.UUID, initialToolName string) {
+	ticker := time.NewTicker(toolHeartbeatInterval)
+	defer ticker.Stop()
+
+	logInfo("工具心跳启动", zap.String("invocationID", invocationID.String()), zap.String("initialToolName", initialToolName))
+
+	for {
+		select {
+		case <-ctx.Done():
+			logInfo("工具心跳停止", zap.String("invocationID", invocationID.String()))
+			return
+		case <-ticker.C:
+			es.mu.Lock()
+			if agent, exists := es.runningAgents[invocationID]; exists {
+				agent.LastActiveAt = time.Now()
+				agent.HeartbeatMu.Lock()
+				count := agent.ActiveToolCount
+				agent.HeartbeatMu.Unlock()
+				logInfo("工具心跳更新", zap.String("invocationID", invocationID.String()), zap.Int("activeToolCount", count))
+			} else {
+				es.mu.Unlock()
+				return // Agent 已不存在，停止心跳
+			}
+			es.mu.Unlock()
+		}
+	}
+}
+
 // GetInvocationsByThread 获取 Thread 的所有 Agent 调用
 func (es *ExecutionService) GetInvocationsByThread(ctx context.Context, threadID uuid.UUID) ([]model.AgentInvocation, error) {
 	invocations, err := es.invocationRepo.FindByThreadID(ctx, threadID)
@@ -1060,6 +1376,39 @@ func (es *ExecutionService) GetInvocationsByThread(ctx context.Context, threadID
 		result = append(result, *inv)
 	}
 	return result, nil
+}
+
+// RunningAgentState 运行中 Agent 的状态（用于 WebSocket 恢复）
+type RunningAgentState struct {
+	InvocationID      string `json:"invocationId"`
+	AgentID           string `json:"agentId"`
+	AgentName         string `json:"agentName"`
+	AccumulatedOutput string `json:"accumulatedOutput"`
+	Status            string `json:"status"`
+}
+
+// GetRunningAgentsForThread 获取 Thread 中运行中的 Agent 状态（用于 WebSocket 重连恢复）
+func (es *ExecutionService) GetRunningAgentsForThread(threadID uuid.UUID) []RunningAgentState {
+	es.mu.RLock()
+	defer es.mu.RUnlock()
+
+	var states []RunningAgentState
+	for _, agent := range es.runningAgents {
+		if agent.ThreadID == threadID {
+			agent.OutputMu.Lock()
+			output := agent.AccumulatedOutput
+			agent.OutputMu.Unlock()
+
+			states = append(states, RunningAgentState{
+				InvocationID:      agent.InvocationID.String(),
+				AgentID:           agent.AgentConfig.ID.String(),
+				AgentName:         agent.AgentConfig.Name,
+				AccumulatedOutput: output,
+				Status:            "running",
+			})
+		}
+	}
+	return states
 }
 
 // GetInvocationStatus 获取单个调用的状态
@@ -1090,8 +1439,53 @@ func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, thread
 		zap.Bool("runningInThread", runningInThread))
 
 	if runningInThread {
-		logInfo("SpawnAgentForUserMessage: 已有Agent运行，跳过")
-		return nil
+		// 检查运行中的 Agent 是否已超时
+		// 超时判断考虑工具执行状态：有活跃工具调用时延长超时
+		es.mu.Lock()
+		now := time.Now()
+		var timedOutAgent *RunningAgent
+		for id, agent := range es.runningAgents {
+			// 获取工具执行状态
+			agent.HeartbeatMu.Lock()
+			hasActiveTool := agent.ActiveToolCount > 0
+			agent.HeartbeatMu.Unlock()
+
+			// 超时判断：有活跃工具时使用更长超时（20分钟），否则使用默认超时（10分钟）
+			timeout := agentExecutionTimeout
+			if hasActiveTool {
+				timeout = 2 * agentExecutionTimeout
+			}
+
+			inactiveDuration := now.Sub(agent.LastActiveAt)
+			if agent.ThreadID == threadID && inactiveDuration > timeout {
+				timedOutAgent = agent
+				// 停止心跳
+				agent.HeartbeatMu.Lock()
+				if agent.HeartbeatCancel != nil {
+					agent.HeartbeatCancel()
+				}
+				agent.HeartbeatMu.Unlock()
+				delete(es.runningAgents, id)
+				logInfo("SpawnAgentForUserMessage: 检测到无活动 Agent，自动清理",
+					zap.String("invocationID", id.String()),
+					zap.Duration("inactiveTime", inactiveDuration),
+					zap.Duration("totalRunningTime", now.Sub(agent.StartedAt)),
+					zap.Bool("hadActiveTools", hasActiveTool))
+
+				// 异步标记为失败
+				go es.markInvocationFailed(id, "agent inactive for timeout, no output activity")
+				break
+			}
+		}
+		es.mu.Unlock()
+
+		// 如果没有超时的 Agent，才跳过
+		if timedOutAgent == nil {
+			logInfo("SpawnAgentForUserMessage: 已有 Agent 运行中且有活动输出，跳过")
+			return nil
+		}
+		// 有超时 Agent 已清理，继续执行
+		logInfo("SpawnAgentForUserMessage: 无活动 Agent 已清理，继续执行")
 	}
 
 	// 获取Thread信息

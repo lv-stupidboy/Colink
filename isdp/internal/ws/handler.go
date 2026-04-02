@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
 )
@@ -25,14 +26,23 @@ func SetWSLogger(logger *zap.Logger) {
 	wsLogger = logger
 }
 
+// RunningAgentsGetter 获取运行中 Agent 状态的接口
+type RunningAgentsGetter interface {
+	GetRunningAgentsForThread(threadID uuid.UUID) any
+}
+
 // Handler WebSocket处理器
 type Handler struct {
-	hub *Hub
+	hub                 *Hub
+	runningAgentsGetter RunningAgentsGetter
 }
 
 // NewHandler 创建Handler
-func NewHandler(hub *Hub) *Handler {
-	return &Handler{hub: hub}
+func NewHandler(hub *Hub, runningAgentsGetter RunningAgentsGetter) *Handler {
+	return &Handler{
+		hub:                 hub,
+		runningAgentsGetter: runningAgentsGetter,
+	}
 }
 
 // HandleWebSocket 处理WebSocket连接
@@ -82,6 +92,29 @@ func (h *Handler) HandleWebSocket(c *gin.Context) {
 	}
 	data, _ := jsonMarshal(connectedMsg)
 	client.Send <- data
+
+	// 发送运行中 Agent 的状态恢复消息
+	if h.runningAgentsGetter != nil {
+		threadUUID, err := uuid.Parse(threadID)
+		if err == nil {
+			runningAgents := h.runningAgentsGetter.GetRunningAgentsForThread(threadUUID)
+			if runningAgents != nil {
+				restoreMsg := WSMessage{
+					Type:      "agent_state_restore",
+					ThreadID:  threadID,
+					Timestamp: time.Now().UnixMilli(),
+					Payload: map[string]interface{}{
+						"runningAgents": runningAgents,
+					},
+				}
+				restoreData, _ := jsonMarshal(restoreMsg)
+				client.Send <- restoreData
+				if wsLogger != nil {
+					wsLogger.Info("Sent agent state restore", zap.String("threadId", threadID))
+				}
+			}
+		}
+	}
 
 	// 启动读写协程
 	go client.WritePump()

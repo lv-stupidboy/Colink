@@ -453,7 +453,7 @@ func main() {
 	callbackHandler.RegisterRoutes(v1)
 
 	// WebSocket
-	wsHandler := ws.NewHandler(wsHub)
+	wsHandler := ws.NewHandler(wsHub, orchestrator)
 	wsHandler.RegisterRoutes(v1)
 
 	// 沙箱 Handler (如果可用)

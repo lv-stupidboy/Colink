@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/anthropic/isdp/internal/model"
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 
@@ -76,13 +77,28 @@ func (a *ClaudeAdapter) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionRequest, onChunk func(Chunk)) (*ExecutionResult, error) {
 	prompt := a.buildPromptFromRequest(req)
 
+	// 确定会话ID：复用已有或创建新的
+	var sessionID string
 	args := []string{
 		"--print",
 		"--output-format", "stream-json",
 		"--verbose",
 		"--include-partial-messages", // 启用真正的流式输出（增量 chunks）
 		"--dangerously-skip-permissions", // 跳过权限检查，允许 Agent 完全访问项目目录
-		"--no-session-persistence", // 禁用 CLI 会话持久化，由 ISDP 管理记忆（避免多 Agent 间记忆干扰）
+	}
+
+	// 会话复用：如果提供了 SessionID，使用 --resume 复用已有会话
+	// 这可以避免每次调用的冷启动延迟（约 2-3 秒）
+	if req.SessionID != "" {
+		sessionID = req.SessionID
+		args = append(args, "--resume", sessionID)
+		logInfo("Claude: Using session resume", zap.String("sessionId", sessionID))
+	} else {
+		// 新会话：使用 --session-id 指定会话ID，以便后续复用
+		// 注意：不再使用 --no-session-persistence，让 CLI 持久化会话
+		sessionID = uuid.New().String()
+		args = append(args, "--session-id", sessionID)
+		logInfo("Claude: Creating new session", zap.String("sessionId", sessionID))
 	}
 
 	// 添加模型参数
@@ -145,6 +161,8 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionReq
 		zap.String("fullCommand", cmdForCopy.String()),
 	)
 
+	cliStartTime := time.Now()
+
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
@@ -158,6 +176,7 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionReq
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start command: %w", err)
 	}
+	logInfo("[PERF] CLI cmd.Start", zap.Duration("duration", time.Since(cliStartTime)))
 
 	var wg sync.WaitGroup
 	var stderrOutput strings.Builder
@@ -179,12 +198,18 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionReq
 		scanner.Buffer(make([]byte, 1024*1024), 10*1024*1024)
 		lineCount := 0
 		chunkCount := 0
+		firstLineReceived := false
 		for scanner.Scan() {
 			line := scanner.Text()
 			if line == "" {
 				continue
 			}
 			lineCount++
+			// 记录首行时间
+			if !firstLineReceived {
+				firstLineReceived = true
+				logInfo("[PERF] CLI first line received", zap.Duration("duration", time.Since(cliStartTime)), zap.Int("lineNum", lineCount))
+			}
 			// 调试：打印每行原始输出
 			if lineCount <= 5 {
 				logInfo("ExecuteWithStream: received line", zap.Int("lineNum", lineCount), zap.String("line", line[:min(200, len(line))]))
@@ -224,7 +249,8 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionReq
 		return nil, fmt.Errorf("CLI execution failed: %w", err)
 	}
 
-	return &ExecutionResult{}, nil
+	logInfo("[PERF] CLI total execution", zap.Duration("duration", time.Since(cliStartTime)))
+	return &ExecutionResult{SessionID: sessionID}, nil
 }
 
 // StartSession 启动交互式会话

@@ -374,6 +374,14 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
+.history-time {
+  margin-top: 2px;
+  margin-left: 22px;
+  font-size: 10px;
+  color: #9ca3af;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
 /* Task progress */
 .task-group {
   margin-bottom: 10px;

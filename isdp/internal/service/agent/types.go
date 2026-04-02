@@ -50,11 +50,13 @@ type ExecutionRequest struct {
 	Input     string
 	WorkDir   string
 	ConfigDir string // Agent配置目录路径（使用生成的配置）
+	SessionID string // 会话ID（用于 --resume 复用已有会话，避免冷启动延迟）
 }
 
 // ExecutionResult 执行结果
 type ExecutionResult struct {
-	Output string
+	Output    string
+	SessionID string // 会话ID（用于后续 --resume 复用）
 }
 
 // SessionExecutor 会话执行器接口，扩展了AgentAdapter的会话管理能力

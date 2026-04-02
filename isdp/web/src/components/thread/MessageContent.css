@@ -53,12 +53,30 @@
   position: relative;
 }
 
+.code-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: #21252b;
+  border-radius: 6px 6px 0 0;
+  border-bottom: 1px solid #333;
+}
+
+.code-block-lang {
+  font-size: 11px;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  color: #5c6370;
+  text-transform: lowercase;
+}
+
 .code-block-wrapper:hover .code-copy-btn {
   opacity: 1;
 }
 
-.code-block-header {
-  display: none;
+/* 当有 header 时，圆角只在底部 */
+.code-block-wrapper:has(.code-block-header) .code-block {
+  border-radius: 0 0 6px 6px;
 }
 
 .code-copy-btn {
