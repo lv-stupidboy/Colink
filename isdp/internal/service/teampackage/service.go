@@ -276,6 +276,37 @@ func (s *Service) Export(ctx context.Context, workflowID string) ([]byte, string
 		}
 	}
 
+	// 预先收集 Command/Subagent 绑定的 Skills，确保它们也被导出
+	for commandName := range allCommandNames {
+		command, err := s.commandRepo.FindByName(ctx, commandName)
+		if err != nil {
+			continue
+		}
+		if s.commandSkillBindingRepo != nil {
+			skills, err := s.commandSkillBindingRepo.FindSkillsByCommandID(ctx, command.ID)
+			if err == nil {
+				for _, skill := range skills {
+					allSkillNames[skill.Name] = true
+				}
+			}
+		}
+	}
+
+	for subagentName := range allSubagentNames {
+		subagent, err := s.subagentRepo.FindByName(ctx, subagentName)
+		if err != nil {
+			continue
+		}
+		if s.subagentSkillBindingRepo != nil {
+			skills, err := s.subagentSkillBindingRepo.FindSkillsBySubagentID(ctx, subagent.ID)
+			if err == nil {
+				for _, skill := range skills {
+					allSkillNames[skill.Name] = true
+				}
+			}
+		}
+	}
+
 	// 导出 Skills
 	for skillName := range allSkillNames {
 		skill, err := s.skillRepo.FindByName(ctx, skillName)
@@ -676,6 +707,8 @@ func (s *Service) ImportConfirm(ctx context.Context, zipData []byte, confirm *mo
 			existing, _ := s.commandRepo.FindByName(ctx, commandItem.Name)
 			if existing != nil {
 				commandNameToID[commandItem.Name] = existing.ID
+				// 用户选择跳过时也要更新绑定关系
+				s.bindSkillsToCommand(ctx, existing.ID, commandItem.BoundSkills, skillNameToID)
 			}
 			result.Skipped++
 			result.Details = append(result.Details, model.ImportDetail{
@@ -700,6 +733,8 @@ func (s *Service) ImportConfirm(ctx context.Context, zipData []byte, confirm *mo
 			existing, _ := s.commandRepo.FindByName(ctx, commandItem.Name)
 			if existing != nil {
 				commandNameToID[commandItem.Name] = existing.ID
+				// 被跳过的 Command 也要更新绑定关系
+				s.bindSkillsToCommand(ctx, existing.ID, commandItem.BoundSkills, skillNameToID)
 			}
 		case "failed":
 			result.Failed++
@@ -714,6 +749,8 @@ func (s *Service) ImportConfirm(ctx context.Context, zipData []byte, confirm *mo
 			if existing != nil {
 				subagentNameToID[subagentItem.Name] = existing.ID
 			}
+				// 用户选择跳过时也要更新绑定关系
+				s.bindSkillsToSubagent(ctx, existing.ID, subagentItem.BoundSkills, skillNameToID)
 			result.Skipped++
 			result.Details = append(result.Details, model.ImportDetail{
 				AssetType: "subagent",
@@ -737,6 +774,8 @@ func (s *Service) ImportConfirm(ctx context.Context, zipData []byte, confirm *mo
 			existing, _ := s.subagentRepo.FindByName(ctx, subagentItem.Name)
 			if existing != nil {
 				subagentNameToID[subagentItem.Name] = existing.ID
+				// 被跳过的 Subagent 也要更新绑定关系
+				s.bindSkillsToSubagent(ctx, existing.ID, subagentItem.BoundSkills, skillNameToID)
 			}
 		case "failed":
 			result.Failed++
