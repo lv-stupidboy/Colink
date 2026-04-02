@@ -1,7 +1,7 @@
--- 文件路径: isdp/sql-change/migrations/202604010003_remove_rule_visibility.sql
+-- 文件路径: isdp/sql-change/migrations/202604020003_remove_rule_visibility.sql
 -- 变更说明：移除 rules 表的 visibility 字段，简化规约模型
 -- 作者：axiang
--- 日期：2026-04-01
+-- 日期：2026-04-02
 
 SET NAMES utf8mb4;
 

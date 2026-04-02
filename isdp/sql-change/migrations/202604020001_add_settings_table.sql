@@ -1,7 +1,7 @@
--- isdp/sql-change/migrations/202603250003_add_settings_table.sql
+-- isdp/sql-change/migrations/202604020001_add_settings_table.sql
 -- 变更说明：新增 Settings（配置目录）表及 Agent-Settings 绑定表
 -- 作者：ISDP Team
--- 日期：2026-03-25
+-- 日期：2026-04-02
 
 SET NAMES utf8mb4;
 
