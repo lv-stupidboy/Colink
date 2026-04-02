@@ -1862,18 +1862,6 @@ const ThreadView: React.FC = () => {
               </Space>
             </div>
 
-            {/* 运行中 Agent 显示 */}
-            {activeAgents.length > 0 && (
-              <div className="active-agents">
-                <span>运行中的 Agent: </span>
-                {activeAgents.map((agent) => (
-                  <Tooltip key={agent.id} title={agent.input}>
-                    <Tag color="processing">{AgentRoleLabels[agent.role as keyof typeof AgentRoleLabels] || agent.role}</Tag>
-                  </Tooltip>
-                ))}
-              </div>
-            )}
-
             {/* 检查点确认弹窗 */}
             <Modal
               title={<Space><ExclamationCircleOutlined style={{ color: '#faad14' }} /><span>{currentCheckpoint?.title || '确认检查点'}</span></Space>}
