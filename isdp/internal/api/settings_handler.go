@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"net/http"
 	"path/filepath"
@@ -79,10 +80,25 @@ func (h *SettingsHandler) Create(c *gin.Context) {
 	name := c.PostForm("name")
 	description := c.PostForm("description")
 	version := c.PostForm("version")
+	pathMapJSON := c.PostForm("pathMap")
 
 	if name == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
 		return
+	}
+
+	// 解析路径映射
+	pathMap := make(map[int]string)
+	if pathMapJSON != "" {
+		var pathMapEntries []struct {
+			Index        int    `json:"index"`
+			RelativePath string `json:"relativePath"`
+		}
+		if err := json.Unmarshal([]byte(pathMapJSON), &pathMapEntries); err == nil {
+			for _, entry := range pathMapEntries {
+				pathMap[entry.Index] = entry.RelativePath
+			}
+		}
 	}
 
 	// 构建文件列表
@@ -91,10 +107,14 @@ func (h *SettingsHandler) Create(c *gin.Context) {
 	// 处理多文件上传（前端上传目录时，每个文件作为单独的 form file）
 	form, err := c.MultipartForm()
 	if err == nil && form != nil {
-		for _, fileHeaders := range form.File {
-			for _, fileHeader := range fileHeaders {
-				// 获取相对路径（前端需要传递 relativePath 参数或在文件名中包含路径）
+		fileHeaders, ok := form.File["files"]
+		if ok {
+			for i, fileHeader := range fileHeaders {
+				// 优先使用 pathMap 中的路径，否则使用文件名
 				relativePath := fileHeader.Filename
+				if mappedPath, exists := pathMap[i]; exists {
+					relativePath = mappedPath
+				}
 
 				// 打开文件
 				file, err := fileHeader.Open()

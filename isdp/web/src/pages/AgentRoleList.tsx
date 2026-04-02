@@ -21,10 +21,12 @@ interface ConfigPreview {
   commands: PreviewItem[];
   subagents: PreviewItem[];
   rules: PreviewItem[];
+  settings: PreviewItem[];
   skillsCount: number;
   commandsCount: number;
   subagentsCount: number;
   rulesCount: number;
+  settingsCount: number;
 }
 
 // 截断文本并添加省略号
@@ -367,7 +369,7 @@ const AgentRoleList: React.FC = () => {
     setGenerateLoading(previewData.agentId);
     try {
       const result = await api.agents.generateConfig(previewData.agentId, 'claude_code');
-      message.success(`配置生成成功，包含 ${result.commandsCount} 个 Commands、${result.subagentsCount} 个 Subagents、${result.skillsCount} 个 Skills、${result.rulesCount} 个 Rules`);
+      message.success(`配置生成成功，包含 ${result.commandsCount} 个 Commands、${result.subagentsCount} 个 Subagents、${result.skillsCount} 个 Skills、${result.rulesCount} 个 Rules、${result.settingsCount} 个 Settings`);
       setPreviewVisible(false);
       setPreviewData(null);
       loadConfigs();
@@ -814,7 +816,7 @@ const AgentRoleList: React.FC = () => {
             />
 
             <Collapse
-              defaultActiveKey={['commands', 'subagents', 'skills', 'rules']}
+              defaultActiveKey={['commands', 'subagents', 'skills', 'rules', 'settings']}
               items={[
                 {
                   key: 'commands',
@@ -883,6 +885,23 @@ const AgentRoleList: React.FC = () => {
                       ))}
                     </div>
                   ) : <Text type="secondary">暂无绑定的 Rules</Text>,
+                },
+                {
+                  key: 'settings',
+                  label: (
+                    <Space>
+                      <SettingOutlined style={{ color: '#13c2c2' }} />
+                      <span>Settings</span>
+                      <Tag color="cyan">{previewData.settingsCount}</Tag>
+                    </Space>
+                  ),
+                  children: previewData.settings.length > 0 ? (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 16px' }}>
+                      {previewData.settings.map((item) => (
+                        <Tag key={item.id} color="default">{item.name}</Tag>
+                      ))}
+                    </div>
+                  ) : <Text type="secondary">暂无绑定的 Settings</Text>,
                 },
               ]}
             />

@@ -2,7 +2,6 @@ package configgen
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -124,18 +123,18 @@ type GenerateAgentConfigResult struct {
 
 // PreviewAgentConfigResult Agent配置预览结果
 type PreviewAgentConfigResult struct {
-	AgentID        string             `json:"agent_id"`
-	AgentName      string             `json:"agent_name"`
+	AgentID        string             `json:"agentId"`
+	AgentName      string             `json:"agentName"`
 	Skills         []PreviewAssetItem `json:"skills"`
 	Commands       []PreviewAssetItem `json:"commands"`
 	Subagents      []PreviewAssetItem `json:"subagents"`
 	Rules          []PreviewAssetItem `json:"rules"`
 	Settings       []PreviewAssetItem `json:"settings"`
-	SkillsCount    int                `json:"skills_count"`
-	CommandsCount  int                `json:"commands_count"`
-	SubagentsCount int                `json:"subagents_count"`
-	RulesCount     int                `json:"rules_count"`
-	SettingsCount  int                `json:"settings_count"`
+	SkillsCount    int                `json:"skillsCount"`
+	CommandsCount  int                `json:"commandsCount"`
+	SubagentsCount int                `json:"subagentsCount"`
+	RulesCount     int                `json:"rulesCount"`
+	SettingsCount  int                `json:"settingsCount"`
 }
 
 // PreviewAssetItem 预览资产项
@@ -290,12 +289,11 @@ func (s *Service) GenerateAgentConfig(ctx context.Context, req *GenerateAgentCon
 		}
 	}
 
-	// 4. 创建目录结构: skills/, agents/, commands/, rules/, settings/
+	// 4. 创建目录结构: skills/, agents/, commands/, rules/（不再创建settings/子目录，Settings内容直接提取到configPath）
 	skillsDir := filepath.Join(configPath, "skills")
 	agentsDir := filepath.Join(configPath, "agents")
 	commandsDir := filepath.Join(configPath, "commands")
 	rulesDir := filepath.Join(configPath, "rules")
-	settingsDir := filepath.Join(configPath, "settings")
 	if err := os.MkdirAll(skillsDir, 0755); err != nil {
 		return nil, fmt.Errorf("创建skills目录失败: %w", err)
 	}
@@ -308,18 +306,30 @@ func (s *Service) GenerateAgentConfig(ctx context.Context, req *GenerateAgentCon
 	if err := os.MkdirAll(rulesDir, 0755); err != nil {
 		return nil, fmt.Errorf("创建rules目录失败: %w", err)
 	}
-	if err := os.MkdirAll(settingsDir, 0755); err != nil {
-		return nil, fmt.Errorf("创建settings目录失败: %w", err)
-	}
 
-	// 5. 生成 settings.json
-	if err := s.generateSettingsJSON(agent, configPath, req.BaseAgentType); err != nil {
-		s.logger.Warn("生成settings.json失败", zap.Error(err))
+	// 5. 复制绑定的Settings目录内容到configPath根目录（与skills/、agents/并列）
+	// 如果Settings包含CLAUDE.md或settings.json，会覆盖后续生成的默认文件
+	settingsCount := 0
+	settingsIDs, err := s.agentSettingsBindingRepo.FindByAgentRoleID(ctx, req.AgentRoleID)
+	if err != nil {
+		s.logger.Warn("获取绑定的Settings失败", zap.Error(err))
 	}
-
-	// 6. 生成 CLAUDE.md
-	if err := s.generateCLAUDEMd(agent, configPath); err != nil {
-		s.logger.Warn("生成CLAUDE.md失败", zap.Error(err))
+	for _, settingsID := range settingsIDs {
+		settings, err := s.settingsRepo.FindByID(ctx, settingsID)
+		if err != nil {
+			s.logger.Warn("获取Settings失败",
+				zap.String("settings_id", settingsID.String()),
+				zap.Error(err))
+			continue
+		}
+		// 复制Settings目录内容到configPath根目录
+		if err := s.copySettingsDirectory(settings, configPath); err != nil {
+			s.logger.Warn("复制Settings目录失败",
+				zap.String("settings", settings.Name),
+				zap.Error(err))
+			continue
+		}
+		settingsCount++
 	}
 
 	// 用于收集所有 Skill（去重）
@@ -461,31 +471,7 @@ func (s *Service) GenerateAgentConfig(ctx context.Context, req *GenerateAgentCon
 		skillsCount++
 	}
 
-	// 12. 复制绑定的Settings目录到 settings/
-	settingsCount := 0
-	settingsIDs, err := s.agentSettingsBindingRepo.FindByAgentRoleID(ctx, req.AgentRoleID)
-	if err != nil {
-		s.logger.Warn("获取绑定的Settings失败", zap.Error(err))
-	}
-	for _, settingsID := range settingsIDs {
-		settings, err := s.settingsRepo.FindByID(ctx, settingsID)
-		if err != nil {
-			s.logger.Warn("获取Settings失败",
-				zap.String("settings_id", settingsID.String()),
-				zap.Error(err))
-			continue
-		}
-		// 复制Settings目录到 settings/{settingsName}/
-		if err := s.copySettingsDirectory(settings, settingsDir); err != nil {
-			s.logger.Warn("复制Settings目录失败",
-				zap.String("settings", settings.Name),
-				zap.Error(err))
-			continue
-		}
-		settingsCount++
-	}
-
-	// 13. 更新Agent配置生成时间
+	// 12. 更新Agent配置生成时间
 	if err := s.agentRepo.UpdateConfigGeneratedAt(ctx, req.AgentRoleID, configPath); err != nil {
 		s.logger.Warn("更新配置生成时间失败", zap.Error(err))
 	}
@@ -508,50 +494,6 @@ func (s *Service) GenerateAgentConfig(ctx context.Context, req *GenerateAgentCon
 		SettingsCount:  settingsCount,
 		GeneratedAt:    time.Now(),
 	}, nil
-}
-
-// generateSettingsJSON 生成settings.json文件
-func (s *Service) generateSettingsJSON(agent *model.AgentRoleConfig, configPath, baseAgentType string) error {
-	// 构建settings结构
-	settings := map[string]interface{}{
-		"permissions": map[string]interface{}{
-			"allow": []string{},
-			"deny":  []string{},
-		},
-	}
-
-	// 如果有路由配置，添加相关配置
-	if len(agent.RoutingConfig.CanRouteTo) > 0 || len(agent.RoutingConfig.RouteOnSignal) > 0 {
-		settings["routing"] = map[string]interface{}{
-			"can_route_to":     agent.RoutingConfig.CanRouteTo,
-			"route_on_signal":  agent.RoutingConfig.RouteOnSignal,
-		}
-	}
-
-	// 写入文件
-	filePath := filepath.Join(configPath, "settings.json")
-	data, err := json.MarshalIndent(settings, "", "  ")
-	if err != nil {
-		return fmt.Errorf("序列化settings失败: %w", err)
-	}
-
-	return os.WriteFile(filePath, data, 0644)
-}
-
-// generateCLAUDEMd 生成CLAUDE.md文件
-func (s *Service) generateCLAUDEMd(agent *model.AgentRoleConfig, configPath string) error {
-	// 构建内容
-	var content string
-	if agent.SystemPrompt != "" {
-		content = agent.SystemPrompt
-	} else {
-		// 默认模板
-		content = fmt.Sprintf("# %s\n\n%s", agent.Name, agent.Description)
-	}
-
-	// 写入文件
-	filePath := filepath.Join(configPath, "CLAUDE.md")
-	return os.WriteFile(filePath, []byte(content), 0644)
 }
 
 // getConfigDir 获取配置目录路径
@@ -603,9 +545,9 @@ func (s *Service) copyRuleFile(rule *model.Rule, targetDir string) error {
 	return os.WriteFile(targetPath, content, 0644)
 }
 
-// copySettingsDirectory 复制Settings目录到目标目录
+// copySettingsDirectory 复制Settings目录内容到目标目录
 // 源目录: {settings.DirectoryPath}
-// 目标目录: {targetDir}/{settings.Name}/
+// 目标目录: {targetDir}（直接复制到configPath根目录，与skills/、agents/并列）
 func (s *Service) copySettingsDirectory(settings *model.Settings, targetDir string) error {
 	// 检查Settings目录路径是否存在
 	if settings.DirectoryPath == "" {
@@ -618,23 +560,14 @@ func (s *Service) copySettingsDirectory(settings *model.Settings, targetDir stri
 		return fmt.Errorf("Settings源目录不存在: %s", sourceDir)
 	}
 
-	// 目标目录: {targetDir}/{settingsName}/
-	destDir := filepath.Join(targetDir, settings.Name)
-
-	// 如果目标目录已存在，先删除
-	if _, err := os.Stat(destDir); err == nil {
-		if err := os.RemoveAll(destDir); err != nil {
-			return fmt.Errorf("删除已存在的Settings目标目录失败: %w", err)
-		}
-	}
-
-	// 创建目标目录
-	if err := os.MkdirAll(destDir, 0755); err != nil {
-		return fmt.Errorf("创建Settings目标目录失败: %w", err)
-	}
+	// 直接复制目录内容到目标目录（不创建settings/{name}/子目录）
+	s.logger.Info("复制Settings内容到配置目录",
+		zap.String("settings", settings.Name),
+		zap.String("source", sourceDir),
+		zap.String("target", targetDir))
 
 	// 递归复制目录内容
-	return s.copyDirContents(sourceDir, destDir)
+	return s.copyDirContents(sourceDir, targetDir)
 }
 
 // copyDirContents 递归复制目录内容

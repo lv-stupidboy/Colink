@@ -143,9 +143,14 @@ func (s *Service) CreateFromFile(ctx context.Context, req *CreateFromFileRequest
 	}
 
 	// 写入文件
-	for _, file := range req.Files {
+	for i, file := range req.Files {
 		// 构建完整路径
 		fullPath := filepath.Join(settingsDir, file.RelativePath)
+
+		s.logger.Info("写入文件",
+			zap.Int("index", i),
+			zap.String("relativePath", file.RelativePath),
+			zap.String("fullPath", fullPath))
 
 		// 确保父目录存在
 		parentDir := filepath.Dir(fullPath)

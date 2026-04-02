@@ -136,10 +136,8 @@ class APIClient {
           result = Array.isArray(result) ? transformThreads(result) : transformThread(result);
         } else if (url.includes('/messages')) {
           result = Array.isArray(result) ? transformMessages(result) : transformMessage(result);
-        } else if (url.includes('/agents')) {
-          console.log('[DEBUG] Transforming agents response, isArray:', Array.isArray(result), 'sample:', result[0] || result);
+        } else if (url.includes('/agents') && !url.includes('/config/')) {
           result = Array.isArray(result) ? transformAgentConfigs(result) : transformAgentConfig(result);
-          console.log('[DEBUG] Transformed agents result sample:', result[0] || result);
         } else if (url.includes('/invocations')) {
           result = Array.isArray(result) ? transformAgentInvocations(result) : transformAgentInvocation(result);
         } else if (url.includes('/artifacts')) {
@@ -284,10 +282,12 @@ class APIClient {
       commands: Array<{ id: string; name: string; description: string }>;
       subagents: Array<{ id: string; name: string; description: string }>;
       rules: Array<{ id: string; name: string; description: string }>;
+      settings: Array<{ id: string; name: string; description: string }>;
       skillsCount: number;
       commandsCount: number;
       subagentsCount: number;
       rulesCount: number;
+      settingsCount: number;
     }> => this.request(`/agents/${id}/config/preview`, 'GET'),
     generateConfig: (id: string, baseAgentType: string, cleanExisting?: boolean): Promise<{
       message: string;
@@ -297,10 +297,11 @@ class APIClient {
       subagentsCount: number;
       commandsCount: number;
       rulesCount: number;
+      settingsCount: number;
       generatedAt: string;
     }> => this.request(`/agents/${id}/config/generate`, 'POST', {
       baseAgentType: baseAgentType,
-      cleanExisting: cleanExisting || false,
+      cleanExisting: cleanExisting !== false, // 默认清空
     }),
     getSubagents: (id: string): Promise<{ subagents: Subagent[] }> =>
       this.request(`/agents/${id}/subagents`, 'GET'),

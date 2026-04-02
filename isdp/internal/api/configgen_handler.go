@@ -115,13 +115,14 @@ func (h *ConfigGenHandler) GenerateAgentConfig(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":         "Agent配置生成成功",
-		"agent_id":        result.AgentID,
-		"config_path":     result.ConfigPath,
-		"skills_count":    result.SkillsCount,
-		"subagents_count": result.SubagentsCount,
-		"commands_count":  result.CommandsCount,
-		"rules_count":     result.RulesCount,
-		"generated_at":    result.GeneratedAt,
+		"agentId":         result.AgentID,
+		"configPath":      result.ConfigPath,
+		"skillsCount":     result.SkillsCount,
+		"subagentsCount":  result.SubagentsCount,
+		"commandsCount":   result.CommandsCount,
+		"rulesCount":      result.RulesCount,
+		"settingsCount":   result.SettingsCount,
+		"generatedAt":     result.GeneratedAt,
 	})
 }
 
