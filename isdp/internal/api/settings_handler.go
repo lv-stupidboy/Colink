@@ -1,11 +1,12 @@
 package api
 
 import (
+	"archive/zip"
 	"bytes"
-	"encoding/json"
 	"io"
 	"net/http"
 	"path/filepath"
+	"strings"
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/service/settings"
@@ -74,74 +75,99 @@ func (h *SettingsHandler) GetByID(c *gin.Context) {
 	c.JSON(http.StatusOK, settingsRecord)
 }
 
-// Create 创建Settings（支持目录上传）
+// Create 创建Settings（支持目录上传，zip格式）
 func (h *SettingsHandler) Create(c *gin.Context) {
 	// 获取元数据
 	name := c.PostForm("name")
 	description := c.PostForm("description")
-	version := c.PostForm("version")
-	pathMapJSON := c.PostForm("pathMap")
 
 	if name == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
 		return
 	}
 
-	// 解析路径映射
-	pathMap := make(map[int]string)
-	if pathMapJSON != "" {
-		var pathMapEntries []struct {
-			Index        int    `json:"index"`
-			RelativePath string `json:"relativePath"`
+	// 获取上传的文件
+	file, header, err := c.Request.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请选择要上传的文件"})
+		return
+	}
+	defer file.Close()
+
+	// 检查文件扩展名 - 只支持 zip
+	ext := strings.ToLower(filepath.Ext(header.Filename))
+	if ext != ".zip" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "只支持 .zip 格式的文件"})
+		return
+	}
+
+	// 读取文件内容
+	fileBytes, err := io.ReadAll(file)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "读取文件失败"})
+		return
+	}
+
+	// 解析 zip 文件
+	zipReader, err := zip.NewReader(bytes.NewReader(fileBytes), int64(len(fileBytes)))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "解压文件失败: " + err.Error()})
+		return
+	}
+
+	// 检测根目录层级
+	var rootDir string
+	for _, f := range zipReader.File {
+		if f.FileInfo().IsDir() {
+			continue
 		}
-		if err := json.Unmarshal([]byte(pathMapJSON), &pathMapEntries); err == nil {
-			for _, entry := range pathMapEntries {
-				pathMap[entry.Index] = entry.RelativePath
-			}
+		parts := strings.Split(f.Name, "/")
+		if len(parts) > 1 {
+			rootDir = parts[0]
+			break
 		}
 	}
 
 	// 构建文件列表
 	files := make([]settings.FileData, 0)
-
-	// 处理多文件上传（前端上传目录时，每个文件作为单独的 form file）
-	form, err := c.MultipartForm()
-	if err == nil && form != nil {
-		fileHeaders, ok := form.File["files"]
-		if ok {
-			for i, fileHeader := range fileHeaders {
-				// 优先使用 pathMap 中的路径，否则使用文件名
-				relativePath := fileHeader.Filename
-				if mappedPath, exists := pathMap[i]; exists {
-					relativePath = mappedPath
-				}
-
-				// 打开文件
-				file, err := fileHeader.Open()
-				if err != nil {
-					continue
-				}
-
-				// 立即读取文件内容并关闭文件句柄
-				content, err := io.ReadAll(file)
-				file.Close()
-				if err != nil {
-					continue
-				}
-
-				files = append(files, settings.FileData{
-					RelativePath: relativePath,
-					Content:      bytes.NewReader(content),
-				})
-			}
+	for _, f := range zipReader.File {
+		// 跳过目录
+		if f.FileInfo().IsDir() {
+			continue
 		}
+
+		// 获取文件名（去掉可能的根目录前缀）
+		fileName := f.Name
+		if rootDir != "" {
+			fileName = strings.TrimPrefix(fileName, rootDir+"/")
+		}
+		if fileName == "" {
+			continue
+		}
+
+		// 打开文件
+		rc, err := f.Open()
+		if err != nil {
+			continue
+		}
+
+		// 读取文件内容
+		content, err := io.ReadAll(rc)
+		rc.Close()
+		if err != nil {
+			continue
+		}
+
+		files = append(files, settings.FileData{
+			RelativePath: fileName,
+			Content:      bytes.NewReader(content),
+		})
 	}
 
 	// 创建 Settings
 	req := &settings.CreateFromFileRequest{
 		Name:        name,
 		Description: description,
-		Version:     version,
 		Files:       files,
 	}
 

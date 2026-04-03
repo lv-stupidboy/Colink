@@ -11,6 +11,7 @@ import {
   FolderOpenOutlined,
   LinkOutlined,
 } from '@ant-design/icons';
+import JSZip from 'jszip';
 import settingsApi from '@/api/settingsApi';
 import type { Settings, AgentConfig } from '@/types';
 import api from '@/api/client';
@@ -81,7 +82,7 @@ const SettingsManagement: React.FC = () => {
   const [modalVisible, setModalVisible] = useState(false);
   const [form] = Form.useForm();
   const directoryInputRef = useRef<HTMLInputElement>(null);
-  const pendingFilesRef = useRef<File[] | null>(null);
+  const pendingZipBlobRef = useRef<Blob | null>(null);
   const [isAfterUpload, setIsAfterUpload] = useState(false);
 
   // Agent绑定Modal
@@ -129,7 +130,7 @@ const SettingsManagement: React.FC = () => {
   // 新建Settings
   const handleCreate = () => {
     setIsAfterUpload(false);
-    pendingFilesRef.current = null;
+    pendingZipBlobRef.current = null;
     form.resetFields();
     form.setFieldsValue({ name: '', description: '' });
     setModalVisible(true);
@@ -162,16 +163,36 @@ const SettingsManagement: React.FC = () => {
       return;
     }
 
-    // 保存文件列表
-    pendingFilesRef.current = Array.from(files);
+    try {
+      message.loading({ content: '正在解析目录...', key: 'packing' });
 
-    // 展示表单让用户确认
-    setIsAfterUpload(true);
-    form.setFieldsValue({
-      name: directoryName,
-      description: '',
-    });
-    setModalVisible(true);
+      // 打包 zip
+      const zip = new JSZip();
+      for (const file of Array.from(files)) {
+        const parts = file.webkitRelativePath.split('/');
+        const relativePath = parts.slice(1).join('/');
+        if (relativePath) {
+          const content = await file.arrayBuffer();
+          zip.file(relativePath, content);
+        }
+      }
+
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      pendingZipBlobRef.current = zipBlob;
+
+      message.destroy('packing');
+
+      // 展示表单让用户确认
+      setIsAfterUpload(true);
+      form.setFieldsValue({
+        name: directoryName,
+        description: '',
+      });
+      setModalVisible(true);
+    } catch (error) {
+      message.destroy('packing');
+      message.error('解析目录失败');
+    }
 
     e.target.value = '';
   };
@@ -184,36 +205,18 @@ const SettingsManagement: React.FC = () => {
     }
 
     try {
-      if (isAfterUpload && pendingFilesRef.current && pendingFilesRef.current.length > 0) {
+      if (isAfterUpload && pendingZipBlobRef.current) {
         message.loading({ content: '正在创建Settings...', key: 'uploading' });
 
         const formData = new FormData();
+        formData.append('file', pendingZipBlobRef.current, 'settings.zip');
         formData.append('name', values.name.trim());
         formData.append('description', values.description || '');
-
-        // 添加所有文件，保留相对路径
-        // 使用 JSON 数组传递相对路径映射
-        const pathMap: { index: number; relativePath: string }[] = [];
-        let fileIndex = 0;
-
-        for (const file of pendingFilesRef.current) {
-          const parts = file.webkitRelativePath.split('/');
-          const relativePath = parts.slice(1).join('/'); // 去掉顶层目录名
-          if (relativePath) {
-            // 直接添加原始文件，文件名用索引保证唯一
-            formData.append('files', file, file.name);
-            pathMap.push({ index: fileIndex, relativePath });
-            fileIndex++;
-          }
-        }
-
-        // 添加路径映射
-        formData.append('pathMap', JSON.stringify(pathMap));
 
         await settingsApi.create(formData);
 
         message.destroy('uploading');
-        pendingFilesRef.current = null;
+        pendingZipBlobRef.current = null;
         setIsAfterUpload(false);
         message.success('创建成功');
       } else {

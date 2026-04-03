@@ -293,6 +293,11 @@ isdp/sql-change/
    - 该文件是初始版本快照，代表项目某个历史节点的完整状态
    - 所有后续变更都通过 migrations 增量实现
 
+6. **MySQL 兼容性规范**
+   - **不要使用 `DROP COLUMN IF EXISTS`**：此语法需要 MySQL 8.0.23+，阿里云 RDS MySQL 5.7 不支持
+   - 删除列时使用普通语法：`ALTER TABLE xxx DROP COLUMN field_name`
+   - `DROP TABLE IF EXISTS` 是允许的，MySQL 5.7+ 都支持
+
 ## 变更记录
 
 ### 文件位置

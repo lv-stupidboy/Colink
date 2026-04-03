@@ -6,7 +6,7 @@
 SET NAMES utf8mb4;
 
 -- 移除 skills 表的 version 字段
-ALTER TABLE `skills` DROP COLUMN IF EXISTS `version`;
+ALTER TABLE `skills` DROP COLUMN `version`;
 
 -- 回滚语句（如需回滚执行以下语句）
 -- ALTER TABLE `skills` ADD COLUMN `version` VARCHAR(50) DEFAULT '1.0.0' COMMENT '版本号' AFTER `supported_agents`;
