@@ -107,6 +107,19 @@ const BaseAgentSettings: React.FC = () => {
     }
   };
 
+  const handleClearDefault = async (id: string) => {
+    setSettingDefault(id);
+    try {
+      const data = await api.baseAgents.clearDefault(id);
+      setAgents(data);
+      message.success('已取消默认');
+    } catch (error) {
+      message.error('取消默认失败');
+    } finally {
+      setSettingDefault(null);
+    }
+  };
+
   const handleSubmit = async (values: Partial<BaseAgent>) => {
     try {
       if (editingAgent) {
@@ -188,16 +201,15 @@ const BaseAgentSettings: React.FC = () => {
       width: 340,
       render: (_: unknown, record: BaseAgent) => (
         <Space size="small">
-          <Tooltip title={record.isDefault ? '当前为默认' : '设为默认'}>
+          <Tooltip title={record.isDefault ? '点击取消默认' : '设为默认'}>
             <Button
               type="link"
               size="small"
               icon={record.isDefault ? <StarFilled style={{ color: '#faad14' }} /> : <StarOutlined />}
-              onClick={() => !record.isDefault && handleSetDefault(record.id)}
+              onClick={() => record.isDefault ? handleClearDefault(record.id) : handleSetDefault(record.id)}
               loading={settingDefault === record.id}
-              disabled={record.isDefault}
             >
-              {record.isDefault ? '默认' : '设为默认'}
+              {record.isDefault ? '取消默认' : '设为默认'}
             </Button>
           </Tooltip>
           <Button

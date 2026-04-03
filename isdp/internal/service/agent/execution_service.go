@@ -398,7 +398,20 @@ func (es *ExecutionService) resolveConfigAndBaseAgent(ctx context.Context, req *
 		// 直接使用repo获取完整BaseAgent（包含ApiToken）
 		baseAgent, err = es.baseAgentRepo.FindByID(ctx, config.BaseAgentID)
 		if err != nil {
-			baseAgent = nil // 不阻止执行
+			baseAgent = nil // 获取失败，尝试使用默认
+		}
+	}
+
+	// 如果角色未指定基础Agent或获取失败，使用默认基础Agent
+	if baseAgent == nil && es.baseAgentSvc != nil {
+		baseAgent, err = es.baseAgentSvc.GetDefault(ctx)
+		if err != nil {
+			logInfo("No default base agent found", zap.Error(err))
+			baseAgent = nil
+		} else if baseAgent != nil {
+			logInfo("Using default base agent",
+				zap.String("id", baseAgent.ID.String()),
+				zap.String("name", baseAgent.Name))
 		}
 	}
 
@@ -431,7 +444,7 @@ func (es *ExecutionService) getAdapter(ctx context.Context, config *model.AgentR
 	if baseAgent != nil {
 		adapter := NewAdapter(baseAgent)
 		if adapter == nil {
-			return nil, fmt.Errorf("unsupported base agent type: %s", baseAgent.Type)
+			return nil, fmt.Errorf("不支持的基础Agent类型: %s", baseAgent.Type)
 		}
 		return adapter, nil
 	}
@@ -453,7 +466,7 @@ func (es *ExecutionService) getAdapter(ctx context.Context, config *model.AgentR
 		return es.defaultAdapter, nil
 	}
 
-	return nil, errors.New("no adapter available")
+	return nil, errors.New("未找到可用的基础Agent，请先设置一个默认的基础Agent")
 }
 
 // handleAgentError 处理Agent错误

@@ -257,6 +257,20 @@ func (s *BaseAgentService) SetDefault(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
+// ClearDefault 清除指定基础Agent的默认状态
+func (s *BaseAgentService) ClearDefault(ctx context.Context, id uuid.UUID) error {
+	if err := s.repo.ClearDefault(ctx, id); err != nil {
+		return err
+	}
+
+	// 清除缓存
+	s.cacheMu.Lock()
+	s.cache = make(map[uuid.UUID]*model.BaseAgent)
+	s.cacheMu.Unlock()
+
+	return nil
+}
+
 // GetDefault 获取默认基础Agent
 func (s *BaseAgentService) GetDefault(ctx context.Context) (*model.BaseAgent, error) {
 	agent, err := s.repo.FindDefault(ctx)

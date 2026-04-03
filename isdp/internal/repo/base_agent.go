@@ -197,3 +197,10 @@ func (r *BaseAgentRepository) SetDefault(ctx context.Context, id uuid.UUID) erro
 
 	return tx.Commit()
 }
+
+// ClearDefault 清除指定基础Agent的默认状态
+func (r *BaseAgentRepository) ClearDefault(ctx context.Context, id uuid.UUID) error {
+	query := "UPDATE base_agents SET is_default = false, updated_at = ? WHERE id = ?"
+	_, err := r.db.ExecContext(ctx, query, time.Now(), id.String())
+	return err
+}

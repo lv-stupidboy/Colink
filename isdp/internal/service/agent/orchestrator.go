@@ -310,11 +310,27 @@ func (o *Orchestrator) SpawnDebugAgent(ctx context.Context, req *SpawnRequest) (
 	}
 
 	// 获取基础Agent（直接从repo获取，包含ApiToken）
-	baseAgent, err := o.baseAgentRepo.FindByID(ctx, config.BaseAgentID)
-	if err != nil {
-		o.debugThreadMgr.SetStatus(req.ThreadID, DebugThreadStatusIdle)
-		return nil, fmt.Errorf("base agent not found: %w", err)
+	var baseAgent *model.BaseAgent
+	if config.BaseAgentID != uuid.Nil {
+		baseAgent, err = o.baseAgentRepo.FindByID(ctx, config.BaseAgentID)
+		if err != nil {
+			logInfo("SpawnDebugAgent: baseAgent not found for config, trying default", zap.String("configId", config.ID.String()), zap.Error(err))
+			baseAgent = nil
+		}
 	}
+
+	// 如果角色未指定基础Agent或获取失败，使用默认基础Agent
+	if baseAgent == nil {
+		baseAgent, err = o.baseAgentSvc.GetDefault(ctx)
+		if err != nil || baseAgent == nil {
+			o.debugThreadMgr.SetStatus(req.ThreadID, DebugThreadStatusIdle)
+			return nil, fmt.Errorf("未找到可用的基础Agent，请先设置一个默认的基础Agent")
+		}
+		logInfo("SpawnDebugAgent: using default baseAgent",
+			zap.String("id", baseAgent.ID.String()),
+			zap.String("name", baseAgent.Name))
+	}
+
 	logInfo("SpawnDebugAgent: got baseAgent",
 		zap.String("id", baseAgent.ID.String()),
 		zap.String("name", baseAgent.Name),
@@ -330,7 +346,7 @@ func (o *Orchestrator) SpawnDebugAgent(ctx context.Context, req *SpawnRequest) (
 	adapter := NewAdapter(baseAgent)
 	if adapter == nil {
 		o.debugThreadMgr.SetStatus(req.ThreadID, DebugThreadStatusIdle)
-		return nil, fmt.Errorf("unsupported agent type: %s", baseAgent.Type)
+		return nil, fmt.Errorf("不支持的基础Agent类型: %s", baseAgent.Type)
 	}
 
 	// 添加用户消息到内存
