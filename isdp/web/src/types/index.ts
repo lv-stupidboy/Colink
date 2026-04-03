@@ -92,6 +92,7 @@ export interface BaseAgent {
   gitBashPath?: string; // Windows下git-bash路径，用于Claude CLI
   maxTokens: number;
   timeoutMinutes: number;
+  isDefault: boolean; // 是否为默认基础Agent
   createdAt: string;
   updatedAt: string;
 }

@@ -322,6 +322,8 @@ class APIClient {
     delete: (id: string): Promise<void> => this.request(`/base-agents/${id}`, 'DELETE'),
     test: (id: string): Promise<{ success: boolean; message: string }> =>
       this.request(`/base-agents/${id}/test`, 'POST'),
+    setDefault: (id: string): Promise<BaseAgent[]> =>
+      this.request(`/base-agents/${id}/default`, 'PUT'),
   };
 
   // Agent 调用 API

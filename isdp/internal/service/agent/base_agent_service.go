@@ -237,6 +237,38 @@ func (s *BaseAgentService) sanitizeAgents(agents []*model.BaseAgent) []*model.Ba
 	return result
 }
 
+// SetDefault 设置默认基础Agent
+func (s *BaseAgentService) SetDefault(ctx context.Context, id uuid.UUID) error {
+	// 先检查是否存在
+	_, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return ErrBaseAgentNotFound
+	}
+
+	if err := s.repo.SetDefault(ctx, id); err != nil {
+		return err
+	}
+
+	// 清除缓存
+	s.cacheMu.Lock()
+	s.cache = make(map[uuid.UUID]*model.BaseAgent)
+	s.cacheMu.Unlock()
+
+	return nil
+}
+
+// GetDefault 获取默认基础Agent
+func (s *BaseAgentService) GetDefault(ctx context.Context) (*model.BaseAgent, error) {
+	agent, err := s.repo.FindDefault(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if agent == nil {
+		return nil, nil
+	}
+	return s.sanitizeAgent(agent), nil
+}
+
 var (
 	ErrBaseAgentNotFound = errors.New("base agent not found")
 )

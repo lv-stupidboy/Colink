@@ -126,6 +126,28 @@ func (h *BaseAgentHandler) Test(c *gin.Context) {
 	})
 }
 
+// SetDefault 设置默认基础Agent
+func (h *BaseAgentHandler) SetDefault(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	if err := h.baseAgentSvc.SetDefault(c.Request.Context(), id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 返回更新后的列表
+	agents, err := h.baseAgentSvc.List(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"message": "设置成功"})
+		return
+	}
+	c.JSON(http.StatusOK, agents)
+}
+
 // RegisterRoutes 注册路由
 func (h *BaseAgentHandler) RegisterRoutes(r *gin.RouterGroup) {
 	baseAgents := r.Group("/base-agents")
@@ -137,5 +159,6 @@ func (h *BaseAgentHandler) RegisterRoutes(r *gin.RouterGroup) {
 		baseAgents.PUT("/:id", h.Update)
 		baseAgents.DELETE("/:id", h.Delete)
 		baseAgents.POST("/:id/test", h.Test)
+		baseAgents.PUT("/:id/default", h.SetDefault)
 	}
 }

@@ -28,6 +28,7 @@ type BaseAgent struct {
 	GitBashPath    string        `json:"gitBashPath,omitempty"` // Windows下git-bash路径，用于Claude CLI
 	MaxTokens      int           `json:"maxTokens"`
 	TimeoutMinutes int           `json:"timeoutMinutes"`
+	IsDefault      bool          `json:"is_default"` // 是否为默认基础Agent
 	CreatedAt      time.Time     `json:"createdAt"`
 	UpdatedAt      time.Time     `json:"updatedAt"`
 }

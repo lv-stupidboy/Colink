@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Button, Card, Modal, Form, Input, Select, InputNumber, message, Space, Tag, Typography } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, ApiOutlined, RobotOutlined } from '@ant-design/icons';
+import { Table, Button, Card, Modal, Form, Input, Select, InputNumber, message, Space, Tag, Typography, Tooltip } from 'antd';
+import { PlusOutlined, EditOutlined, DeleteOutlined, ApiOutlined, RobotOutlined, StarOutlined, StarFilled } from '@ant-design/icons';
 import api from '@/api/client';
 import type { BaseAgent, BaseAgentType, BaseAgentTypeInfo } from '@/types';
 
@@ -11,6 +11,7 @@ const BaseAgentSettings: React.FC = () => {
   const [agentTypes, setAgentTypes] = useState<BaseAgentTypeInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [testing, setTesting] = useState<string | null>(null);
+  const [settingDefault, setSettingDefault] = useState<string | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingAgent, setEditingAgent] = useState<BaseAgent | null>(null);
   const [form] = Form.useForm();
@@ -93,6 +94,19 @@ const BaseAgentSettings: React.FC = () => {
     }
   };
 
+  const handleSetDefault = async (id: string) => {
+    setSettingDefault(id);
+    try {
+      const data = await api.baseAgents.setDefault(id);
+      setAgents(data);
+      message.success('已设为默认');
+    } catch (error) {
+      message.error('设置默认失败');
+    } finally {
+      setSettingDefault(null);
+    }
+  };
+
   const handleSubmit = async (values: Partial<BaseAgent>) => {
     try {
       if (editingAgent) {
@@ -130,10 +144,15 @@ const BaseAgentSettings: React.FC = () => {
       title: '名称',
       dataIndex: 'name',
       key: 'name',
-      render: (name: string, _record: BaseAgent) => (
+      render: (name: string, record: BaseAgent) => (
         <Space>
           <RobotOutlined />
           <span>{name}</span>
+          {record.isDefault && (
+            <Tooltip title="默认基础Agent">
+              <StarFilled style={{ color: '#faad14' }} />
+            </Tooltip>
+          )}
         </Space>
       ),
     },
@@ -166,9 +185,21 @@ const BaseAgentSettings: React.FC = () => {
     {
       title: '操作',
       key: 'actions',
-      width: 250,
+      width: 280,
       render: (_: unknown, record: BaseAgent) => (
         <Space size="small">
+          <Tooltip title={record.isDefault ? '当前为默认' : '设为默认'}>
+            <Button
+              type="link"
+              size="small"
+              icon={record.isDefault ? <StarFilled style={{ color: '#faad14' }} /> : <StarOutlined />}
+              onClick={() => !record.isDefault && handleSetDefault(record.id)}
+              loading={settingDefault === record.id}
+              disabled={record.isDefault}
+            >
+              {record.isDefault ? '默认' : '设为默认'}
+            </Button>
+          </Tooltip>
           <Button
             type="link"
             size="small"
@@ -198,7 +229,7 @@ const BaseAgentSettings: React.FC = () => {
             基础Agent设置
           </Space>
         </Title>
-        <Text type="secondary">管理Claude Code和OpenCode等基础Agent实例的配置</Text>
+        <Text type="secondary">管理Claude Code和OpenCode等基础Agent实例的配置。角色中未指定基础Agent时将使用默认的基础Agent。</Text>
       </div>
 
       <Card
