@@ -185,7 +185,7 @@ const BaseAgentSettings: React.FC = () => {
     {
       title: '操作',
       key: 'actions',
-      width: 280,
+      width: 340,
       render: (_: unknown, record: BaseAgent) => (
         <Space size="small">
           <Tooltip title={record.isDefault ? '当前为默认' : '设为默认'}>
