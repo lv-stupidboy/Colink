@@ -591,6 +591,7 @@ class APIClient {
       formData.append('file', file);
       const response = await this.client.post('/asset-packages/import', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 300000, // 5分钟超时
       });
       return response.data;
     },
@@ -600,12 +601,14 @@ class APIClient {
       formData.append('confirm', new Blob([JSON.stringify(confirm)], { type: 'application/json' }));
       const response = await this.client.post('/asset-packages/import/confirm', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 300000, // 5分钟超时，导入操作耗时较长
       });
       return response.data;
     },
     export: async (data: ExportAssetPackageRequest): Promise<Blob> => {
       const response = await this.client.post('/asset-packages/export', data, {
         responseType: 'blob',
+        timeout: 300000, // 5分钟超时，导出操作耗时较长
       });
       return response.data;
     },
@@ -627,12 +630,14 @@ class APIClient {
       formData.append('confirm', new Blob([JSON.stringify(confirm)], { type: 'application/json' }));
       const response = await this.client.post('/team-packages/import/confirm', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 300000, // 5分钟超时，导入操作耗时较长
       });
       return response.data;
     },
     export: async (workflowId: string): Promise<Blob> => {
       const response = await this.client.post('/team-packages/export', { workflowId }, {
         responseType: 'blob',
+        timeout: 300000, // 5分钟超时，导出操作耗时较长
       });
       return response.data;
     },
