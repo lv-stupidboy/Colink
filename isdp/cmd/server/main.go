@@ -273,21 +273,6 @@ func main() {
 	useCountUpdater.Start(updateInterval)
 	defer useCountUpdater.Stop()
 
-	// 初始化默认基础Agent
-	if err := baseAgentService.InitDefaultAgents(context.Background()); err != nil {
-		logger.Warn("Failed to initialize default base agents", zap.Error(err))
-	}
-
-	// 初始化系统预置Agent角色
-	if err := configService.InitSystemAgents(context.Background()); err != nil {
-		logger.Warn("Failed to initialize system agents", zap.Error(err))
-	}
-
-	// 初始化系统工作流模板
-	if err := workflowService.InitSystemTemplates(context.Background()); err != nil {
-		logger.Warn("Failed to initialize system workflow templates", zap.Error(err))
-	}
-
 	// 初始化适配器
 	// 默认适配器设为 nil，在执行时根据 AgentRoleConfig.BaseAgentID 动态创建适配器
 	// 这样可以支持多种类型的 Agent（Claude、OpenCode 等）

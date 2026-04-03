@@ -237,42 +237,6 @@ func (s *BaseAgentService) sanitizeAgents(agents []*model.BaseAgent) []*model.Ba
 	return result
 }
 
-// InitDefaultAgents 初始化默认基础Agent
-func (s *BaseAgentService) InitDefaultAgents(ctx context.Context) error {
-	// 检查是否已存在
-	agents, err := s.repo.List(ctx)
-	if err != nil {
-		return err
-	}
-	if len(agents) > 0 {
-		return nil // 已有数据，跳过初始化
-	}
-
-	// 创建默认的Claude Code Agent
-	defaultClaude := &model.BaseAgent{
-		ID:            uuid.New(),
-		Name:          "Claude Sonnet",
-		Type:          model.BaseAgentTypeClaudeCode,
-		ApiURL:        "https://api.anthropic.com",
-		DefaultModel:  "claude-sonnet-4-6",
-		CliPath:       "claude",
-		MaxTokens:     4096,
-		TimeoutMinutes: 30,
-		CreatedAt:     time.Now(),
-		UpdatedAt:     time.Now(),
-	}
-
-	if err := s.repo.Create(ctx, defaultClaude); err != nil {
-		return err
-	}
-
-	s.cacheMu.Lock()
-	s.cache[defaultClaude.ID] = defaultClaude
-	s.cacheMu.Unlock()
-
-	return nil
-}
-
 var (
 	ErrBaseAgentNotFound = errors.New("base agent not found")
 )
