@@ -61,7 +61,7 @@
 }
 
 .thinking-block-header:hover {
-  background-color: #ebebeb !important;
+  background-color: var(--bg-sidebar, #ebebeb) !important;
 }
 
 .thinking-block-content {
@@ -81,9 +81,27 @@
 
 /* 系统消息特殊样式 */
 .chat-message-system .chat-message-bubble {
-  background-color: #f0f5ff !important;
-  border-color: #1890ff !important;
+  background-color: var(--color-primary-light, #f0f5ff) !important;
+  border-color: var(--color-primary, #1890ff) !important;
   border-width: 1px;
+}
+
+/* 深色模式适配 */
+[data-theme='dark'] .chat-message-bubble {
+  background-color: var(--bg-container, #1e293b) !important;
+}
+
+[data-theme='dark'] .chat-message-name {
+  color: var(--text-primary, #e2e8f0) !important;
+}
+
+[data-theme='dark'] .chat-message-role,
+[data-theme='dark'] .chat-message-time {
+  color: var(--text-secondary, #94a3b8) !important;
+}
+
+[data-theme='dark'] .chat-message-system .chat-message-bubble {
+  background-color: var(--bg-elevated, #334155) !important;
 }
 
 /* 圆角样式 */

@@ -4,6 +4,7 @@ import { SendOutlined, PlayCircleOutlined, StopOutlined, ReloadOutlined, ExpandO
 import api from '@/api/client';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import type { AgentConfig } from '@/types';
+import './index.css';
 
 const { Text } = Typography;
 
@@ -272,10 +273,10 @@ const AgentDebugModal: React.FC<AgentDebugModalProps> = ({ open, agent, onClose 
         body: { height: 700, padding: 0 }
       }}
     >
-      <div style={{ display: 'flex', height: '100%' }}>
+      <div className="agent-debug-modal">
         {/* 左侧：输入输出 */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', borderRight: '1px solid #f0f0f0' }}>
-          <div style={{ padding: 12, borderBottom: '1px solid #f0f0f0' }}>
+        <div className="agent-debug-modal-left">
+          <div className="agent-debug-modal-header">
             <Space direction="vertical" style={{ width: '100%' }} size="small">
               <Input
                 placeholder="工作目录（可选，如: D:/projects/my-app）"
@@ -315,19 +316,10 @@ const AgentDebugModal: React.FC<AgentDebugModalProps> = ({ open, agent, onClose 
             </Space>
           </div>
 
-          <div style={{ flex: 1, overflow: 'auto', padding: 12 }}>
+          <div className="agent-debug-modal-output">
             <pre
               ref={outputRef}
-              style={{
-                margin: 0,
-                padding: 12,
-                background: '#f5f5f5',
-                borderRadius: 8,
-                minHeight: '100%',
-                fontSize: 12,
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-              }}
+              className="agent-debug-modal-pre"
             >
               {output || '暂无输出，请输入测试消息...'}
             </pre>
@@ -335,8 +327,8 @@ const AgentDebugModal: React.FC<AgentDebugModalProps> = ({ open, agent, onClose 
         </div>
 
         {/* 右侧：沙箱预览 */}
-        <div style={{ width: 400, display: 'flex', flexDirection: 'column' }}>
-          <div style={{ padding: '8px 12px', borderBottom: '1px solid #f0f0f0', background: '#fafafa' }}>
+        <div className="agent-debug-modal-right">
+          <div className="agent-debug-modal-preview-header">
             <Space>
               <Text strong>沙箱预览</Text>
               {sandboxServer && (
@@ -347,7 +339,7 @@ const AgentDebugModal: React.FC<AgentDebugModalProps> = ({ open, agent, onClose 
             </Space>
           </div>
 
-          <div style={{ padding: 8, borderBottom: '1px solid #f0f0f0' }}>
+          <div className="agent-debug-modal-preview-actions">
             <Space>
               <Button
                 size="small"
@@ -377,7 +369,7 @@ const AgentDebugModal: React.FC<AgentDebugModalProps> = ({ open, agent, onClose 
             </Space>
           </div>
 
-          <div style={{ flex: 1, position: 'relative', background: '#fff' }}>
+          <div className="agent-debug-modal-preview-content">
             {sandboxServer ? (
               <iframe
                 id="sandbox-preview"
@@ -390,13 +382,7 @@ const AgentDebugModal: React.FC<AgentDebugModalProps> = ({ open, agent, onClose 
                 title="沙箱预览"
               />
             ) : (
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                height: '100%',
-                color: '#999'
-              }}>
+              <div className="agent-debug-modal-empty">
                 <Empty
                   description="点击'运行到沙箱'启动项目预览"
                   image={Empty.PRESENTED_IMAGE_SIMPLE}

@@ -228,7 +228,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
               className="chat-message-name"
               style={{
                 fontWeight: 500,
-                color: '#262626',
+                color: 'var(--text-primary, #262626)',
                 fontSize: '14px',
               }}
             >
@@ -237,7 +237,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
             <span
               className="chat-message-role"
               style={{
-                color: '#8c8c8c',
+                color: 'var(--text-secondary, #8c8c8c)',
                 fontSize: '12px',
               }}
             >
@@ -247,7 +247,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
               <span
                 className="chat-message-time"
                 style={{
-                  color: '#bfbfbf',
+                  color: 'var(--text-secondary, #bfbfbf)',
                   fontSize: '12px',
                 }}
               >
@@ -287,10 +287,10 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
           <div style={{
             marginBottom: '8px',
             padding: '4px 8px',
-            background: '#fafafa',
+            background: 'var(--bg-sidebar, #fafafa)',
             borderRadius: '4px',
             fontSize: '12px',
-            color: '#666',
+            color: 'var(--text-secondary, #666)',
           }}>
             {String(progress.toolInput.description || progress.toolInput.command || JSON.stringify(progress.toolInput).slice(0, 100))}
           </div>
@@ -300,7 +300,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
         <div
           className={`chat-message-bubble ${styleConfig.radius}`}
           style={{
-            backgroundColor: '#fff',
+            backgroundColor: 'var(--bg-container, #fff)',
             border: isUser ? '1px solid #52c41a' : `1px solid ${styleConfig.color}20`,
             padding: '12px 16px',
             wordBreak: 'break-word',
@@ -371,7 +371,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
               </Space>
             }
           >
-            <span style={{ color: '#8c8c8c' }}>
+            <span style={{ color: 'var(--text-secondary, #8c8c8c)' }}>
               {String((message.metadata?.artifact as Record<string, unknown>)?.description || '点击查看详情')}
             </span>
           </Card>
@@ -411,7 +411,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
           <div
             style={{
               textAlign: 'right',
-              color: '#bfbfbf',
+              color: 'var(--text-secondary, #bfbfbf)',
               fontSize: '12px',
               marginTop: '4px',
             }}

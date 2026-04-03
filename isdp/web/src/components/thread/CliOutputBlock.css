@@ -47,7 +47,7 @@
 
 .cli-output-divider {
   height: 1px;
-  background-color: #334155;
+  background-color: var(--border-color, #334155);
 }
 
 .cli-output-tools {
@@ -74,4 +74,18 @@
 
 .message-actions-toolbar button:hover svg {
   color: inherit;
+}
+
+/* 深色模式适配 */
+[data-theme='dark'] .cli-output-block {
+  background-color: var(--bg-elevated, #334155) !important;
+}
+
+[data-theme='dark'] .cli-output-header,
+[data-theme='dark'] .cli-output-summary {
+  color: var(--text-primary, #e2e8f0) !important;
+}
+
+[data-theme='dark'] .cli-output-count {
+  color: var(--text-secondary, #94a3b8) !important;
 }
