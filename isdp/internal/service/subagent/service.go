@@ -126,7 +126,6 @@ func (s *Service) Create(ctx context.Context, req *model.CreateSubagentRequest) 
 		Name:        req.Name,
 		Description: req.Description,
 		Content:     "", // Content 不再存储到数据库
-		SkillID:     req.SkillID,
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
 	}

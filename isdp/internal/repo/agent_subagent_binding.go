@@ -55,7 +55,7 @@ func (r *AgentSubagentBindingRepository) FindByAgentRoleID(ctx context.Context, 
 // FindSubagentsByAgentRoleID 根据AgentRole ID查找绑定的Subagent详情列表
 func (r *AgentSubagentBindingRepository) FindSubagentsByAgentRoleID(ctx context.Context, agentRoleID uuid.UUID) ([]*model.Subagent, error) {
 	query := `
-		SELECT s.id, s.name, s.description, s.skill_id, s.created_at, s.updated_at
+		SELECT s.id, s.name, s.description, s.created_at, s.updated_at
 		FROM subagents s
 		INNER JOIN agent_subagent_bindings b ON s.id = b.subagent_id
 		WHERE b.agent_role_id = ?

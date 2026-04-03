@@ -115,20 +115,7 @@ func (h *SettingsHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// 检测根目录层级
-	var rootDir string
-	for _, f := range zipReader.File {
-		if f.FileInfo().IsDir() {
-			continue
-		}
-		parts := strings.Split(f.Name, "/")
-		if len(parts) > 1 {
-			rootDir = parts[0]
-			break
-		}
-	}
-
-	// 构建文件列表
+	// 构建文件列表（前端已处理路径，直接使用 zip 中的路径）
 	files := make([]settings.FileData, 0)
 	for _, f := range zipReader.File {
 		// 跳过目录
@@ -136,11 +123,8 @@ func (h *SettingsHandler) Create(c *gin.Context) {
 			continue
 		}
 
-		// 获取文件名（去掉可能的根目录前缀）
+		// 获取文件名（直接使用 zip 中的路径）
 		fileName := f.Name
-		if rootDir != "" {
-			fileName = strings.TrimPrefix(fileName, rootDir+"/")
-		}
 		if fileName == "" {
 			continue
 		}

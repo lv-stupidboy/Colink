@@ -13,8 +13,7 @@ type Subagent struct {
 	ID          uuid.UUID `json:"id"`
 	Name        string    `json:"name"`
 	Description string    `json:"description,omitempty"`
-	Content     string    `json:"content"`           // Markdown内容
-	SkillID     uuid.UUID `json:"skillId,omitempty"` // 所属技能包ID（可选）
+	Content     string    `json:"content"` // Markdown内容（从文件读取，不存数据库）
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
 }
@@ -37,10 +36,9 @@ func (a *AgentSubagentBinding) TableName() string {
 
 // CreateSubagentRequest 创建Subagent请求
 type CreateSubagentRequest struct {
-	Name        string    `json:"name" binding:"required"`
-	Description string    `json:"description"`
-	Content     string    `json:"content" binding:"required"`
-	SkillID     uuid.UUID `json:"skillId"`
+	Name        string `json:"name" binding:"required"`
+	Description string `json:"description"`
+	Content     string `json:"content" binding:"required"`
 }
 
 // UpdateSubagentRequest 更新Subagent请求
