@@ -263,7 +263,9 @@ const AgentRoleList: React.FC = () => {
   const handleSubmit = async (values: Partial<AgentConfig>) => {
     try {
       if (editingConfig) {
-        await api.agents.update(editingConfig.id, values);
+        // 更新时，只有当 mentionPatterns 有值时才传递
+        const updateData = { ...values };
+        await api.agents.update(editingConfig.id, updateData);
         // 更新技能绑定
         await api.agents.bindSkills(editingConfig.id, selectedSkillIds);
         // 更新子代理绑定
@@ -276,7 +278,16 @@ const AgentRoleList: React.FC = () => {
         await api.settings.bindToAgent(editingConfig.id, selectedSettingsIds);
         message.success('更新成功');
       } else {
-        const newAgent = await api.agents.create(values);
+        // 新建时，如果没有设置触发模式，则默认生成 @ + 名称
+        const createData = { ...values };
+        if (!createData.mentionPatterns || createData.mentionPatterns.length === 0) {
+          if (createData.name) {
+            // 生成默认触发模式：@ + 名称（去除空格）
+            const defaultPattern = '@' + createData.name.replace(/\s+/g, '');
+            createData.mentionPatterns = [defaultPattern];
+          }
+        }
+        const newAgent = await api.agents.create(createData);
         // 为新创建的Agent绑定技能
         if (selectedSkillIds.length > 0) {
           await api.agents.bindSkills(newAgent.id, selectedSkillIds);
@@ -610,6 +621,15 @@ const AgentRoleList: React.FC = () => {
 
           <Form.Item name="description" label="描述">
             <Input.TextArea rows={2} placeholder="Agent角色描述" />
+          </Form.Item>
+
+          <Form.Item name="mentionPatterns" label="触发模式" extra="设置 @mention 触发模式，用户可通过这些模式唤起该角色。新建时默认为 @+名称">
+            <Select
+              mode="tags"
+              placeholder="输入触发模式，如 @developer、@开发者"
+              style={{ width: '100%' }}
+              tokenSeparators={[',', ' ']}
+            />
           </Form.Item>
 
           <Form.Item name="systemPrompt" label="系统提示词" rules={[{ required: true, message: '请输入系统提示词' }]}>

@@ -24,14 +24,10 @@ func NewAgentConfigRepository(db *sql.DB) *AgentConfigRepository {
 // Create 创建配置
 func (r *AgentConfigRepository) Create(ctx context.Context, config *model.AgentRoleConfig) error {
 	query := `
-		INSERT INTO agent_configs (id, name, role, description, system_prompt, max_tokens, temperature, routing_config, base_agent_id, is_default, is_system, mention_patterns, capabilities, dependencies, outputs, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO agent_configs (id, name, role, description, system_prompt, max_tokens, temperature, base_agent_id, is_default, is_system, mention_patterns, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
-	routingConfig, _ := json.Marshal(config.RoutingConfig)
 	mentionPatterns, _ := json.Marshal(config.MentionPatterns)
-	capabilities, _ := json.Marshal(config.Capabilities)
-	dependencies, _ := json.Marshal(config.Dependencies)
-	outputs, _ := json.Marshal(config.Outputs)
 
 	var baseAgentID interface{}
 	if config.BaseAgentID != uuid.Nil {
@@ -39,7 +35,7 @@ func (r *AgentConfigRepository) Create(ctx context.Context, config *model.AgentR
 	}
 
 	_, err := r.db.ExecContext(ctx, query,
-		config.ID.String(), config.Name, config.Role, config.Description, config.SystemPrompt, config.MaxTokens, config.Temperature, routingConfig, baseAgentID, config.IsDefault, config.IsSystem, mentionPatterns, capabilities, dependencies, outputs, config.CreatedAt, config.UpdatedAt,
+		config.ID.String(), config.Name, config.Role, config.Description, config.SystemPrompt, config.MaxTokens, config.Temperature, baseAgentID, config.IsDefault, config.IsSystem, mentionPatterns, config.CreatedAt, config.UpdatedAt,
 	)
 	return err
 }
@@ -47,18 +43,18 @@ func (r *AgentConfigRepository) Create(ctx context.Context, config *model.AgentR
 // FindByID 根据ID查找
 func (r *AgentConfigRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.AgentRoleConfig, error) {
 	query := `
-		SELECT id, name, role, description, system_prompt, max_tokens, temperature, routing_config, base_agent_id, is_default, is_system, mention_patterns, capabilities, dependencies, outputs, config_generated_at, config_path, created_at, updated_at
+		SELECT id, name, role, description, system_prompt, max_tokens, temperature, base_agent_id, is_default, is_system, mention_patterns, config_generated_at, config_path, created_at, updated_at
 		FROM agent_configs WHERE id = ?
 	`
 	config := &model.AgentRoleConfig{}
 	var idStr string
-	var routingConfig, mentionPatterns, capabilities, dependencies, outputs []byte
+	var mentionPatterns []byte
 	var baseAgentID, description, systemPrompt, configPath sql.NullString
 	var maxTokens sql.NullInt64
 	var temperature sql.NullFloat64
 	var configGeneratedAt sql.NullTime
 	err := r.db.QueryRowContext(ctx, query, id.String()).Scan(
-		&idStr, &config.Name, &config.Role, &description, &systemPrompt, &maxTokens, &temperature, &routingConfig, &baseAgentID, &config.IsDefault, &config.IsSystem, &mentionPatterns, &capabilities, &dependencies, &outputs, &configGeneratedAt, &configPath, &config.CreatedAt, &config.UpdatedAt,
+		&idStr, &config.Name, &config.Role, &description, &systemPrompt, &maxTokens, &temperature, &baseAgentID, &config.IsDefault, &config.IsSystem, &mentionPatterns, &configGeneratedAt, &configPath, &config.CreatedAt, &config.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find agent config: %w", err)
@@ -85,18 +81,14 @@ func (r *AgentConfigRepository) FindByID(ctx context.Context, id uuid.UUID) (*mo
 	if configPath.Valid {
 		config.ConfigPath = configPath.String
 	}
-	json.Unmarshal(routingConfig, &config.RoutingConfig)
 	json.Unmarshal(mentionPatterns, &config.MentionPatterns)
-	json.Unmarshal(capabilities, &config.Capabilities)
-	json.Unmarshal(dependencies, &config.Dependencies)
-	json.Unmarshal(outputs, &config.Outputs)
 	return config, nil
 }
 
 // FindByRole 根据角色查找
 func (r *AgentConfigRepository) FindByRole(ctx context.Context, role model.AgentRole) ([]*model.AgentRoleConfig, error) {
 	query := `
-		SELECT id, name, role, description, system_prompt, max_tokens, temperature, routing_config, base_agent_id, is_default, is_system, mention_patterns, capabilities, dependencies, outputs, config_generated_at, config_path, created_at, updated_at
+		SELECT id, name, role, description, system_prompt, max_tokens, temperature, base_agent_id, is_default, is_system, mention_patterns, config_generated_at, config_path, created_at, updated_at
 		FROM agent_configs WHERE role = ? ORDER BY is_default DESC, name
 	`
 	rows, err := r.db.QueryContext(ctx, query, role)
@@ -109,13 +101,13 @@ func (r *AgentConfigRepository) FindByRole(ctx context.Context, role model.Agent
 	for rows.Next() {
 		config := &model.AgentRoleConfig{}
 		var idStr string
-		var routingConfig, mentionPatterns, capabilities, dependencies, outputs []byte
+		var mentionPatterns []byte
 		var baseAgentID, description, systemPrompt, configPath sql.NullString
 		var maxTokens sql.NullInt64
 		var temperature sql.NullFloat64
 		var configGeneratedAt sql.NullTime
 		err := rows.Scan(
-			&idStr, &config.Name, &config.Role, &description, &systemPrompt, &maxTokens, &temperature, &routingConfig, &baseAgentID, &config.IsDefault, &config.IsSystem, &mentionPatterns, &capabilities, &dependencies, &outputs, &configGeneratedAt, &configPath, &config.CreatedAt, &config.UpdatedAt,
+			&idStr, &config.Name, &config.Role, &description, &systemPrompt, &maxTokens, &temperature, &baseAgentID, &config.IsDefault, &config.IsSystem, &mentionPatterns, &configGeneratedAt, &configPath, &config.CreatedAt, &config.UpdatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan agent config: %w", err)
@@ -142,11 +134,7 @@ func (r *AgentConfigRepository) FindByRole(ctx context.Context, role model.Agent
 		if configPath.Valid {
 			config.ConfigPath = configPath.String
 		}
-		json.Unmarshal(routingConfig, &config.RoutingConfig)
 		json.Unmarshal(mentionPatterns, &config.MentionPatterns)
-		json.Unmarshal(capabilities, &config.Capabilities)
-		json.Unmarshal(dependencies, &config.Dependencies)
-		json.Unmarshal(outputs, &config.Outputs)
 		configs = append(configs, config)
 	}
 	return configs, nil
@@ -155,7 +143,7 @@ func (r *AgentConfigRepository) FindByRole(ctx context.Context, role model.Agent
 // List 列出所有配置
 func (r *AgentConfigRepository) List(ctx context.Context) ([]*model.AgentRoleConfig, error) {
 	query := `
-		SELECT id, name, role, description, system_prompt, max_tokens, temperature, routing_config, base_agent_id, is_default, is_system, mention_patterns, capabilities, dependencies, outputs, config_generated_at, config_path, created_at, updated_at
+		SELECT id, name, role, description, system_prompt, max_tokens, temperature, base_agent_id, is_default, is_system, mention_patterns, config_generated_at, config_path, created_at, updated_at
 		FROM agent_configs ORDER BY is_system DESC, role, name
 	`
 	rows, err := r.db.QueryContext(ctx, query)
@@ -168,13 +156,13 @@ func (r *AgentConfigRepository) List(ctx context.Context) ([]*model.AgentRoleCon
 	for rows.Next() {
 		config := &model.AgentRoleConfig{}
 		var idStr string
-		var routingConfig, mentionPatterns, capabilities, dependencies, outputs []byte
+		var mentionPatterns []byte
 		var baseAgentID, description, systemPrompt, configPath sql.NullString
 		var maxTokens sql.NullInt64
 		var temperature sql.NullFloat64
 		var configGeneratedAt sql.NullTime
 		err := rows.Scan(
-			&idStr, &config.Name, &config.Role, &description, &systemPrompt, &maxTokens, &temperature, &routingConfig, &baseAgentID, &config.IsDefault, &config.IsSystem, &mentionPatterns, &capabilities, &dependencies, &outputs, &configGeneratedAt, &configPath, &config.CreatedAt, &config.UpdatedAt,
+			&idStr, &config.Name, &config.Role, &description, &systemPrompt, &maxTokens, &temperature, &baseAgentID, &config.IsDefault, &config.IsSystem, &mentionPatterns, &configGeneratedAt, &configPath, &config.CreatedAt, &config.UpdatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan agent config: %w", err)
@@ -201,11 +189,7 @@ func (r *AgentConfigRepository) List(ctx context.Context) ([]*model.AgentRoleCon
 		if configPath.Valid {
 			config.ConfigPath = configPath.String
 		}
-		json.Unmarshal(routingConfig, &config.RoutingConfig)
 		json.Unmarshal(mentionPatterns, &config.MentionPatterns)
-		json.Unmarshal(capabilities, &config.Capabilities)
-		json.Unmarshal(dependencies, &config.Dependencies)
-		json.Unmarshal(outputs, &config.Outputs)
 		configs = append(configs, config)
 	}
 	return configs, nil
@@ -215,14 +199,10 @@ func (r *AgentConfigRepository) List(ctx context.Context) ([]*model.AgentRoleCon
 func (r *AgentConfigRepository) Update(ctx context.Context, config *model.AgentRoleConfig) error {
 	query := `
 		UPDATE agent_configs
-		SET name = ?, role = ?, description = ?, system_prompt = ?, max_tokens = ?, temperature = ?, routing_config = ?, base_agent_id = ?, is_default = ?, is_system = ?, mention_patterns = ?, capabilities = ?, dependencies = ?, outputs = ?, updated_at = ?
+		SET name = ?, role = ?, description = ?, system_prompt = ?, max_tokens = ?, temperature = ?, base_agent_id = ?, is_default = ?, is_system = ?, mention_patterns = ?, updated_at = ?
 		WHERE id = ?
 	`
-	routingConfig, _ := json.Marshal(config.RoutingConfig)
 	mentionPatterns, _ := json.Marshal(config.MentionPatterns)
-	capabilities, _ := json.Marshal(config.Capabilities)
-	dependencies, _ := json.Marshal(config.Dependencies)
-	outputs, _ := json.Marshal(config.Outputs)
 	config.UpdatedAt = time.Now()
 
 	var baseAgentID interface{}
@@ -231,7 +211,7 @@ func (r *AgentConfigRepository) Update(ctx context.Context, config *model.AgentR
 	}
 
 	_, err := r.db.ExecContext(ctx, query,
-		config.Name, config.Role, config.Description, config.SystemPrompt, config.MaxTokens, config.Temperature, routingConfig, baseAgentID, config.IsDefault, config.IsSystem, mentionPatterns, capabilities, dependencies, outputs, config.UpdatedAt, config.ID.String(),
+		config.Name, config.Role, config.Description, config.SystemPrompt, config.MaxTokens, config.Temperature, baseAgentID, config.IsDefault, config.IsSystem, mentionPatterns, config.UpdatedAt, config.ID.String(),
 	)
 	return err
 }

@@ -124,6 +124,7 @@ func (s *ConfigService) Update(ctx context.Context, id uuid.UUID, req *model.Cre
 	config.MaxTokens = req.MaxTokens
 	config.Temperature = req.Temperature
 	config.IsDefault = req.IsDefault
+	// 直接更新 mentionPatterns
 	config.MentionPatterns = req.MentionPatterns
 	config.UpdatedAt = time.Now()
 

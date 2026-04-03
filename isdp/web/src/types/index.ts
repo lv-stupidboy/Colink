@@ -112,14 +112,13 @@ export interface AgentConfig {
   baseAgent?: BaseAgent;
   description: string;
   systemPrompt: string;
-  modelName: string;
   maxTokens: number;
   temperature: number;
   isDefault: boolean;
   isSystem: boolean;  // 是否为系统预置角色
+  mentionPatterns?: string[];  // @mention 触发模式列表
   configGeneratedAt?: string;
   configPath?: string;
-  mentionPatterns?: string[];  // @mention 触发模式列表
   createdAt: string;
   updatedAt: string;
 }

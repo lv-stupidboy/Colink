@@ -22,12 +22,6 @@ const (
 	AgentRoleCustom            AgentRole = "custom"             // 自定义角色
 )
 
-// RoutingConfig 路由配置（已废弃，路由逻辑已迁移到 WorkflowTemplate.Transitions）
-type RoutingConfig struct {
-	CanRouteTo    []AgentRole `json:"canRouteTo"`
-	RouteOnSignal []string    `json:"routeOnSignal"`
-}
-
 // AgentConfig Agent配置模型（保留兼容性，现已改名为AgentRole）
 // 建议使用AgentRole别名
 type AgentConfig = AgentRoleConfig
@@ -47,14 +41,6 @@ type AgentRoleConfig struct {
 
 	// Mention 触发模式（支持 A2A 动态路由）
 	MentionPatterns []string `json:"mentionPatterns"` // @mention 触发模式列表，如 ["@architect", "@架构师"]
-
-	// 路由配置（已废弃，路由逻辑已迁移到 WorkflowTemplate.Transitions）
-	RoutingConfig RoutingConfig `json:"routingConfig"`
-
-	// 能力声明（已废弃，计划由 system_prompt 描述）
-	Capabilities []string `json:"capabilities"` // 能力列表
-	Dependencies []string `json:"dependencies"` // 依赖列表
-	Outputs      []string `json:"outputs"`      // 产出列表
 
 	// 配置生成相关字段
 	ConfigGeneratedAt *time.Time `json:"configGeneratedAt,omitempty"` // 配置最后生成时间
@@ -79,11 +65,6 @@ type CreateAgentRequest struct {
 	Temperature    float64   `json:"temperature"`
 	IsDefault      bool      `json:"isDefault"`
 	MentionPatterns []string `json:"mentionPatterns"` // @mention 触发模式列表
-
-	// 能力声明
-	Capabilities []string `json:"capabilities"`
-	Dependencies []string `json:"dependencies"`
-	Outputs      []string `json:"outputs"`
 }
 
 // UpdateAgentRequest 更新Agent请求
