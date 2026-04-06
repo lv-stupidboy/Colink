@@ -10,22 +10,23 @@ import (
 
 // Config 应用配置
 type Config struct {
-	Server       ServerConfig      `mapstructure:"server"`
-	Data         DataConfig        `mapstructure:"data"`
-	Database     DatabaseConfig    `mapstructure:"database"`
-	Redis        RedisConfig       `mapstructure:"redis"`
-	Claude       ClaudeConfig      `mapstructure:"claude"`
-	Sandbox      SandboxConfig     `mapstructure:"sandbox"`
-	Agent        AgentConfig       `mapstructure:"agent"`
-	Logging      LoggingConfig     `mapstructure:"logging"`
-	MCP          MCPConfig         `mapstructure:"mcp"`
-	Auth         AuthConfig        `mapstructure:"auth"`
-	AgentAssets  AgentAssetsConfig `mapstructure:"agent_assets"`
-	Skill        SkillConfig       `mapstructure:"skill"`
-	Subagent     SubagentConfig    `mapstructure:"subagent"`
-	AgentConfig  AgentConfigConfig `mapstructure:"agent_config"`
-	Command      CommandConfig     `mapstructure:"command"`
-	Rule         RuleConfig        `mapstructure:"rule"`
+	Server      ServerConfig      `mapstructure:"server"`
+	Data        DataConfig        `mapstructure:"data"`
+	Database    DatabaseConfig    `mapstructure:"database"`
+	Redis       RedisConfig       `mapstructure:"redis"`
+	Claude      ClaudeConfig      `mapstructure:"claude"`
+	Sandbox     SandboxConfig     `mapstructure:"sandbox"`
+	Agent       AgentConfig       `mapstructure:"agent"`
+	Logging     LoggingConfig     `mapstructure:"logging"`
+	MCP         MCPConfig         `mapstructure:"mcp"`
+	Auth        AuthConfig        `mapstructure:"auth"`
+	AgentAssets AgentAssetsConfig `mapstructure:"agent_assets"`
+	Skill       SkillConfig       `mapstructure:"skill"`
+	Subagent    SubagentConfig    `mapstructure:"subagent"`
+	AgentConfig AgentConfigConfig `mapstructure:"agent_config"`
+	Command     CommandConfig     `mapstructure:"command"`
+	Rule        RuleConfig        `mapstructure:"rule"`
+	Feishu      FeishuConfig      `mapstructure:"feishu"`
 }
 
 // DataConfig 数据目录配置
@@ -240,6 +241,24 @@ type RuleConfig struct {
 	UploadMaxSize int `mapstructure:"upload_max_size"`
 }
 
+// FeishuConfig 飞书集成配置
+type FeishuConfig struct {
+	Enabled           bool   `mapstructure:"enabled"`
+	AppID             string `mapstructure:"app_id"`
+	AppSecret         string `mapstructure:"app_secret"`
+	VerificationToken string `mapstructure:"verification_token"`
+	EncryptKey        string `mapstructure:"encrypt_key"`
+	LarkCLIPath       string `mapstructure:"lark_cli_path"`
+	DefaultProjectID  string `mapstructure:"default_project_id"`
+}
+
+// ApplyDefaults 设置飞书配置默认值
+func (c *FeishuConfig) ApplyDefaults() {
+	if c.LarkCLIPath == "" {
+		c.LarkCLIPath = "lark-cli"
+	}
+}
+
 // GetUseCountUpdateInterval 获取技能使用次数更新间隔
 func (c *SkillConfig) GetUseCountUpdateInterval() time.Duration {
 	if c.UseCountUpdateInterval == "" {
@@ -331,6 +350,7 @@ func Load(configPath string) (*Config, error) {
 
 	// 应用默认值（确保零值字段有合理的默认值）
 	cfg.Database.ApplyDefaults()
+	cfg.Feishu.ApplyDefaults()
 
 	// 验证必须的路径配置
 	if err := validateConfig(&cfg); err != nil {
@@ -408,4 +428,6 @@ func setDefaults() {
 	viper.SetDefault("subagent.upload_max_size", 2)
 	viper.SetDefault("command.upload_max_size", 2)
 	viper.SetDefault("rule.upload_max_size", 2)
+	viper.SetDefault("feishu.enabled", false)
+	viper.SetDefault("feishu.lark_cli_path", "lark-cli")
 }

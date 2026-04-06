@@ -14,11 +14,12 @@ import (
 	"github.com/anthropic/isdp/internal/middleware"
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
-	"github.com/anthropic/isdp/internal/service/agent"
 	"github.com/anthropic/isdp/internal/service/a2a"
+	"github.com/anthropic/isdp/internal/service/agent"
 	"github.com/anthropic/isdp/internal/service/assetpackage"
 	"github.com/anthropic/isdp/internal/service/command"
 	"github.com/anthropic/isdp/internal/service/configgen"
+	"github.com/anthropic/isdp/internal/service/im"
 	"github.com/anthropic/isdp/internal/service/knowledge"
 	"github.com/anthropic/isdp/internal/service/mention"
 	"github.com/anthropic/isdp/internal/service/merge"
@@ -168,7 +169,7 @@ func main() {
 	workflowEngine := agent.NewWorkflowEngine(threadRepo, messageRepo, configService)
 	workflowService := workflow.NewService(workflowRepo)
 	mcpAuthService := a2a.NewMCPAuthService(cfg.MCP.TokenTTL)
-	invocationRegistry := a2a.NewInvocationRegistry()  // 新增：调用注册表
+	invocationRegistry := a2a.NewInvocationRegistry() // 新增：调用注册表
 	invocationQueue := a2a.NewInvocationQueue()       // 新增：请求队列
 
 	// 初始化 Mention 模式注册表和解析器（支持动态 patterns 和博弈场景）
@@ -320,6 +321,28 @@ func main() {
 		_ = sandboxService // TODO: wire into sandbox handler
 	}
 
+	// ========== 飞书 IM 集成 ==========
+	var feishuBridgeSvc *im.FeishuBridgeService
+	if cfg.Feishu.Enabled {
+		imSessionRepo := repo.NewIMSessionRepository(db)
+		larkClient := im.NewLarkCLIClient(cfg.Feishu.LarkCLIPath, logger)
+
+		larkHealthy := true
+		if err := larkClient.CheckHealth(context.Background()); err != nil {
+			logger.Warn("lark-cli 健康检查失败，消息发送功能已禁用（webhook 仍可接收）", zap.Error(err))
+			larkHealthy = false
+		}
+
+		feishuBridgeSvc = im.NewFeishuBridgeService(
+			imSessionRepo, threadRepo, projectRepo,
+			orchestrator, larkClient, wsHub, cfg.Feishu, logger,
+		)
+		feishuBridgeSvc.SetLarkHealthy(larkHealthy)
+
+		orchestrator.GetExecutionService().AddChunkListener(feishuBridgeSvc.OnAgentChunk)
+		logger.Info("飞书 IM 集成已启用")
+	}
+
 	// 设置Gin模式
 	gin.SetMode(cfg.Server.Mode)
 
@@ -339,11 +362,11 @@ func main() {
 	// 健康检查
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
-			"status":     "ok",
-			"version":    Version,
-			"gitCommit":  GitCommit,
-			"buildTime":  BuildTime,
-			"time":       time.Now().Format(time.RFC3339),
+			"status":    "ok",
+			"version":   Version,
+			"gitCommit": GitCommit,
+			"buildTime": BuildTime,
+			"time":      time.Now().Format(time.RFC3339),
 		})
 	})
 
@@ -413,7 +436,7 @@ func main() {
 	configGenHandler := api.NewConfigGenHandler(configGenService)
 	configGenHandler.RegisterRoutes(v1)
 
-// Command Handler
+	// Command Handler
 	commandHandler := api.NewCommandHandler(commandSvc, cfg.GetCommandStoragePath(), cfg.Command.GetUploadMaxSize())
 	commandHandler.RegisterRoutes(v1)
 
@@ -440,6 +463,12 @@ func main() {
 	// WebSocket
 	wsHandler := ws.NewHandler(wsHub, orchestrator, orchestrator)
 	wsHandler.RegisterRoutes(v1)
+
+	// 飞书 Webhook Handler
+	if feishuBridgeSvc != nil {
+		feishuHandler := api.NewFeishuWebhookHandler(feishuBridgeSvc, cfg.Feishu.VerificationToken)
+		feishuHandler.RegisterRoutes(v1)
+	}
 
 	// 沙箱 Handler (如果可用)
 	if sandboxService != nil {
