@@ -12,8 +12,9 @@ import (
 type BaseAgentType string
 
 const (
-	BaseAgentTypeClaudeCode BaseAgentType = "claude_code"
-	BaseAgentTypeOpenCode   BaseAgentType = "open_code"
+	BaseAgentTypeClaudeCode  BaseAgentType = "claude_code"
+	BaseAgentTypeOpenCode    BaseAgentType = "open_code"
+	BaseAgentTypeOpenCodeACP BaseAgentType = "open_code_acp"
 )
 
 // BaseAgent 基础Agent配置模型

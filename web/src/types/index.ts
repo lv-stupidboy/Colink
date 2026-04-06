@@ -10,7 +10,7 @@ export type AgentRole =
   | 'custom';
 
 // 基础Agent类型
-export type BaseAgentType = 'claude_code' | 'open_code';
+export type BaseAgentType = 'claude_code' | 'open_code' | 'open_code_acp';
 
 // Thread状态
 export type ThreadStatus =

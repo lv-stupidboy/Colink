@@ -56,6 +56,26 @@ func TestNewAdapter_OpenCode(t *testing.T) {
 	}
 }
 
+func TestNewAdapter_OpenCodeACP(t *testing.T) {
+	baseAgent := &model.BaseAgent{
+		ID:           uuid.New(),
+		Name:         "Test OpenCode ACP",
+		Type:         model.BaseAgentTypeOpenCodeACP,
+		DefaultModel: "gpt-4",
+		CliPath:      "opencode",
+	}
+
+	adapter := NewAdapter(baseAgent)
+	if adapter == nil {
+		t.Error("Expected non-nil adapter for open_code_acp type")
+	}
+
+	_, ok := adapter.(*OpenCodeACPAdapter)
+	if !ok {
+		t.Error("Expected OpenCodeACPAdapter type")
+	}
+}
+
 func TestClaudeAdapter_BuildPrompt(t *testing.T) {
 	baseAgent := &model.BaseAgent{
 		ID:           uuid.New(),
