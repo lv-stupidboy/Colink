@@ -1,0 +1,57 @@
+{
+  "name": "ISDP Dev",
+  "dockerComposeFile": "docker-compose.dev.yml",
+  "service": "isdp-dev",
+  "mounts": [
+    "source=isdp-go-cache,target=/home/vscode/.cache/go-build,type=volume",
+    "source=isdp-data,target=/workspaces/isdp/isdp/data,type=volume",
+    "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind",
+    "source=${localEnv:HOME}/.opencode,target=/home/vscode/.opencode,type=bind"
+  ],
+  "forwardPorts": [
+    8080,
+    3000
+  ],
+  "portsAttributes": {
+    "8080": {
+      "label": "Go Backend",
+      "onAutoForward": "notify"
+    },
+    "3000": {
+      "label": "Vite Dev Server",
+      "onAutoForward": "silent"
+    }
+  },
+  "postCreateCommand": "cd /workspaces/isdp && bash .devcontainer/post-create.sh",
+  "remoteUser": "vscode",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "go.toolsManagement.autoUpdate": true,
+        "go.useLanguageServer": true,
+        "go.lintTool": "golangci-lint",
+        "editor.formatOnSave": true,
+        "[go]": {
+          "editor.defaultFormatter": "golang.go"
+        },
+        "[typescript][typescriptreact]": {
+          "editor.defaultFormatter": "esbenp.prettier-vscode"
+        },
+        "typescript.preferences.importModuleSpecifier": "non-relative",
+        "files.watcherExclude": {
+          "**/node_modules/**": true,
+          "**/.git/objects/**": true,
+          "**/isdp/web/dist/**": true,
+          "**/isdp/bin/**": true
+        }
+      },
+      "extensions": [
+        "golang.Go",
+        "esbenp.prettier-vscode",
+        "dbaeumer.vscode-eslint",
+        "bradlc.vscode-tailwindcss",
+        "ms-playwright.playwright"
+      ]
+    }
+  }
+}
