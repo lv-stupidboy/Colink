@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { Button, Input, Row, Col, message, Spin, Collapse, Typography } from 'antd'
-import { CheckCircleOutlined, EyeOutlined, EditOutlined } from '@ant-design/icons'
+import { Button, Input, Row, Col, message, Spin, Typography } from 'antd'
+import { CheckCircleOutlined, EditOutlined } from '@ant-design/icons'
 import ConfigSection from '../components/ConfigSection'
 import { InstallConfig, InstalledVersion } from '../types'
 import { testConnection } from '../services/database-connector'
@@ -52,9 +52,6 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
       setLoadingConfig(false)
     }
 
-    // 加载完整配置预览
-    loadFullConfig()
-
     // 升级模式：从已安装目录读取
     if (isUpgrade && installedVersion?.installDir) {
       loadExistingConfig()
@@ -65,27 +62,36 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
     }
   }, [isUpgrade, installedVersion, config.installDir])
 
-  // 加载完整的配置文件预览
-  const loadFullConfig = async () => {
-    const targetDir = config.installDir || installedVersion?.installDir
-    if (!targetDir) {
-      // 生成默认配置预览
-      generateDefaultConfig()
-      return
+  // 加载完整配置预览
+  useEffect(() => {
+    const loadFullConfig = async () => {
+      const targetDir = config.installDir || installedVersion?.installDir
+      if (!targetDir) {
+        // 生成默认配置预览
+        await generateDefaultConfig()
+        return
+      }
+
+      try {
+        const yaml = await window.electronAPI.readFullConfig(targetDir)
+        if (yaml) {
+          setMergedConfigYaml(yaml)
+        } else {
+          await generateDefaultConfig()
+        }
+      } catch (e) {
+        console.warn('[SystemConfig] Failed to load full config:', e)
+        await generateDefaultConfig()
+      }
     }
 
-    try {
-      const yaml = await window.electronAPI.readFullConfig(targetDir)
-      if (yaml) {
-        setMergedConfigYaml(yaml)
-      } else {
-        generateDefaultConfig()
-      }
-    } catch (e) {
-      console.warn('[SystemConfig] Failed to load full config:', e)
-      generateDefaultConfig()
-    }
-  }
+    // 延迟加载，避免阻塞渲染
+    const timer = setTimeout(() => {
+      loadFullConfig().catch(e => console.error('[SystemConfig] loadFullConfig error:', e))
+    }, 100)
+
+    return () => clearTimeout(timer)
+  }, [config.installDir, installedVersion])
 
   // 生成默认配置预览
   const generateDefaultConfig = async () => {
@@ -99,15 +105,16 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
       }
     } catch (e) {
       console.warn('[SystemConfig] Failed to generate config:', e)
+      setMergedConfigYaml('# 配置加载失败')
     }
   }
 
   // 当数据库配置变化时更新预览
   useEffect(() => {
-    if (!editingYaml) {
-      generateDefaultConfig()
+    if (!editingYaml && !mergedConfigYaml) {
+      generateDefaultConfig().catch(e => console.error(e))
     }
-  }, [config.database, config.serverPort])
+  }, [config.database, config.serverPort, editingYaml, mergedConfigYaml])
 
   const handleDbChange = (field: string, value: string | number) => {
     onConfigUpdate({

@@ -78,8 +78,7 @@ declare global {
       getDiskSpace: (path: string) => Promise<{ free: number; total: number }>
       checkDependency: (dep: string) => Promise<{ installed: boolean; version?: string }>
       installDependency: (dep: string) => Promise<{ success: boolean; error?: string }>
-      startInstallation: (config: object) => Promise<{ success: boolean; error?: string }>
-      generateConfig: (config: object) => Promise<{ success: boolean; error?: string }>
+      startInstallation: (config: object) => Promise<{ success: boolean; error?: string; dbChanges?: Array<{ version: string; files: string[] }> }>
       testDatabaseConnection: (config: object) => Promise<{ success: boolean; error?: string }>
       createShortcut: (path: string) => Promise<{ success: boolean }>
 
