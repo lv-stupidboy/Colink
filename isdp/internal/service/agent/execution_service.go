@@ -64,6 +64,12 @@ type ExecutionService struct {
 	// Mention 解析器（支持动态 patterns）
 	mentionParser *mention.Parser
 
+	// 后台执行支持：内容块持久化
+	contentBlockRepo    *repo.ContentBlockRepository
+	contentBlockBuffer  []model.InvocationContentBlock // 缓冲区
+	lastFlush           time.Time                      // 上次刷新时间
+	contentBlockFlushMu sync.Mutex                     // 保护缓冲区
+
 	runningAgents  map[uuid.UUID]*RunningAgent
 	mu             sync.RWMutex
 
@@ -96,25 +102,29 @@ func NewExecutionService(
 	wsHub *ws.Hub,
 	defaultAdapter AgentAdapter,
 	mentionParser *mention.Parser,
+	contentBlockRepo *repo.ContentBlockRepository,
 ) *ExecutionService {
 	es := &ExecutionService{
-		invocationRepo:   invocationRepo,
-		threadRepo:       threadRepo,
-		msgRepo:          msgRepo,
-		configSvc:        configSvc,
-		baseAgentSvc:     baseAgentSvc,
-		baseAgentRepo:    baseAgentRepo,
-		tracker:          tracker,
-		workflow:         workflow,
-		workflowRepo:     workflowRepo,
-		projectRepo:      projectRepo,
-		wsHub:            wsHub,
-		defaultAdapter:   defaultAdapter,
-		mentionParser:    mentionParser,
-		runningAgents:    make(map[uuid.UUID]*RunningAgent),
-		a2aContexts:      make(map[uuid.UUID]*A2AContext),
-		threadContexts:   make(map[uuid.UUID]*ThreadContext),
-		cliSessions:      make(map[string]string),
+		invocationRepo:     invocationRepo,
+		threadRepo:         threadRepo,
+		msgRepo:            msgRepo,
+		configSvc:          configSvc,
+		baseAgentSvc:       baseAgentSvc,
+		baseAgentRepo:      baseAgentRepo,
+		tracker:            tracker,
+		workflow:           workflow,
+		workflowRepo:       workflowRepo,
+		projectRepo:        projectRepo,
+		wsHub:              wsHub,
+		defaultAdapter:     defaultAdapter,
+		mentionParser:      mentionParser,
+		contentBlockRepo:   contentBlockRepo,
+		contentBlockBuffer: make([]model.InvocationContentBlock, 0, 20),
+		lastFlush:          time.Now(),
+		runningAgents:      make(map[uuid.UUID]*RunningAgent),
+		a2aContexts:        make(map[uuid.UUID]*A2AContext),
+		threadContexts:     make(map[uuid.UUID]*ThreadContext),
+		cliSessions:        make(map[string]string),
 	}
 
 	// 启动后台清理 goroutine，定期清理超时的 Agent
@@ -189,7 +199,7 @@ func (es *ExecutionService) markInvocationFailed(invocationID uuid.UUID, reason 
 		logError("Failed to update invocation status on timeout", zap.Error(err))
 	}
 
-	es.broadcastStatus(invocation.ThreadID, invocation.ID, "failed", invocation.Role, "")
+	es.broadcastStatus(invocation.ThreadID, invocation.ID, "failed", invocation.Role, "", "")
 }
 
 // SpawnAgent 启动Agent（统一执行入口）
@@ -211,6 +221,7 @@ func (es *ExecutionService) SpawnAgent(ctx context.Context, req *SpawnRequest) (
 		ThreadID:      req.ThreadID,
 		AgentConfigID: config.ID,
 		Role:          config.Role,
+		AgentName:     config.Name, // 存储 Agent 名称，用于历史显示
 		Status:        model.InvocationStatusPending,
 		Input:         req.Input,
 		CreatedAt:     time.Now(),
@@ -241,7 +252,7 @@ func (es *ExecutionService) SpawnAgent(ctx context.Context, req *SpawnRequest) (
 	es.mu.Unlock()
 
 	// 广播状态更新
-	es.broadcastStatus(req.ThreadID, invocation.ID, "started", config.Role, config.Name)
+	es.broadcastStatus(req.ThreadID, invocation.ID, "started", config.Role, config.Name, req.Input)
 
 	// 异步执行Agent
 	go es.executeAgent(agentCtx, invocation, config, baseAgent, req)
@@ -253,6 +264,9 @@ func (es *ExecutionService) SpawnAgent(ctx context.Context, req *SpawnRequest) (
 func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.AgentInvocation, config *model.AgentRoleConfig, baseAgent *model.BaseAgent, req *SpawnRequest) {
 	startTime := time.Now()
 	defer func() {
+		// 确保刷新内容块缓冲区（后台执行支持）
+		es.flushContentBlocks(invocation.ID)
+
 		// 恢复可能的panic
 		if r := recover(); r != nil {
 			err := fmt.Errorf("panic in executeAgent: %v", r)
@@ -273,7 +287,7 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 	if err := es.invocationRepo.Update(ctx, invocation); err != nil {
 		logError("Failed to update invocation status to running", zap.Error(err))
 	}
-	es.broadcastStatus(req.ThreadID, invocation.ID, "running", config.Role, config.Name)
+	es.broadcastStatus(req.ThreadID, invocation.ID, "running", config.Role, config.Name, "")
 
 	// 构建上下文
 	contextStart := time.Now()
@@ -284,6 +298,16 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 		return
 	}
 	logInfo("[PERF] buildContextLayers", zap.Duration("duration", time.Since(contextStart)))
+
+	// 构建完整 prompt 并存储（用于调用日志显示）
+	fullPrompt := es.formatFullPrompt(contextLayers, req.Input)
+	invocation.FullPrompt = fullPrompt
+	if err := es.invocationRepo.Update(ctx, invocation); err != nil {
+		logError("Failed to update invocation with full prompt", zap.Error(err))
+	}
+
+	// 广播完整 prompt 更新（用于前端调用日志显示）
+	es.broadcastFullPrompt(req.ThreadID, invocation.ID, fullPrompt)
 
 	// 获取适配器
 	adapterStart := time.Now()
@@ -355,11 +379,27 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 		logError("Failed to update invocation", zap.Error(err))
 	}
 
-	// 保存输出消息到数据库
-	es.saveAgentMessage(ctx, req.ThreadID, config, output)
+	// 获取累积的内容块
+	var contentBlocks []ContentBlockData
+	es.mu.Lock()
+	if agent, ok := es.runningAgents[invocation.ID]; ok {
+		agent.ContentBlocksMu.Lock()
+		contentBlocks = make([]ContentBlockData, len(agent.AccumulatedContentBlocks))
+		copy(contentBlocks, agent.AccumulatedContentBlocks)
+		agent.ContentBlocksMu.Unlock()
+	}
+	es.mu.Unlock()
+
+	// 保存输出消息到数据库（包含内容块）
+	msg := es.saveAgentMessageWithReturn(ctx, req.ThreadID, config, output, contentBlocks)
+
+	// 广播消息（让前端用真实 ID 更新）
+	if msg != nil {
+		es.broadcastAgentMessage(req.ThreadID, msg, config.Name, string(config.Role))
+	}
 
 	// 广播完成状态
-	es.broadcastStatus(req.ThreadID, invocation.ID, "completed", config.Role, config.Name)
+	es.broadcastStatus(req.ThreadID, invocation.ID, "completed", config.Role, config.Name, "")
 
 	// 检查是否需要路由到下一个Agent
 	es.checkRouting(ctx, req.ThreadID, config, output)
@@ -419,22 +459,85 @@ func (es *ExecutionService) resolveConfigAndBaseAgent(ctx context.Context, req *
 }
 
 // saveAgentMessage 保存Agent消息
-func (es *ExecutionService) saveAgentMessage(ctx context.Context, threadID uuid.UUID, config *model.AgentRoleConfig, output string) {
+func (es *ExecutionService) saveAgentMessage(ctx context.Context, threadID uuid.UUID, config *model.AgentRoleConfig, output string, contentBlocks []ContentBlockData) {
 	metadata, _ := json.Marshal(map[string]string{
 		"agentName": config.Name,
 		"agentRole": string(config.Role),
 	})
+
+	// 序列化内容块
+	var contentBlocksJSON []byte
+	if len(contentBlocks) > 0 {
+		contentBlocksJSON, _ = json.Marshal(contentBlocks)
+	}
+
 	msg := &model.Message{
-		ThreadID:    threadID,
-		Role:        model.MessageRoleAgent,
-		AgentID:     config.ID.String(),
-		Content:     output,
-		MessageType: model.MessageTypeText,
-		Metadata:    metadata,
-		CreatedAt:   time.Now(),
+		ThreadID:     threadID,
+		Role:         model.MessageRoleAgent,
+		AgentID:      config.ID.String(),
+		Content:      output,
+		ContentBlocks: contentBlocksJSON,
+		MessageType:  model.MessageTypeText,
+		Metadata:     metadata,
+		CreatedAt:    time.Now(),
 	}
 	if err := es.msgRepo.Create(ctx, msg); err != nil {
 		logError("Failed to save agent message", zap.Error(err))
+	}
+}
+
+// saveAgentMessageWithReturn 保存Agent消息并返回消息对象（含真实ID）
+func (es *ExecutionService) saveAgentMessageWithReturn(ctx context.Context, threadID uuid.UUID, config *model.AgentRoleConfig, output string, contentBlocks []ContentBlockData) *model.Message {
+	metadata, _ := json.Marshal(map[string]string{
+		"agentName": config.Name,
+		"agentRole": string(config.Role),
+	})
+
+	// 序列化内容块
+	var contentBlocksJSON []byte
+	if len(contentBlocks) > 0 {
+		contentBlocksJSON, _ = json.Marshal(contentBlocks)
+	}
+
+	msg := &model.Message{
+		ThreadID:     threadID,
+		Role:         model.MessageRoleAgent,
+		AgentID:      config.ID.String(),
+		Content:      output,
+		ContentBlocks: contentBlocksJSON,
+		MessageType:  model.MessageTypeText,
+		Metadata:     metadata,
+		CreatedAt:    time.Now(),
+	}
+	if err := es.msgRepo.Create(ctx, msg); err != nil {
+		logError("Failed to save agent message", zap.Error(err))
+		return nil
+	}
+	return msg
+}
+
+// broadcastAgentMessage 广播Agent消息（让前端用真实ID更新）
+func (es *ExecutionService) broadcastAgentMessage(threadID uuid.UUID, msg *model.Message, agentName, agentRole string) {
+	if es.wsHub != nil {
+		// 解析内容块
+		var contentBlocks []ContentBlockData
+		if len(msg.ContentBlocks) > 0 {
+			json.Unmarshal(msg.ContentBlocks, &contentBlocks)
+		}
+
+		es.wsHub.BroadcastToThread(threadID.String(), ws.WSMessage{
+			Type:      "agent_message",
+			ThreadID:  threadID.String(),
+			Timestamp: msg.CreatedAt.UnixMilli(),
+			Payload: map[string]interface{}{
+				"messageId":     msg.ID.String(),
+				"agentId":       msg.AgentID,
+				"content":       msg.Content,
+				"contentBlocks": contentBlocks,
+				"agentName":     agentName,
+				"agentRole":     agentRole,
+			},
+		})
 	}
 }
 
@@ -478,7 +581,7 @@ func (es *ExecutionService) handleAgentError(ctx context.Context, invocation *mo
 		logError("Failed to update invocation on error", zap.Error(updateErr))
 	}
 
-	es.broadcastStatus(invocation.ThreadID, invocation.ID, "failed", invocation.Role, "")
+	es.broadcastStatus(invocation.ThreadID, invocation.ID, "failed", invocation.Role, "", "")
 }
 
 // loadThreadContext 预加载 Thread 上下文，一次性获取所有需要的数据
@@ -1228,19 +1331,24 @@ func (es *ExecutionService) CancelAgent(ctx context.Context, invocationID uuid.U
 }
 
 // broadcastStatus 广播状态
-func (es *ExecutionService) broadcastStatus(threadID, invocationID uuid.UUID, status string, role model.AgentRole, agentName string) {
+func (es *ExecutionService) broadcastStatus(threadID, invocationID uuid.UUID, status string, role model.AgentRole, agentName string, input string) {
 	logInfo("broadcastStatus called", zap.String("threadId", threadID.String()), zap.String("invocationId", invocationID.String()), zap.String("status", status))
 	if es.wsHub != nil {
+		payload := map[string]interface{}{
+			"invocationId": invocationID.String(),
+			"status":       status,
+			"role":         string(role),
+			"agentName":    agentName,
+		}
+		// 仅在 started 状态时包含 input
+		if status == "started" && input != "" {
+			payload["input"] = input
+		}
 		es.wsHub.BroadcastToThread(threadID.String(), ws.WSMessage{
 			Type:      "agent_status",
 			ThreadID:  threadID.String(),
 			Timestamp: time.Now().UnixMilli(),
-			Payload: map[string]interface{}{
-				"invocationId": invocationID.String(),
-				"status":       status,
-				"role":         string(role),
-				"agentName":    agentName,
-			},
+			Payload:   payload,
 		})
 	}
 }
@@ -1260,6 +1368,107 @@ func (es *ExecutionService) broadcastChunk(threadID, invocationID uuid.UUID, chu
 			agent.OutputMu.Lock()
 			agent.AccumulatedOutput += chunk.Content
 			agent.OutputMu.Unlock()
+		}
+
+		// 累积结构化内容块（用于持久化）
+		agent.ContentBlocksMu.Lock()
+		now := time.Now().UnixMilli()
+		switch chunk.Type {
+		case ChunkTypeThinking:
+			// 思考块：智能累积或追加
+			if len(agent.AccumulatedContentBlocks) > 0 {
+				lastBlock := &agent.AccumulatedContentBlocks[len(agent.AccumulatedContentBlocks)-1]
+				if lastBlock.Type == "thinking" && lastBlock.Status == "streaming" {
+					// 追加到最后一个思考块
+					lastBlock.Content += chunk.Content
+					if chunk.Done {
+						lastBlock.Status = "success"
+						lastBlock.Done = true
+					}
+					agent.ContentBlocksMu.Unlock()
+					es.mu.Unlock()
+					goto broadcast
+				}
+			}
+			// 只有在有内容或不是 Done 标记时才创建新块
+			if chunk.Content != "" || !chunk.Done {
+				status := "streaming"
+				if chunk.Done {
+					status = "success"
+				}
+				agent.AccumulatedContentBlocks = append(agent.AccumulatedContentBlocks, ContentBlockData{
+					ID:        fmt.Sprintf("thinking-%d-%d", invocationID.ID(), now),
+					Type:      "thinking",
+					Content:   chunk.Content,
+					Timestamp: now,
+					Status:    status,
+					Done:      chunk.Done,
+				})
+			}
+		case ChunkTypeText:
+			// 文本块：智能累积
+			if len(agent.AccumulatedContentBlocks) > 0 {
+				lastBlock := &agent.AccumulatedContentBlocks[len(agent.AccumulatedContentBlocks)-1]
+				if lastBlock.Type == "text" {
+					lastBlock.Content += chunk.Content
+					agent.ContentBlocksMu.Unlock()
+					es.mu.Unlock()
+					goto broadcast
+				}
+			}
+			// 创建新的文本块
+			agent.AccumulatedContentBlocks = append(agent.AccumulatedContentBlocks, ContentBlockData{
+				ID:        fmt.Sprintf("text-%d-%d", invocationID.ID(), now),
+				Type:      "text",
+				Content:   chunk.Content,
+				Timestamp: now,
+			})
+		case ChunkTypeToolUse:
+			// 工具调用开始
+			agent.AccumulatedContentBlocks = append(agent.AccumulatedContentBlocks, ContentBlockData{
+				ID:        fmt.Sprintf("tool-%s", chunk.ToolID),
+				Type:      "tool_use",
+				Timestamp: now,
+				Status:    "streaming",
+				ToolName:  chunk.ToolName,
+				ToolID:    chunk.ToolID,
+				Input:     chunk.ToolInput,
+				StartedAt: now,
+			})
+		case ChunkTypeToolResult:
+			// 工具调用结果：更新对应的工具块
+			for i := len(agent.AccumulatedContentBlocks) - 1; i >= 0; i-- {
+				if agent.AccumulatedContentBlocks[i].Type == "tool_use" && agent.AccumulatedContentBlocks[i].ToolID == chunk.ToolID {
+					agent.AccumulatedContentBlocks[i].Output = chunk.Content
+					agent.AccumulatedContentBlocks[i].IsError = chunk.IsError
+					agent.AccumulatedContentBlocks[i].Status = "success"
+					agent.AccumulatedContentBlocks[i].CompletedAt = now
+					break
+				}
+			}
+		}
+		agent.ContentBlocksMu.Unlock()
+
+		// 增量持久化：将内容块写入数据库（后台执行支持）
+		if es.contentBlockRepo != nil && len(agent.AccumulatedContentBlocks) > 0 {
+			lastBlock := agent.AccumulatedContentBlocks[len(agent.AccumulatedContentBlocks)-1]
+			// 转换为持久化模型
+			persistBlock := model.InvocationContentBlock{
+				ID:          lastBlock.ID,
+				InvocationID: invocationID.String(),
+				Type:        lastBlock.Type,
+				Content:     lastBlock.Content,
+				Timestamp:   lastBlock.Timestamp,
+				Status:      lastBlock.Status,
+				ToolName:    lastBlock.ToolName,
+				ToolID:      lastBlock.ToolID,
+				Input:       lastBlock.Input,
+				Output:      lastBlock.Output,
+				IsError:     lastBlock.IsError,
+				StartedAt:   lastBlock.StartedAt,
+				CompletedAt: lastBlock.CompletedAt,
+			}
+			es.addToContentBlockBuffer(persistBlock, invocationID)
 		}
 
 		// 工具调用开始：增加计数并启动心跳
@@ -1295,6 +1504,8 @@ func (es *ExecutionService) broadcastChunk(threadID, invocationID uuid.UUID, chu
 	}
 	es.mu.Unlock()
 
+broadcast:
+
 	if es.wsHub != nil {
 		// 处理 Usage 类型的 Chunk
 		if chunk.Type == ChunkTypeUsage && chunk.Usage != nil {
@@ -1327,6 +1538,11 @@ func (es *ExecutionService) broadcastChunk(threadID, invocationID uuid.UUID, chu
 			"agentName":    agentName,
 		}
 
+		// thinking 完成：发送 Done 标记
+		if chunk.Type == ChunkTypeThinking && chunk.Done {
+			payload["done"] = true
+		}
+
 		// 添加工具相关信息
 		if chunk.Type == ChunkTypeToolUse {
 			payload["toolName"] = chunk.ToolName
@@ -1334,6 +1550,13 @@ func (es *ExecutionService) broadcastChunk(threadID, invocationID uuid.UUID, chu
 			if chunk.ToolInput != nil {
 				payload["toolInput"] = chunk.ToolInput
 			}
+		}
+
+		// 工具结果：包含工具执行输出
+		if chunk.Type == ChunkTypeToolResult {
+			payload["toolId"] = chunk.ToolID
+			payload["toolOutput"] = chunk.Content
+			payload["isError"] = chunk.IsError
 		}
 
 		es.wsHub.BroadcastToThread(threadID.String(), ws.WSMessage{
@@ -1422,6 +1645,90 @@ func (es *ExecutionService) GetRunningAgentsForThread(threadID uuid.UUID) []Runn
 		}
 	}
 	return states
+}
+
+// GetRunningInvocationsWithContentBlocks 获取运行中的 invocation 及其内容块（后台执行支持）
+func (es *ExecutionService) GetRunningInvocationsWithContentBlocks(ctx context.Context, threadID uuid.UUID) []ws.InvocationRecoveryData {
+	es.mu.RLock()
+	defer es.mu.RUnlock()
+
+	var result []ws.InvocationRecoveryData
+
+	for _, agent := range es.runningAgents {
+		if agent.ThreadID == threadID {
+			// 获取累积的内容块
+			agent.ContentBlocksMu.Lock()
+			contentBlocks := make([]ContentBlockData, len(agent.AccumulatedContentBlocks))
+			copy(contentBlocks, agent.AccumulatedContentBlocks)
+			agent.ContentBlocksMu.Unlock()
+
+			// 如果没有内存中的内容块，尝试从数据库恢复
+			if len(contentBlocks) == 0 && es.contentBlockRepo != nil {
+				blocks, err := es.contentBlockRepo.FindByInvocation(ctx, agent.InvocationID)
+				if err == nil && len(blocks) > 0 {
+					// 转换为 ContentBlockData
+					for _, b := range blocks {
+						contentBlocks = append(contentBlocks, ContentBlockData{
+							ID:          b.ID,
+							Type:        b.Type,
+							Content:     b.Content,
+							Timestamp:   b.Timestamp,
+							Status:      b.Status,
+							ToolName:    b.ToolName,
+							ToolID:      b.ToolID,
+							Input:       b.Input,
+							Output:      b.Output,
+							IsError:     b.IsError,
+							StartedAt:   b.StartedAt,
+							CompletedAt: b.CompletedAt,
+						})
+					}
+				}
+			}
+
+			result = append(result, ws.InvocationRecoveryData{
+				InvocationID:  agent.InvocationID.String(),
+				AgentID:       agent.AgentConfig.ID.String(),
+				AgentName:     agent.AgentConfig.Name,
+				Status:        "running",
+				ContentBlocks: contentBlocks,
+			})
+		}
+	}
+
+	return result
+}
+
+// GetRecentlyCompletedInvocations 获取最近完成的 invocation（用于 WebSocket 重连状态同步）
+func (es *ExecutionService) GetRecentlyCompletedInvocations(ctx context.Context, threadID uuid.UUID, sinceMinutes int) []ws.InvocationRecoveryData {
+	if es.invocationRepo == nil {
+		logInfo("GetRecentlyCompletedInvocations: invocationRepo is nil")
+		return nil
+	}
+
+	// 查询最近完成的 invocation
+	invocations, err := es.invocationRepo.FindRecentlyCompletedByThread(ctx, threadID, sinceMinutes)
+	if err != nil {
+		logError("GetRecentlyCompletedInvocations: failed to query", zap.Error(err))
+		return nil
+	}
+
+	logInfo("GetRecentlyCompletedInvocations: found invocations",
+		zap.String("threadID", threadID.String()),
+		zap.Int("count", len(invocations)))
+
+	var result []ws.InvocationRecoveryData
+	for _, inv := range invocations {
+		result = append(result, ws.InvocationRecoveryData{
+			InvocationID:  inv.ID.String(),
+			AgentID:       inv.AgentConfigID.String(),
+			AgentName:     string(inv.Role),
+			Status:        string(inv.Status),
+			ContentBlocks: nil, // 已完成的 invocation 不需要内容块
+		})
+	}
+
+	return result
 }
 
 // GetInvocationStatus 获取单个调用的状态
@@ -1702,4 +2009,109 @@ func (es *ExecutionService) checkMergeCondition(threadID uuid.UUID, waitFor []st
 	}
 
 	return true
+}
+
+// flushContentBlocks 刷新内容块缓冲区到数据库（增量持久化）
+// 节流策略：每 10 个块或每 500ms 刷新一次
+func (es *ExecutionService) flushContentBlocks(invocationID uuid.UUID) {
+	es.contentBlockFlushMu.Lock()
+	defer es.contentBlockFlushMu.Unlock()
+
+	if len(es.contentBlockBuffer) == 0 {
+		return
+	}
+
+	// 取出缓冲区内容
+	blocks := es.contentBlockBuffer
+	es.contentBlockBuffer = make([]model.InvocationContentBlock, 0, 20)
+	es.lastFlush = time.Now()
+
+	// 异步写入数据库（不阻塞主流程）
+	go func() {
+		if es.contentBlockRepo == nil {
+			return
+		}
+		if err := es.contentBlockRepo.BatchUpsert(context.Background(), blocks); err != nil {
+			logError("flushContentBlocks: failed to persist content blocks",
+				zap.Error(err),
+				zap.String("invocationID", invocationID.String()),
+				zap.Int("blockCount", len(blocks)))
+		} else {
+			logInfo("flushContentBlocks: persisted content blocks",
+				zap.String("invocationID", invocationID.String()),
+				zap.Int("blockCount", len(blocks)))
+		}
+	}()
+}
+
+// addToContentBlockBuffer 添加内容块到缓冲区（带节流）
+func (es *ExecutionService) addToContentBlockBuffer(block model.InvocationContentBlock, invocationID uuid.UUID) {
+	es.contentBlockFlushMu.Lock()
+	es.contentBlockBuffer = append(es.contentBlockBuffer, block)
+	bufferLen := len(es.contentBlockBuffer)
+	timeSinceFlush := time.Since(es.lastFlush)
+	es.contentBlockFlushMu.Unlock()
+
+	// 节流策略：每 10 个块或每 500ms 刷新一次
+	if bufferLen >= 10 || timeSinceFlush >= 500*time.Millisecond {
+		es.flushContentBlocks(invocationID)
+	}
+}
+
+// formatFullPrompt 格式化完整提示词（用于调用日志显示）
+// 格式与 ClaudeAdapter.buildPromptFromRequest 保持一致
+func (es *ExecutionService) formatFullPrompt(layers *ContextLayers, input string) string {
+	var sb strings.Builder
+
+	if layers != nil {
+		// Layer 0: 系统提示
+		if layers.Layer0 != "" {
+			sb.WriteString("<system>\n")
+			sb.WriteString(layers.Layer0)
+			sb.WriteString("\n</system>\n\n")
+		}
+
+		// Layer 1: Thread历史
+		if layers.Layer1 != "" {
+			sb.WriteString("<conversation>\n")
+			sb.WriteString(layers.Layer1)
+			sb.WriteString("\n</conversation>\n\n")
+		}
+
+		// Layer 2: 工作产物
+		if layers.Layer2 != "" {
+			sb.WriteString("<artifacts>\n")
+			sb.WriteString(layers.Layer2)
+			sb.WriteString("\n</artifacts>\n\n")
+		}
+
+		// Layer 3: 环境信息
+		if layers.Layer3 != "" {
+			sb.WriteString("<environment>\n")
+			sb.WriteString(layers.Layer3)
+			sb.WriteString("\n</environment>\n\n")
+		}
+	}
+
+	// 用户输入
+	sb.WriteString("<user>\n")
+	sb.WriteString(input)
+	sb.WriteString("\n</user>\n")
+
+	return sb.String()
+}
+
+// broadcastFullPrompt 广播完整 prompt 更新（用于前端调用日志显示）
+func (es *ExecutionService) broadcastFullPrompt(threadID, invocationID uuid.UUID, fullPrompt string) {
+	if es.wsHub != nil {
+		es.wsHub.BroadcastToThread(threadID.String(), ws.WSMessage{
+			Type:      "invocation_full_prompt",
+			ThreadID:  threadID.String(),
+			Timestamp: time.Now().UnixMilli(),
+			Payload: map[string]interface{}{
+				"invocationId": invocationID.String(),
+				"fullPrompt":   fullPrompt,
+			},
+		})
+	}
 }

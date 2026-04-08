@@ -1,5 +1,5 @@
 // isdp/web/src/pages/thread/InputArea.tsx
-import React, { memo, useRef, useState, useCallback } from 'react';
+import React, { memo, useRef, useState, useCallback, useEffect } from 'react';
 import { Input, Button, Space, Card, List, Avatar, Spin } from 'antd';
 import { SendOutlined, RobotOutlined } from '@ant-design/icons';
 import type { AgentRole } from '@/types';
@@ -33,10 +33,12 @@ export const InputArea: React.FC<InputAreaProps> = memo(({
   onSpawnAgent,
 }) => {
   const inputRef = useRef<any>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const [inputValue, setInputValue] = useState('');
   const [mentionListVisible, setMentionListVisible] = useState(false);
   const [mentionFilter, setMentionFilter] = useState('');
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
 
   const handleSend = useCallback(() => {
     if (!inputValue.trim()) return;
@@ -78,13 +80,6 @@ export const InputArea: React.FC<InputAreaProps> = memo(({
     }
   }, [inputValue, selectedAgentId, agentOptions, onSend, onSpawnAgent]);
 
-  const handleKeyPress = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  }, [handleSend]);
-
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
     setInputValue(value);
@@ -120,6 +115,60 @@ export const InputArea: React.FC<InputAreaProps> = memo(({
     opt.role.toLowerCase().includes(mentionFilter.toLowerCase())
   );
 
+  // 当过滤列表变化时，重置高亮索引
+  useEffect(() => {
+    setHighlightedIndex(0);
+  }, [filteredAgents.length]);
+
+  // 滚动到高亮项
+  useEffect(() => {
+    if (mentionListVisible && listRef.current) {
+      const items = listRef.current.querySelectorAll('.mention-list-item');
+      if (items[highlightedIndex]) {
+        items[highlightedIndex].scrollIntoView({ block: 'nearest' });
+      }
+    }
+  }, [highlightedIndex, mentionListVisible]);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    // 如果 mention 列表可见，处理上下键和 Enter 选择
+    if (mentionListVisible && filteredAgents.length > 0) {
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setHighlightedIndex(prev =>
+          prev > 0 ? prev - 1 : filteredAgents.length - 1
+        );
+        return;
+      }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setHighlightedIndex(prev =>
+          prev < filteredAgents.length - 1 ? prev + 1 : 0
+        );
+        return;
+      }
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        const agent = filteredAgents[highlightedIndex];
+        if (agent) {
+          selectMention(agent.id, agent.role as AgentRole, agent.name);
+        }
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setMentionListVisible(false);
+        return;
+      }
+    }
+
+    // 正常发送逻辑
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  }, [mentionListVisible, filteredAgents, highlightedIndex, selectMention, handleSend]);
+
   return (
     <div className="thread-input">
       <div style={{ position: 'relative', flex: 1 }}>
@@ -127,7 +176,7 @@ export const InputArea: React.FC<InputAreaProps> = memo(({
           ref={inputRef}
           value={inputValue}
           onChange={handleInputChange}
-          onKeyPress={handleKeyPress}
+          onKeyDown={handleKeyDown}
           placeholder={placeholder}
           autoSize={{ minRows: 2, maxRows: 6 }}
         />
@@ -144,33 +193,45 @@ export const InputArea: React.FC<InputAreaProps> = memo(({
               zIndex: 1000,
             }}
           >
-            {loadingContext ? (
-              <div style={{ padding: 16, textAlign: 'center' }}>
-                <Spin size="small" />
-                <span style={{ marginLeft: 8 }}>加载中...</span>
-              </div>
-            ) : agentOptions.length === 0 ? (
-              <div style={{ padding: 16, textAlign: 'center', color: '#999' }}>
-                当前团队没有可用的 Agent
-              </div>
-            ) : (
-              <List
-                size="small"
-                dataSource={filteredAgents}
-                renderItem={(opt) => (
-                  <List.Item
-                    className="mention-list-item"
-                    style={{ cursor: 'pointer', padding: '8px 12px' }}
-                    onClick={() => selectMention(opt.id, opt.role as AgentRole, opt.name)}
-                  >
-                    <Space>
-                      <Avatar size="small" icon={<RobotOutlined />} />
-                      <span>{opt.label}</span>
-                    </Space>
-                  </List.Item>
-                )}
-              />
-            )}
+            <div ref={listRef}>
+              {loadingContext ? (
+                <div style={{ padding: 16, textAlign: 'center' }}>
+                  <Spin size="small" />
+                  <span style={{ marginLeft: 8 }}>加载中...</span>
+                </div>
+              ) : agentOptions.length === 0 ? (
+                <div style={{ padding: 16, textAlign: 'center', color: '#999' }}>
+                  当前团队没有可用的 Agent
+                </div>
+              ) : filteredAgents.length === 0 ? (
+                <div style={{ padding: 16, textAlign: 'center', color: '#999' }}>
+                  没有匹配的 Agent
+                </div>
+              ) : (
+                <List
+                  size="small"
+                  dataSource={filteredAgents}
+                  renderItem={(opt, index) => (
+                    <List.Item
+                      className="mention-list-item"
+                      style={{
+                        cursor: 'pointer',
+                        padding: '8px 12px',
+                        backgroundColor: index === highlightedIndex ? 'var(--color-primary-opacity-10)' : 'transparent',
+                        borderRadius: '4px',
+                      }}
+                      onClick={() => selectMention(opt.id, opt.role as AgentRole, opt.name)}
+                      onMouseEnter={() => setHighlightedIndex(index)}
+                    >
+                      <Space>
+                        <Avatar size="small" icon={<RobotOutlined />} />
+                        <span>{opt.label}</span>
+                      </Space>
+                    </List.Item>
+                  )}
+                />
+              )}
+            </div>
           </Card>
         )}
       </div>

@@ -127,11 +127,27 @@ func (h *ThreadHandler) SetPhase(c *gin.Context) {
 	c.Status(http.StatusOK)
 }
 
+// Delete 删除Thread
+func (h *ThreadHandler) Delete(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	if err := h.service.Delete(c.Request.Context(), id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
 // RegisterRoutes 注册路由
 func (h *ThreadHandler) RegisterRoutes(r *gin.RouterGroup) {
 	threads := r.Group("/threads")
 	{
 		threads.GET("/:id", h.Get)
+		threads.DELETE("/:id", h.Delete)
 		threads.PUT("/:id/status", h.UpdateStatus)
 		threads.PUT("/:id/phase", h.SetPhase)
 		threads.GET("/project/:projectId", h.ListByProject)

@@ -83,7 +83,7 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionReq
 		"--print",
 		"--output-format", "stream-json",
 		"--verbose",
-		"--include-partial-messages", // 启用真正的流式输出（增量 chunks）
+		"--include-partial-messages",     // 启用真正的流式输出（增量 chunks）
 		"--dangerously-skip-permissions", // 跳过权限检查，允许 Agent 完全访问项目目录
 	}
 
@@ -379,13 +379,13 @@ func (a *ClaudeAdapter) parseStreamJSONLine(line string, isStreaming bool) []Chu
 		Type    string `json:"type"`
 		Subtype string `json:"subtype"`
 		Event   struct {
-			Type         string `json:"type"`
-			Index        int    `json:"index"`
-			Delta        struct {
-				Type        string                 `json:"type"`
-				Text        string                 `json:"text"`
-				Thinking    string                 `json:"thinking"`
-				PartialJSON string                 `json:"partial_json"`
+			Type  string `json:"type"`
+			Index int    `json:"index"`
+			Delta struct {
+				Type        string `json:"type"`
+				Text        string `json:"text"`
+				Thinking    string `json:"thinking"`
+				PartialJSON string `json:"partial_json"`
 			} `json:"delta"`
 			ContentBlock struct {
 				Type  string                 `json:"type"`
@@ -396,23 +396,26 @@ func (a *ClaudeAdapter) parseStreamJSONLine(line string, isStreaming bool) []Chu
 		} `json:"event"`
 		Message struct {
 			Content []struct {
-				Type   string                 `json:"type"`
-				Text   string                 `json:"text"`
-				Name   string                 `json:"name"`
-				ID     string                 `json:"id"`
-				Input  map[string]interface{} `json:"input"`
+				Type       string                 `json:"type"`
+				Text       string                 `json:"text"`
+				Name       string                 `json:"name"`
+				ID         string                 `json:"id"`
+				Input      map[string]interface{} `json:"input"`
+				ToolUseID  string                 `json:"tool_use_id"` // tool_result 的关联ID
+				ContentStr string                 `json:"content"`     // tool_result 的内容（可能是 string 或 array）
+				IsError    bool                   `json:"is_error"`    // tool_result 是否出错
 			} `json:"content"`
 			Usage *struct {
-				InputTokens           int64   `json:"input_tokens"`
-				OutputTokens          int64   `json:"output_tokens"`
-				CacheReadInputTokens  int64   `json:"cache_read_input_tokens"`
+				InputTokens              int64 `json:"input_tokens"`
+				OutputTokens             int64 `json:"output_tokens"`
+				CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
 				CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
 			} `json:"usage"`
 		} `json:"message"`
 		Usage struct {
-			InputTokens           int64   `json:"input_tokens"`
-			OutputTokens          int64   `json:"output_tokens"`
-			CacheReadInputTokens  int64   `json:"cache_read_input_tokens"`
+			InputTokens              int64 `json:"input_tokens"`
+			OutputTokens             int64 `json:"output_tokens"`
+			CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
 			CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
 		} `json:"usage"`
 		Delta struct {
@@ -420,11 +423,11 @@ func (a *ClaudeAdapter) parseStreamJSONLine(line string, isStreaming bool) []Chu
 				OutputTokens int64 `json:"output_tokens"`
 			} `json:"usage"`
 		} `json:"delta"`
-		Result   string  `json:"result"`
-		CostUsd  float64 `json:"cost_usd"`
-		DurationMs int64  `json:"duration_ms"`
-		DurationApiMs int64 `json:"duration_api_ms"`
-		NumTurns int     `json:"num_turns"`
+		Result        string  `json:"result"`
+		CostUsd       float64 `json:"cost_usd"`
+		DurationMs    int64   `json:"duration_ms"`
+		DurationApiMs int64   `json:"duration_api_ms"`
+		NumTurns      int     `json:"num_turns"`
 	}
 
 	if err := json.Unmarshal([]byte(line), &msg); err != nil {
@@ -439,9 +442,10 @@ func (a *ClaudeAdapter) parseStreamJSONLine(line string, isStreaming bool) []Chu
 			// 内容块开始
 			switch msg.Event.ContentBlock.Type {
 			case "thinking":
+				// 思考块开始，发送空内容让前端初始化
 				chunks = append(chunks, Chunk{
 					Type:    ChunkTypeThinking,
-					Content: "思考中...",
+					Content: "",
 				})
 			case "tool_use":
 				chunks = append(chunks, Chunk{
@@ -461,9 +465,22 @@ func (a *ClaudeAdapter) parseStreamJSONLine(line string, isStreaming bool) []Chu
 					})
 				}
 			case "thinking_delta":
-				// 思考过程增量（可选：可以累积并显示）
-				// 暂不返回，避免干扰主要输出
+				// 思考过程增量 - 发送实际的思考内容
+				if msg.Event.Delta.Thinking != "" {
+					chunks = append(chunks, Chunk{
+						Type:    ChunkTypeThinking,
+						Content: msg.Event.Delta.Thinking,
+					})
+				}
 			}
+		case "content_block_stop":
+			// 内容块结束 - 用于标记 thinking 完成
+			// 发送一个带 Done 标记的空 thinking 块
+			chunks = append(chunks, Chunk{
+				Type:    ChunkTypeThinking,
+				Content: "",
+				Done:    true,
+			})
 		}
 	case "message_start":
 		// 解析 message.usage 字段（input tokens）
@@ -471,9 +488,9 @@ func (a *ClaudeAdapter) parseStreamJSONLine(line string, isStreaming bool) []Chu
 			chunks = append(chunks, Chunk{
 				Type: ChunkTypeUsage,
 				Usage: &TokenUsage{
-					InputTokens:           msg.Message.Usage.InputTokens,
-					CacheReadTokens:       msg.Message.Usage.CacheReadInputTokens,
-					CacheCreationTokens:   msg.Message.Usage.CacheCreationInputTokens,
+					InputTokens:         msg.Message.Usage.InputTokens,
+					CacheReadTokens:     msg.Message.Usage.CacheReadInputTokens,
+					CacheCreationTokens: msg.Message.Usage.CacheCreationInputTokens,
 				},
 			})
 		}
@@ -508,8 +525,24 @@ func (a *ClaudeAdapter) parseStreamJSONLine(line string, isStreaming bool) []Chu
 			}
 		}
 	case "user":
-		// 用户消息（工具结果）
-		// 这里包含工具执行结果，可以用来更新进度
+		// 用户消息（包含工具执行结果）
+		// 解析 tool_result 内容块
+		for _, content := range msg.Message.Content {
+			if content.Type == "tool_result" {
+				// 提取结果内容
+				resultContent := content.ContentStr
+				if resultContent == "" && content.Text != "" {
+					resultContent = content.Text
+				}
+
+				chunks = append(chunks, Chunk{
+					Type:    ChunkTypeToolResult,
+					ToolID:  content.ToolUseID,
+					Content: resultContent,
+					IsError: content.IsError,
+				})
+			}
+		}
 	case "result":
 		// 最终结果（非增量模式下使用）
 		// 在增量模式下忽略，避免重复
@@ -525,14 +558,14 @@ func (a *ClaudeAdapter) parseStreamJSONLine(line string, isStreaming bool) []Chu
 			chunks = append(chunks, Chunk{
 				Type: ChunkTypeUsage,
 				Usage: &TokenUsage{
-					InputTokens:           msg.Usage.InputTokens,
-					OutputTokens:          msg.Usage.OutputTokens,
-					CacheReadTokens:       msg.Usage.CacheReadInputTokens,
-					CacheCreationTokens:   msg.Usage.CacheCreationInputTokens,
-					CostUsd:               msg.CostUsd,
-					DurationMs:            msg.DurationMs,
-					DurationApiMs:         msg.DurationApiMs,
-					NumTurns:              msg.NumTurns,
+					InputTokens:         msg.Usage.InputTokens,
+					OutputTokens:        msg.Usage.OutputTokens,
+					CacheReadTokens:     msg.Usage.CacheReadInputTokens,
+					CacheCreationTokens: msg.Usage.CacheCreationInputTokens,
+					CostUsd:             msg.CostUsd,
+					DurationMs:          msg.DurationMs,
+					DurationApiMs:       msg.DurationApiMs,
+					NumTurns:            msg.NumTurns,
 				},
 			})
 		}

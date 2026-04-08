@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"cd /d D:\\\\Tools\\\\ASDP_gittee\\\\isdp\\\\isdp\\\\web && npm run lint 2>&1 | head -30\",\"description\":\"Check for lint errors in frontend\"}",
+  "error": "Exit code 1\n/usr/bin/bash: line 1: cd: too many arguments",
+  "timestamp": "2026-04-07T17:03:07.477Z",
+  "retry_count": 1
+}

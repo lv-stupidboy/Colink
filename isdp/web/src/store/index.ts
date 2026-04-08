@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
-import type { Thread, Message, AgentInvocation, AgentConfig, Phase, AgentRole, Project, WorkflowTemplate, SandboxServer } from '@/types';
+import type { Thread, Message, AgentInvocation, AgentConfig, Phase, AgentRole, Project, WorkflowTemplate, SandboxServer, MessageContentBlock } from '@/types';
 import type { TokenUsage, TaskProgress } from '@/types/status';
 import api from '@/api/client';
 
@@ -14,12 +14,13 @@ interface AppState {
   // 消息列表
   messages: Message[];
 
-  // 流式消息状态（简化：只追踪当前活跃的流式输出）
+  // 流式消息状态
   isStreaming: boolean;
-  streamingContent: string;
   streamingAgentId: string | null;
   streamingAgentName: string | null;
   streamingInvocationId: string | null;
+  // 流式内容块（按返回顺序追加，thinking/text 智能累积）
+  streamingContentBlocks: MessageContentBlock[];
 
   // 当前进度状态（简化：只追踪当前活跃 agent）
   progressStatus: 'thinking' | 'tool_use' | 'generating' | 'idle';
@@ -71,6 +72,12 @@ interface AppState {
 
   // 已完成的 Agent 历史
   completedAgents: AgentInvocation[];
+
+  // 可收缩面板默认状态
+  collapsibleDefaults: {
+    toolOutput: 'expanded' | 'collapsed';
+    thinking: 'expanded' | 'collapsed';
+  };
 }
 
 interface AppActions {
@@ -99,7 +106,16 @@ interface AppActions {
   addMessage: (message: Message) => void;
 
   // 更新Agent状态
-  updateAgentStatus: (invocationId: string, status: string, agentName?: string) => void;
+  updateAgentStatus: (invocationId: string, status: string, agentName?: string, input?: string) => void;
+
+  // 更新 invocation 的完整 prompt
+  updateInvocationFullPrompt: (invocationId: string, fullPrompt: string) => void;
+
+  // 恢复 invocation 状态（后台执行支持）
+  recoverInvocationState: (invocationId: string, contentBlocks: MessageContentBlock[], status: string, agentId?: string, agentName?: string) => void;
+
+  // 更新 invocation 状态（后台执行完成状态同步）
+  updateInvocationStatus: (invocationId: string, status: string, agentId?: string, agentName?: string) => void;
 
   // 设置WebSocket连接状态
   setWsConnected: (connected: boolean) => void;
@@ -128,11 +144,20 @@ interface AppActions {
   // 获取过滤后的Agent列表（基于Agent团队）
   getFilteredAgents: () => AgentConfig[];
 
-  // 更新流式消息（实时输出）
+  // 更新流式消息（实时输出）- 保留用于文本累积
   updateStreamingMessage: (invocationId: string, chunk: string, agentId: string, agentName?: string) => void;
 
   // 完成流式消息（转为正式消息）
   finalizeStreamingMessage: (invocationId: string) => void;
+
+  // 追加内容块（思考/工具调用/文本，按顺序）
+  appendContentBlock: (invocationId: string, block: MessageContentBlock) => void;
+
+  // 更新内容块（如工具调用状态变化）
+  updateContentBlock: (invocationId: string, blockId: string, update: Partial<MessageContentBlock>) => void;
+
+  // 用真实ID替换临时消息ID（WebSocket收到agent_message时）
+  replaceMessageId: (tempId: string, realId: string) => void;
 
   // 更新进度状态
   updateProgress: (invocationId: string, status: string, toolName?: string, toolInput?: Record<string, unknown>) => void;
@@ -158,18 +183,21 @@ interface AppActions {
   updateAgentUsage: (invocationId: string, usage: TokenUsage) => void;
   updateAgentTaskProgress: (invocationId: string, progress: TaskProgress) => void;
   clearAgentUsage: (invocationId: string) => void;
+
+  // 可收缩面板默认状态 actions
+  setCollapsibleDefaults: (type: 'toolOutput' | 'thinking', state: 'expanded' | 'collapsed') => void;
 }
 
 const initialState: AppState = {
   currentProjectId: null,
   currentThread: null,
   messages: [],
-  // 简化的流式状态
+  // 流式状态
   isStreaming: false,
-  streamingContent: '',
   streamingAgentId: null,
   streamingAgentName: null,
   streamingInvocationId: null,
+  streamingContentBlocks: [],
   // 简化的进度状态
   progressStatus: 'idle',
   progressToolName: null,
@@ -199,6 +227,11 @@ const initialState: AppState = {
   agentTaskProgress: {},
   // 已完成的 Agent 历史
   completedAgents: [],
+  // 可收缩面板默认状态
+  collapsibleDefaults: {
+    toolOutput: 'collapsed',
+    thinking: 'collapsed',
+  },
 };
 
 export const useAppStore = create<AppState & AppActions>()(
@@ -217,10 +250,10 @@ export const useAppStore = create<AppState & AppActions>()(
         messages: [],
         // 重置流式状态
         isStreaming: false,
-        streamingContent: '',
         streamingAgentId: null,
         streamingAgentName: null,
         streamingInvocationId: null,
+        streamingContentBlocks: [],
         // 重置进度状态
         progressStatus: 'idle',
         progressToolName: null,
@@ -236,10 +269,53 @@ export const useAppStore = create<AppState & AppActions>()(
           api.invocations.list(threadId),
         ]);
 
+        // 构建已完成的 invocation ID 集合
+        const completedInvocationIds = new Set(
+          (invocations || [])
+            .filter((i: AgentInvocation) => i.status === 'completed' || i.status === 'failed' || i.status === 'interrupted')
+            .map((i: AgentInvocation) => i.id)
+        );
+
+        // 更新消息中已完成的 content blocks 状态
+        const updatedMessages = (messages || []).map((msg: Message) => {
+          if (msg.contentBlocks && msg.contentBlocks.length > 0) {
+            // 检查消息关联的 invocation 是否已完成
+            // 通过 agentId 或消息中的 metadata 判断
+            const msgInvocationId = msg.metadata?.invocationId as string | undefined;
+            const isCompleted = msgInvocationId && completedInvocationIds.has(msgInvocationId);
+
+            if (isCompleted) {
+              // 更新 content blocks 的状态（只有 thinking 和 tool_use 有 status）
+              const updatedBlocks = msg.contentBlocks.map(block => {
+                if ((block.type === 'thinking' || block.type === 'tool_use') && 'status' in block && block.status === 'streaming') {
+                  return {
+                    ...block,
+                    status: 'success' as const,
+                  };
+                }
+                return block;
+              });
+              return {
+                ...msg,
+                contentBlocks: updatedBlocks,
+              };
+            }
+          }
+          return msg;
+        });
+
         set({
           currentThread: thread,
-          messages: messages || [],
+          messages: updatedMessages,
           activeAgents: (invocations || []).filter((i: AgentInvocation) => i.status === 'running'),
+          // 恢复已完成的 Agent 历史
+          completedAgents: (invocations || [])
+            .filter((i: AgentInvocation) => i.status === 'completed' || i.status === 'failed' || i.status === 'interrupted')
+            .map((i: AgentInvocation) => ({
+              ...i,
+              // 确保 agentName 存在，如果没有则使用 role
+              agentName: i.agentName || (i.role === 'custom' ? 'Agent' : i.role),
+            })),
         });
       } catch (error) {
         set({ error: (error as Error).message });
@@ -326,7 +402,7 @@ export const useAppStore = create<AppState & AppActions>()(
       });
     },
 
-    updateAgentStatus: (invocationId, status, agentName?: string) => {
+    updateAgentStatus: (invocationId, status, agentName?: string, input?: string) => {
       set((state) => {
         if (status === 'completed' || status === 'failed' || status === 'cancelled') {
           // 找到完成的 agent 并移到历史列表
@@ -358,6 +434,7 @@ export const useAppStore = create<AppState & AppActions>()(
                   id: invocationId,
                   status: 'running',
                   agentName: agentName,
+                  input: input, // 保存输入内容
                   startedAt: new Date().toISOString(),
                 } as AgentInvocation,
               ],
@@ -365,6 +442,86 @@ export const useAppStore = create<AppState & AppActions>()(
           }
         }
         return state;
+      });
+    },
+
+    recoverInvocationState: (invocationId, contentBlocks, status, agentId?: string, agentName?: string) => {
+      set((state) => {
+        if (status === 'running') {
+          // 去重：合并现有块和恢复块，按 id 去重
+          const existingIds = new Set(state.streamingContentBlocks.map((b) => b.id));
+          const newBlocks = contentBlocks.filter((b) => !existingIds.has(b.id));
+          const mergedBlocks = [...state.streamingContentBlocks, ...newBlocks];
+
+          // 确保该 invocation 在 activeAgents 中
+          const exists = state.activeAgents.some((a) => a.id === invocationId);
+          const newActiveAgents = exists
+            ? state.activeAgents
+            : [
+                ...state.activeAgents,
+                {
+                  id: invocationId,
+                  status: 'running',
+                  agentName: agentName,
+                  startedAt: new Date().toISOString(),
+                } as AgentInvocation,
+              ];
+
+          return {
+            isStreaming: true,
+            streamingInvocationId: invocationId,
+            streamingAgentId: agentId || null,
+            streamingAgentName: agentName || null,
+            streamingContentBlocks: mergedBlocks,
+            activeAgents: newActiveAgents,
+          };
+        }
+        return state;
+      });
+    },
+
+    updateInvocationStatus: (invocationId, status, _agentId?: string, agentName?: string) => {
+      set((state) => {
+        // 找到完成的 agent
+        const completedAgent = state.activeAgents.find((a) => a.id === invocationId);
+
+        // 如果是当前正在流式输出的 invocation，停止流式输出
+        const isCurrentStreaming = state.streamingInvocationId === invocationId;
+
+        // 将完成的 agent 移到 completedAgents
+        const newCompletedAgents = completedAgent
+          ? [
+              ...state.completedAgents.filter((a) => a.id !== invocationId),
+              {
+                ...completedAgent,
+                status: status as 'completed' | 'failed' | 'interrupted',
+                completedAt: new Date().toISOString(),
+              },
+            ]
+          : state.completedAgents;
+
+        // 如果 activeAgents 中没有这个 agent，创建一个新的 completedAgent
+        const finalCompletedAgents = !completedAgent && status
+          ? [
+              ...state.completedAgents.filter((a) => a.id !== invocationId),
+              {
+                id: invocationId,
+                status: status as 'completed' | 'failed' | 'interrupted',
+                agentName: agentName,
+                startedAt: new Date().toISOString(),
+                completedAt: new Date().toISOString(),
+              } as AgentInvocation,
+            ]
+          : newCompletedAgents;
+
+        return {
+          activeAgents: state.activeAgents.filter((a) => a.id !== invocationId),
+          completedAgents: finalCompletedAgents,
+          isStreaming: isCurrentStreaming ? false : state.isStreaming,
+          streamingInvocationId: isCurrentStreaming ? null : state.streamingInvocationId,
+          streamingAgentId: isCurrentStreaming ? null : state.streamingAgentId,
+          streamingAgentName: isCurrentStreaming ? null : state.streamingAgentName,
+        };
       });
     },
 
@@ -394,10 +551,10 @@ export const useAppStore = create<AppState & AppActions>()(
         messages: [],
         // 重置流式状态
         isStreaming: false,
-        streamingContent: '',
         streamingAgentId: null,
         streamingAgentName: null,
         streamingInvocationId: null,
+        streamingContentBlocks: [],
         // 重置进度状态
         progressStatus: 'idle',
         progressToolName: null,
@@ -474,33 +631,57 @@ export const useAppStore = create<AppState & AppActions>()(
 
     updateStreamingMessage: (invocationId, chunk, agentId, agentName) => {
       set((state) => {
-        // 追加流式内容
-        const newContent = state.streamingContent + chunk;
+        // 只处理当前 invocation
+        if (state.streamingInvocationId && state.streamingInvocationId !== invocationId) {
+          return {};
+        }
+
+        // 智能累积：查找最后一个 text 块，如果存在且状态正常则追加
+        const blocks = state.streamingContentBlocks;
+        const lastBlock = blocks.length > 0 ? blocks[blocks.length - 1] : null;
+
+        if (lastBlock && lastBlock.type === 'text') {
+          // 追加到最后一个 text 块
+          const updatedBlocks = [...blocks];
+          updatedBlocks[updatedBlocks.length - 1] = {
+            ...lastBlock,
+            content: lastBlock.content + chunk,
+          };
+          return {
+            isStreaming: true,
+            streamingAgentId: agentId,
+            streamingAgentName: agentName || state.streamingAgentName,
+            streamingInvocationId: invocationId,
+            streamingContentBlocks: updatedBlocks,
+          };
+        }
+
+        // 没有可追加的 text 块，创建新的
         return {
           isStreaming: true,
-          streamingContent: newContent,
           streamingAgentId: agentId,
           streamingAgentName: agentName || state.streamingAgentName,
           streamingInvocationId: invocationId,
+          streamingContentBlocks: [...blocks, {
+            id: `text-${invocationId}-${Date.now()}`,
+            type: 'text',
+            content: chunk,
+            timestamp: Date.now(),
+          }],
         };
       });
     },
 
     finalizeStreamingMessage: (invocationId) => {
       set((state) => {
-        // 如果没有流式内容，直接返回
-        if (!state.streamingContent || state.streamingInvocationId !== invocationId) {
-          return {
-            isStreaming: false,
-            streamingContent: '',
-            streamingAgentId: null,
-            streamingAgentName: null,
-            streamingInvocationId: null,
-            progressStatus: 'idle',
-            progressToolName: null,
-            progressToolInput: null,
-          };
+        // 如果不是当前 invocation，直接返回
+        if (state.streamingInvocationId !== invocationId) {
+          return {};
         }
+
+        // 从 contentBlocks 提取文本内容
+        const textBlocks = state.streamingContentBlocks.filter(b => b.type === 'text');
+        const content = textBlocks.map(b => b.type === 'text' ? b.content : '').join('');
 
         // 去重检查：如果消息已存在，只清理流式缓存
         const messageId = `agent-${invocationId}`;
@@ -508,36 +689,37 @@ export const useAppStore = create<AppState & AppActions>()(
         if (exists) {
           return {
             isStreaming: false,
-            streamingContent: '',
             streamingAgentId: null,
             streamingAgentName: null,
             streamingInvocationId: null,
+            streamingContentBlocks: [],
             progressStatus: 'idle',
             progressToolName: null,
             progressToolInput: null,
           };
         }
 
-        // Create the final message from streaming content
+        // 创建最终消息
         const finalMessage: Message = {
           id: messageId,
           threadId: state.currentThread?.id || '',
           role: 'agent',
           agentId: state.streamingAgentId || '',
-          content: state.streamingContent,
+          content,
           messageType: 'text',
           metadata: {
             agentName: state.streamingAgentName,
           },
           createdAt: new Date().toISOString(),
+          contentBlocks: state.streamingContentBlocks.length > 0 ? state.streamingContentBlocks : undefined,
         };
 
         return {
           isStreaming: false,
-          streamingContent: '',
           streamingAgentId: null,
           streamingAgentName: null,
           streamingInvocationId: null,
+          streamingContentBlocks: [],
           progressStatus: 'idle',
           progressToolName: null,
           progressToolInput: null,
@@ -559,6 +741,65 @@ export const useAppStore = create<AppState & AppActions>()(
         progressStatus: 'idle',
         progressToolName: null,
         progressToolInput: null,
+      });
+    },
+
+    replaceMessageId: (tempId, realId) => {
+      set((state) => {
+        const messages = state.messages.map((m) =>
+          m.id === tempId ? { ...m, id: realId } : m
+        );
+        return { messages };
+      });
+    },
+
+    // 追加内容块（思考/工具调用/文本，按顺序，thinking 智能累积）
+    appendContentBlock: (invocationId, block) => {
+      set((state) => {
+        // 只处理当前 invocation 的内容块
+        if (state.streamingInvocationId && state.streamingInvocationId !== invocationId) {
+          return {};
+        }
+
+        const blocks = state.streamingContentBlocks;
+
+        // thinking 块智能累积：如果最后一个是 streaming 状态的 thinking 块，则追加
+        if (block.type === 'thinking') {
+          const lastBlock = blocks.length > 0 ? blocks[blocks.length - 1] : null;
+          if (lastBlock && lastBlock.type === 'thinking' && lastBlock.status === 'streaming') {
+            const updatedBlocks = [...blocks];
+            updatedBlocks[updatedBlocks.length - 1] = {
+              ...lastBlock,
+              content: lastBlock.content + block.content,
+            };
+            return {
+              isStreaming: true,
+              streamingInvocationId: invocationId,
+              streamingContentBlocks: updatedBlocks,
+            };
+          }
+        }
+
+        // 默认：追加新块
+        return {
+          isStreaming: true,
+          streamingInvocationId: invocationId,
+          streamingContentBlocks: [...blocks, block],
+        };
+      });
+    },
+
+    // 更新内容块（如工具调用状态变化）
+    updateContentBlock: (invocationId, blockId, update) => {
+      set((state) => {
+        // 只处理当前 invocation 的内容块
+        if (state.streamingInvocationId && state.streamingInvocationId !== invocationId) {
+          return {};
+        }
+        const updatedBlocks = state.streamingContentBlocks.map((block) =>
+          block.id === blockId ? { ...block, ...update } as MessageContentBlock : block
+        );
+        return { streamingContentBlocks: updatedBlocks };
       });
     },
 
@@ -633,6 +874,36 @@ export const useAppStore = create<AppState & AppActions>()(
           agentTaskProgress: remainingProgress,
         };
       });
+    },
+
+    // 更新 invocation 的完整 prompt
+    updateInvocationFullPrompt: (invocationId, fullPrompt) => {
+      set((state) => {
+        // 更新 activeAgents
+        const updatedActiveAgents = state.activeAgents.map((a) =>
+          a.id === invocationId ? { ...a, fullPrompt } : a
+        );
+
+        // 更新 completedAgents
+        const updatedCompletedAgents = state.completedAgents.map((a) =>
+          a.id === invocationId ? { ...a, fullPrompt } : a
+        );
+
+        return {
+          activeAgents: updatedActiveAgents,
+          completedAgents: updatedCompletedAgents,
+        };
+      });
+    },
+
+    // 可收缩面板默认状态 actions
+    setCollapsibleDefaults: (type, state) => {
+      set((prev) => ({
+        collapsibleDefaults: {
+          ...prev.collapsibleDefaults,
+          [type]: state,
+        },
+      }));
     },
   }))
 );

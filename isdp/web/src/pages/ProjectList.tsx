@@ -1,13 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Button, Card, Space, Modal, Form, Input, message, Tag, Select, Typography } from 'antd';
-import { PlusOutlined, FolderOutlined, FolderOpenOutlined } from '@ant-design/icons';
+import { Table, Button, Card, Space, Modal, Form, Input, message, Tag, Typography, Popconfirm } from 'antd';
+import { PlusOutlined, FolderOutlined, FolderOpenOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '@/api/client';
 import type { Project, WorkflowTemplate } from '@/types';
 import PathSelector from '@/components/PathSelector';
 
 const { Title, Text } = Typography;
-const { Option } = Select;
 
 const ProjectList: React.FC = () => {
   const navigate = useNavigate();
@@ -77,39 +76,16 @@ const ProjectList: React.FC = () => {
       title: '项目名称',
       dataIndex: 'name',
       key: 'name',
+      width: 180,
       render: (name: string, record: Project) => (
         <a onClick={() => navigate(`/projects/${record.id}`)}>{name}</a>
       ),
     },
     {
-      title: '类型',
-      dataIndex: 'type',
-      key: 'type',
-      render: (type?: string) => {
-        const typeMap: Record<string, string> = {
-          service: '服务',
-          app: '应用',
-          task: '任务',
-        };
-        return typeMap[type || 'service'] || type || '服务';
-      },
-    },
-    {
-      title: '模式',
-      dataIndex: 'mode',
-      key: 'mode',
-      render: (mode?: string) => {
-        const modeMap: Record<string, string> = {
-          new: '全新开发',
-          enhance: '功能增强',
-        };
-        return modeMap[mode || 'new'] || mode || '全新开发';
-      },
-    },
-    {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
+      width: 80,
       render: (status: string) => (
         <Tag color={status === 'active' ? 'green' : 'default'}>
           {status === 'active' ? '活跃' : '归档'}
@@ -120,6 +96,7 @@ const ProjectList: React.FC = () => {
       title: 'Agent团队',
       dataIndex: 'workflowTemplateId',
       key: 'workflowTemplateId',
+      width: 150,
       render: (templateId?: string) => getWorkflowTemplateName(templateId),
     },
     {
@@ -133,12 +110,14 @@ const ProjectList: React.FC = () => {
       title: '创建时间',
       dataIndex: 'createdAt',
       key: 'createdAt',
+      width: 180,
       render: (date: string) => new Date(date).toLocaleString(),
     },
     {
       title: '操作',
       key: 'actions',
-      width: 120,
+      width: 150,
+      fixed: 'right' as const,
       render: (_: unknown, record: Project) => (
         <Space>
           <Button
@@ -148,6 +127,31 @@ const ProjectList: React.FC = () => {
           >
             进入
           </Button>
+          <Popconfirm
+            title="确定删除此项目？"
+            description="删除后无法恢复，项目下的任务也会被删除"
+            onConfirm={async () => {
+              try {
+                await api.projects.delete(record.id);
+                message.success('项目已删除');
+                loadProjects();
+              } catch (error) {
+                console.error('Failed to delete project:', error);
+                message.error('删除失败');
+              }
+            }}
+            okText="删除"
+            cancelText="取消"
+            okButtonProps={{ danger: true }}
+          >
+            <Button
+              type="link"
+              icon={<DeleteOutlined />}
+              danger
+            >
+              删除
+            </Button>
+          </Popconfirm>
         </Space>
       ),
     },
@@ -171,6 +175,7 @@ const ProjectList: React.FC = () => {
           columns={columns}
           rowKey="id"
           loading={loading}
+          scroll={{ x: 'max-content' }}
         />
       </Card>
 
@@ -201,22 +206,6 @@ const ProjectList: React.FC = () => {
                 </Button>
               }
             />
-          </Form.Item>
-          <Form.Item name="type" label="项目类型" rules={[{ required: true, message: '请选择项目类型' }]}>
-            <Select placeholder="请选择项目类型">
-              <Option value="service">服务</Option>
-              <Option value="app">应用</Option>
-              <Option value="task">任务</Option>
-            </Select>
-          </Form.Item>
-          <Form.Item name="mode" label="开发模式" rules={[{ required: true, message: '请选择开发模式' }]}>
-            <Select placeholder="请选择开发模式">
-              <Option value="new">全新开发</Option>
-              <Option value="enhance">功能增强</Option>
-            </Select>
-          </Form.Item>
-          <Form.Item name="existingRepoUrl" label="现有仓库 URL">
-            <Input placeholder="https://github.com/user/repo" />
           </Form.Item>
         </Form>
       </Modal>

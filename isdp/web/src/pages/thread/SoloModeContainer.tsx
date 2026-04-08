@@ -44,6 +44,7 @@ interface SoloModeContainerProps {
   onOpenCodePanel: (files: FileChange[]) => void;
   onSelectTask: (task: Thread) => void;
   onCreateTask: () => void;
+  onDeleteTask?: (taskId: string) => void;
   onClosePanel: () => void;
   onToggleFile: (fileId: string) => void;
   onResizeStart: (e: React.MouseEvent) => void;
@@ -79,6 +80,7 @@ export const SoloModeContainer: React.FC<SoloModeContainerProps> = memo(({
   onOpenCodePanel,
   onSelectTask,
   onCreateTask,
+  onDeleteTask,
   onClosePanel,
   onToggleFile,
   onResizeStart,
@@ -97,6 +99,7 @@ export const SoloModeContainer: React.FC<SoloModeContainerProps> = memo(({
           activeThreadId={soloActiveTask?.id || null}
           onSelectTask={onSelectTask}
           onCreateTask={onCreateTask}
+          onDeleteTask={onDeleteTask}
           isRunning={isRunning}
         />
       </div>

@@ -14,6 +14,7 @@ type Client struct {
 	Send     chan []byte
 	ThreadID string
 	UserID   string
+	Handler  *Handler // 处理器引用（用于消息处理）
 }
 
 // Hub WebSocket中心
@@ -108,32 +109,6 @@ func (h *Hub) GetClientCount(threadID string) int {
 	h.clientsMux.RLock()
 	defer h.clientsMux.RUnlock()
 	return len(h.clients[threadID])
-}
-
-// ReadPump 读取客户端消息
-func (c *Client) ReadPump() {
-	defer func() {
-		c.Hub.unregister <- c
-		c.Conn.Close()
-	}()
-
-	for {
-		_, _, err := c.Conn.ReadMessage()
-		if err != nil {
-			break
-		}
-	}
-}
-
-// WritePump 写入消息到客户端
-func (c *Client) WritePump() {
-	defer c.Conn.Close()
-
-	for message := range c.Send {
-		if err := c.Conn.WriteMessage(websocket.TextMessage, message); err != nil {
-			break
-		}
-	}
 }
 
 func jsonMarshal(v interface{}) ([]byte, error) {

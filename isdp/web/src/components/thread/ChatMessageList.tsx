@@ -4,6 +4,10 @@ import type { AgentConfig, ToolEvent } from '@/types';
 import type { FileChange } from '@/types/content';
 import { ChatMessage } from './ChatMessage';
 import { StreamingMessage } from './StreamingMessage';
+// Collapsible panels imported for future integration
+// import ToolOutputPanel from '@/components/ToolOutputPanel';
+// import ThinkingPanel from '@/components/ThinkingPanel';
+import '@/components/CollapsiblePanels.css';
 
 /**
  * 聊天消息列表组件

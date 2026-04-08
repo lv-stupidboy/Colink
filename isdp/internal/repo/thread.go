@@ -123,3 +123,21 @@ func (r *ThreadRepository) Update(ctx context.Context, thread *model.Thread) err
 	)
 	return err
 }
+
+// Delete 删除Thread（连同相关消息）
+func (r *ThreadRepository) Delete(ctx context.Context, id uuid.UUID) error {
+	// 先删除关联的消息
+	deleteMessagesQuery := `DELETE FROM messages WHERE thread_id = ?`
+	_, err := r.db.ExecContext(ctx, deleteMessagesQuery, id.String())
+	if err != nil {
+		return fmt.Errorf("failed to delete thread messages: %w", err)
+	}
+
+	// 删除 Thread
+	query := `DELETE FROM threads WHERE id = ?`
+	_, err = r.db.ExecContext(ctx, query, id.String())
+	if err != nil {
+		return fmt.Errorf("failed to delete thread: %w", err)
+	}
+	return nil
+}

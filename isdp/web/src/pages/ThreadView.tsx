@@ -36,7 +36,7 @@ import {
 } from '@ant-design/icons';
 import { useAppStore } from '@/store';
 import { useDebugThreadStore } from '@/store/debugThread';
-import type { Message, Artifact, ReviewIssue, MergeCheckResult, AgentConfig, ToolEvent } from '@/types';
+import type { Message, Artifact, ReviewIssue, MergeCheckResult, AgentConfig, ToolEvent, MessageContentBlock } from '@/types';
 import type { FileChange } from '@/types/content';
 import { AgentRoleLabels, ArtifactTypeLabels } from '@/types';
 import { ReviewReport } from '@/components/ReviewReport';
@@ -99,6 +99,8 @@ const ThreadView: React.FC = () => {
   const updateAgentStatus = useAppStore((s) => s.updateAgentStatus);
   const updateStreamingMessage = useAppStore((s) => s.updateStreamingMessage);
   const finalizeStreamingMessage = useAppStore((s) => s.finalizeStreamingMessage);
+  const recoverInvocationState = useAppStore((s) => s.recoverInvocationState);
+  const updateInvocationStatus = useAppStore((s) => s.updateInvocationStatus);
   const updateProgress = useAppStore((s) => s.updateProgress);
   const loadProjectContext = useAppStore((s) => s.loadProjectContext);
   const loadWorkflowTemplate = useAppStore((s) => s.loadWorkflowTemplate);
@@ -115,6 +117,9 @@ const ThreadView: React.FC = () => {
   const setSandboxLoading = useAppStore((s) => s.setSandboxLoading);
   const setDockerAvailable = useAppStore((s) => s.setDockerAvailable);
   const updateAgentUsage = useAppStore((s) => s.updateAgentUsage);
+  const updateInvocationFullPrompt = useAppStore((s) => s.updateInvocationFullPrompt);
+  const appendContentBlock = useAppStore((s) => s.appendContentBlock);
+  const updateContentBlock = useAppStore((s) => s.updateContentBlock);
 
   // 调试模式的独立 store
   const {
@@ -137,21 +142,11 @@ const ThreadView: React.FC = () => {
   // 必须在使用之前定义
   const [debugWsConnected, setDebugWsConnected] = useState(false);
 
-  // 工具事件本地状态（用于 CLI 输出块显示）
+  // 工具事件本地状态（用于旧版 CLI 输出块兼容显示）
   const [toolEvents, setToolEvents] = useState<Record<string, ToolEvent[]>>({});
 
-  // 更新工具事件
-  const updateToolEvent = useCallback((invocationId: string, eventId: string, update: Partial<ToolEvent>) => {
-    setToolEvents(prev => ({
-      ...prev,
-      [invocationId]: prev[invocationId]?.map(e =>
-        e.id === eventId ? { ...e, ...update } : e
-      ) || []
-    }));
-  }, []);
-
-  // invocation 完成后延迟清理工具事件
-  const clearToolEvents = useCallback((invocationId: string, delay = 5000) => {
+  // invocation 完成后延迟清理工具事件（延长到 30 秒，给用户足够时间查看）
+  const clearToolEvents = useCallback((invocationId: string, delay = 30000) => {
     setTimeout(() => {
       setToolEvents(prev => {
         const next = { ...prev };
@@ -287,6 +282,7 @@ const ThreadView: React.FC = () => {
           agentId: data.payload.agentId as string,
           agentName: data.payload.agentName as string,
           content: data.payload.content as string,
+          contentBlocks: data.payload.contentBlocks as MessageContentBlock[] | undefined,
           messageType: 'text',
           createdAt: new Date().toISOString(),
         };
@@ -564,107 +560,121 @@ const ThreadView: React.FC = () => {
         const chunkType = data.payload.chunkType as string || 'text';
         const invocId = data.payload.invocationId as string;
 
-        // 处理不同类型的 chunk
         if (chunkType === 'thinking') {
-          // 思考中状态
+          // 思考块 - Store 会智能累积
+          const thinkingText = data.payload.chunk as string;
+          const isDone = data.payload.done as boolean;
+
+          if (isDone) {
+            // thinking 完成，更新状态为 success
+            updateContentBlock(invocId, `thinking-${invocId}`, { status: 'success' });
+          } else if (thinkingText) {
+            appendContentBlock(invocId, {
+              id: `thinking-${invocId}`,
+              type: 'thinking',
+              content: thinkingText,
+              timestamp: Date.now(),
+              status: 'streaming',
+            });
+          }
           updateProgress(invocId, 'thinking');
         } else if (chunkType === 'tool_use') {
-          // 工具调用
+          // 工具调用块
           const toolName = data.payload.toolName as string;
           const toolInput = data.payload.toolInput as Record<string, unknown>;
           const toolId = data.payload.toolId as string;
           updateProgress(invocId, 'tool_use', toolName, toolInput);
 
-          // 使用 toolId 作为唯一标识，避免重复添加
-          const toolEventId = toolId || `tool-${invocId}-${toolName}-${Date.now()}`;
-
-          // 检查是否已存在相同的工具事件（避免重复）
-          setToolEvents(prev => {
-            const existing = prev[invocId];
-            if (existing) {
-              const exists = existing.some(e => e.id === toolEventId);
-              if (exists) {
-                return prev; // 已存在，不重复添加
-              }
-            }
-            // 添加新的工具事件
-            return {
-              ...prev,
-              [invocId]: [...(prev[invocId] || []), {
-                id: toolEventId,
-                invocationId: invocId,
-                name: toolName || 'Unknown',
-                status: 'running',
-                input: toolInput,
-                startedAt: Date.now(),
-              }]
-            };
+          // 追加工具调用块
+          appendContentBlock(invocId, {
+            id: toolId || `tool-${invocId}-${toolName}`,
+            type: 'tool_use',
+            toolName: toolName || 'Unknown',
+            toolId: toolId || '',
+            input: toolInput,
+            timestamp: Date.now(),
+            status: 'streaming',
+            startedAt: Date.now(),
           });
         } else if (chunkType === 'tool_result') {
-          // 工具调用结果
-          const toolEventId = data.payload.toolEventId as string;
-          const toolStatus = data.payload.toolStatus as 'success' | 'failed';
+          // 工具调用结果 - 更新对应的工具块状态
+          const toolId = data.payload.toolId as string;
+          const isError = data.payload.isError as boolean;
           const toolOutput = data.payload.toolOutput as string;
-          const duration = data.payload.duration as number;
 
-          if (toolEventId) {
-            updateToolEvent(invocId, toolEventId, {
-              status: toolStatus || 'success',
+          if (toolId) {
+            updateContentBlock(invocId, toolId, {
+              status: isError ? 'failed' : 'success',
               output: toolOutput,
+              isError,
+              duration: Date.now() - (data.payload.timestamp as number || Date.now()),
               completedAt: Date.now(),
-              duration,
             });
           }
         } else if (chunkType === 'text') {
-          // 文本输出
+          // 文本块 - 使用 updateStreamingMessage，Store 会智能累积
+          const textContent = data.payload.chunk as string;
+          if (textContent) {
+            updateStreamingMessage(
+              invocId,
+              textContent,
+              data.payload.agentId as string || '',
+              data.payload.agentName as string
+            );
+          }
           updateProgress(invocId, 'generating');
-          // 流式输出块：实时追加内容
-          updateStreamingMessage(
-            invocId,
-            data.payload.chunk as string,
-            data.payload.agentId as string || '',
-            data.payload.agentName as string
-          );
         }
         break;
       }
       case 'agent_message': {
-        // Agent 完成消息（非流式场景备用）：清除流式缓存，显示最终消息
-        // 注意：流式场景下不会收到此消息，由 agent_status/completed 触发 finalizeStreamingMessage
-        const invocId = data.payload.invocationId as string || data.payload.messageId as string;
-        // 使用统一的消息 ID 格式
-        const messageId = `agent-${invocId}`;
-        // 使用 getState() 避免闭包陷阱
-        const state = useAppStore.getState();
-        const existingMessages = state.messages;
+        // Agent 完成消息：后端已保存到数据库并广播真实ID
+        // payload 包含: messageId（真实UUID）、agentId、content、contentBlocks、agentName、agentRole
+        const realMessageId = data.payload.messageId as string;
+        const agentId = data.payload.agentId as string;
+        const content = data.payload.content as string;
+        const contentBlocks = data.payload.contentBlocks as MessageContentBlock[] | undefined;
+        const agentName = data.payload.agentName as string;
+        const agentRole = data.payload.agentRole as string;
 
-        // 检查消息是否已存在（去重）
-        const alreadyExists = existingMessages.some(m => m.id === messageId);
-        if (alreadyExists) {
-          // 消息已存在，只清理流式缓存
-          if (invocId && state.isStreaming && state.streamingInvocationId === invocId) {
-            finalizeStreamingMessage(invocId);
-          }
+        if (!realMessageId) {
           break;
         }
 
-        if (invocId && state.isStreaming && state.streamingInvocationId === invocId) {
-          finalizeStreamingMessage(invocId);
+        // 使用 getState() 避免闭包陷阱
+        const state = useAppStore.getState();
+        const invocationId = state.streamingInvocationId;
+
+        // 检查是否有临时消息需要替换ID（流式场景）
+        if (invocationId && state.isStreaming) {
+          const tempId = `agent-${invocationId}`;
+          // 先完成流式消息（添加临时消息）
+          finalizeStreamingMessage(invocationId);
+          // 然后用真实ID替换临时ID
+          useAppStore.getState().replaceMessageId(tempId, realMessageId);
         } else {
-          // 直接添加消息（非流式场景），使用统一的 ID 格式
-          addMessage({
-            id: messageId,
-            threadId: threadId!,
-            role: 'agent',
-            agentId: data.payload.agentId as string,
-            content: data.payload.content as string,
-            messageType: 'text',
-            metadata: {
-              agentName: data.payload.agentName,
-              agentRole: data.payload.agentRole,
-            },
-            createdAt: new Date().toISOString(),
-          });
+          // 非流式场景：检查是否已有临时消息（可能由 agent_status/completed 创建）
+          const tempId = `agent-${realMessageId}`;
+          const existingTemp = state.messages.find(m => m.id === tempId);
+          if (existingTemp) {
+            // 替换临时ID为真实ID
+            useAppStore.getState().replaceMessageId(tempId, realMessageId);
+          } else {
+            // 直接添加新消息（使用真实ID）
+            addMessage({
+              id: realMessageId,
+              threadId: threadId!,
+              role: 'agent',
+              agentId: agentId,
+              content: content,
+              contentBlocks: contentBlocks,
+              messageType: 'text',
+              metadata: {
+                agentName: agentName,
+                agentRole: agentRole,
+              },
+              createdAt: new Date().toISOString(),
+            });
+          }
         }
         break;
       }
@@ -690,7 +700,8 @@ const ThreadView: React.FC = () => {
         const status = data.payload.status as string;
         const invocId = data.payload.invocationId as string;
         const agentName = data.payload.agentName as string;
-        updateAgentStatus(invocId, status, agentName);
+        const input = data.payload.input as string | undefined;
+        updateAgentStatus(invocId, status, agentName, input);
         // Agent 完成时，如果有流式消息缓存，转为正式消息
         if (status === 'completed' || status === 'failed') {
           // 使用 getState() 避免闭包陷阱
@@ -767,6 +778,49 @@ const ThreadView: React.FC = () => {
             }
           });
           message.info(`已恢复 ${runningAgents.length} 个运行中的 Agent`);
+        }
+        break;
+      }
+      case 'invocation_recovery': {
+        // 后台执行支持：恢复 invocation 的内容块或最近完成的状态
+        console.log('[WebSocket] Received invocation_recovery message:', data.payload);
+        const payload = data.payload as {
+          invocationId?: string;
+          contentBlocks?: MessageContentBlock[];
+          status?: string;
+          agentId?: string;
+          agentName?: string;
+          recentlyCompleted?: Array<{
+            invocationId: string;
+            agentId: string;
+            agentName: string;
+            status: string;
+          }>;
+        };
+
+        // 处理运行中的 invocation 恢复
+        if (payload.invocationId && payload.contentBlocks && payload.status === 'running') {
+          console.log('[WebSocket] Recovering invocation state:', payload.invocationId, 'blocks:', payload.contentBlocks.length);
+          recoverInvocationState(payload.invocationId, payload.contentBlocks, payload.status, payload.agentId, payload.agentName);
+        }
+
+        // 处理最近完成的 invocation 状态同步
+        if (payload.recentlyCompleted && payload.recentlyCompleted.length > 0) {
+          console.log('[WebSocket] Syncing recently completed invocations:', payload.recentlyCompleted.length, payload.recentlyCompleted);
+          payload.recentlyCompleted.forEach((inv) => {
+            console.log('[WebSocket] Updating invocation status:', inv.invocationId, 'to', inv.status);
+            // 更新 invocation 状态为完成
+            updateInvocationStatus(inv.invocationId, inv.status, inv.agentId, inv.agentName);
+          });
+        }
+        break;
+      }
+      case 'invocation_full_prompt': {
+        // 完整 prompt 更新（用于调用日志显示）
+        const invocId = data.payload.invocationId as string;
+        const fullPrompt = data.payload.fullPrompt as string;
+        if (invocId && fullPrompt) {
+          updateInvocationFullPrompt(invocId, fullPrompt);
         }
         break;
       }
@@ -1450,6 +1504,15 @@ const ThreadView: React.FC = () => {
               activeThreadId={soloActiveTask?.id || null}
               onSelectTask={handleSelectSoloTask}
               onCreateTask={handleCreateSoloTask}
+              onDeleteTask={(taskId) => {
+                // 如果删除的是当前任务，清空状态
+                if (soloActiveTask?.id === taskId) {
+                  setSoloActiveTask(null);
+                  clearDebugAll();
+                }
+                // 刷新任务列表
+                loadSoloTasks();
+              }}
               isRunning={debugStatus === 'running'}
             />
           </div>

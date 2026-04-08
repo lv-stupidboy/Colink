@@ -1,0 +1,53 @@
+{
+  "name": "对话页面进度感知与内容折叠优化",
+  "stories": [
+    {
+      "id": "US-001",
+      "title": "Thinking 折叠块实时更新",
+      "description": "新增 streamingThinkingContent 状态，处理 thinking chunk，传递到 ThinkingBlock，实现折叠块实时更新",
+      "acceptanceCriteria": [
+        "Store 新增 streamingThinkingContent 状态和 appendThinkingChunk action",
+        "ThreadView 处理 thinking chunk 时调用 appendThinkingChunk",
+        "StreamingMessage 订阅并传递 streamingThinkingContent 到 ChatMessage",
+        "ThinkingBlock 显示流式内容，标题为 'Thinking...'，带脉冲动画",
+        "思考完成后标题变为 'Thought'，动画停止"
+      ],
+      "passes": true
+    },
+    {
+      "id": "US-002",
+      "title": "CLI 块标题显示工具链进度",
+      "description": "CLI 块标题显示 completed/total 进度，如 'CLI Output · 3/5 tools'",
+      "acceptanceCriteria": [
+        "CliOutputBlock 标题显示工具进度格式：'CLI Output · X/Y tools'",
+        "流式时自动展开，完成后保持展开状态",
+        "buildCliSummary 函数返回带进度的摘要"
+      ],
+      "passes": true
+    },
+    {
+      "id": "US-003",
+      "title": "工具行完整信息显示",
+      "description": "每个工具行显示名称+参数预览+执行耗时+状态图标+进度动画",
+      "acceptanceCriteria": [
+        "ToolRow running 状态时显示脉冲动画或进度条",
+        "ToolRow 显示实时执行时间（基于 startedAt 计算）",
+        "状态图标：running 旋转，success 绿勾，failed 红叉",
+        "完成时显示总耗时"
+      ],
+      "passes": true
+    },
+    {
+      "id": "US-004",
+      "title": "视觉干净无满屏文本",
+      "description": "确保折叠块紧凑，间距统一，无满屏思考文本",
+      "acceptanceCriteria": [
+        "Thinking 块折叠时只显示标题和前60字符预览",
+        "CLI 块默认折叠，点击展开查看详情",
+        "CSS 圆角统一为 8px，内边距统一",
+        "前端构建成功，无 TypeScript 错误"
+      ],
+      "passes": true
+    }
+  ]
+}

@@ -163,6 +163,8 @@ func main() {
 	// Settings 和 AssetPackage 相关 Repositories
 	settingsRepo := repo.NewSettingsRepository(db)
 	agentSettingsBindingRepo := repo.NewAgentSettingsBindingRepository(db)
+	// 后台执行支持：内容块持久化
+	contentBlockRepo := repo.NewContentBlockRepository(db)
 
 	// 初始化Services
 	projectService := project.NewService(projectRepo, workflowRepo)
@@ -282,10 +284,15 @@ func main() {
 	orchestrator := agent.NewOrchestrator(
 		invocationRepo, threadRepo, messageRepo,
 		configService, baseAgentService, baseAgentRepo, tracker, workflowEngine, workflowRepo, projectRepo, wsHub, defaultAdapter, mentionParser,
+		contentBlockRepo,
 	)
 
 	// 在Orchestrator中设置调试管理器
 	orchestrator.SetDebugThreadManager(debugThreadMgr)
+
+	// 启动恢复：检测并标记孤儿 invocation（后台执行支持）
+	startupReconciler := agent.NewStartupReconciler(invocationRepo, contentBlockRepo)
+	startupReconciler.Reconcile(context.Background())
 
 	// 连接Message服务和Agent编排器（用户消息触发Agent）
 	messageService.SetAgentSpawner(orchestrator)
@@ -438,7 +445,7 @@ func main() {
 	callbackHandler.RegisterRoutes(v1)
 
 	// WebSocket
-	wsHandler := ws.NewHandler(wsHub, orchestrator)
+	wsHandler := ws.NewHandler(wsHub, orchestrator, orchestrator)
 	wsHandler.RegisterRoutes(v1)
 
 	// 沙箱 Handler (如果可用)

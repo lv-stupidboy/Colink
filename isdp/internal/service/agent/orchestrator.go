@@ -36,6 +36,9 @@ type Orchestrator struct {
 	// Mention 解析器（支持动态 patterns）
 	mentionParser *mention.Parser
 
+	// 后台执行支持：内容块持久化
+	contentBlockRepo *repo.ContentBlockRepository
+
 	runningAgents      map[uuid.UUID]*RunningAgent
 	mu                 sync.RWMutex
 }
@@ -58,6 +61,29 @@ type RunningAgent struct {
 	// 流式输出累积（用于 WebSocket 重连恢复）
 	AccumulatedOutput string // 累积的输出内容
 	OutputMu          sync.Mutex // 保护输出累积字段
+
+	// 结构化内容块累积（用于持久化）
+	AccumulatedContentBlocks []ContentBlockData // 累积的内容块
+	ContentBlocksMu          sync.Mutex         // 保护内容块累积字段
+}
+
+// ContentBlockData 结构化内容块数据（用于序列化）
+type ContentBlockData struct {
+	ID        string                 `json:"id"`
+	Type      string                 `json:"type"`
+	Content   string                 `json:"content,omitempty"`
+	Timestamp int64                  `json:"timestamp"`
+	Status    string                 `json:"status,omitempty"`
+	Done      bool                   `json:"done,omitempty"`
+	// 工具调用相关（字段名与前端 ToolUseBlock 对齐）
+	ToolName  string                 `json:"toolName,omitempty"`
+	ToolID    string                 `json:"toolId,omitempty"`
+	Input     map[string]interface{} `json:"input,omitempty"`
+	Output    string                 `json:"output,omitempty"`
+	IsError   bool                   `json:"isError,omitempty"`
+	// 时间追踪
+	StartedAt   int64 `json:"startedAt,omitempty"`
+	CompletedAt int64 `json:"completedAt,omitempty"`
 }
 
 // NewOrchestrator 创建编排器
@@ -75,22 +101,24 @@ func NewOrchestrator(
 	wsHub *ws.Hub,
 	defaultAdapter AgentAdapter,
 	mentionParser *mention.Parser,
+	contentBlockRepo *repo.ContentBlockRepository,
 ) *Orchestrator {
 	o := &Orchestrator{
-		invocationRepo: invocationRepo,
-		threadRepo:     threadRepo,
-		msgRepo:        msgRepo,
-		configSvc:      configSvc,
-		baseAgentSvc:   baseAgentSvc,
-		baseAgentRepo:  baseAgentRepo,
-		tracker:        tracker,
-		workflow:       workflow,
-		workflowRepo:   workflowRepo,
-		projectRepo:    projectRepo,
-		wsHub:          wsHub,
-		defaultAdapter: defaultAdapter,
-		mentionParser:  mentionParser,
-		runningAgents:  make(map[uuid.UUID]*RunningAgent),
+		invocationRepo:   invocationRepo,
+		threadRepo:       threadRepo,
+		msgRepo:          msgRepo,
+		configSvc:        configSvc,
+		baseAgentSvc:     baseAgentSvc,
+		baseAgentRepo:    baseAgentRepo,
+		tracker:          tracker,
+		workflow:         workflow,
+		workflowRepo:     workflowRepo,
+		projectRepo:      projectRepo,
+		wsHub:            wsHub,
+		defaultAdapter:   defaultAdapter,
+		mentionParser:    mentionParser,
+		contentBlockRepo: contentBlockRepo,
+		runningAgents:    make(map[uuid.UUID]*RunningAgent),
 	}
 
 	// 创建统一的执行服务用于工作流场景
@@ -108,6 +136,7 @@ func NewOrchestrator(
 		wsHub,
 		defaultAdapter,
 		mentionParser,
+		contentBlockRepo,
 	)
 
 	return o
@@ -117,6 +146,21 @@ func NewOrchestrator(
 func (o *Orchestrator) SpawnAgent(ctx context.Context, req *SpawnRequest) (*model.AgentInvocation, error) {
 	// 委托给执行服务
 	return o.executionService.SpawnAgent(ctx, req)
+}
+
+// GetRunningAgentsForThread 获取运行中的 Agent 状态（实现 ws.RunningAgentsGetter）
+func (o *Orchestrator) GetRunningAgentsForThread(threadID uuid.UUID) any {
+	return o.executionService.GetRunningAgentsForThread(threadID)
+}
+
+// GetRunningInvocationsWithContentBlocks 获取运行中的 invocation 及其内容块（实现 ws.InvocationRecoverer）
+func (o *Orchestrator) GetRunningInvocationsWithContentBlocks(ctx context.Context, threadID uuid.UUID) []ws.InvocationRecoveryData {
+	return o.executionService.GetRunningInvocationsWithContentBlocks(ctx, threadID)
+}
+
+// GetRecentlyCompletedInvocations 获取最近完成的 invocation（实现 ws.InvocationRecoverer）
+func (o *Orchestrator) GetRecentlyCompletedInvocations(ctx context.Context, threadID uuid.UUID, sinceMinutes int) []ws.InvocationRecoveryData {
+	return o.executionService.GetRecentlyCompletedInvocations(ctx, threadID, sinceMinutes)
 }
 
 // handleAgentError 处理Agent错误
@@ -187,18 +231,8 @@ func (o *Orchestrator) CancelAgent(ctx context.Context, invocationID uuid.UUID) 
 
 // broadcastStatus 广播状态
 func (o *Orchestrator) broadcastStatus(threadID, invocationID uuid.UUID, status string, role model.AgentRole) {
-	if o.wsHub != nil {
-		o.wsHub.BroadcastToThread(threadID.String(), ws.WSMessage{
-			Type:      "agent_status",
-			ThreadID:  threadID.String(),
-			Timestamp: time.Now().UnixMilli(),
-			Payload: map[string]interface{}{
-				"invocationId": invocationID.String(),
-				"status":       status,
-				"role":         string(role),
-			},
-		})
-	}
+	// 委托给 ExecutionService 的实现（包含 input 支持）
+	o.executionService.broadcastStatus(threadID, invocationID, status, role, "", "")
 }
 
 // broadcastOutputChunk 广播输出块（实时流式输出）
@@ -244,11 +278,6 @@ func (o *Orchestrator) GetInvocationsByThread(ctx context.Context, threadID uuid
 // GetInvocationStatus 获取单个调用的状态
 func (o *Orchestrator) GetInvocationStatus(ctx context.Context, invocationID uuid.UUID) (*model.AgentInvocation, error) {
 	return o.executionService.GetInvocationStatus(ctx, invocationID)
-}
-
-// GetRunningAgentsForThread 获取 Thread 中运行中的 Agent 状态（用于 WebSocket 重连恢复）
-func (o *Orchestrator) GetRunningAgentsForThread(threadID uuid.UUID) any {
-	return o.executionService.GetRunningAgentsForThread(threadID)
 }
 
 // SpawnRequest 启动请求

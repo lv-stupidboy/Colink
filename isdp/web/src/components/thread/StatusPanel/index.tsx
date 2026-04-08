@@ -5,6 +5,7 @@ import { TokenUsage } from './TokenUsage';
 import { MessageStats } from './MessageStats';
 import { AgentHistoryCard } from './AgentHistoryCard';
 import { TaskProgressPanel } from './TaskProgressPanel';
+import { AgentInvocationLogPanel } from './AgentInvocationLogPanel';
 import { CopyOutlined, CheckOutlined } from '@ant-design/icons';
 import './StatusPanel.css';
 
@@ -81,6 +82,9 @@ export const StatusPanel: React.FC<StatusPanelProps> = ({ width = 320, threadId 
       {Object.keys(agentTaskProgress).length > 0 && (
         <TaskProgressPanel progress={agentTaskProgress} />
       )}
+
+      {/* Agent 调用日志 */}
+      <AgentInvocationLogPanel />
     </aside>
   );
 };

@@ -1,0 +1,7 @@
+{
+  "tool_name": "Read",
+  "tool_input_preview": "{\"file_path\":\"D:\\\\Tools\\\\ASDP_gittee\\\\isdp\\\\isdp\\\\isdp\\\\web\\\\src\\\\store\\\\index.ts\",\"offset\":304,\"limit\":30}",
+  "error": "File does not exist. Note: your current working directory is D:\\Tools\\ASDP_gittee\\isdp\\isdp.",
+  "timestamp": "2026-04-07T15:40:57.231Z",
+  "retry_count": 1
+}

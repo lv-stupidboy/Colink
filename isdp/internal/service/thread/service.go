@@ -98,3 +98,8 @@ func (s *Service) SetPhase(ctx context.Context, id uuid.UUID, phase model.Phase,
 	thread.CurrentAgent = agent
 	return s.repo.Update(ctx, thread)
 }
+
+// Delete 删除Thread
+func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
+	return s.repo.Delete(ctx, id)
+}

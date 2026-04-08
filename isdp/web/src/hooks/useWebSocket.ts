@@ -54,6 +54,14 @@ export function useWebSocket(
       console.log('[WebSocket] Connected successfully, threadId:', threadId);
       setConnected(true);
       onConnectRef.current?.();
+
+      // 请求恢复未完成的 invocation 内容（后台执行支持）
+      if (threadId) {
+        send({
+          type: 'recover_invocation_state',
+          threadId,
+        });
+      }
     };
 
     ws.onmessage = (event) => {

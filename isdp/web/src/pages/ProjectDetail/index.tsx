@@ -19,6 +19,7 @@ import {
   Progress,
   Tooltip,
   Divider,
+  Popconfirm,
 } from 'antd';
 import {
   ArrowLeftOutlined,
@@ -256,7 +257,7 @@ const ProjectDetail: React.FC = () => {
     {
       title: '操作',
       key: 'actions',
-      width: 120,
+      width: 150,
       render: (_: unknown, record: Thread) => (
         <Space>
           <Button
@@ -266,6 +267,31 @@ const ProjectDetail: React.FC = () => {
           >
             进入
           </Button>
+          <Popconfirm
+            title="确定删除此任务？"
+            description="删除后无法恢复"
+            onConfirm={async () => {
+              try {
+                await api.threads.delete(record.id);
+                message.success('任务已删除');
+                loadProjectData(); // 刷新列表
+              } catch (error) {
+                console.error('Failed to delete thread:', error);
+                message.error('删除失败');
+              }
+            }}
+            okText="删除"
+            cancelText="取消"
+            okButtonProps={{ danger: true }}
+          >
+            <Button
+              type="link"
+              icon={<DeleteOutlined />}
+              danger
+            >
+              删除
+            </Button>
+          </Popconfirm>
         </Space>
       ),
     },

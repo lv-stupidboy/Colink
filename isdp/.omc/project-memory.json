@@ -1,0 +1,488 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1775544670570,
+  "projectRoot": "D:\\Tools\\ASDP_gittee\\isdp\\isdp",
+  "techStack": {
+    "languages": [
+      {
+        "name": "Go",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "go.mod"
+        ]
+      },
+      {
+        "name": "C/C++",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "Makefile"
+        ]
+      }
+    ],
+    "frameworks": [],
+    "packageManager": "go",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": "make build",
+    "testCommand": "make test",
+    "lintCommand": null,
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "bin",
+      "docs",
+      "scripts"
+    ],
+    "gitBranches": {
+      "defaultBranch": "master",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "bin": {
+      "path": "bin",
+      "purpose": "Executable scripts",
+      "fileCount": 8,
+      "lastAccessed": 1775544670518,
+      "keyFiles": [
+        "isdp-mcp-server.exe",
+        "isdp-server-debug.exe",
+        "isdp-server-test.exe",
+        "isdp-server.exe",
+        "isdp-server.exe~"
+      ]
+    },
+    "cmd": {
+      "path": "cmd",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1775544670519,
+      "keyFiles": []
+    },
+    "configs": {
+      "path": "configs",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1775544670519,
+      "keyFiles": [
+        "config.yaml",
+        "config.yaml.example"
+      ]
+    },
+    "data": {
+      "path": "data",
+      "purpose": "Data files",
+      "fileCount": 6,
+      "lastAccessed": 1775544670520,
+      "keyFiles": [
+        "free_mode.db",
+        "free_mode.db-shm",
+        "free_mode.db-wal",
+        "isdp.db",
+        "isdp.db.backup_20260319_094607"
+      ]
+    },
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 2,
+      "lastAccessed": 1775544670521,
+      "keyFiles": [
+        "a2a-collaboration.md",
+        "architecture.md"
+      ]
+    },
+    "internal": {
+      "path": "internal",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1775544670521,
+      "keyFiles": []
+    },
+    "logs": {
+      "path": "logs",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1775544670522,
+      "keyFiles": [
+        "server-2026-03-25T10-16-41.850.log.gz",
+        "server.log"
+      ]
+    },
+    "pkg": {
+      "path": "pkg",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1775544670523,
+      "keyFiles": []
+    },
+    "scripts": {
+      "path": "scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 1,
+      "lastAccessed": 1775544670523,
+      "keyFiles": [
+        "export_schema.py"
+      ]
+    },
+    "sql-change": {
+      "path": "sql-change",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1775544670524,
+      "keyFiles": [
+        "init_db_mysql.sql",
+        "README.md"
+      ]
+    },
+    "web": {
+      "path": "web",
+      "purpose": null,
+      "fileCount": 9,
+      "lastAccessed": 1775544670525,
+      "keyFiles": [
+        "frontend.log",
+        "index.html",
+        "package-lock.json",
+        "package.json",
+        "playwright.config.ts"
+      ]
+    },
+    "internal\\api": {
+      "path": "internal\\api",
+      "purpose": "API routes",
+      "fileCount": 21,
+      "lastAccessed": 1775544670528,
+      "keyFiles": [
+        "agent_handler.go",
+        "artifact_handler.go",
+        "asset_package_handler.go"
+      ]
+    },
+    "internal\\config": {
+      "path": "internal\\config",
+      "purpose": "Configuration files",
+      "fileCount": 1,
+      "lastAccessed": 1775544670528,
+      "keyFiles": [
+        "logging.go"
+      ]
+    },
+    "internal\\middleware": {
+      "path": "internal\\middleware",
+      "purpose": "Middleware",
+      "fileCount": 1,
+      "lastAccessed": 1775544670528,
+      "keyFiles": [
+        "invite.go"
+      ]
+    },
+    "pkg\\config": {
+      "path": "pkg\\config",
+      "purpose": "Configuration files",
+      "fileCount": 2,
+      "lastAccessed": 1775544670529,
+      "keyFiles": [
+        "config.go",
+        "config_test.go"
+      ]
+    },
+    "sql-change\\migrations": {
+      "path": "sql-change\\migrations",
+      "purpose": "Database migrations",
+      "fileCount": 22,
+      "lastAccessed": 1775544670531,
+      "keyFiles": [
+        "202603200001_add_thread_name.sql",
+        "202603200002_add_workflow_transitions.sql",
+        "202603200003_add_agent_capabilities.sql"
+      ]
+    },
+    "web\\dist": {
+      "path": "web\\dist",
+      "purpose": "Distribution/build output",
+      "fileCount": 2,
+      "lastAccessed": 1775544670531,
+      "keyFiles": [
+        "favicon.svg",
+        "index.html"
+      ]
+    },
+    "web\\node_modules": {
+      "path": "web\\node_modules",
+      "purpose": "Dependencies",
+      "fileCount": 1,
+      "lastAccessed": 1775544670533,
+      "keyFiles": []
+    },
+    "web\\public": {
+      "path": "web\\public",
+      "purpose": "Public files",
+      "fileCount": 1,
+      "lastAccessed": 1775544670533,
+      "keyFiles": [
+        "favicon.svg"
+      ]
+    },
+    "web\\scripts": {
+      "path": "web\\scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 1,
+      "lastAccessed": 1775544670533,
+      "keyFiles": [
+        "generate-version.js"
+      ]
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "internal\\service\\agent\\execution_service.go",
+      "accessCount": 16,
+      "lastAccessed": 1775572593750,
+      "type": "directory"
+    },
+    {
+      "path": "web\\src\\pages\\ThreadView.tsx",
+      "accessCount": 16,
+      "lastAccessed": 1775572885206,
+      "type": "file"
+    },
+    {
+      "path": "web\\src\\store\\index.ts",
+      "accessCount": 15,
+      "lastAccessed": 1775576463257,
+      "type": "file"
+    },
+    {
+      "path": "internal\\service\\agent\\orchestrator.go",
+      "accessCount": 12,
+      "lastAccessed": 1775571143058,
+      "type": "directory"
+    },
+    {
+      "path": "web\\src",
+      "accessCount": 11,
+      "lastAccessed": 1775571195573,
+      "type": "directory"
+    },
+    {
+      "path": "internal\\ws\\handler.go",
+      "accessCount": 11,
+      "lastAccessed": 1775572868967,
+      "type": "file"
+    },
+    {
+      "path": "",
+      "accessCount": 6,
+      "lastAccessed": 1775571094787,
+      "type": "directory"
+    },
+    {
+      "path": "web\\src\\components\\thread\\TaskList.tsx",
+      "accessCount": 4,
+      "lastAccessed": 1775544898460,
+      "type": "file"
+    },
+    {
+      "path": "cmd\\server\\main.go",
+      "accessCount": 4,
+      "lastAccessed": 1775571956735,
+      "type": "directory"
+    },
+    {
+      "path": "web\\src\\api\\client.ts",
+      "accessCount": 3,
+      "lastAccessed": 1775544820493,
+      "type": "file"
+    },
+    {
+      "path": "internal\\ws\\hub.go",
+      "accessCount": 3,
+      "lastAccessed": 1775556777494,
+      "type": "file"
+    },
+    {
+      "path": "internal\\service\\agent\\startup_reconciler.go",
+      "accessCount": 3,
+      "lastAccessed": 1775562192904,
+      "type": "file"
+    },
+    {
+      "path": "internal\\repo\\agent_invocation.go",
+      "accessCount": 3,
+      "lastAccessed": 1775571117791,
+      "type": "file"
+    },
+    {
+      "path": "internal\\repo\\thread.go",
+      "accessCount": 2,
+      "lastAccessed": 1775544792421,
+      "type": "file"
+    },
+    {
+      "path": "internal\\service\\thread\\service.go",
+      "accessCount": 2,
+      "lastAccessed": 1775544793297,
+      "type": "file"
+    },
+    {
+      "path": "internal\\api\\thread_handler.go",
+      "accessCount": 2,
+      "lastAccessed": 1775544793896,
+      "type": "file"
+    },
+    {
+      "path": "web\\src\\components\\thread\\StatusPanel\\index.tsx",
+      "accessCount": 2,
+      "lastAccessed": 1775576812329,
+      "type": "file"
+    },
+    {
+      "path": "web\\src\\components\\thread\\TaskList\\TaskList.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1775544687222,
+      "type": "file"
+    },
+    {
+      "path": "internal",
+      "accessCount": 1,
+      "lastAccessed": 1775544703565,
+      "type": "directory"
+    },
+    {
+      "path": "web\\src\\components\\thread\\index.ts",
+      "accessCount": 1,
+      "lastAccessed": 1775544832937,
+      "type": "file"
+    },
+    {
+      "path": "web\\src\\pages\\thread\\SoloModeContainer.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1775544833014,
+      "type": "file"
+    },
+    {
+      "path": "web\\src\\api\\transform.ts",
+      "accessCount": 1,
+      "lastAccessed": 1775549811857,
+      "type": "file"
+    },
+    {
+      "path": "web\\src\\pages\\AgentDebug.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1775549871060,
+      "type": "file"
+    },
+    {
+      "path": "web\\src\\types\\index.ts",
+      "accessCount": 1,
+      "lastAccessed": 1775552014907,
+      "type": "file"
+    },
+    {
+      "path": "web\\src\\components\\thread\\ContentBlock\\ThinkingBlock.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1775553512150,
+      "type": "file"
+    },
+    {
+      "path": "web\\src\\components\\thread\\ContentBlock\\ToolBlock.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1775553538618,
+      "type": "file"
+    },
+    {
+      "path": "web\\src\\components\\thread\\ContentBlock\\ContentBlock.css",
+      "accessCount": 1,
+      "lastAccessed": 1775553552076,
+      "type": "file"
+    },
+    {
+      "path": "internal\\repo\\content_block.go",
+      "accessCount": 1,
+      "lastAccessed": 1775556613224,
+      "type": "file"
+    },
+    {
+      "path": "internal\\ws",
+      "accessCount": 1,
+      "lastAccessed": 1775556706104,
+      "type": "directory"
+    },
+    {
+      "path": "C:\\Users\\DELL\\AppData\\Local\\Temp\\claude\\D--Tools-ASDP-gittee-isdp\\4265ea57-362f-4721-87f7-556b57a2959b\\tasks\\b0zj5myjs.output",
+      "accessCount": 1,
+      "lastAccessed": 1775569818247,
+      "type": "file"
+    },
+    {
+      "path": "web\\vite.config.ts",
+      "accessCount": 1,
+      "lastAccessed": 1775570861711,
+      "type": "file"
+    },
+    {
+      "path": "web\\src\\hooks\\useWebSocket.ts",
+      "accessCount": 1,
+      "lastAccessed": 1775570871391,
+      "type": "file"
+    },
+    {
+      "path": "web\\src\\store",
+      "accessCount": 1,
+      "lastAccessed": 1775571223838,
+      "type": "directory"
+    },
+    {
+      "path": "sql-change\\migrations\\202604070001_add_invocation_content_blocks.sql",
+      "accessCount": 1,
+      "lastAccessed": 1775571901392,
+      "type": "file"
+    },
+    {
+      "path": "internal\\service\\agent",
+      "accessCount": 1,
+      "lastAccessed": 1775576476589,
+      "type": "directory"
+    },
+    {
+      "path": "internal\\model\\agent_invocation.go",
+      "accessCount": 1,
+      "lastAccessed": 1775576485181,
+      "type": "file"
+    },
+    {
+      "path": "C:\\Users\\DELL\\AppData\\Local\\Temp\\claude\\D--Tools-ASDP-gittee-isdp\\01c13b4c-b4fd-4ae3-b048-2d535b6e6f9e\\tasks\\bt0fg4azz.output",
+      "accessCount": 1,
+      "lastAccessed": 1775576580647,
+      "type": "file"
+    },
+    {
+      "path": "web\\src\\components",
+      "accessCount": 1,
+      "lastAccessed": 1775576804220,
+      "type": "directory"
+    },
+    {
+      "path": "web\\src\\components\\thread\\StatusPanel\\AgentHistoryCard.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1775576812329,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}

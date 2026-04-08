@@ -67,6 +67,9 @@ export interface Thread {
   updatedAt: string;
 }
 
+// 消息可见性
+export type MessageVisibility = 'normal' | 'whisper';
+
 // 消息
 export interface Message {
   id: string;
@@ -78,6 +81,27 @@ export interface Message {
   messageType: MessageType;
   metadata?: Record<string, unknown>;
   createdAt: string;
+  // 结构化内容块（按返回顺序穿插显示）
+  contentBlocks?: MessageContentBlock[];
+  // 回复引用
+  replyTo?: string;           // 被引用的消息ID
+  replyPreview?: string;      // 引用内容预览（截断后的文本）
+  replyToAgentName?: string;  // 被引用消息的Agent名称
+  // 消息可见性（悄悄话）
+  visibility?: MessageVisibility;
+  revealedAt?: string;        // 悄悄话揭秘时间
+  // Token使用统计
+  tokenUsage?: TokenUsage;
+  // 来源标识（影响样式）
+  origin?: 'stream' | 'callback';
+}
+
+// Token使用统计
+export interface TokenUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  estimatedCost?: number;  // 估算成本（美元）
 }
 
 // 基础Agent配置
@@ -130,8 +154,9 @@ export interface AgentInvocation {
   threadId: string;
   agentConfigId: string;
   role: AgentRole;
-  status: 'pending' | 'running' | 'streaming' | 'completed' | 'failed' | 'cancelled';
+  status: 'pending' | 'running' | 'streaming' | 'completed' | 'failed' | 'cancelled' | 'interrupted';
   input: string;
+  fullPrompt?: string; // 完整提示词（系统提示 + 历史 + 输入）
   output?: string;
   startedAt?: string;
   completedAt?: string;
@@ -302,6 +327,199 @@ export interface ToolEvent {
   completedAt?: number;
   duration?: number;      // ms
 }
+
+// ========== 消息内容块类型（按返回顺序穿插显示） ==========
+
+// 内容块类型（扩展支持富内容）
+export type MessageContentBlockType = 'thinking' | 'tool_use' | 'text' | 'rich';
+
+// 内容块状态
+export type ContentBlockStatus = 'streaming' | 'success' | 'failed';
+
+// 基础内容块接口
+export interface MessageContentBlockBase {
+  id: string;
+  type: MessageContentBlockType;
+  timestamp: number;
+}
+
+// 思考块
+export interface ThinkingBlock extends MessageContentBlockBase {
+  type: 'thinking';
+  content: string;
+  duration?: number;      // ms
+  status: ContentBlockStatus;
+}
+
+// 工具调用块
+export interface ToolUseBlock extends MessageContentBlockBase {
+  type: 'tool_use';
+  toolName: string;
+  toolId: string;
+  input?: Record<string, unknown>;
+  output?: string;
+  duration?: number;      // ms
+  status: ContentBlockStatus;
+  startedAt: number;
+  completedAt?: number;
+  isError?: boolean;
+}
+
+// 文本块
+export interface TextBlock extends MessageContentBlockBase {
+  type: 'text';
+  content: string;
+}
+
+// ========== 富内容块类型 ==========
+
+// 富内容块类型
+export type RichBlockType =
+  | 'card'           // 信息卡片
+  | 'diff'           // 代码差异
+  | 'checklist'      // 待办清单
+  | 'media_gallery'  // 图片画廊
+  | 'audio'          // TTS音频
+  | 'interactive'    // 交互选择/确认
+  | 'html_widget'    // 沙箱iframe
+  | 'file';          // 文件附件
+
+// 富内容块基础接口
+export interface RichBlockBase extends MessageContentBlockBase {
+  type: 'rich';
+  richType: RichBlockType;
+}
+
+// 信息卡片块
+export interface CardRichBlock extends RichBlockBase {
+  richType: 'card';
+  title: string;
+  description?: string;
+  icon?: string;
+  actions?: CardAction[];
+  metadata?: Record<string, unknown>;
+}
+
+// 卡片动作
+export interface CardAction {
+  id: string;
+  label: string;
+  type: 'button' | 'link';
+  url?: string;
+  onClick?: string;  // 动作标识，由前端处理
+}
+
+// 代码差异块
+export interface DiffRichBlock extends RichBlockBase {
+  richType: 'diff';
+  filename: string;
+  language?: string;
+  additions: number;
+  deletions: number;
+  diffContent: string;  // unified diff格式
+}
+
+// 待办清单块
+export interface ChecklistRichBlock extends RichBlockBase {
+  richType: 'checklist';
+  title?: string;
+  items: ChecklistItem[];
+}
+
+// 待办项
+export interface ChecklistItem {
+  id: string;
+  content: string;
+  checked: boolean;
+  status?: 'pending' | 'done' | 'failed';
+}
+
+// 图片画廊块
+export interface MediaGalleryRichBlock extends RichBlockBase {
+  richType: 'media_gallery';
+  images: MediaItem[];
+  caption?: string;
+}
+
+// 媒体项
+export interface MediaItem {
+  id: string;
+  url: string;
+  thumbnailUrl?: string;
+  caption?: string;
+  width?: number;
+  height?: number;
+}
+
+// 音频块（TTS）
+export interface AudioRichBlock extends RichBlockBase {
+  richType: 'audio';
+  audioUrl?: string;
+  duration?: number;
+  transcript?: string;
+  status?: 'generating' | 'ready' | 'error';
+}
+
+// 交互块
+export interface InteractiveRichBlock extends RichBlockBase {
+  richType: 'interactive';
+  interactiveType: 'choice' | 'confirm' | 'input' | 'multi_select';
+  prompt: string;
+  options?: InteractiveOption[];
+  groupId?: string;  // 用于分组多个交互块
+  placeholder?: string;
+  selectedOptionId?: string;
+  selectedOptionIds?: string[];
+  inputValue?: string;
+  confirmed?: boolean;
+}
+
+// 交互选项
+export interface InteractiveOption {
+  id: string;
+  label: string;
+  description?: string;
+  icon?: string;
+  value?: string;
+  disabled?: boolean;
+}
+
+// HTML Widget块（沙箱iframe）
+export interface HtmlWidgetRichBlock extends RichBlockBase {
+  richType: 'html_widget';
+  iframeUrl: string;
+  width?: number;
+  height?: number;
+  title?: string;
+}
+
+// 文件附件块
+export interface FileRichBlock extends RichBlockBase {
+  richType: 'file';
+  filename: string;
+  fileSize?: number;
+  downloadUrl?: string;
+  mimeType?: string;
+}
+
+// 联合类型（所有富内容块）
+export type RichBlock =
+  | RichBlockBase
+  | CardRichBlock
+  | DiffRichBlock
+  | ChecklistRichBlock
+  | MediaGalleryRichBlock
+  | AudioRichBlock
+  | InteractiveRichBlock
+  | HtmlWidgetRichBlock
+  | FileRichBlock;
+
+// 联合类型（所有消息内容块）
+export type MessageContentBlock =
+  | ThinkingBlock
+  | ToolUseBlock
+  | TextBlock
+  | RichBlock;
 
 // Agent完整消息
 export interface AgentMessage {

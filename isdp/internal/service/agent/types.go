@@ -40,6 +40,7 @@ type Chunk struct {
 	ToolInput map[string]interface{} // 工具参数（仅 tool_use 类型）
 	IsError  bool                   // 是否错误（仅 tool_result 类型）
 	Usage    *TokenUsage            // Token使用（仅 usage 类型）
+	Done     bool                   // 是否结束（thinking 完成标记）
 }
 
 // ExecutionRequest 统一的执行请求

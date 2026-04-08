@@ -1,22 +1,19 @@
 // isdp/web/src/components/thread/ChatMessage.tsx
 import React, { memo } from 'react';
 import { Tag, Button, Tooltip, Alert, Card, Space } from 'antd';
-import { StopOutlined, ReloadOutlined, FileTextOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
-import type { Message, AgentConfig, AgentRole, MessageRole, ReviewIssue, ToolEvent } from '@/types';
+import { StopOutlined, ReloadOutlined, FileTextOutlined, ExclamationCircleOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import type { Message, AgentConfig, AgentRole, MessageRole, ReviewIssue, ToolEvent, MessageContentBlock } from '@/types';
 import type { FileChange } from '@/types/content';
 import { getAgentStyle, AGENT_STYLES, USER_MESSAGE_STYLE, SYSTEM_MESSAGE_STYLE } from '@/config/agentStyles';
-import { MessageContentEnhanced } from './MessageContentEnhanced';
-import { ThinkingBlock, getThinkingContent } from './ThinkingBlock';
-import { CliOutputBlock } from './CliOutputBlock';
-import { toCliEvents } from '@/utils/toCliEvents';
 import { ReviewReport } from '@/components/ReviewReport';
-import { parseContentBlocks, shouldShowInPanel, shouldShowInBubble, parseCodeFiles } from '@/utils/contentDetector';
-import { ContentCard, CodePreviewButton } from '.';
+import MessageContentRenderer from './ContentBlock/MessageContentRenderer';
+import { ReplyPill } from './ContentBlock/ReplyPill';
+import { WhisperBadge } from './ContentBlock/WhisperBadge';
 import './ChatMessage.css';
 
 /**
  * 聊天消息组件
- * 支持品种样式、@提及高亮、思考块、文件路径链接、进度状态、产物卡片、审查报告、CLI输出块
+ * 统一使用 contentBlocks 渲染，支持 thinking/tool_use/text 块
  */
 
 // 进度状态类型
@@ -27,20 +24,20 @@ export interface ProgressInfo {
   status: ProgressStatus;
   toolName?: string;
   toolInput?: Record<string, unknown>;
-  thinkingText?: string;
 }
 
 interface ChatMessageProps {
   message: Message;
   agentConfig?: AgentConfig;
-  agentConfigs?: AgentConfig[]; // 用于 @提及颜色匹配
-  projectPath?: string;         // 用于文件路径链接
+  agentConfigs?: AgentConfig[];
+  projectPath?: string;
   isStreaming?: boolean;
-  progress?: ProgressInfo;      // 进度状态
-  toolEvents?: ToolEvent[];     // 工具事件列表
-  onStop?: () => void;          // 终止回调
-  onRetry?: () => void;         // 重试回调
-  onOpenCodePanel?: (files: FileChange[]) => void; // 打开代码面板
+  progress?: ProgressInfo;
+  toolEvents?: ToolEvent[];
+  onStop?: () => void;
+  onRetry?: () => void;
+  onOpenCodePanel?: (files: FileChange[]) => void;
+  onReplyClick?: (messageId: string) => void;  // 点击回复引用跳转
 }
 
 /**
@@ -118,19 +115,31 @@ function renderProgressTags(
 }
 
 /**
+ * 将纯文本内容转换为 contentBlocks（用于兼容旧消息）
+ */
+function contentToBlocks(content: string): MessageContentBlock[] {
+  return [{
+    id: `text-${Date.now()}`,
+    type: 'text',
+    content,
+    timestamp: Date.now(),
+  }];
+}
+
+/**
  * 单条聊天消息组件
  */
 export const ChatMessage: React.FC<ChatMessageProps> = memo(({
   message,
   agentConfig,
-  agentConfigs = [],
-  projectPath,
+  agentConfigs: _agentConfigs = [],
+  projectPath: _projectPath,
   isStreaming = false,
   progress,
-  toolEvents = [],
   onStop,
   onRetry,
-  onOpenCodePanel,
+  onOpenCodePanel: _onOpenCodePanel,
+  onReplyClick,
 }) => {
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
@@ -138,20 +147,25 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
 
   const styleConfig = getStyleByRole(message.role, agentRole);
   const roleDisplay = getRoleDisplayName(message.role, agentRole);
-  const agentColor = styleConfig.color;
 
-  // 检查是否有思考内容（从 metadata 或进度状态）
-  const thinkingContent = getThinkingContent(message) || progress?.thinkingText;
+  // 统一使用 contentBlocks，如果没有则从 content 转换
+  const contentBlocks: MessageContentBlock[] = message.contentBlocks && message.contentBlocks.length > 0
+    ? message.contentBlocks
+    : contentToBlocks(message.content);
 
   // 检查是否有产物和审查报告
   const hasArtifact = Boolean(message.metadata?.artifact);
   const hasReview = Boolean(message.metadata?.reviewReport);
 
-  // 检查是否有工具事件
-  const hasToolEvents = toolEvents.length > 0;
+  // 检查是否有回复引用
+  const hasReplyTo = Boolean(message.replyTo && message.replyPreview);
 
-  // 解析内容块
-  const contentBlocks = parseContentBlocks(message.content);
+  // 检查是否是悄悄话
+  const isWhisper = message.visibility === 'whisper';
+  const isRevealed = Boolean(isWhisper && message.revealedAt && new Date(message.revealedAt) <= new Date());
+
+  // Token 使用统计
+  const tokenUsage = message.tokenUsage;
 
   // 消息时间格式化
   const timestamp = message.createdAt
@@ -228,7 +242,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
               className="chat-message-name"
               style={{
                 fontWeight: 500,
-                color: 'var(--text-primary, #262626)',
+                color: '#262626',
                 fontSize: '14px',
               }}
             >
@@ -237,7 +251,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
             <span
               className="chat-message-role"
               style={{
-                color: 'var(--text-secondary, #8c8c8c)',
+                color: '#8c8c8c',
                 fontSize: '12px',
               }}
             >
@@ -247,7 +261,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
               <span
                 className="chat-message-time"
                 style={{
-                  color: 'var(--text-secondary, #bfbfbf)',
+                  color: '#bfbfbf',
                   fontSize: '12px',
                 }}
               >
@@ -271,78 +285,37 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
           </div>
         )}
 
-        {/* 思考块 - 仅在有实际思考内容时显示 */}
-        {thinkingContent && !isUser && (
-          <div style={{ marginBottom: '8px' }}>
-            <ThinkingBlock
-              content={thinkingContent}
-              defaultExpanded={false}
-              breedColor={agentColor}
-            />
-          </div>
-        )}
-
-        {/* 工具调用信息 */}
-        {progress?.status === 'tool_use' && progress.toolInput && Object.keys(progress.toolInput).length > 0 && (
-          <div style={{
-            marginBottom: '8px',
-            padding: '4px 8px',
-            background: 'var(--bg-sidebar, #fafafa)',
-            borderRadius: '4px',
-            fontSize: '12px',
-            color: 'var(--text-secondary, #666)',
-          }}>
-            {String(progress.toolInput.description || progress.toolInput.command || JSON.stringify(progress.toolInput).slice(0, 100))}
-          </div>
-        )}
-
         {/* 内容块渲染 */}
         <div
           className={`chat-message-bubble ${styleConfig.radius}`}
           style={{
-            backgroundColor: 'var(--bg-container, #fff)',
+            backgroundColor: '#fff',
             border: isUser ? '1px solid #52c41a' : `1px solid ${styleConfig.color}20`,
             padding: '12px 16px',
             wordBreak: 'break-word',
             ...(styleConfig.font ? { fontFamily: 'monospace' } : {}),
           }}
         >
-          {contentBlocks.map((block, index) => {
-            // 视觉内容：气泡内卡片
-            if (shouldShowInBubble(block.type)) {
-              return (
-                <ContentCard
-                  key={index}
-                  type={block.type}
-                  content={block.content}
-                  title={block.filename}
-                  language={block.language}
-                />
-              );
-            }
-
-            // 代码：预览入口按钮
-            if (shouldShowInPanel(block.type) && onOpenCodePanel) {
-              const files = parseCodeFiles(block);
-              return (
-                <CodePreviewButton
-                  key={index}
-                  files={files}
-                  onClick={() => onOpenCodePanel(files)}
-                />
-              );
-            }
-
-            // 默认：使用增强的消息内容渲染
-            return (
-              <MessageContentEnhanced
-                key={index}
-                content={block.content}
-                agentConfigs={agentConfigs}
-                projectPath={projectPath}
-              />
-            );
-          })}
+          {/* 悄悄话标签 */}
+          {isWhisper && (
+            <WhisperBadge
+              revealedAt={message.revealedAt}
+              isRevealed={isRevealed}
+            />
+          )}
+          {/* 回复引用 */}
+          {hasReplyTo && (
+            <ReplyPill
+              replyToAgentName={message.replyToAgentName}
+              replyPreview={message.replyPreview!}
+              onClick={onReplyClick && message.replyTo ? () => onReplyClick(message.replyTo!) : undefined}
+            />
+          )}
+          <MessageContentRenderer
+            blocks={contentBlocks}
+            defaultExpanded={false}
+            agentConfigs={_agentConfigs}
+          />
           {isStreaming && (
             <span
               className="streaming-cursor"
@@ -358,6 +331,31 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
           )}
         </div>
 
+        {/* Token 使用统计 */}
+        {tokenUsage && (tokenUsage.inputTokens || tokenUsage.outputTokens) && (
+          <div
+            className="token-usage-badge"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              marginTop: '4px',
+              fontSize: '11px',
+              color: '#8c8c8c',
+            }}
+          >
+            <ThunderboltOutlined style={{ fontSize: '12px' }} />
+            {tokenUsage.inputTokens && <span>输入: {tokenUsage.inputTokens}</span>}
+            {tokenUsage.outputTokens && <span>输出: {tokenUsage.outputTokens}</span>}
+            {tokenUsage.totalTokens && <span>总计: {tokenUsage.totalTokens}</span>}
+            {tokenUsage.estimatedCost && (
+              <span style={{ color: '#faad14' }}>
+                ~${tokenUsage.estimatedCost.toFixed(4)}
+              </span>
+            )}
+          </div>
+        )}
+
         {/* 产物卡片 */}
         {hasArtifact && (
           <Card
@@ -371,7 +369,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
               </Space>
             }
           >
-            <span style={{ color: 'var(--text-secondary, #8c8c8c)' }}>
+            <span style={{ color: '#8c8c8c' }}>
               {String((message.metadata?.artifact as Record<string, unknown>)?.description || '点击查看详情')}
             </span>
           </Card>
@@ -397,21 +395,12 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
           </Card>
         )}
 
-        {/* CLI 输出块 - 工具调用列表 */}
-        {hasToolEvents && (
-          <CliOutputBlock
-            events={toCliEvents(toolEvents)}
-            status={isStreaming ? 'streaming' : 'done'}
-            breedColor={agentColor}
-          />
-        )}
-
         {/* 用户消息时间戳 */}
         {isUser && timestamp && (
           <div
             style={{
               textAlign: 'right',
-              color: 'var(--text-secondary, #bfbfbf)',
+              color: '#bfbfbf',
               fontSize: '12px',
               marginTop: '4px',
             }}

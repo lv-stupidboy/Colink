@@ -1,0 +1,438 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1775524833734,
+  "projectRoot": "D:\\Tools\\ASDP_gittee\\isdp",
+  "techStack": {
+    "languages": [],
+    "frameworks": [],
+    "packageManager": null,
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": null,
+    "lintCommand": null,
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "docs"
+    ],
+    "gitBranches": {
+      "defaultBranch": "master",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 4,
+      "lastAccessed": 1775524833600,
+      "keyFiles": [
+        "agent-invocation-and-memory-analysis.md",
+        "CHANGELOG.md",
+        "installer-ui-preview.html",
+        "智能软件开发平台PRD文档v0.3.md"
+      ]
+    },
+    "installer": {
+      "path": "installer",
+      "purpose": null,
+      "fileCount": 10,
+      "lastAccessed": 1775524833611,
+      "keyFiles": [
+        "build.ps1",
+        "build.sh",
+        "electron-builder.launcher.yml",
+        "electron-builder.yml",
+        "electron.vite.config.ts"
+      ]
+    },
+    "isdp": {
+      "path": "isdp",
+      "purpose": null,
+      "fileCount": 14,
+      "lastAccessed": 1775524833611,
+      "keyFiles": [
+        "go.mod",
+        "go.sum",
+        "insert_builtin_agents.exe",
+        "isdp-server.exe",
+        "isdp.exe"
+      ]
+    },
+    "docs\\node_modules": {
+      "path": "docs\\node_modules",
+      "purpose": "Dependencies",
+      "fileCount": 1,
+      "lastAccessed": 1775524833612,
+      "keyFiles": []
+    },
+    "installer\\build": {
+      "path": "installer\\build",
+      "purpose": "Build output",
+      "fileCount": 2,
+      "lastAccessed": 1775524833613,
+      "keyFiles": [
+        "icon.ico",
+        "installer.nsh"
+      ]
+    },
+    "installer\\scripts": {
+      "path": "installer\\scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 2,
+      "lastAccessed": 1775524833613,
+      "keyFiles": [
+        "create-icon.js",
+        "create-zip.js"
+      ]
+    },
+    "isdp\\bin": {
+      "path": "isdp\\bin",
+      "purpose": "Executable scripts",
+      "fileCount": 8,
+      "lastAccessed": 1775524833614,
+      "keyFiles": [
+        "isdp-mcp-server.exe",
+        "isdp-server-debug.exe",
+        "isdp-server-test.exe"
+      ]
+    },
+    "isdp\\data": {
+      "path": "isdp\\data",
+      "purpose": "Data files",
+      "fileCount": 6,
+      "lastAccessed": 1775524833615,
+      "keyFiles": [
+        "free_mode.db",
+        "free_mode.db-shm",
+        "free_mode.db-wal"
+      ]
+    },
+    "isdp\\docs": {
+      "path": "isdp\\docs",
+      "purpose": "Documentation",
+      "fileCount": 2,
+      "lastAccessed": 1775524833621,
+      "keyFiles": [
+        "a2a-collaboration.md",
+        "architecture.md"
+      ]
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "isdp\\web\\src\\store\\index.ts",
+      "accessCount": 60,
+      "lastAccessed": 1775577811836,
+      "type": "file"
+    },
+    {
+      "path": "isdp\\web\\src\\components\\thread\\ChatMessage.tsx",
+      "accessCount": 29,
+      "lastAccessed": 1775612014071,
+      "type": "file"
+    },
+    {
+      "path": "isdp\\web\\src\\types\\index.ts",
+      "accessCount": 20,
+      "lastAccessed": 1775576937691,
+      "type": "file"
+    },
+    {
+      "path": "isdp\\internal\\service\\agent\\execution_service.go",
+      "accessCount": 19,
+      "lastAccessed": 1775576253980,
+      "type": "file"
+    },
+    {
+      "path": "isdp\\web\\src\\pages\\ThreadView.tsx",
+      "accessCount": 18,
+      "lastAccessed": 1775532262808,
+      "type": "file"
+    },
+    {
+      "path": "isdp\\internal\\service\\agent\\claude_adapter.go",
+      "accessCount": 9,
+      "lastAccessed": 1775525063991,
+      "type": "file"
+    },
+    {
+      "path": "isdp\\internal\\model\\agent_invocation.go",
+      "accessCount": 8,
+      "lastAccessed": 1775577228510,
+      "type": "file"
+    },
+    {
+      "path": "isdp",
+      "accessCount": 7,
+      "lastAccessed": 1775577228543,
+      "type": "directory"
+    },
+    {
+      "path": "isdp\\web\\src",
+      "accessCount": 7,
+      "lastAccessed": 1775577795441,
+      "type": "directory"
+    },
+    {
+      "path": "isdp\\web\\src\\components\\thread\\ChatMessageList.tsx",
+      "accessCount": 6,
+      "lastAccessed": 1775187625006,
+      "type": "file"
+    },
+    {
+      "path": "C:\\Users\\DELL\\.claude\\plans\\rippling-launching-deer.md",
+      "accessCount": 5,
+      "lastAccessed": 1775123781578,
+      "type": "file"
+    },
+    {
+      "path": "isdp\\internal\\service\\agent\\types.go",
+      "accessCount": 5,
+      "lastAccessed": 1775134517814,
+      "type": "file"
+    },
+    {
+      "path": "",
+      "accessCount": 5,
+      "lastAccessed": 1775535165344,
+      "type": "directory"
+    },
+    {
+      "path": "isdp\\web\\src\\components\\thread\\StatusPanel\\AgentHistoryCard.tsx",
+      "accessCount": 5,
+      "lastAccessed": 1775576937760,
+      "type": "file"
+    },
+    {
+      "path": "isdp\\web\\src\\layouts\\MainLayout.tsx",
+      "accessCount": 4,
+      "lastAccessed": 1775130421892,
+      "type": "file"
+    },
+    {
+      "path": "isdp\\web\\src\\components\\thread\\index.ts",
+      "accessCount": 4,
+      "lastAccessed": 1775535692999,
+      "type": "file"
+    },
+    {
+      "path": "C:\\Users\\DELL\\.claude\\settings.json",
+      "accessCount": 3,
+      "lastAccessed": 1775101711112,
+      "type": "file"
+    },
+    {
+      "path": "isdp\\internal",
+      "accessCount": 3,
+      "lastAccessed": 1775133042487,
+      "type": "directory"
+    },
+    {
+      "path": "isdp\\web\\src\\components\\thread\\StatusPanel\\StatusPanel.css",
+      "accessCount": 3,
+      "lastAccessed": 1775577811736,
+      "type": "file"
+    },
+    {
+      "path": "isdp\\web\\src\\config\\version.ts",
+      "accessCount": 3,
+      "lastAccessed": 1775612021232,
+      "type": "file"
+    },
+    {
+      "path": "isdp\\web",
+      "accessCount": 2,
+      "lastAccessed": 1775102104410,
+      "type": "directory"
+    },
+    {
+      "path": "isdp\\internal\\service\\agent",
+      "accessCount": 2,
+      "lastAccessed": 1775113526827,
+      "type": "directory"
+    },
+    {
+      "path": "isdp\\web\\src\\components\\thread\\MessageContent.tsx",
+      "accessCount": 2,
+      "lastAccessed": 1775115441002,
+      "type": "file"
+    },
+    {
+      "path": "isdp\\web\\src\\components\\thread\\MessageCard.tsx",
+      "accessCount": 2,
+      "lastAccessed": 1775115441049,
+      "type": "file"
+    },
+    {
+      "path": "isdp\\web\\src\\components\\thread",
+      "accessCount": 2,
+      "lastAccessed": 1775116012681,
+      "type": "directory"
+    },
+    {
+      "path": "isdp\\web\\src\\components\\thread\\MessageContentEnhanced.tsx",
+      "accessCount": 2,
+      "lastAccessed": 1775123294481,
+      "type": "file"
+    },
+    {
+      "path": "isdp\\web\\src\\utils\\contentDetector.ts",
+      "accessCount": 2,
+      "lastAccessed": 1775123323935,
+      "type": "file"
+    },
+    {
+      "path": "isdp\\web\\src\\config\\agentStyles.ts",
+      "accessCount": 2,
+      "lastAccessed": 1775135259156,
+      "type": "file"
+    },
+    {
+      "path": "isdp\\web\\src\\components\\thread\\ChatMessage.css",
+      "accessCount": 2,
+      "lastAccessed": 1775135259226,
+      "type": "file"
+    },
+    {
+      "path": "isdp\\web\\src\\components\\thread\\ThinkingBlock.tsx",
+      "accessCount": 2,
+      "lastAccessed": 1775531906549,
+      "type": "file"
+    },
+    {
+      "path": "isdp\\web\\src\\utils\\mentionHighlight.tsx",
+      "accessCount": 2,
+      "lastAccessed": 1775553418016,
+      "type": "file"
+    },
+    {
+      "path": "isdp\\web\\src\\components\\thread\\RightPanel.tsx",
+      "accessCount": 2,
+      "lastAccessed": 1775576914585,
+      "type": "file"
+    },
+    {
+      "path": "C:\\Users\\DELL\\AppData\\Local\\Temp\\claude\\D--Tools-ASDP-gittee-isdp\\dbe61630-d5f7-472c-a5e4-0566732661f6\\tasks\\b5wxtykfg.output",
+      "accessCount": 1,
+      "lastAccessed": 1775100542511,
+      "type": "file"
+    },
+    {
+      "path": "C:\\Users\\DELL\\.claude\\plugins\\marketplaces\\omc\\skills\\omc-setup\\phases\\01-install-claude-md.md",
+      "accessCount": 1,
+      "lastAccessed": 1775100564576,
+      "type": "file"
+    },
+    {
+      "path": "C:\\Users\\DELL\\.claude\\plugins\\marketplaces\\omc\\skills\\omc-setup\\phases\\02-configure.md",
+      "accessCount": 1,
+      "lastAccessed": 1775100564679,
+      "type": "file"
+    },
+    {
+      "path": "C:\\Users\\DELL\\.claude\\plugins\\marketplaces\\omc\\skills\\omc-setup\\phases\\04-welcome.md",
+      "accessCount": 1,
+      "lastAccessed": 1775100564683,
+      "type": "file"
+    },
+    {
+      "path": "C:\\Users\\DELL\\.claude\\plugins\\marketplaces\\omc\\skills\\omc-setup\\phases\\03-integrations.md",
+      "accessCount": 1,
+      "lastAccessed": 1775100564732,
+      "type": "file"
+    },
+    {
+      "path": "C:\\Users\\DELL\\.claude\\hud\\omc-hud.mjs",
+      "accessCount": 1,
+      "lastAccessed": 1775100725732,
+      "type": "file"
+    },
+    {
+      "path": "isdp\\internal\\service\\agent\\adapter.go",
+      "accessCount": 1,
+      "lastAccessed": 1775102741319,
+      "type": "file"
+    },
+    {
+      "path": "C:\\Users\\DELL\\.claude\\projects\\D--Tools-ASDP-gittee-isdp\\e438bc79-1a7e-434b-b5e6-587f528efece\\tool-results\\toolu_tool-4505a64a0d0041e1bd50222e9f8e9163.txt",
+      "accessCount": 1,
+      "lastAccessed": 1775102837314,
+      "type": "file"
+    },
+    {
+      "path": "isdp\\internal\\model",
+      "accessCount": 1,
+      "lastAccessed": 1775103174124,
+      "type": "directory"
+    },
+    {
+      "path": "isdp\\web\\src\\types\\status.ts",
+      "accessCount": 1,
+      "lastAccessed": 1775103760091,
+      "type": "file"
+    },
+    {
+      "path": "isdp\\sql-change\\migrations\\202604020001_add_invocation_usage.sql",
+      "accessCount": 1,
+      "lastAccessed": 1775103760592,
+      "type": "file"
+    },
+    {
+      "path": "isdp\\internal\\service\\mention\\parser.go",
+      "accessCount": 1,
+      "lastAccessed": 1775113526669,
+      "type": "file"
+    },
+    {
+      "path": "isdp\\internal\\parser\\mention.go",
+      "accessCount": 1,
+      "lastAccessed": 1775113526751,
+      "type": "file"
+    },
+    {
+      "path": "isdp\\sql-change",
+      "accessCount": 1,
+      "lastAccessed": 1775113566756,
+      "type": "directory"
+    },
+    {
+      "path": "isdp\\web\\src\\utils\\mentionHighlight.ts",
+      "accessCount": 1,
+      "lastAccessed": 1775115660713,
+      "type": "file"
+    },
+    {
+      "path": "isdp\\web\\src\\components\\thread\\FilePathLink.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1775115661212,
+      "type": "file"
+    },
+    {
+      "path": "isdp\\web\\src\\utils",
+      "accessCount": 1,
+      "lastAccessed": 1775123307874,
+      "type": "directory"
+    },
+    {
+      "path": "isdp\\internal\\ws\\hub.go",
+      "accessCount": 1,
+      "lastAccessed": 1775123351468,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}

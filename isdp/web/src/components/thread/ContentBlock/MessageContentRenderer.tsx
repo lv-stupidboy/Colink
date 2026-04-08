@@ -1,0 +1,301 @@
+import React, { useState, useEffect, memo } from 'react';
+import type { MessageContentBlock, ToolUseBlock, ThinkingBlock as ThinkingBlockType, TextBlock as TextBlockType, RichBlock, AgentConfig } from '@/types';
+import ThinkingBlockComponent from './ThinkingBlock';
+import ToolBlockComponent, { ToolCallRow } from './ToolBlock';
+import TextBlockComponent from './TextBlock';
+import { RichBlocks } from './RichBlocks';
+import './ContentBlock.css';
+
+interface MessageContentRendererProps {
+  blocks: MessageContentBlock[];
+  defaultExpanded?: boolean;
+  agentConfigs?: AgentConfig[];
+  onInteractiveAction?: (blockId: string, action: string, value?: string | string[]) => void;
+}
+
+/**
+ * 消息内容渲染器
+ *
+ * 智能聚合渲染：
+ * - 连续的 thinking 块合并为一个
+ * - 连续的 tool_use 块聚合为一个工具面板
+ * - text 块直接渲染
+ * - rich 块按 richType 渲染不同组件
+ */
+const MessageContentRenderer: React.FC<MessageContentRendererProps> = memo(({
+  blocks,
+  defaultExpanded = false,
+  agentConfigs = [],
+  onInteractiveAction,
+}) => {
+  if (!blocks || blocks.length === 0) {
+    return null;
+  }
+
+  // 智能聚合块
+  const aggregatedBlocks = aggregateBlocks(blocks);
+
+  return (
+    <div className="message-content-blocks">
+      {aggregatedBlocks.map((block, index) => {
+        switch (block.type) {
+          case 'thinking':
+            return (
+              <ThinkingBlockComponent
+                key={`thinking-${index}`}
+                block={block as ThinkingBlockType}
+                defaultExpanded={defaultExpanded}
+              />
+            );
+          case 'tool_use_group':
+            return (
+              <ToolGroupBlock
+                key={`tool-group-${index}`}
+                tools={block.tools as ToolUseBlock[]}
+                defaultExpanded={defaultExpanded}
+              />
+            );
+          case 'text':
+            return (
+              <TextBlockComponent
+                key={`text-${index}`}
+                block={block as TextBlockType}
+                agentConfigs={agentConfigs}
+              />
+            );
+          case 'rich':
+            return (
+              <RichBlocks
+                key={`rich-${index}`}
+                blocks={extractRichBlocks(block)}
+                onInteractiveAction={onInteractiveAction}
+              />
+            );
+          default:
+            return null;
+        }
+      })}
+    </div>
+  );
+});
+
+/**
+ * 从聚合块中提取富内容块数组
+ */
+function extractRichBlocks(block: MessageContentBlock | { type: 'tool_use_group'; tools: ToolUseBlock[] }): RichBlock[] {
+  if (block.type === 'rich') {
+    return [block as RichBlock];
+  }
+  if ('richBlocks' in block && Array.isArray(block.richBlocks)) {
+    return block.richBlocks as RichBlock[];
+  }
+  return [];
+}
+
+/**
+ * 聚合内容块
+ * - 连续的 thinking 块合并（取最后一个，内容已由 Store 累积）
+ * - 连续的 tool_use 块聚合为一个组
+ * - rich 块保持独立
+ */
+function aggregateBlocks(blocks: MessageContentBlock[]): Array<MessageContentBlock | { type: 'tool_use_group'; tools: ToolUseBlock[]; richBlocks?: RichBlock[] }> {
+  const result: Array<MessageContentBlock | { type: 'tool_use_group'; tools: ToolUseBlock[]; richBlocks?: RichBlock[] }> = [];
+  let currentToolGroup: ToolUseBlock[] = [];
+  let currentRichBlocks: RichBlock[] = [];
+
+  for (const block of blocks) {
+    if (block.type === 'tool_use') {
+      // 累积 tool_use 块
+      currentToolGroup.push(block as ToolUseBlock);
+    } else if (block.type === 'rich') {
+      // 累积 rich 块
+      currentRichBlocks.push(block as RichBlock);
+    } else {
+      // 遇到非 tool_use/rich 块，先输出累积的块
+      if (currentToolGroup.length > 0) {
+        // 如果有 rich 块，附加到工具组
+        if (currentRichBlocks.length > 0) {
+          result.push({ type: 'tool_use_group', tools: currentToolGroup, richBlocks: currentRichBlocks });
+          currentRichBlocks = [];
+        } else {
+          result.push({ type: 'tool_use_group', tools: currentToolGroup });
+        }
+        currentToolGroup = [];
+      }
+      // 输出累积的 rich 块
+      if (currentRichBlocks.length > 0) {
+        for (const richBlock of currentRichBlocks) {
+          result.push(richBlock);
+        }
+        currentRichBlocks = [];
+      }
+      result.push(block);
+    }
+  }
+
+  // 处理末尾的累积块
+  if (currentToolGroup.length > 0) {
+    if (currentRichBlocks.length > 0) {
+      result.push({ type: 'tool_use_group', tools: currentToolGroup, richBlocks: currentRichBlocks });
+    } else {
+      result.push({ type: 'tool_use_group', tools: currentToolGroup });
+    }
+  }
+  if (currentRichBlocks.length > 0) {
+    for (const richBlock of currentRichBlocks) {
+      result.push(richBlock);
+    }
+  }
+
+  return result;
+}
+
+/** 格式化执行时间 */
+function formatDuration(ms?: number): string {
+  if (!ms) return '';
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return rem > 0 ? `${m}m${rem}s` : `${m}m`;
+}
+
+/** Chevron 图标 */
+function ChevronIcon({ expanded, color }: { expanded: boolean; color?: string }) {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke={color || '#8c8c8c'}
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{
+        transition: 'transform 0.15s',
+        transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)',
+      }}
+    >
+      <polyline points="9 18 15 12 9 6" />
+    </svg>
+  );
+}
+
+/** 扳手图标 */
+function WrenchIcon({ color }: { color?: string }) {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke={color || '#8c8c8c'}
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+    </svg>
+  );
+}
+
+/**
+ * 工具组块组件
+ * 聚合显示多个工具调用，统一外壳
+ */
+interface ToolGroupBlockProps {
+  tools: ToolUseBlock[];
+  defaultExpanded?: boolean;
+}
+
+const ToolGroupBlock: React.FC<ToolGroupBlockProps> = memo(({ tools, defaultExpanded = false }) => {
+  if (tools.length === 0) return null;
+
+  // 单个工具：直接用单行显示
+  if (tools.length === 1) {
+    return <ToolBlockComponent block={tools[0]} defaultExpanded={defaultExpanded} />;
+  }
+
+  // 多个工具：聚合显示，统一外壳
+  const anyStreaming = tools.some(t => t.status === 'streaming');
+  const anyFailed = tools.some(t => t.status === 'failed');
+  const totalDuration = tools.reduce((sum, t) => sum + (t.duration || 0), 0);
+
+  const [expanded, setExpanded] = useState(anyStreaming || defaultExpanded);
+  const userInteracted = React.useRef(false);
+
+  // streaming 时自动展开
+  useEffect(() => {
+    if (anyStreaming && !expanded) {
+      setExpanded(true);
+    }
+  }, [anyStreaming]);
+
+  // 完成后自动折叠
+  const prevStreamingRef = React.useRef(anyStreaming);
+  useEffect(() => {
+    if (prevStreamingRef.current && !anyStreaming) {
+      if (!userInteracted.current) {
+        setExpanded(false);
+      }
+    }
+    prevStreamingRef.current = anyStreaming;
+  }, [anyStreaming]);
+
+  const handleToggle = () => {
+    userInteracted.current = true;
+    setExpanded(v => !v);
+  };
+
+  // 状态文本和颜色
+  const statusText = anyStreaming ? 'running' : anyFailed ? 'failed' : 'completed';
+  const accentColor = '#7C3AED';
+
+  return (
+    <div className="tool-block-wrapper" style={{ marginTop: 8 }}>
+      {/* Header - 统一头 */}
+      <button
+        type="button"
+        onClick={handleToggle}
+        className="tool-block-header"
+      >
+        <ChevronIcon expanded={expanded} color={accentColor} />
+        <WrenchIcon color="#6B7280" />
+        <span className="tool-block-label">CLI Output</span>
+        <span className="tool-block-status" style={{ color: anyStreaming ? accentColor : anyFailed ? '#ff4d4f' : '#52c41a' }}>
+          · {statusText}
+        </span>
+        <span className="tool-block-duration-badge">{tools.length} tools</span>
+        {totalDuration > 0 && (
+          <span className="tool-block-duration-badge">{formatDuration(totalDuration)}</span>
+        )}
+      </button>
+
+      {/* Body - 工具列表 */}
+      {expanded && (
+        <div className="tool-block-body">
+          <div className="tool-block-list">
+            {tools.map((tool, index) => (
+              <ToolCallRow
+                key={tool.id || `tool-${index}`}
+                toolName={tool.toolName}
+                input={tool.input}
+                output={tool.output}
+                status={tool.status}
+                duration={tool.duration}
+                startedAt={tool.startedAt}
+                defaultExpanded={tool.status === 'streaming'}
+                accentColor={accentColor}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
+
+ToolGroupBlock.displayName = 'ToolGroupBlock';
+
+export default MessageContentRenderer;

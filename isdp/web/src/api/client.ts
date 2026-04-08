@@ -233,6 +233,7 @@ class APIClient {
     get: (id: string): Promise<Thread> => this.request(`/threads/${id}`, 'GET'),
     create: (projectId: string, name?: string): Promise<Thread> =>
       this.request(`/threads/project/${projectId}`, 'POST', name ? { name } : {}),
+    delete: (id: string): Promise<void> => this.request(`/threads/${id}`, 'DELETE'),
     updateStatus: (id: string, status: string): Promise<Thread> =>
       this.request(`/threads/${id}/status`, 'PUT', { status }),
     setPhase: (id: string, phase: string, agent: string): Promise<Thread> =>

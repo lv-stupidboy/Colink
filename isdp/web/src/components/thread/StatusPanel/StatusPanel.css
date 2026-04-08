@@ -606,3 +606,241 @@
 }
 
 /* Responsive layout: StatusPanel remains visible at all sizes */
+
+/* ========== Agent Invocation Log Panel ========== */
+
+/* 入口按钮（未展开时） */
+.log-panel-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #374151;
+  transition: all 0.2s;
+}
+
+.log-panel-trigger:hover {
+  background: #f3f4f6;
+  border-color: #d1d5db;
+}
+
+.log-panel-trigger .anticon {
+  font-size: 14px;
+  color: #6b7280;
+}
+
+.log-panel-count {
+  margin-left: auto;
+  font-size: 10px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  padding: 1px 6px;
+  border-radius: 10px;
+}
+
+/* 展开后的面板 */
+.log-panel-content {
+  margin-top: 8px;
+}
+
+.log-panel-content .section-collapse-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+.log-panel-content .section-collapse-header:hover {
+  color: #374151;
+}
+
+/* Agent 列表 */
+.agent-log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.agent-log-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.agent-log-item:hover {
+  background: #f9fafb;
+  border-color: #d1d5db;
+}
+
+.agent-log-item .agent-name {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 500;
+  color: #111827;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-log-item .anticon:last-child {
+  flex-shrink: 0;
+}
+
+/* Agent 选中状态 */
+.agent-log-item--selected {
+  background: #eff6ff;
+  border-color: #3b82f6;
+}
+
+/* 调用详情 */
+.invocation-detail {
+  margin-top: 8px;
+}
+
+.detail-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 0;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  color: #374151;
+}
+
+.detail-header:hover {
+  color: #111827;
+}
+
+.invocation-count {
+  font-size: 10px;
+  color: #6b7280;
+  font-weight: 400;
+}
+
+.invocation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+/* 单条调用记录 */
+.invocation-record {
+  padding: 10px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  border-left: 3px solid #3b82f6;
+}
+
+.invocation-record:last-child {
+  border-left-color: #22c55e;
+}
+
+.invocation-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.invocation-meta .time-display {
+  font-size: 11px;
+  color: #6b7280;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* 输入内容区域 */
+.invocation-input {
+  background: #f0fdf4;
+  border-radius: 4px;
+  padding: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid #bbf7d0;
+}
+
+.invocation-input pre {
+  margin: 0;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: #166534;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+}
+
+/* 输入内容区域 - 展开/收起控制 */
+.invocation-input-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.invocation-input-label {
+  font-size: 10px;
+  color: #15803d;
+  font-weight: 500;
+}
+
+.invocation-input-expand {
+  cursor: pointer;
+  padding: 2px 4px;
+  color: #22c55e;
+  font-size: 12px;
+  border-radius: 3px;
+  transition: all 0.2s;
+}
+
+.invocation-input-expand:hover {
+  color: #16a34a;
+  background: #dcfce7;
+}
+
+.invocation-input-copy {
+  cursor: pointer;
+  padding: 2px 6px;
+  color: #22c55e;
+  font-size: 11px;
+  border-radius: 3px;
+  transition: all 0.2s;
+  margin-left: 4px;
+}
+
+.invocation-input-copy:hover {
+  color: #16a34a;
+  background: #dcfce7;
+}
+
+.invocation-input-copy.copied {
+  color: #16a34a;
+}
+
+/* 展开状态的 pre */
+.invocation-input pre.expanded {
+  max-height: 400px;
+  overflow-y: auto;
+}

@@ -1,0 +1,502 @@
+/* Content Block Styles */
+
+/* 工具调用行 */
+.tool-call-row-container {
+  width: 100%;
+}
+
+.tool-call-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-family: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  gap: 8px;
+  background: #F5F5F5;
+  border: none;
+  cursor: pointer;
+  margin-bottom: 2px;
+  transition: background-color 0.2s;
+}
+
+.tool-call-row:hover {
+  background: #EBEBEB;
+}
+
+.tool-call-row.streaming {
+  background: #F5F5F5;
+}
+
+.tool-call-row.success {
+  background: #F5F5F5;
+}
+
+.tool-call-row.failed {
+  background: #F5F5F5;
+}
+
+.tool-call-icon {
+  width: 14px;
+  display: flex;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.tool-call-name {
+  font-weight: 600;
+  font-size: 12px;
+  min-width: 50px;
+  color: #374151;
+}
+
+.tool-call-input {
+  flex: 1;
+  font-size: 11px;
+  color: #6B7280;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.tool-call-duration {
+  font-size: 10px;
+  color: #9CA3AF;
+  flex-shrink: 0;
+}
+
+.tool-call-timer {
+  animation: blink 1s ease-in-out infinite;
+}
+
+/* 工具详情展开 */
+.tool-call-detail {
+  margin-top: 4px;
+  padding: 8px 12px;
+  background: #FAFAFA;
+  border-radius: 4px;
+  border: 1px solid #E5E5E5;
+}
+
+.tool-call-detail-section {
+  margin-bottom: 8px;
+}
+
+.tool-call-detail-section:last-child {
+  margin-bottom: 0;
+}
+
+.tool-call-detail-label {
+  font-size: 10px;
+  font-weight: 500;
+  color: #6B7280;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+
+.tool-call-detail pre {
+  margin: 0;
+  font-size: 10px;
+  color: #475569;
+  font-family: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 200px;
+  overflow: auto;
+}
+
+/* 单个工具块（无外壳） */
+.tool-block-single {
+  margin: 8px 0;
+}
+
+/* 思考块 - 参考 Clowder AI 设计 */
+.thinking-block-wrapper {
+  margin: 8px 0;
+  border-radius: 8px;
+  overflow: hidden;
+  font-family: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: #F5F5F5;
+}
+
+.thinking-block-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 11px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  color: #374151;
+}
+
+.thinking-block-header:hover {
+  background-color: rgba(0, 0, 0, 0.04);
+}
+
+.thinking-block-label {
+  font-weight: 500;
+  color: #6B7280;
+}
+
+.thinking-block-duration {
+  font-size: 10px;
+  color: #9CA3AF;
+  margin-left: 4px;
+}
+
+.thinking-block-preview {
+  flex: 1;
+  color: #9CA3AF;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 240px;
+  margin-left: 8px;
+}
+
+.thinking-block-body {
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.thinking-block-content {
+  padding: 8px 12px 10px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #4B5563;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 文本块 */
+.text-block {
+  margin: 8px 0;
+  line-height: 1.6;
+}
+
+/* Markdown 表格样式 */
+.text-block table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 13px;
+}
+
+.text-block table th,
+.text-block table td {
+  border: 1px solid #e8e8e8;
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.text-block table th {
+  background: #fafafa;
+  font-weight: 600;
+}
+
+.text-block table tr:hover {
+  background: #fafafa;
+}
+
+/* Markdown 任务列表 */
+.text-block input[type="checkbox"] {
+  margin-right: 6px;
+}
+
+/* Markdown 代码块 */
+.text-block pre {
+  background: #f6f8fa;
+  border-radius: 6px;
+  padding: 12px 16px;
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.text-block code {
+  background: #f6f8fa;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.text-block pre code {
+  background: transparent;
+  padding: 0;
+}
+
+/* Markdown 引用 */
+.text-block blockquote {
+  border-left: 4px solid #e8e8e8;
+  padding-left: 16px;
+  margin: 8px 0;
+  color: #666;
+}
+
+/* Markdown 标题 */
+.text-block h1,
+.text-block h2,
+.text-block h3,
+.text-block h4 {
+  margin-top: 16px;
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
+.text-block h1 { font-size: 20px; }
+.text-block h2 { font-size: 18px; }
+.text-block h3 { font-size: 16px; }
+.text-block h4 { font-size: 14px; }
+
+/* Markdown 列表 */
+.text-block ul,
+.text-block ol {
+  padding-left: 24px;
+  margin: 8px 0;
+}
+
+.text-block li {
+  margin: 4px 0;
+}
+
+/* Markdown 分割线 */
+.text-block hr {
+  border: none;
+  border-top: 1px solid #e8e8e8;
+  margin: 16px 0;
+}
+
+/* 工具块面板 - 参考 Clowder AI 设计 */
+.tool-block-wrapper {
+  margin: 8px 0;
+  border-radius: 8px;
+  overflow: hidden;
+  font-family: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.tool-block-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 11px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  color: #374151;
+}
+
+.tool-block-header:hover {
+  background-color: rgba(0, 0, 0, 0.04);
+}
+
+.tool-block-label {
+  font-weight: 500;
+  color: #374151;
+}
+
+.tool-block-status {
+  color: #6B7280;
+}
+
+.tool-block-duration-badge {
+  font-size: 10px;
+  color: #9CA3AF;
+  margin-left: 4px;
+}
+
+.tool-block-badge {
+  font-size: 10px;
+  color: #6B7280;
+  padding: 2px 6px;
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 4px;
+  margin-left: auto;
+}
+
+.tool-block-body {
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+/* 工具汇总行 */
+.tool-block-summary {
+  padding: 4px 12px;
+}
+
+.tool-block-summary-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-family: inherit;
+  color: #6B7280;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.tool-block-summary-btn:hover {
+  background-color: rgba(0, 0, 0, 0.04);
+}
+
+.tool-block-summary-collapsed {
+  color: #9CA3AF;
+  font-size: 10px;
+  margin-left: 4px;
+}
+
+/* 工具列表 */
+.tool-block-list {
+  padding: 4px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* 工具行包装器 */
+.tool-block-row-wrapper {
+  width: 100%;
+}
+
+/* 工具行 */
+.tool-block-row {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  cursor: default;
+  transition: all 0.2s;
+  text-align: left;
+}
+
+.tool-block-row:hover {
+  background-color: rgba(0, 0, 0, 0.02);
+}
+
+.tool-block-row-main {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.tool-block-name {
+  font-weight: 600;
+  font-size: 12px;
+  min-width: 50px;
+}
+
+.tool-block-args {
+  flex: 1;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-block-duration {
+  font-size: 10px;
+  margin-left: auto;
+}
+
+/* 工具详情展开 */
+.tool-block-detail {
+  margin-top: 6px;
+  padding: 8px;
+  background: #FAFAFA;
+  border-radius: 4px;
+  border: 1px solid #E5E5E5;
+  width: 100%;
+}
+
+.tool-block-detail pre {
+  margin: 0;
+  font-size: 10px;
+  color: #475569;
+  font-family: inherit;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 200px;
+  overflow: auto;
+}
+
+/* spin 动画 */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 截断类 */
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 工具组块样式 */
+.tool-group-block {
+  margin: 8px 0;
+  border-radius: 8px;
+  overflow: hidden;
+  font-family: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: #F5F5F5;
+}
+
+.tool-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: #374151;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.tool-group-icon {
+  font-size: 14px;
+}
+
+.tool-group-title {
+  font-weight: 500;
+  color: #7C3AED;
+}
+
+.tool-group-count {
+  color: #6B7280;
+  font-size: 11px;
+}
+
+.tool-group-duration {
+  margin-left: auto;
+  font-size: 10px;
+  color: #9CA3AF;
+}
+
+.tool-group-list {
+  padding: 4px;
+}

@@ -1,0 +1,56 @@
+/* ReplyPill Styles */
+
+.reply-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  margin-bottom: 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  font-size: 12px;
+  color: #595959;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.reply-pill-clickable {
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.reply-pill-clickable:hover {
+  background: rgba(0, 0, 0, 0.08);
+  border-color: rgba(0, 0, 0, 0.12);
+}
+
+.reply-pill-icon {
+  font-size: 12px;
+  color: #8c8c8c;
+  flex-shrink: 0;
+}
+
+.reply-pill-content {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  flex: 1;
+  min-width: 0;
+}
+
+.reply-pill-agent {
+  font-size: 11px;
+  margin: 0;
+  padding: 0 4px;
+  flex-shrink: 0;
+}
+
+.reply-pill-preview {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #8c8c8c;
+  font-size: 11px;
+}

@@ -1,0 +1,241 @@
+/* RichBlocks Styles */
+
+.rich-blocks-container {
+  margin-top: 8px;
+}
+
+/* Card Block */
+.rich-card-block {
+  margin: 8px 0;
+  border-radius: 8px;
+}
+
+.rich-card-icon {
+  font-size: 16px;
+}
+
+.rich-card-description {
+  color: #595959;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.rich-card-metadata {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* Diff Block */
+.rich-diff-block {
+  margin: 8px 0;
+  border: 1px solid #e8e8e8;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.rich-diff-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #fafafa;
+  border-bottom: 1px solid #e8e8e8;
+}
+
+.rich-diff-filename {
+  font-weight: 500;
+  font-family: 'SF Mono', 'Menlo', monospace;
+}
+
+.rich-diff-content {
+  padding: 12px;
+  margin: 0;
+  font-size: 12px;
+  font-family: 'SF Mono', 'Menlo', monospace;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  max-height: 300px;
+  overflow: auto;
+}
+
+/* Checklist Block */
+.rich-checklist-block {
+  margin: 8px 0;
+  padding: 8px 12px;
+  border: 1px solid #e8e8e8;
+  border-radius: 6px;
+}
+
+.rich-checklist-title {
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+
+.rich-checklist-items {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rich-checklist-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.checklist-status-done {
+  color: #52c41a;
+}
+
+.checklist-status-failed {
+  color: #ff4d4f;
+}
+
+/* Media Gallery Block */
+.rich-media-gallery-block {
+  margin: 8px 0;
+}
+
+.rich-media-caption {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #8c8c8c;
+}
+
+/* Audio Block */
+.rich-audio-block {
+  margin: 8px 0;
+  padding: 8px 12px;
+  border: 1px solid #e8e8e8;
+  border-radius: 6px;
+}
+
+.rich-audio-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.rich-audio-player {
+  width: 100%;
+  height: 40px;
+}
+
+.rich-audio-transcript {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #595959;
+  line-height: 1.5;
+}
+
+/* Interactive Block */
+.rich-interactive-block {
+  margin: 8px 0;
+  padding: 12px;
+  border: 1px solid #d9d9d9;
+  border-radius: 8px;
+  background: #fafafa;
+}
+
+.rich-interactive-prompt {
+  font-size: 14px;
+  color: #262626;
+  margin-bottom: 12px;
+}
+
+.rich-interactive-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.rich-interactive-input-field {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #d9d9d9;
+  border-radius: 4px;
+  margin-bottom: 8px;
+}
+
+/* Interactive Group */
+.rich-interactive-group {
+  margin: 12px 0;
+  border: 1px solid #722ed1;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.rich-interactive-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #f9f0ff;
+  color: #722ed1;
+  font-weight: 500;
+}
+
+.rich-interactive-group-items {
+  padding: 8px;
+  background: #fff;
+}
+
+/* HTML Widget Block */
+.rich-html-widget-block {
+  margin: 8px 0;
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.rich-html-widget-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #fafafa;
+  border-bottom: 1px solid #e8e8e8;
+}
+
+.rich-html-widget-iframe {
+  border: none;
+  display: block;
+}
+
+/* File Block */
+.rich-file-block {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  margin: 8px 0;
+  border: 1px solid #e8e8e8;
+  border-radius: 6px;
+  background: #fafafa;
+}
+
+.rich-file-icon {
+  font-size: 24px;
+  color: #1890ff;
+}
+
+.rich-file-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rich-file-name {
+  font-weight: 500;
+  color: #262626;
+}
+
+.rich-file-size {
+  font-size: 12px;
+  color: #8c8c8c;
+}

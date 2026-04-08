@@ -1,0 +1,33 @@
+# Progress: 对话页面进度感知与内容折叠优化
+
+## 实现完成
+
+### US-001: Thinking 折叠块实时更新
+**文件改动:**
+- `store/index.ts`: 新增 `streamingThinkingContent` 状态, `appendThinkingChunk` action
+- `pages/ThreadView.tsx`: thinking chunk 处理时调用 `appendThinkingChunk`
+- `components/thread/StreamingMessage.tsx`: 订阅并传递 `streamingThinkingContent`
+- `components/thread/ThinkingBlock.tsx`: 新增 `isStreaming` prop，流式时显示 "Thinking..." + 脉冲动画
+- `components/thread/ChatMessage.tsx`: 传递 `isStreaming` 到 ThinkingBlock
+
+### US-002: CLI 块标题显示工具链进度
+**文件改动:**
+- `utils/toCliEvents.ts`: `buildCliSummary` 返回 "X/Y tools" 格式进度
+
+### US-003: 工具行完整信息显示
+**文件改动:**
+- `components/thread/ToolRow.tsx`:
+  - 新增 `useRunningTime` hook 实时计算执行时间
+  - running 状态显示脉冲动画背景
+  - 耗时显示实时更新
+- `components/thread/CliOutputBlock.css`: 新增 `@keyframes pulse-bg` 动画
+
+### US-004: 视觉干净无满屏文本
+- ThinkingBlock 折叠时显示前60字符预览
+- CLI 块默认折叠，可展开
+- 前端构建成功
+
+## 学习记录
+- Thinking chunk 处理需要同时更新进度状态和内容状态
+- 实时时间计算用 `useEffect` + `setInterval`，避免 `setInterval` 的闭包陷阱
+- CSS 动画优先于 JS 动画，性能更好

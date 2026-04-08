@@ -24,8 +24,8 @@ func NewMessageRepository(db *sql.DB) *MessageRepository {
 // Create 创建消息
 func (r *MessageRepository) Create(ctx context.Context, msg *model.Message) error {
 	query := `
-		INSERT INTO messages (id, thread_id, role, agent_id, content, message_type, metadata, created_at, mentions, origin, reply_to)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO messages (id, thread_id, role, agent_id, content, content_blocks, message_type, metadata, created_at, mentions, origin, reply_to)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	msg.ID = uuid.New()
 	msg.CreatedAt = time.Now()
@@ -36,7 +36,7 @@ func (r *MessageRepository) Create(ctx context.Context, msg *model.Message) erro
 	}
 
 	_, err := r.db.ExecContext(ctx, query,
-		msg.ID.String(), msg.ThreadID.String(), msg.Role, msg.AgentID, msg.Content, msg.MessageType, msg.Metadata, msg.CreatedAt,
+		msg.ID.String(), msg.ThreadID.String(), msg.Role, msg.AgentID, msg.Content, msg.ContentBlocks, msg.MessageType, msg.Metadata, msg.CreatedAt,
 		serializeStrings(msg.Mentions), msg.Origin, replyTo,
 	)
 	return err
@@ -45,7 +45,7 @@ func (r *MessageRepository) Create(ctx context.Context, msg *model.Message) erro
 // FindByThreadID 根据ThreadID查找消息
 func (r *MessageRepository) FindByThreadID(ctx context.Context, threadID uuid.UUID, limit int) ([]*model.Message, error) {
 	query := `
-		SELECT id, thread_id, role, agent_id, content, message_type, metadata, created_at, mentions, origin, reply_to
+		SELECT id, thread_id, role, agent_id, content, content_blocks, message_type, metadata, created_at, mentions, origin, reply_to
 		FROM messages WHERE thread_id = ? ORDER BY created_at ASC LIMIT ?
 	`
 	rows, err := r.db.QueryContext(ctx, query, threadID.String(), limit)
@@ -68,7 +68,7 @@ func (r *MessageRepository) FindByThreadID(ctx context.Context, threadID uuid.UU
 // GetRecent 获取最近消息
 func (r *MessageRepository) GetRecent(ctx context.Context, threadID uuid.UUID, limit int) ([]*model.Message, error) {
 	query := `
-		SELECT id, thread_id, role, agent_id, content, message_type, metadata, created_at, mentions, origin, reply_to
+		SELECT id, thread_id, role, agent_id, content, content_blocks, message_type, metadata, created_at, mentions, origin, reply_to
 		FROM messages WHERE thread_id = ? ORDER BY created_at DESC LIMIT ?
 	`
 	rows, err := r.db.QueryContext(ctx, query, threadID.String(), limit)
@@ -93,7 +93,7 @@ func (r *MessageRepository) FindMentionsForAgent(ctx context.Context, threadID u
 	// 使用 JSON 数组查询：检查 mentions 数组中是否包含 catID
 	// SQLite/MySQL JSON 函数: JSON_CONTAINS 或 LIKE
 	query := `
-		SELECT id, thread_id, role, agent_id, content, message_type, metadata, created_at, mentions, origin, reply_to
+		SELECT id, thread_id, role, agent_id, content, content_blocks, message_type, metadata, created_at, mentions, origin, reply_to
 		FROM messages
 		WHERE thread_id = ? AND mentions LIKE ?
 		ORDER BY created_at DESC
@@ -120,7 +120,7 @@ func (r *MessageRepository) FindMentionsForAgent(ctx context.Context, threadID u
 // GetByID 根据ID获取消息
 func (r *MessageRepository) GetByID(ctx context.Context, id uuid.UUID) (*model.Message, error) {
 	query := `
-		SELECT id, thread_id, role, agent_id, content, message_type, metadata, created_at, mentions, origin, reply_to
+		SELECT id, thread_id, role, agent_id, content, content_blocks, message_type, metadata, created_at, mentions, origin, reply_to
 		FROM messages WHERE id = ?
 	`
 	row := r.db.QueryRowContext(ctx, query, id.String())
@@ -131,13 +131,14 @@ func (r *MessageRepository) GetByID(ctx context.Context, id uuid.UUID) (*model.M
 func scanMessage(rows *sql.Rows) (*model.Message, error) {
 	msg := &model.Message{}
 	var idStr, threadIDStr string
+	var contentBlocks []byte
 	var metadata []byte
 	var mentionsJSON []byte
 	var origin sql.NullString
 	var replyTo sql.NullString
 
 	err := rows.Scan(
-		&idStr, &threadIDStr, &msg.Role, &msg.AgentID, &msg.Content, &msg.MessageType, &metadata, &msg.CreatedAt,
+		&idStr, &threadIDStr, &msg.Role, &msg.AgentID, &msg.Content, &contentBlocks, &msg.MessageType, &metadata, &msg.CreatedAt,
 		&mentionsJSON, &origin, &replyTo,
 	)
 	if err != nil {
@@ -146,6 +147,7 @@ func scanMessage(rows *sql.Rows) (*model.Message, error) {
 
 	msg.ID, _ = uuid.Parse(idStr)
 	msg.ThreadID, _ = uuid.Parse(threadIDStr)
+	msg.ContentBlocks = json.RawMessage(contentBlocks)
 	msg.Metadata = json.RawMessage(metadata)
 	msg.Mentions = deserializeStrings(mentionsJSON)
 	msg.Origin = origin.String
@@ -161,13 +163,14 @@ func scanMessage(rows *sql.Rows) (*model.Message, error) {
 func scanMessageRow(row *sql.Row) (*model.Message, error) {
 	msg := &model.Message{}
 	var idStr, threadIDStr string
+	var contentBlocks []byte
 	var metadata []byte
 	var mentionsJSON []byte
 	var origin sql.NullString
 	var replyTo sql.NullString
 
 	err := row.Scan(
-		&idStr, &threadIDStr, &msg.Role, &msg.AgentID, &msg.Content, &msg.MessageType, &metadata, &msg.CreatedAt,
+		&idStr, &threadIDStr, &msg.Role, &msg.AgentID, &msg.Content, &contentBlocks, &msg.MessageType, &metadata, &msg.CreatedAt,
 		&mentionsJSON, &origin, &replyTo,
 	)
 	if err != nil {
@@ -176,6 +179,7 @@ func scanMessageRow(row *sql.Row) (*model.Message, error) {
 
 	msg.ID, _ = uuid.Parse(idStr)
 	msg.ThreadID, _ = uuid.Parse(threadIDStr)
+	msg.ContentBlocks = json.RawMessage(contentBlocks)
 	msg.Metadata = json.RawMessage(metadata)
 	msg.Mentions = deserializeStrings(mentionsJSON)
 	msg.Origin = origin.String

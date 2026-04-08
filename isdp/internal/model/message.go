@@ -32,6 +32,7 @@ type Message struct {
 	Role        MessageRole     `json:"role"`
 	AgentID     string          `json:"agentId,omitempty"`
 	Content     string          `json:"content"`
+	ContentBlocks json.RawMessage `json:"contentBlocks,omitempty"` // 结构化内容块
 	MessageType MessageType     `json:"messageType"`
 	Metadata    json.RawMessage `json:"metadata,omitempty"`
 	CreatedAt   time.Time       `json:"createdAt"`

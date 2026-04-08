@@ -1,0 +1,512 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1775529971848,
+  "projectRoot": "D:\\Tools\\ASDP_gittee\\isdp\\isdp\\web",
+  "techStack": {
+    "languages": [
+      {
+        "name": "JavaScript/TypeScript",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "package.json"
+        ]
+      },
+      {
+        "name": "TypeScript",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "tsconfig.json"
+        ]
+      }
+    ],
+    "frameworks": [
+      {
+        "name": "react",
+        "version": "18.2.0",
+        "category": "frontend"
+      },
+      {
+        "name": "react-dom",
+        "version": "18.2.0",
+        "category": "frontend"
+      },
+      {
+        "name": "@playwright/test",
+        "version": "1.58.2",
+        "category": "testing"
+      },
+      {
+        "name": "vite",
+        "version": "5.1.0",
+        "category": "build"
+      }
+    ],
+    "packageManager": "npm",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": "npm run build",
+    "testCommand": "npm test",
+    "lintCommand": "npm run lint",
+    "devCommand": "npm run dev",
+    "scripts": {
+      "dev": "vite",
+      "build": "node scripts/generate-version.js && tsc && vite build",
+      "preview": "vite preview",
+      "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+      "test": "tsx tests/test-runner.ts run",
+      "test:report": "tsx tests/test-runner.ts report",
+      "test:e2e": "playwright test",
+      "test:e2e:ui": "playwright test --ui",
+      "test:e2e:headed": "playwright test --headed"
+    }
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": "type-based"
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "public",
+      "scripts",
+      "src",
+      "tests"
+    ],
+    "gitBranches": {
+      "defaultBranch": "master",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "dist": {
+      "path": "dist",
+      "purpose": "Distribution/build output",
+      "fileCount": 2,
+      "lastAccessed": 1775529971779,
+      "keyFiles": [
+        "favicon.svg",
+        "index.html"
+      ]
+    },
+    "public": {
+      "path": "public",
+      "purpose": "Public files",
+      "fileCount": 1,
+      "lastAccessed": 1775529971779,
+      "keyFiles": [
+        "favicon.svg"
+      ]
+    },
+    "scripts": {
+      "path": "scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 1,
+      "lastAccessed": 1775529971780,
+      "keyFiles": [
+        "generate-version.js"
+      ]
+    },
+    "src": {
+      "path": "src",
+      "purpose": "Source code",
+      "fileCount": 3,
+      "lastAccessed": 1775529971790,
+      "keyFiles": [
+        "App.tsx",
+        "index.css",
+        "main.tsx"
+      ]
+    },
+    "test-results": {
+      "path": "test-results",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1775529971791,
+      "keyFiles": []
+    },
+    "tests": {
+      "path": "tests",
+      "purpose": "Test files",
+      "fileCount": 3,
+      "lastAccessed": 1775529971792,
+      "keyFiles": [
+        "README.md",
+        "test-runner.ts",
+        "USAGE.md"
+      ]
+    },
+    "dist\\assets": {
+      "path": "dist\\assets",
+      "purpose": "Static assets",
+      "fileCount": 105,
+      "lastAccessed": 1775529971793,
+      "keyFiles": [
+        "arc-Byk8JVsW.js",
+        "arc-Byk8JVsW.js.map",
+        "architectureDiagram-2XIMDMQ5-rRTmnn-8.js"
+      ]
+    },
+    "src\\api": {
+      "path": "src\\api",
+      "purpose": "API routes",
+      "fileCount": 3,
+      "lastAccessed": 1775529971794,
+      "keyFiles": [
+        "client.ts",
+        "settingsApi.ts",
+        "transform.ts"
+      ]
+    },
+    "src\\components": {
+      "path": "src\\components",
+      "purpose": "UI components",
+      "fileCount": 5,
+      "lastAccessed": 1775529971794,
+      "keyFiles": [
+        "AgentCollaborationPanel.tsx",
+        "CollapsiblePanel.tsx",
+        "CollapsiblePanels.css"
+      ]
+    },
+    "src\\config": {
+      "path": "src\\config",
+      "purpose": "Configuration files",
+      "fileCount": 2,
+      "lastAccessed": 1775529971795,
+      "keyFiles": [
+        "agentStyles.ts",
+        "version.ts"
+      ]
+    },
+    "src\\pages": {
+      "path": "src\\pages",
+      "purpose": "Page components",
+      "fileCount": 10,
+      "lastAccessed": 1775529971796,
+      "keyFiles": [
+        "AgentConfig.tsx",
+        "AgentDebug.tsx",
+        "AgentRoleList.tsx"
+      ]
+    },
+    "tests\\fixtures": {
+      "path": "tests\\fixtures",
+      "purpose": "Test fixtures",
+      "fileCount": 1,
+      "lastAccessed": 1775529971797,
+      "keyFiles": [
+        "test-fixtures.ts"
+      ]
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "src\\pages\\ThreadView.tsx",
+      "accessCount": 256,
+      "lastAccessed": 1775580768004,
+      "type": "file"
+    },
+    {
+      "path": "src\\components\\thread\\ChatMessage.tsx",
+      "accessCount": 52,
+      "lastAccessed": 1775611474041,
+      "type": "file"
+    },
+    {
+      "path": "src\\store\\index.ts",
+      "accessCount": 48,
+      "lastAccessed": 1775580663848,
+      "type": "file"
+    },
+    {
+      "path": "src",
+      "accessCount": 37,
+      "lastAccessed": 1775611385224,
+      "type": "directory"
+    },
+    {
+      "path": "src\\components\\thread\\ChatMessageList.tsx",
+      "accessCount": 22,
+      "lastAccessed": 1775197902340,
+      "type": "file"
+    },
+    {
+      "path": "src\\types\\index.ts",
+      "accessCount": 22,
+      "lastAccessed": 1775580129602,
+      "type": "file"
+    },
+    {
+      "path": "src\\components\\thread\\CliOutputBlock.tsx",
+      "accessCount": 17,
+      "lastAccessed": 1775530768741,
+      "type": "file"
+    },
+    {
+      "path": "src\\components\\thread\\ToolRow.tsx",
+      "accessCount": 15,
+      "lastAccessed": 1775530034715,
+      "type": "file"
+    },
+    {
+      "path": "src\\pages\\thread\\SoloModeContainer.tsx",
+      "accessCount": 15,
+      "lastAccessed": 1775545200582,
+      "type": "file"
+    },
+    {
+      "path": "src\\utils\\toCliEvents.ts",
+      "accessCount": 14,
+      "lastAccessed": 1775531355321,
+      "type": "file"
+    },
+    {
+      "path": "src\\components\\thread\\ContentBlock\\ContentBlock.css",
+      "accessCount": 12,
+      "lastAccessed": 1775542285931,
+      "type": "file"
+    },
+    {
+      "path": "src\\components\\thread\\index.ts",
+      "accessCount": 12,
+      "lastAccessed": 1775545817597,
+      "type": "file"
+    },
+    {
+      "path": "src\\components\\thread\\ContentBlock\\ToolBlock.tsx",
+      "accessCount": 11,
+      "lastAccessed": 1775574876397,
+      "type": "file"
+    },
+    {
+      "path": "src\\components\\thread\\ThinkingBlock.tsx",
+      "accessCount": 9,
+      "lastAccessed": 1775531065382,
+      "type": "file"
+    },
+    {
+      "path": "src\\components\\thread\\StatusPanel\\StatusPanel.css",
+      "accessCount": 9,
+      "lastAccessed": 1775581247245,
+      "type": "file"
+    },
+    {
+      "path": "src\\components\\thread\\StreamingMessage.tsx",
+      "accessCount": 9,
+      "lastAccessed": 1775611479636,
+      "type": "file"
+    },
+    {
+      "path": "src\\components\\thread\\StatusPanel\\AgentHistoryCard.tsx",
+      "accessCount": 8,
+      "lastAccessed": 1775113285091,
+      "type": "file"
+    },
+    {
+      "path": "src\\components\\thread\\ThreadInput.tsx",
+      "accessCount": 8,
+      "lastAccessed": 1775554033394,
+      "type": "file"
+    },
+    {
+      "path": "src\\components\\thread\\StatusPanel\\index.tsx",
+      "accessCount": 8,
+      "lastAccessed": 1775578536935,
+      "type": "file"
+    },
+    {
+      "path": "src\\components\\thread\\CliOutputBlock.css",
+      "accessCount": 7,
+      "lastAccessed": 1775530807929,
+      "type": "file"
+    },
+    {
+      "path": "src\\components\\thread\\ContentBlock\\ThinkingBlock.tsx",
+      "accessCount": 7,
+      "lastAccessed": 1775553739242,
+      "type": "file"
+    },
+    {
+      "path": "src\\components\\thread\\MessageActions.tsx",
+      "accessCount": 6,
+      "lastAccessed": 1775121686370,
+      "type": "file"
+    },
+    {
+      "path": "src\\api\\client.ts",
+      "accessCount": 6,
+      "lastAccessed": 1775549157200,
+      "type": "file"
+    },
+    {
+      "path": "src\\components\\thread\\ContentBlock\\TextBlock.tsx",
+      "accessCount": 5,
+      "lastAccessed": 1775611429141,
+      "type": "file"
+    },
+    {
+      "path": "src\\types",
+      "accessCount": 4,
+      "lastAccessed": 1775580116905,
+      "type": "directory"
+    },
+    {
+      "path": "src\\components\\thread",
+      "accessCount": 4,
+      "lastAccessed": 1775611267517,
+      "type": "directory"
+    },
+    {
+      "path": "src\\components\\thread\\StatusPanel\\SessionChainPanel.tsx",
+      "accessCount": 3,
+      "lastAccessed": 1775110667766,
+      "type": "file"
+    },
+    {
+      "path": "src\\components\\thread\\StatusPanel\\TokenUsage.tsx",
+      "accessCount": 3,
+      "lastAccessed": 1775111091946,
+      "type": "file"
+    },
+    {
+      "path": "src\\pages\\thread\\ThreadHeader.tsx",
+      "accessCount": 3,
+      "lastAccessed": 1775124632270,
+      "type": "file"
+    },
+    {
+      "path": "src\\components\\thread\\MessageContentEnhanced.tsx",
+      "accessCount": 3,
+      "lastAccessed": 1775124956353,
+      "type": "file"
+    },
+    {
+      "path": "src\\pages\\thread\\MessageArea.tsx",
+      "accessCount": 3,
+      "lastAccessed": 1775125740482,
+      "type": "file"
+    },
+    {
+      "path": "src\\components\\ToolOutputPanel.tsx",
+      "accessCount": 3,
+      "lastAccessed": 1775188589179,
+      "type": "file"
+    },
+    {
+      "path": "src\\store",
+      "accessCount": 3,
+      "lastAccessed": 1775549051078,
+      "type": "directory"
+    },
+    {
+      "path": "src\\hooks\\useThrottledWebSocket.ts",
+      "accessCount": 3,
+      "lastAccessed": 1775554750273,
+      "type": "file"
+    },
+    {
+      "path": "src\\utils\\mentionHighlight.tsx",
+      "accessCount": 3,
+      "lastAccessed": 1775611277331,
+      "type": "file"
+    },
+    {
+      "path": "src\\components\\thread\\StatusPanel\\AgentStatusCard.tsx",
+      "accessCount": 2,
+      "lastAccessed": 1775110383976,
+      "type": "file"
+    },
+    {
+      "path": "src\\components\\thread\\StatusPanel\\MessageStats.tsx",
+      "accessCount": 2,
+      "lastAccessed": 1775110385243,
+      "type": "file"
+    },
+    {
+      "path": "src\\components\\thread\\StatusPanel\\DurationDisplay.tsx",
+      "accessCount": 2,
+      "lastAccessed": 1775110459456,
+      "type": "file"
+    },
+    {
+      "path": "C:\\Users\\DELL\\AppData\\Local\\Temp\\claude\\D--Tools-ASDP-gittee-isdp\\903853e6-c8f7-4940-b30d-e9296d024f2c\\tasks\\aee34394e22673257.output",
+      "accessCount": 2,
+      "lastAccessed": 1775119603887,
+      "type": "file"
+    },
+    {
+      "path": "src\\pages\\thread\\InputArea.tsx",
+      "accessCount": 2,
+      "lastAccessed": 1775124607977,
+      "type": "file"
+    },
+    {
+      "path": "src\\pages\\thread\\index.ts",
+      "accessCount": 2,
+      "lastAccessed": 1775124758516,
+      "type": "file"
+    },
+    {
+      "path": "src\\components\\thread\\ContentBlock\\ToolCallRow.tsx",
+      "accessCount": 2,
+      "lastAccessed": 1775528432523,
+      "type": "file"
+    },
+    {
+      "path": "vite.config.ts",
+      "accessCount": 2,
+      "lastAccessed": 1775574517892,
+      "type": "file"
+    },
+    {
+      "path": "src\\components\\thread\\StatusPanel\\TaskProgressPanel.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1775110386234,
+      "type": "file"
+    },
+    {
+      "path": "src\\components\\thread\\CodePreviewButton.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1775118242825,
+      "type": "file"
+    },
+    {
+      "path": "C:\\Users\\DELL\\AppData\\Local\\Temp\\claude\\D--Tools-ASDP-gittee-isdp\\903853e6-c8f7-4940-b30d-e9296d024f2c\\tasks\\ae18e045d0cfafd60.output",
+      "accessCount": 1,
+      "lastAccessed": 1775119531217,
+      "type": "file"
+    },
+    {
+      "path": "src/pages/ThreadView.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1775136267160,
+      "type": "directory"
+    },
+    {
+      "path": "src\\components\\AgentCollaborationPanel.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1775187023672,
+      "type": "file"
+    },
+    {
+      "path": "src\\components\\CollapsiblePanel.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1775528235579,
+      "type": "file"
+    },
+    {
+      "path": "src\\components\\ThinkingPanel.tsx",
+      "accessCount": 1,
+      "lastAccessed": 1775528235640,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}

@@ -1,6 +1,8 @@
 package ws
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 	"time"
 
@@ -31,17 +33,36 @@ type RunningAgentsGetter interface {
 	GetRunningAgentsForThread(threadID uuid.UUID) any
 }
 
+// InvocationRecoverer 恢复 invocation 状态的接口（后台执行支持）
+type InvocationRecoverer interface {
+	// GetRunningInvocationsWithContentBlocks 获取运行中的 invocation 及其内容块
+	GetRunningInvocationsWithContentBlocks(ctx context.Context, threadID uuid.UUID) []InvocationRecoveryData
+	// GetRecentlyCompletedInvocations 获取最近完成的 invocation（用于状态同步）
+	GetRecentlyCompletedInvocations(ctx context.Context, threadID uuid.UUID, sinceMinutes int) []InvocationRecoveryData
+}
+
+// InvocationRecoveryData invocation 恢复数据
+type InvocationRecoveryData struct {
+	InvocationID  string      `json:"invocationId"`
+	AgentID       string      `json:"agentId"`
+	AgentName     string      `json:"agentName"`
+	Status        string      `json:"status"`
+	ContentBlocks interface{} `json:"contentBlocks"`
+}
+
 // Handler WebSocket处理器
 type Handler struct {
 	hub                 *Hub
 	runningAgentsGetter RunningAgentsGetter
+	invocationRecoverer InvocationRecoverer
 }
 
 // NewHandler 创建Handler
-func NewHandler(hub *Hub, runningAgentsGetter RunningAgentsGetter) *Handler {
+func NewHandler(hub *Hub, runningAgentsGetter RunningAgentsGetter, invocationRecoverer InvocationRecoverer) *Handler {
 	return &Handler{
 		hub:                 hub,
 		runningAgentsGetter: runningAgentsGetter,
+		invocationRecoverer: invocationRecoverer,
 	}
 }
 
@@ -77,6 +98,7 @@ func (h *Handler) HandleWebSocket(c *gin.Context) {
 		Send:     make(chan []byte, 256),
 		ThreadID: threadID,
 		UserID:   userID,
+		Handler:  h,
 	}
 
 	h.hub.register <- client
@@ -113,6 +135,28 @@ func (h *Handler) HandleWebSocket(c *gin.Context) {
 					wsLogger.Info("Sent agent state restore", zap.String("threadId", threadID))
 				}
 			}
+
+			// 发送最近完成的 invocation 状态（用于重连时同步丢失的完成状态）
+			if h.invocationRecoverer != nil {
+				completedInvocations := h.invocationRecoverer.GetRecentlyCompletedInvocations(context.Background(), threadUUID, 30) // 30分钟内完成的
+				if len(completedInvocations) > 0 {
+					completedMsg := WSMessage{
+						Type:      "invocation_recovery",
+						ThreadID:  threadID,
+						Timestamp: time.Now().UnixMilli(),
+						Payload: map[string]interface{}{
+							"recentlyCompleted": completedInvocations,
+						},
+					}
+					completedData, _ := jsonMarshal(completedMsg)
+					client.Send <- completedData
+					if wsLogger != nil {
+						wsLogger.Info("Sent recently completed invocations",
+							zap.String("threadId", threadID),
+							zap.Int("count", len(completedInvocations)))
+					}
+				}
+			}
 		}
 	}
 
@@ -124,4 +168,90 @@ func (h *Handler) HandleWebSocket(c *gin.Context) {
 // RegisterRoutes 注册路由
 func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 	r.GET("/ws", h.HandleWebSocket)
+}
+
+// ClientMessage 客户端发送的消息
+type ClientMessage struct {
+	Type     string `json:"type"`
+	ThreadID string `json:"threadId"`
+}
+
+// ReadPump 读取客户端消息（支持处理客户端请求）
+func (c *Client) ReadPump() {
+	defer func() {
+		c.Hub.unregister <- c
+		c.Conn.Close()
+	}()
+
+	for {
+		_, message, err := c.Conn.ReadMessage()
+		if err != nil {
+			break
+		}
+
+		// 解析消息
+		var msg ClientMessage
+		if err := json.Unmarshal(message, &msg); err != nil {
+			continue
+		}
+
+		// 处理不同类型的消息
+		switch msg.Type {
+		case "recover_invocation_state":
+			c.handleRecoverInvocationState(msg.ThreadID)
+		}
+	}
+}
+
+// handleRecoverInvocationState 处理恢复 invocation 状态请求
+func (c *Client) handleRecoverInvocationState(threadID string) {
+	if c.Handler == nil || c.Handler.invocationRecoverer == nil {
+		return
+	}
+
+	threadUUID, err := uuid.Parse(threadID)
+	if err != nil {
+		return
+	}
+
+	// 获取运行中的 invocation 及其内容块
+	recoveryData := c.Handler.invocationRecoverer.GetRunningInvocationsWithContentBlocks(context.Background(), threadUUID)
+	if len(recoveryData) == 0 {
+		return
+	}
+
+	// 发送恢复消息
+	for _, data := range recoveryData {
+		recoveryMsg := WSMessage{
+			Type:      "invocation_recovery",
+			ThreadID:  threadID,
+			Timestamp: time.Now().UnixMilli(),
+			Payload: map[string]interface{}{
+				"invocationId":  data.InvocationID,
+				"agentId":       data.AgentID,
+				"agentName":     data.AgentName,
+				"status":        data.Status,
+				"contentBlocks": data.ContentBlocks,
+			},
+		}
+		recoveryData, _ := jsonMarshal(recoveryMsg)
+		c.Send <- recoveryData
+
+		if wsLogger != nil {
+			wsLogger.Info("Sent invocation recovery",
+				zap.String("threadId", threadID),
+				zap.String("invocationId", data.InvocationID))
+		}
+	}
+}
+
+// WritePump 写入消息到客户端
+func (c *Client) WritePump() {
+	defer c.Conn.Close()
+
+	for message := range c.Send {
+		if err := c.Conn.WriteMessage(websocket.TextMessage, message); err != nil {
+			break
+		}
+	}
 }

@@ -6,7 +6,7 @@ import api from '@/api/client';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useDebugThreadStore } from '@/store/debugThread';
 import { MessageCard } from '@/components/thread';
-import type { AgentConfig, Message } from '@/types';
+import type { AgentConfig, Message, MessageContentBlock } from '@/types';
 import './AgentDebug.css';
 
 const { Text, Title } = Typography;
@@ -107,6 +107,7 @@ const AgentDebugPage: React.FC = () => {
           agentId: msg.payload.agentId as string,
           agentName: msg.payload.agentName as string,
           content: msg.payload.content as string,
+          contentBlocks: msg.payload.contentBlocks as MessageContentBlock[] | undefined,
           messageType: 'text',
           createdAt: msg.timestamp ? new Date(msg.timestamp * 1000).toISOString() : new Date().toISOString(),
         };

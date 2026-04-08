@@ -15,8 +15,8 @@ interface StreamingMessageProps {
 /**
  * 流式消息组件 - 隔离高频更新
  *
- * 这个组件直接订阅 store 的流式状态，不会触发父组件重渲染
- * 关键优化：使用 selector 订阅，只有流式状态变化时才更新
+ * 直接订阅 store 的流式状态，不会触发父组件重渲染
+ * 使用 selector 订阅，只有流式状态变化时才更新
  */
 export const StreamingMessage: React.FC<StreamingMessageProps> = memo(({
   agentConfigs,
@@ -24,9 +24,9 @@ export const StreamingMessage: React.FC<StreamingMessageProps> = memo(({
   toolEvents,
   onStop,
 }) => {
-  // 使用 selector 订阅流式状态
+  // 订阅流式状态
   const isStreaming = useAppStore((s) => s.isStreaming);
-  const streamingContent = useAppStore((s) => s.streamingContent);
+  const streamingContentBlocks = useAppStore((s) => s.streamingContentBlocks);
   const streamingAgentId = useAppStore((s) => s.streamingAgentId);
   const streamingAgentName = useAppStore((s) => s.streamingAgentName);
   const streamingInvocationId = useAppStore((s) => s.streamingInvocationId);
@@ -39,17 +39,23 @@ export const StreamingMessage: React.FC<StreamingMessageProps> = memo(({
   // 自动滚动 ref
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // 流式内容变化时自动滚动
+  // 内容块变化时自动滚动
   useEffect(() => {
-    if (containerRef.current) {
+    if (containerRef.current && streamingContentBlocks.length > 0) {
       containerRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
     }
-  }, [streamingContent]);
+  }, [streamingContentBlocks]);
 
   // 没有流式内容时不渲染
-  if (!isStreaming || !streamingContent) {
+  if (!isStreaming || streamingContentBlocks.length === 0) {
     return null;
   }
+
+  // 从 contentBlocks 提取文本内容（用于 content 字段）
+  const textContent = streamingContentBlocks
+    .filter(b => b.type === 'text')
+    .map(b => b.type === 'text' ? b.content : '')
+    .join('');
 
   // 创建临时消息对象
   const tempMessage = {
@@ -58,9 +64,10 @@ export const StreamingMessage: React.FC<StreamingMessageProps> = memo(({
     role: 'agent' as const,
     agentId: streamingAgentId || '',
     agentName: streamingAgentName || undefined,
-    content: streamingContent,
+    content: textContent,
     messageType: 'text' as const,
     createdAt: new Date().toISOString(),
+    contentBlocks: streamingContentBlocks,
   };
 
   // 获取 Agent 配置
@@ -75,7 +82,7 @@ export const StreamingMessage: React.FC<StreamingMessageProps> = memo(({
     toolInput: progressToolInput || undefined,
   } : undefined;
 
-  // 工具事件
+  // 工具事件（旧版兼容，用于 ChatMessage 旧版路径）
   const messageToolEvents = streamingInvocationId ? (toolEvents[streamingInvocationId] || []) : [];
 
   return (
