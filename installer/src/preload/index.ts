@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 安装状态
   checkInstalled: () => ipcRenderer.invoke('check-installed'),
   readExistingConfig: (installDir: string) => ipcRenderer.invoke('read-existing-config', installDir),
+  readFullConfig: (installDir: string) => ipcRenderer.invoke('read-full-config', installDir),
 
   // 服务管理
   startService: () => ipcRenderer.invoke('start-service'),

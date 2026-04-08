@@ -396,13 +396,23 @@ export async function copyLauncherFiles(
 
 // ==================== 配置文件 ====================
 
+// 生成配置文件（支持两种调用方式）
 export async function generateConfigFile(
-  destPath: string,
-  content: string
-): Promise<{ success: boolean; error?: string }> {
+  destPathOrConfig: string | object,
+  content?: string
+): Promise<{ success: boolean; error?: string; yaml?: string }> {
   try {
+    // 如果第一个参数是对象，生成YAML字符串
+    if (typeof destPathOrConfig === 'object') {
+      const config = destPathOrConfig as { database: any; serverPort?: number }
+      const yaml = generateConfigYaml(config.database, config.serverPort || 8080)
+      return { success: true, yaml }
+    }
+
+    // 否则写入文件
+    const destPath = destPathOrConfig
     await mkdir(dirname(destPath), { recursive: true })
-    await writeFile(destPath, content, 'utf-8')
+    await writeFile(destPath, content!, 'utf-8')
     return { success: true }
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : '生成配置失败' }
@@ -444,6 +454,19 @@ export async function readExistingConfig(installDir: string): Promise<{
     }
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : '读取配置失败' }
+  }
+}
+
+// 读取完整配置文件内容（YAML格式）
+export async function readFullConfigYaml(installDir: string): Promise<string | null> {
+  try {
+    const configPath = join(installDir, 'data', 'configs', 'config.yaml')
+    if (!existsSync(configPath)) {
+      return null
+    }
+    return await readFile(configPath, 'utf-8')
+  } catch {
+    return null
   }
 }
 
@@ -612,40 +635,40 @@ export async function runInstallation(
   mainWindow: BrowserWindow,
   sourceDir: string
 ): Promise<{ success: boolean; error?: string; dbChanges?: Array<{ version: string; files: string[] }> }> {
-  const sendProgress = (step: string, status: string, progress?: number, message?: string) => {
+  const sendProgress = (step: string, status: string, progress?: number, message?: string, details?: string) => {
     console.log(`[Install] ${step}: ${status} ${progress || 0}%`)
-    mainWindow.webContents.send('install-progress', { step, status, progress, message })
+    mainWindow.webContents.send('install-progress', { step, status, progress, message, details })
   }
 
   try {
     // Step 0: 停止所有进程
-    sendProgress('prepare', 'running', 0, '停止服务...')
+    sendProgress('prepare', 'running', 0, '停止服务...', '正在停止所有 ISDP 相关进程...')
     await killAllProcesses()
-    sendProgress('prepare', 'success', 100)
+    sendProgress('prepare', 'success', 100, '服务已停止', '所有进程已停止')
 
     // Step 1: 复制应用文件
-    sendProgress('copy', 'running', 0)
+    sendProgress('copy', 'running', 0, '复制应用文件...', `源目录: ${sourceDir}\n目标目录: ${config.installDir}`)
     const appResult = await copyApplicationFiles(sourceDir, config.installDir, (p) => {
-      sendProgress('copy', 'running', Math.round(p * 0.5))
+      sendProgress('copy', 'running', Math.round(p * 0.5), `复制应用文件 ${Math.round(p * 0.5)}%...`)
     })
     if (!appResult.success) {
-      sendProgress('copy', 'failed', 0, appResult.error)
+      sendProgress('copy', 'failed', 0, appResult.error, `复制应用文件失败: ${appResult.error}`)
       return appResult
     }
 
     const launcherResult = await copyLauncherFiles(sourceDir, config.installDir, (p) => {
-      sendProgress('copy', 'running', 50 + Math.round(p * 0.5))
+      sendProgress('copy', 'running', 50 + Math.round(p * 0.5), `复制启动器文件 ${50 + Math.round(p * 0.5)}%...`)
     })
     if (!launcherResult.success) {
-      sendProgress('copy', 'failed', 0, launcherResult.error)
+      sendProgress('copy', 'failed', 0, launcherResult.error, `复制启动器文件失败: ${launcherResult.error}`)
       return launcherResult
     }
-    sendProgress('copy', 'success', 100)
+    sendProgress('copy', 'success', 100, '文件复制完成', `已复制所有文件到 ${config.installDir}`)
 
     // Step 1.5: 检测数据库变更（仅升级安装）
     let dbChanges: Array<{ version: string; files: string[] }> = []
     if (config.currentVersion && config.newVersion) {
-      sendProgress('dbcheck', 'running', 0, '检查数据库变更...')
+      sendProgress('dbcheck', 'running', 0, '检查数据库变更...', `检查版本范围: ${config.currentVersion} -> ${config.newVersion}`)
       const dbResult = await checkDatabaseChanges(
         config.installDir,
         config.currentVersion,
@@ -653,74 +676,87 @@ export async function runInstallation(
       )
       if (dbResult.hasChanges) {
         dbChanges = dbResult.changes
-        sendProgress('dbcheck', 'warning', 100, `检测到 ${dbChanges.length} 个版本的数据库变更`)
+        const details = dbChanges.map(c => `${c.version}: ${c.files.join(', ')}`).join('\n')
+        sendProgress('dbcheck', 'warning', 100, `检测到 ${dbChanges.length} 个版本的数据库变更`, details)
       } else {
-        sendProgress('dbcheck', 'success', 100, '无数据库变更')
+        sendProgress('dbcheck', 'success', 100, '无数据库变更', '无需执行数据库迁移')
       }
+    } else {
+      sendProgress('dbcheck', 'success', 100, '跳过检测', '新安装不需要检查数据库变更')
     }
 
     // Step 2-3: 安装依赖
     if (config.installMode === 'auto') {
       const claudeMissing = config.dependencies.find(d => d.key === 'claude' && !d.installed)
       if (claudeMissing) {
-        sendProgress('claude', 'running', 0)
+        sendProgress('claude', 'running', 0, '安装 Claude CLI...', '正在执行: npm install -g @anthropic-ai/claude-cli')
         const result = await installNpmPackage('@anthropic-ai/claude-cli')
-        sendProgress('claude', result.success ? 'success' : 'failed', result.success ? 100 : 0)
+        sendProgress('claude', result.success ? 'success' : 'failed', result.success ? 100 : 0,
+          result.success ? 'Claude CLI 安装成功' : 'Claude CLI 安装失败',
+          result.success ? '已安装到全局 npm 目录' : result.error)
       } else {
-        sendProgress('claude', 'success', 100)
+        sendProgress('claude', 'success', 100, 'Claude CLI 已安装', '检测到已安装，跳过')
       }
     } else {
-      sendProgress('claude', 'success', 100)
+      sendProgress('claude', 'success', 100, '跳过自动安装', '手动模式')
     }
 
     if (config.installMode === 'auto') {
       const opencodeMissing = config.dependencies.find(d => d.key === 'opencode' && !d.installed)
       if (opencodeMissing) {
-        sendProgress('opencode', 'running', 0)
+        sendProgress('opencode', 'running', 0, '安装 OpenCode...', '正在执行: npm install -g @anthropic-ai/opencode')
         const result = await installNpmPackage('@anthropic-ai/opencode')
-        sendProgress('opencode', result.success ? 'success' : 'failed', result.success ? 100 : 0)
+        sendProgress('opencode', result.success ? 'success' : 'failed', result.success ? 100 : 0,
+          result.success ? 'OpenCode 安装成功' : 'OpenCode 安装失败',
+          result.success ? '已安装到全局 npm 目录' : result.error)
       } else {
-        sendProgress('opencode', 'success', 100)
+        sendProgress('opencode', 'success', 100, 'OpenCode 已安装', '检测到已安装，跳过')
       }
     } else {
-      sendProgress('opencode', 'success', 100)
+      sendProgress('opencode', 'success', 100, '跳过自动安装', '手动模式')
     }
 
     // Step 4: 配置文件处理
-    sendProgress('config', 'running', 0)
+    sendProgress('config', 'running', 0, '处理配置文件...', `配置路径: ${config.installDir}/data/configs/config.yaml`)
     const configPath = join(config.installDir, 'data', 'configs', 'config.yaml')
     const templatePath = join(config.installDir, 'data', 'configs', 'config.yaml.example')
 
     if (existsSync(configPath)) {
       // 已有配置文件，执行合并
+      sendProgress('config', 'running', 50, '合并配置文件...', '保留用户配置，添加新字段')
       const mergeResult = await mergeConfigFiles(configPath, templatePath)
       if (!mergeResult.success) {
         console.warn('[Config] Merge failed, keeping existing config:', mergeResult.error)
+        sendProgress('config', 'warning', 100, '配置合并失败，保留现有配置', mergeResult.error)
+      } else {
+        sendProgress('config', 'success', 100, '配置已合并', '用户配置已保留，新字段已添加默认值')
       }
-      sendProgress('config', 'success', 100, '配置已合并')
     } else {
       // 新安装，生成配置文件
+      sendProgress('config', 'running', 50, '生成配置文件...', '使用提供的数据库信息生成配置')
       const configContent = generateConfigYaml(config.database, config.serverPort || 8080)
       const configResult = await generateConfigFile(configPath, configContent)
       if (!configResult.success) {
-        sendProgress('config', 'failed', 0, configResult.error)
+        sendProgress('config', 'failed', 0, configResult.error, `配置文件生成失败: ${configResult.error}`)
         return { success: false, error: configResult.error }
       }
-      sendProgress('config', 'success', 100)
+      sendProgress('config', 'success', 100, '配置文件已生成', `数据库: ${config.database.host}:${config.database.port}/${config.database.database}`)
     }
 
     // Step 5: 创建快捷方式
-    sendProgress('shortcut', 'running', 0)
+    sendProgress('shortcut', 'running', 0, '创建快捷方式...', '桌面和开始菜单')
     if (config.createShortcut !== false) {
       await createDesktopShortcut(config.installDir)
       await createStartMenuShortcut(config.installDir)
+      sendProgress('shortcut', 'success', 100, '快捷方式已创建', '桌面快捷方式和开始菜单已创建')
+    } else {
+      sendProgress('shortcut', 'success', 100, '跳过快捷方式', '用户选择不创建')
     }
-    sendProgress('shortcut', 'success', 100)
 
     // Step 6: 写入注册表
-    sendProgress('registry', 'running', 0)
+    sendProgress('registry', 'running', 0, '写入注册表...', `版本: ${config.newVersion || '1.0.0'}`)
     await writeRegistry(config.installDir, config.newVersion || '1.0.0')
-    sendProgress('registry', 'success', 100)
+    sendProgress('registry', 'success', 100, '注册表已写入', `安装信息已注册到系统\n安装目录: ${config.installDir}`)
 
     return { success: true, dbChanges }
   } catch (error) {

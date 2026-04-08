@@ -37,9 +37,10 @@ export interface InstallConfig {
 // 安装进度
 export interface InstallProgress {
   step: string
-  status: 'pending' | 'running' | 'success' | 'failed'
+  status: 'pending' | 'running' | 'success' | 'failed' | 'warning'
   progress?: number
   message?: string
+  details?: string  // 步骤详情
 }
 
 // 已安装版本信息
@@ -85,6 +86,8 @@ declare global {
       // 安装状态
       checkInstalled: () => Promise<InstalledVersion>
       readExistingConfig: (installDir: string) => Promise<{ success: boolean; config?: ExistingConfig; error?: string }>
+      readFullConfig: (installDir: string) => Promise<string | null>
+      generateConfig: (config: object) => Promise<{ success: boolean; yaml?: string; error?: string }>
 
       // 服务管理
       startService: () => Promise<{ success: boolean; error?: string }>

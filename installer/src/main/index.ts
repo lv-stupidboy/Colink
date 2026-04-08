@@ -11,6 +11,7 @@ import {
   createDesktopShortcut,
   runInstallation,
   readExistingConfig,
+  readFullConfigYaml,
   copyApplicationFiles,
   writeRegistry,
   deleteRegistry
@@ -233,6 +234,19 @@ ipcMain.handle('test-database-connection', async (_event, config: any) => {
 
 ipcMain.handle('read-existing-config', async (_event, dir: string) => {
   return readExistingConfig(dir)
+})
+
+ipcMain.handle('read-full-config', async (_event, dir: string) => {
+  return readFullConfigYaml(dir)
+})
+
+ipcMain.handle('generate-config', async (_event, config: any) => {
+  try {
+    const yaml = await generateConfigFile(config)
+    return { success: true, yaml }
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : '生成配置失败' }
+  }
 })
 
 ipcMain.handle('start-installation', async (_event, config) => {
