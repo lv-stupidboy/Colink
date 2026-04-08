@@ -241,8 +241,71 @@ ipcMain.handle('start-installation', async (_event, config) => {
 
   const sourceDir = getExeDir()
   const resourcePath = isDev ? join(__dirname, '../../resources') : process.resourcesPath
-  return runInstallation(config, resourcePath, mainWindow!, sourceDir)
+
+  // 获取当前版本和新版本
+  const installed = getInstalledVersion()
+  const currentVersion = installed.version || '0.0.0'
+  const newVersion = getPackageVersion()
+
+  // 传递版本信息
+  const configWithVersion = {
+    ...config,
+    currentVersion,
+    newVersion
+  }
+
+  const result = await runInstallation(configWithVersion, resourcePath, mainWindow!, sourceDir)
+
+  // 如果有数据库变更，弹窗提示
+  if (result.success && result.dbChanges && result.dbChanges.length > 0) {
+    let detail = '本次升级涉及以下数据库变更，请手动执行：\n\n'
+    for (const change of result.dbChanges) {
+      detail += `${change.version}：\n`
+      for (const file of change.files) {
+        detail += `  - ${file}\n`
+      }
+      detail += '\n'
+    }
+    detail += `SQL文件位置：${config.installDir}\\data\\sql-change\\migrations\\`
+
+    dialog.showMessageBox(mainWindow!, {
+      type: 'warning',
+      title: '数据库变更提示',
+      message: '检测到数据库变更',
+      detail,
+      buttons: ['我知道了']
+    })
+  }
+
+  return result
 })
+
+// 获取当前包版本
+function getPackageVersion(): string {
+  try {
+    // 优先从 VERSION 文件读取
+    const versionPath = isDev
+      ? join(__dirname, '../../../isdp/VERSION')
+      : join(process.resourcesPath, 'runtime/VERSION')
+
+    if (existsSync(versionPath)) {
+      const content = require('fs').readFileSync(versionPath, 'utf-8')
+      return content.trim() || '1.0.0'
+    }
+
+    // fallback: 从 package.json 读取
+    const packagePath = isDev
+      ? join(__dirname, '../../package.json')
+      : join(process.resourcesPath, 'app.asar', 'package.json')
+
+    if (existsSync(packagePath)) {
+      const content = require('fs').readFileSync(packagePath, 'utf-8')
+      const pkg = JSON.parse(content)
+      return pkg.version || '1.0.0'
+    }
+  } catch {}
+  return '1.0.0'
+}
 
 ipcMain.handle('create-shortcut', async (_event, path: string) => {
   return { success: await createDesktopShortcut(path) }

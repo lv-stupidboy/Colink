@@ -1,5 +1,5 @@
-const { createWriteStream, existsSync, readdirSync, statSync, readFileSync } = require('fs')
-const { join } = require('path')
+const { createWriteStream, existsSync, readdirSync, statSync, readFileSync, mkdirSync, writeFileSync, copyFileSync } = require('fs')
+const { join, basename } = require('path')
 const archiver = require('archiver')
 
 // Get full version: priority from environment variable (set by build script)
@@ -24,6 +24,11 @@ if (!fullVersion) {
   const timeStr = now.toTimeString().slice(0, 8).replace(/:/g, '')
   fullVersion = `v${baseVersion}-${dateStr}-${timeStr}`
 }
+
+// Extract base version for db-changes directory
+// fullVersion format: v0.3.0-20260408-123456
+const baseVersionMatch = fullVersion.match(/^v?(\d+\.\d+\.\d+)/)
+const baseVersion = baseVersionMatch ? baseVersionMatch[1] : '0.3.0'
 
 // Detect platform if not provided
 if (!os || !arch) {
@@ -89,4 +94,75 @@ for (const file of files) {
   }
 }
 
+// 添加数据库变更目录
+console.log('Adding database changes...')
+const sqlChangeDir = join(__dirname, '../../isdp/sql-change')
+
+// 1. 添加初始化 SQL
+const initSqlPath = join(sqlChangeDir, 'init.sql')
+if (existsSync(initSqlPath)) {
+  archive.file(initSqlPath, { name: 'ISDP/runtime/data/sql-change/init.sql' })
+  console.log('  Added init.sql')
+}
+
+// 2. 添加增量迁移目录（按版本号组织）
+const migrationsDir = join(sqlChangeDir, 'migrations')
+if (existsSync(migrationsDir)) {
+  const versions = readdirSync(migrationsDir)
+    .filter(f => {
+      const stat = statSync(join(migrationsDir, f))
+      return stat.isDirectory() && f.startsWith('v')
+    })
+    .sort()
+
+  for (const version of versions) {
+    const versionSrc = join(migrationsDir, version)
+    const sqlFiles = readdirSync(versionSrc)
+      .filter(f => f.endsWith('.sql'))
+      .sort()
+
+    if (sqlFiles.length > 0) {
+      const versionDest = `ISDP/runtime/data/sql-change/migrations/${version}`
+
+      for (const sqlFile of sqlFiles) {
+        const sqlPath = join(versionSrc, sqlFile)
+        archive.file(sqlPath, { name: `${versionDest}/${sqlFile}` })
+      }
+
+      // 生成 README.txt
+      const readmeContent = generateDbChangeReadme(version, sqlFiles)
+      archive.append(readmeContent, { name: `${versionDest}/README.txt` })
+
+      console.log(`  Added ${sqlFiles.length} SQL files to ${version}`)
+    }
+  }
+} else {
+  console.log('  No migrations directory found, skipping')
+}
+
+// 添加配置模板文件
+const templatePath = join(__dirname, '../../isdp/configs/config.yaml.example')
+if (existsSync(templatePath)) {
+  archive.file(templatePath, { name: 'ISDP/runtime/data/configs/config.yaml.example' })
+  console.log('  Added config template')
+}
+
 archive.finalize()
+
+// 生成数据库变更 README
+function generateDbChangeReadme(version, sqlFiles) {
+  let content = `=== 版本 ${version} 数据库变更 ===\n\n`
+  content += `包含以下 SQL 文件：\n\n`
+
+  for (const file of sqlFiles) {
+    content += `  - ${file}\n`
+  }
+
+  content += `\n执行顺序：按文件名前缀（日期序号）依次执行\n`
+  content += `\n执行方法：\n`
+  content += `  mysqlsh --sql -h <host> -P 3306 -u <user> -p<password> -D <database> -f <文件路径>\n`
+  content += `\n或使用 MySQL 客户端：\n`
+  content += `  mysql -h <host> -P 3306 -u <user> -p<password> <database> < <文件路径>\n`
+
+  return content
+}

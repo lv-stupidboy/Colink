@@ -1,7 +1,7 @@
 import { exec, spawn, execSync } from 'child_process'
 import { promisify } from 'util'
 import { copyFile, mkdir, writeFile, readFile, unlink, stat } from 'fs/promises'
-import { createWriteStream, existsSync, unlinkSync, rmSync, cpSync } from 'fs'
+import { createWriteStream, existsSync, unlinkSync, rmSync, cpSync, readdirSync } from 'fs'
 import { join, dirname, basename } from 'path'
 import { BrowserWindow } from 'electron'
 import { tmpdir } from 'os'
@@ -50,6 +50,150 @@ export async function installNpmPackage(packageName: string): Promise<{ success:
       error: error instanceof Error ? error.message : '安装失败',
     }
   }
+}
+
+// ==================== 数据库变更检测 ====================
+
+// 检测数据库变更（根据版本范围筛选）
+export async function checkDatabaseChanges(
+  installDir: string,
+  currentVersion: string,
+  newVersion: string
+): Promise<{ hasChanges: boolean; changes: Array<{ version: string; files: string[] }> }> {
+  try {
+    const sqlChangeDir = join(installDir, 'data', 'sql-change', 'migrations')
+
+    // 如果目录不存在，返回无变更
+    if (!existsSync(sqlChangeDir)) {
+      return { hasChanges: false, changes: [] }
+    }
+
+    // 扫描版本目录
+    const versions = readdirSync(sqlChangeDir)
+      .filter(f => {
+        const fullPath = join(sqlChangeDir, f)
+        return existsSync(fullPath) && f.startsWith('v')
+      })
+      .sort()
+
+    if (versions.length === 0) {
+      return { hasChanges: false, changes: [] }
+    }
+
+    // 解析版本号
+    const current = parseVersion(currentVersion)
+    const newVer = parseVersion(newVersion)
+
+    const changes: Array<{ version: string; files: string[] }> = []
+
+    for (const versionDir of versions) {
+      const version = parseVersion(versionDir.replace('v', ''))
+
+      // 版本在范围内：大于当前版本，小于或等于新版本
+      // 新安装时 currentVersion 为 "0.0.0"，会提示所有版本
+      if (compareVersions(version, current) > 0 && compareVersions(version, newVer) <= 0) {
+        const versionPath = join(sqlChangeDir, versionDir)
+        const sqlFiles = readdirSync(versionPath)
+          .filter(f => f.endsWith('.sql'))
+          .sort()
+
+        if (sqlFiles.length > 0) {
+          changes.push({ version: versionDir, files: sqlFiles })
+        }
+      }
+    }
+
+    return { hasChanges: changes.length > 0, changes }
+  } catch (error) {
+    console.error('[DBChanges] Check failed:', error)
+    return { hasChanges: false, changes: [] }
+  }
+}
+
+// 解析版本号为数字数组
+function parseVersion(version: string): [number, number, number] {
+  const match = version.match(/(\d+)\.(\d+)\.(\d+)/)
+  if (match) {
+    return [parseInt(match[1]), parseInt(match[2]), parseInt(match[3])]
+  }
+  return [0, 0, 0]
+}
+
+// 比较版本号：返回 -1, 0, 1
+function compareVersions(a: [number, number, number], b: [number, number, number]): number {
+  for (let i = 0; i < 3; i++) {
+    if (a[i] < b[i]) return -1
+    if (a[i] > b[i]) return 1
+  }
+  return 0
+}
+
+// ==================== 配置合并 ====================
+
+// 合并用户配置与模板配置（用户值优先）
+export async function mergeConfigFiles(
+  userConfigPath: string,
+  templateConfigPath: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    // 如果用户配置不存在，直接复制模板
+    if (!existsSync(userConfigPath)) {
+      const templateContent = await readFile(templateConfigPath, 'utf-8')
+      await writeFile(userConfigPath, templateContent, 'utf-8')
+      return { success: true }
+    }
+
+    // 读取模板配置
+    if (!existsSync(templateConfigPath)) {
+      return { success: true } // 模板不存在，跳过合并
+    }
+
+    const templateContent = await readFile(templateConfigPath, 'utf-8')
+    const userContent = await readFile(userConfigPath, 'utf-8')
+
+    // 解析 YAML
+    const templateYaml = YAML.parse(templateContent)
+    const userYaml = YAML.parse(userContent)
+
+    // 合并配置：用户值优先，模板补充缺失字段
+    const mergedYaml = mergeObjects(userYaml, templateYaml)
+
+    // 写回配置文件
+    const mergedContent = YAML.stringify(mergedYaml)
+    await writeFile(userConfigPath, mergedContent, 'utf-8')
+
+    console.log('[Config] Merged with template')
+    return { success: true }
+  } catch (error) {
+    console.error('[Config] Merge failed:', error)
+    return { success: false, error: error instanceof Error ? error.message : '配置合并失败' }
+  }
+}
+
+// 递归合并对象（用户值优先）
+function mergeObjects(user: any, template: any): any {
+  if (typeof template !== 'object' || template === null) {
+    return user !== undefined ? user : template
+  }
+
+  if (typeof user !== 'object' || user === null) {
+    return template
+  }
+
+  const result = { ...template }
+
+  for (const key of Object.keys(user)) {
+    if (typeof user[key] === 'object' && user[key] !== null &&
+        typeof template[key] === 'object' && template[key] !== null) {
+      // 递归合并嵌套对象
+      result[key] = mergeObjects(user[key], template[key])
+    } else {
+      // 用户值优先
+      result[key] = user[key]
+    }
+  }
+
+  return result
 }
 
 // ==================== 文件操作 ====================
@@ -132,6 +276,23 @@ export async function copyApplicationFiles(
     await mkdir(join(destDir, 'data', 'agent-assets'), { recursive: true })
     await mkdir(join(destDir, 'data', 'agent-configs'), { recursive: true })
     await mkdir(join(destDir, 'data', 'repos'), { recursive: true })
+
+    // 复制数据库变更目录（如果存在）
+    const sqlChangeSrc = join(runtimeDir, 'data', 'sql-change')
+    if (existsSync(sqlChangeSrc)) {
+      const sqlChangeDest = join(destDir, 'data', 'sql-change')
+      await mkdir(sqlChangeDest, { recursive: true })
+      cpSync(sqlChangeSrc, sqlChangeDest, { recursive: true })
+      console.log('[Copy] SQL change directory copied')
+    }
+
+    // 复制配置模板（用于升级时配置合并）
+    const templateSrc = join(runtimeDir, 'data', 'configs', 'config.yaml.example')
+    const templateDest = join(destDir, 'data', 'configs', 'config.yaml.example')
+    if (existsSync(templateSrc)) {
+      await copyFile(templateSrc, templateDest)
+      console.log('[Copy] Config template copied')
+    }
 
     // 复制 icon.ico 到安装目录（用于快捷方式和注册表）
     const iconSrc = join(resourcesDir, 'icon.ico')
@@ -462,11 +623,13 @@ export async function runInstallation(
     serverPort?: number
     keepData?: boolean
     createShortcut?: boolean
+    currentVersion?: string  // 当前已安装版本（升级时使用）
+    newVersion?: string      // 新安装版本
   },
   resourcePath: string,
   mainWindow: BrowserWindow,
   sourceDir: string
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; dbChanges?: Array<{ version: string; files: string[] }> }> {
   const sendProgress = (step: string, status: string, progress?: number, message?: string) => {
     console.log(`[Install] ${step}: ${status} ${progress || 0}%`)
     mainWindow.webContents.send('install-progress', { step, status, progress, message })
@@ -497,6 +660,23 @@ export async function runInstallation(
     }
     sendProgress('copy', 'success', 100)
 
+    // Step 1.5: 检测数据库变更（仅升级安装）
+    let dbChanges: Array<{ version: string; files: string[] }> = []
+    if (config.currentVersion && config.newVersion) {
+      sendProgress('dbcheck', 'running', 0, '检查数据库变更...')
+      const dbResult = await checkDatabaseChanges(
+        config.installDir,
+        config.currentVersion,
+        config.newVersion
+      )
+      if (dbResult.hasChanges) {
+        dbChanges = dbResult.changes
+        sendProgress('dbcheck', 'warning', 100, `检测到 ${dbChanges.length} 个版本的数据库变更`)
+      } else {
+        sendProgress('dbcheck', 'success', 100, '无数据库变更')
+      }
+    }
+
     // Step 2-3: 安装依赖
     if (config.installMode === 'auto') {
       const claudeMissing = config.dependencies.find(d => d.key === 'claude' && !d.installed)
@@ -524,16 +704,28 @@ export async function runInstallation(
       sendProgress('opencode', 'success', 100)
     }
 
-    // Step 4: 生成配置文件
+    // Step 4: 配置文件处理
     sendProgress('config', 'running', 0)
-    const configContent = generateConfigYaml(config.database, config.serverPort || 8080)
     const configPath = join(config.installDir, 'data', 'configs', 'config.yaml')
-    const configResult = await generateConfigFile(configPath, configContent)
-    if (!configResult.success) {
-      sendProgress('config', 'failed', 0, configResult.error)
-      return configResult
+    const templatePath = join(config.installDir, 'data', 'configs', 'config.yaml.example')
+
+    if (existsSync(configPath)) {
+      // 已有配置文件，执行合并
+      const mergeResult = await mergeConfigFiles(configPath, templatePath)
+      if (!mergeResult.success) {
+        console.warn('[Config] Merge failed, keeping existing config:', mergeResult.error)
+      }
+      sendProgress('config', 'success', 100, '配置已合并')
+    } else {
+      // 新安装，生成配置文件
+      const configContent = generateConfigYaml(config.database, config.serverPort || 8080)
+      const configResult = await generateConfigFile(configPath, configContent)
+      if (!configResult.success) {
+        sendProgress('config', 'failed', 0, configResult.error)
+        return { success: false, error: configResult.error }
+      }
+      sendProgress('config', 'success', 100)
     }
-    sendProgress('config', 'success', 100)
 
     // Step 5: 创建快捷方式
     sendProgress('shortcut', 'running', 0)
@@ -545,10 +737,10 @@ export async function runInstallation(
 
     // Step 6: 写入注册表
     sendProgress('registry', 'running', 0)
-    await writeRegistry(config.installDir)
+    await writeRegistry(config.installDir, config.newVersion || '1.0.0')
     sendProgress('registry', 'success', 100)
 
-    return { success: true }
+    return { success: true, dbChanges }
   } catch (error) {
     console.error('[Install] Error:', error)
     return { success: false, error: error instanceof Error ? error.message : '安装失败' }

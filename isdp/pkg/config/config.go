@@ -10,22 +10,22 @@ import (
 
 // Config 应用配置
 type Config struct {
-	Server       ServerConfig       `mapstructure:"server"`
-	Data         DataConfig         `mapstructure:"data"`
-	Database     DatabaseConfig     `mapstructure:"database"`
-	Redis        RedisConfig        `mapstructure:"redis"`
-	Claude       ClaudeConfig       `mapstructure:"claude"`
-	Sandbox      SandboxConfig      `mapstructure:"sandbox"`
-	Agent        AgentConfig        `mapstructure:"agent"`
-	Logging      LoggingConfig      `mapstructure:"logging"`
-	MCP          MCPConfig          `mapstructure:"mcp"`
-	Auth         AuthConfig         `mapstructure:"auth"`
-	AgentAssets  AgentAssetsConfig  `mapstructure:"agent_assets"`
-	Skill        SkillConfig        `mapstructure:"skill"`
-	Subagent     SubagentConfig     `mapstructure:"subagent"`
-	AgentConfig  AgentConfigConfig  `mapstructure:"agent_config"`
-	Command      CommandConfig      `mapstructure:"command"`
-	Rule         RuleConfig         `mapstructure:"rule"`
+	Server       ServerConfig      `mapstructure:"server"`
+	Data         DataConfig        `mapstructure:"data"`
+	Database     DatabaseConfig    `mapstructure:"database"`
+	Redis        RedisConfig       `mapstructure:"redis"`
+	Claude       ClaudeConfig      `mapstructure:"claude"`
+	Sandbox      SandboxConfig     `mapstructure:"sandbox"`
+	Agent        AgentConfig       `mapstructure:"agent"`
+	Logging      LoggingConfig     `mapstructure:"logging"`
+	MCP          MCPConfig         `mapstructure:"mcp"`
+	Auth         AuthConfig        `mapstructure:"auth"`
+	AgentAssets  AgentAssetsConfig `mapstructure:"agent_assets"`
+	Skill        SkillConfig       `mapstructure:"skill"`
+	Subagent     SubagentConfig    `mapstructure:"subagent"`
+	AgentConfig  AgentConfigConfig `mapstructure:"agent_config"`
+	Command      CommandConfig     `mapstructure:"command"`
+	Rule         RuleConfig        `mapstructure:"rule"`
 }
 
 // DataConfig 数据目录配置

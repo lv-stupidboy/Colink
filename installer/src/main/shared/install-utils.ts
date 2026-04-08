@@ -24,7 +24,31 @@ export function getInstalledVersion(): { installed: boolean; installDir?: string
       const dir = match[1].trim()
       const dataDir = join(dir, 'data')
       const hasData = existsSync(dataDir) && readdirSync(dataDir).length > 0
-      return { installed: true, installDir: dir, hasData }
+
+      // 从注册表读取已安装版本
+      let version: string | undefined
+      try {
+        let versionQuery: string
+        try {
+          versionQuery = execSync(
+            'reg query "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ISDP" /v DisplayVersion 2>nul',
+            { encoding: 'utf8' }
+          )
+        } catch {
+          versionQuery = execSync(
+            'reg query "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ISDP" /v DisplayVersion 2>nul',
+            { encoding: 'utf8' }
+          )
+        }
+        const versionMatch = versionQuery.match(/DisplayVersion\s+REG_SZ\s+(.+)/)
+        if (versionMatch) {
+          version = versionMatch[1].trim()
+        }
+      } catch {
+        // 忽略读取错误
+      }
+
+      return { installed: true, installDir: dir, version, hasData }
     }
   } catch {
     // 未安装
