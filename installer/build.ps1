@@ -17,8 +17,8 @@ $BUILD_TIME = Get-Date -Format "yyyyMMdd-HHmmss"
 
 # Detect platform and architecture
 $OS = "windows"
-$ARCH = "amd64"
-if ([Environment]::Is64BitOperatingProcess) {
+# 检测操作系统架构，而非当前进程架构
+if ([Environment]::Is64BitOperatingSystem) {
     $ARCH = "amd64"
 } else {
     $ARCH = "386"
