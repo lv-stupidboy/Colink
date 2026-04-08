@@ -25,16 +25,16 @@ extraResources:
   - from: "build/icon.ico"
     to: "icon.ico"
   # 版本号文件
-  - from: "../isdp/VERSION"
+  - from: "../VERSION"
     to: "runtime/VERSION"
   # 后端服务（从 bin 目录读取构建产物）
-  - from: "../isdp/bin/isdp-server.exe"
+  - from: "../bin/isdp-server.exe"
     to: "runtime/isdp-server.exe"
   # 前端静态文件（从 Go 项目的 web 目录读取）
-  - from: "../isdp/web/dist"
+  - from: "../web/dist"
     to: "runtime/web"
   # 配置模板（用于升级时配置合并）
-  - from: "../isdp/configs/config.yaml.example"
+  - from: "../configs/config.yaml.example"
     to: "runtime/data/configs/config.yaml.example"
   # 启动器（从 release/launcher/win-unpacked/ 复制）
   - from: "release/launcher/win-unpacked"

@@ -7,8 +7,8 @@ echo "===== ISDP Build Started ====="
 
 # 0. Read version and generate full version with timestamp
 VERSION="dev"
-if [ -f "../isdp/VERSION" ]; then
-    VERSION=$(cat "../isdp/VERSION" | tr -d '\n\r')
+if [ -f "../VERSION" ]; then
+    VERSION=$(cat "../VERSION" | tr -d '\n\r')
 fi
 BUILD_TIME=$(date +%Y%m%d-%H%M%S)
 
@@ -38,12 +38,12 @@ echo "Platform: $OS-$ARCH"
 
 # 1. Clean old artifacts
 echo "[1/6] Cleaning old build artifacts..."
-rm -rf ../isdp/bin/* 2>/dev/null || true
+rm -rf ../bin/* 2>/dev/null || true
 rm -rf release/*.zip 2>/dev/null || true
 
 # 2. Build backend
 echo "[2/6] Building backend..."
-cd ../isdp
+cd ..
 go build -ldflags "-X main.Version=$FULL_VERSION" -o bin/isdp-server.exe ./cmd/server
 
 # 3. Build frontend (ensure dependencies first)
@@ -57,7 +57,7 @@ npm run build
 
 # 4. Build installer
 echo "[4/6] Building installer..."
-cd ../../installer
+cd ../installer
 npm install
 npm run build
 

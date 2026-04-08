@@ -20,23 +20,23 @@ cd installer && ./build.sh     # Unix/Linux/macOS
 ### 后端 (Go)
 
 ```bash
-cd isdp && make build          # 构建到 bin/isdp-server.exe
-cd isdp && make run            # 运行服务 (go run ./cmd/server)
-cd isdp && go run ./cmd/server # 开发调试
-cd isdp && make test           # 运行测试 (覆盖率报告)
+make build          # 构建到 bin/isdp-server.exe
+make run            # 运行服务 (go run ./cmd/server)
+go run ./cmd/server # 开发调试
+make test           # 运行测试 (覆盖率报告)
 ```
 
 ### 前端 (React + Vite)
 
 ```bash
-cd isdp/web && npm run dev     # 启动开发服务器
-cd isdp/web && npm run build   # 构建生产版本
-cd isdp/web && npm run lint    # ESLint 检查
+cd web && npm run dev     # 启动开发服务器
+cd web && npm run build   # 构建生产版本
+cd web && npm run lint    # ESLint 检查
 ```
 
 ### 版本号管理
 
-版本号存储在 `isdp/VERSION` 文件中：
+版本号存储在 `VERSION` 文件中：
 - 基础版本号：如 `0.3.0`
 - 构建时自动追加时间戳：如 `v0.3.0-20260327-234317`
 - 发布新版本时只需更新 VERSION 文件
@@ -232,15 +232,15 @@ netstat -ano | findstr ":3000 :8080"
 taskkill //F //PID <PID>
 
 # 然后启动服务
-cd isdp && go run ./cmd/server      # 后端
-cd web && npm run dev               # 前端
+go run ./cmd/server      # 后端
+cd web && npm run dev    # 前端
 ```
 
 ## 数据库变更
 
 ### 目录结构
 
-数据库变更脚本位于 `isdp/sql-change/` 目录：
+数据库变更脚本位于 `sql-change/` 目录：
 
 ```
 isdp/sql-change/
@@ -405,8 +405,8 @@ cd installer
 ```
 
 构建脚本会依次执行：
-1. 构建 Go 后端 (`isdp/isdp-server.exe`)
-2. 构建前端 (`isdp/web/dist`)
+1. 构建 Go 后端 (`bin/isdp-server.exe`)
+2. 构建前端 (`web/dist`)
 3. 构建 Electron 安装器代码
 4. 打包 Launcher (`ISDP.exe`)
 5. 打包 Setup (`ISDP Setup.exe`)
@@ -508,5 +508,5 @@ Go 后端按以下顺序查找配置文件：
 
 | 环境 | 配置路径 | 数据目录 |
 |------|----------|----------|
-| 开发 | `isdp/configs/config.yaml` | `isdp/data/` |
+| 开发 | `configs/config.yaml` | `data/` |
 | 生产 | `{安装目录}/data/configs/config.yaml` | `{安装目录}/data/` |

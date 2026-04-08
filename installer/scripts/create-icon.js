@@ -3,11 +3,14 @@ const pngToIco = require('png-to-ico').default || require('png-to-ico');
 const fs = require('fs');
 const path = require('path');
 
+// 项目根目录（installer 的父目录）
+const rootDir = path.resolve(__dirname, '..', '..');
+
 async function createIcon() {
-  const svgPath = 'D:/00-codes/isdp/isdp/isdp/web/public/favicon.svg';
-  const pngPath = 'D:/00-codes/isdp/isdp/installer/resources/icon-256.png';
-  const icoPath = 'D:/00-codes/isdp/isdp/installer/build/icon.ico';
-  const resourcesIcoPath = 'D:/00-codes/isdp/isdp/installer/resources/icon.ico';
+  const svgPath = path.join(rootDir, 'web', 'public', 'favicon.svg');
+  const pngPath = path.join(rootDir, 'installer', 'resources', 'icon-256.png');
+  const icoPath = path.join(rootDir, 'installer', 'build', 'icon.ico');
+  const resourcesIcoPath = path.join(rootDir, 'installer', 'resources', 'icon.ico');
 
   console.log('Converting SVG to PNG...');
 

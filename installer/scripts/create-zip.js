@@ -9,7 +9,7 @@ let arch = process.env.ISDP_ARCH
 
 if (!fullVersion) {
   // Fallback: generate from VERSION file + timestamp
-  const rootVersionPath = join(__dirname, '../../isdp/VERSION')
+  const rootVersionPath = join(__dirname, '../VERSION')
   let baseVersion
   if (existsSync(rootVersionPath)) {
     baseVersion = readFileSync(rootVersionPath, 'utf-8').trim()
@@ -96,7 +96,7 @@ for (const file of files) {
 
 // 添加数据库变更目录
 console.log('Adding database changes...')
-const sqlChangeDir = join(__dirname, '../../isdp/sql-change')
+const sqlChangeDir = join(__dirname, '../sql-change')
 
 // 1. 添加初始化 SQL
 const initSqlPath = join(sqlChangeDir, 'init.sql')
@@ -141,7 +141,7 @@ if (existsSync(migrationsDir)) {
 }
 
 // 添加配置模板文件
-const templatePath = join(__dirname, '../../isdp/configs/config.yaml.example')
+const templatePath = join(__dirname, '../configs/config.yaml.example')
 if (existsSync(templatePath)) {
   archive.file(templatePath, { name: 'ISDP/runtime/data/configs/config.yaml.example' })
   console.log('  Added config template')

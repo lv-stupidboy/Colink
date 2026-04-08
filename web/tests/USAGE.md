@@ -5,7 +5,7 @@
 ### 第一步：启动应用
 
 ```bash
-cd D:\Tools\ASDP\isdp\web
+cd <project-root>/web
 npm run dev
 ```
 

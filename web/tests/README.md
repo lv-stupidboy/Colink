@@ -5,7 +5,7 @@
 ### 1. 启动开发服务器
 
 ```bash
-cd D:\Tools\ASDP\isdp\web
+cd <project-root>/web
 npm run dev
 ```
 

@@ -1,18 +1,26 @@
-# Binaries
-bin/
+# Build artifacts
 *.exe
-*.exe~
 *.dll
 *.so
-*.dylib
-
-# Test files
-*.test
 *.out
+server
+main
+isdp-server
+build/
+deploy/
+
+# Database files
+*.db
+data/
+
+# Log files
+*.log
+logs/
+tmp/
 
 # Environment
 .env
-isdp/configs/config.yaml
+configs/config.yaml
 configs/config.local.yaml
 
 # IDE
@@ -25,35 +33,41 @@ configs/config.local.yaml
 node_modules/
 dist/
 
-# Logs
-*.log
-logs/
+# Skill packages (uploaded)
+skills/
 
-# OS
-.DS_Store
-Thumbs.db
-
-# Database files
-*.db-journal
-
-# Temporary files
-tmp/
-temp/
+# Debug and temp files
+*debug*
+!web/src/store/debugThread.ts
+*temp*
 *.tmp
 *.temp
+*.bak
+
+# OS generated files
+.DS_Store
+Thumbs.db
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Icon?
+VolumeIcon.icns
+
+# Agent运行时生成的配置和资产
+agent-configs/
+agent-assets/
+
+# Playwright 测试报告
+web/playwright-report/
+web/test-results.json
+
+# Installer 构建产物
+installer/release/
 
 # Claude Code
 .claude/
 
-# Agent运行时生成的配置和资产
-isdp/agent-configs/
-isdp/agent-assets/
-
 # OpenSpec 工作目录
 openspec/
-
-# Playwright 测试报告
-isdp/web/playwright-report/
-
-# Installer 构建产物
-installer/release/

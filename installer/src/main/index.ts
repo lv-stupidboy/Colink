@@ -299,7 +299,7 @@ function getPackageVersion(): string {
   try {
     // 优先从 VERSION 文件读取
     const versionPath = isDev
-      ? join(__dirname, '../../../isdp/VERSION')
+      ? join(__dirname, '../../VERSION')
       : join(process.resourcesPath, 'runtime/VERSION')
 
     if (existsSync(versionPath)) {

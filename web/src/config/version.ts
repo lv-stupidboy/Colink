@@ -7,13 +7,13 @@
  */
 
 // 基础版本号（在 package.json 中维护）
-export const BASE_VERSION = '0.3.0';
+export const BASE_VERSION = '1.0.0';
 
 // 完整版本号（构建时自动注入）
-export const VERSION = 'v0.3.0-20260407-005338';
+export const VERSION = 'v1.0.0-20260408-184429';
 
 // 构建时间（构建时自动注入）
-export const BUILD_TIME = '2026-04-07 16:53:38';
+export const BUILD_TIME = '2026-04-08 10:44:29';
 
 // 内测标识
 export const BETA_LABEL = '内测中';

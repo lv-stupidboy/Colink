@@ -10,15 +10,15 @@ Write-Host "===== ISDP Build Started =====" -ForegroundColor Green
 
 # 0. Read version and generate full version with timestamp
 $VERSION = "dev"
-if (Test-Path "..\isdp\VERSION") {
-    $VERSION = (Get-Content "..\isdp\VERSION" -Raw).Trim()
+if (Test-Path "..\VERSION") {
+    $VERSION = (Get-Content "..\VERSION" -Raw).Trim()
 }
 $BUILD_TIME = Get-Date -Format "yyyyMMdd-HHmmss"
 
 # Detect platform and architecture
 $OS = "windows"
 $ARCH = "amd64"
-if ([Environment]::Is64BitOperatingSystem) {
+if ([Environment]::Is64BitOperatingProcess) {
     $ARCH = "amd64"
 } else {
     $ARCH = "386"
@@ -31,18 +31,18 @@ Write-Host "Platform: $OS-$ARCH" -ForegroundColor Cyan
 
 # 1. Clean old artifacts
 Write-Host "[1/6] Cleaning old build artifacts..." -ForegroundColor Cyan
-Remove-Item -Path "..\isdp\bin\*" -Force -ErrorAction SilentlyContinue
+Remove-Item -Path "..\bin\*" -Force -ErrorAction SilentlyContinue
 Remove-Item -Path "release\*.zip" -Force -ErrorAction SilentlyContinue
 
 # 2. Build backend
 Write-Host "[2/6] Building backend..." -ForegroundColor Cyan
-Push-Location ..\isdp
+Push-Location ..
 go build -ldflags "-X main.Version=$FULL_VERSION" -o bin\isdp-server.exe .\cmd\server
 Pop-Location
 
 # 3. Build frontend (ensure dependencies first)
 Write-Host "[3/6] Building frontend..." -ForegroundColor Cyan
-Push-Location ..\isdp\web
+Push-Location ..\web
 if (-not (Test-Path "node_modules")) {
     Write-Host "  Installing frontend dependencies..." -ForegroundColor Yellow
     npm install
