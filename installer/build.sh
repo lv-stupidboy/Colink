@@ -1,9 +1,9 @@
 #!/bin/bash
-# ISDP Complete Build Script (Unix/Linux/macOS)
+# Colink Complete Build Script (Unix/Linux/macOS)
 
 set -e
 
-echo "===== ISDP Build Started ====="
+echo "===== Colink Build Started ====="
 
 # 0. Read version and generate full version with timestamp
 VERSION="dev"
@@ -32,7 +32,7 @@ case "$ARCH" in
 esac
 
 FULL_VERSION="v$VERSION-$BUILD_TIME"
-PACKAGE_NAME="ISDP-$FULL_VERSION-$OS-$ARCH"
+PACKAGE_NAME="Colink-$FULL_VERSION-$OS-$ARCH"
 echo "Version: $FULL_VERSION"
 echo "Platform: $OS-$ARCH"
 
@@ -44,7 +44,7 @@ rm -rf release/*.zip 2>/dev/null || true
 # 2. Build backend
 echo "[2/6] Building backend..."
 cd ..
-go build -ldflags "-X main.Version=$FULL_VERSION" -o bin/isdp-server.exe ./cmd/server
+go build -ldflags "-X main.Version=$FULL_VERSION" -o bin/colink-server.exe ./cmd/server
 
 # 3. Build frontend (ensure dependencies first)
 echo "[3/6] Building frontend..."
@@ -71,9 +71,9 @@ npm run package:setup
 
 # 7. Create ZIP
 echo "[7/7] Creating release package..."
-export ISDP_FULL_VERSION=$FULL_VERSION
-export ISDP_OS=$OS
-export ISDP_ARCH=$ARCH
+export COLINK_FULL_VERSION=$FULL_VERSION
+export COLINK_OS=$OS
+export COLINK_ARCH=$ARCH
 node scripts/create-zip.js
 
 echo "===== Build Complete ====="

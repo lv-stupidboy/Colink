@@ -3,9 +3,9 @@ const { join, basename } = require('path')
 const archiver = require('archiver')
 
 // Get full version: priority from environment variable (set by build script)
-let fullVersion = process.env.ISDP_FULL_VERSION
-let os = process.env.ISDP_OS
-let arch = process.env.ISDP_ARCH
+let fullVersion = process.env.COLINK_FULL_VERSION
+let os = process.env.COLINK_OS
+let arch = process.env.COLINK_ARCH
 
 if (!fullVersion) {
   // Fallback: generate from VERSION file + timestamp
@@ -40,7 +40,7 @@ if (!os || !arch) {
 }
 
 // Package name with platform
-const packageName = `ISDP-${fullVersion}-${os}-${arch}`
+const packageName = `Colink-${fullVersion}-${os}-${arch}`
 
 // Source directory and output file
 const releaseDir = join(__dirname, '../release')
@@ -80,7 +80,7 @@ archive.on('progress', (progress) => {
 
 archive.pipe(output)
 
-// 添加文件到 ISDP 目录
+// 添加文件到 Colink 目录
 console.log('Packaging files...')
 
 const files = readdirSync(distDir)
@@ -88,9 +88,9 @@ for (const file of files) {
   const filePath = join(distDir, file)
   const stat = statSync(filePath)
   if (stat.isDirectory()) {
-    archive.directory(filePath, `ISDP/${file}`)
+    archive.directory(filePath, `Colink/${file}`)
   } else {
-    archive.file(filePath, { name: `ISDP/${file}` })
+    archive.file(filePath, { name: `Colink/${file}` })
   }
 }
 
@@ -101,7 +101,7 @@ const sqlChangeDir = join(__dirname, '../sql-change')
 // 1. 添加初始化 SQL
 const initSqlPath = join(sqlChangeDir, 'init.sql')
 if (existsSync(initSqlPath)) {
-  archive.file(initSqlPath, { name: 'ISDP/runtime/data/sql-change/init.sql' })
+  archive.file(initSqlPath, { name: 'Colink/runtime/data/sql-change/init.sql' })
   console.log('  Added init.sql')
 }
 
@@ -122,7 +122,7 @@ if (existsSync(migrationsDir)) {
       .sort()
 
     if (sqlFiles.length > 0) {
-      const versionDest = `ISDP/runtime/data/sql-change/migrations/${version}`
+      const versionDest = `Colink/runtime/data/sql-change/migrations/${version}`
 
       for (const sqlFile of sqlFiles) {
         const sqlPath = join(versionSrc, sqlFile)
@@ -143,7 +143,7 @@ if (existsSync(migrationsDir)) {
 // 添加配置模板文件
 const templatePath = join(__dirname, '../configs/config.yaml.example')
 if (existsSync(templatePath)) {
-  archive.file(templatePath, { name: 'ISDP/runtime/data/configs/config.yaml.example' })
+  archive.file(templatePath, { name: 'Colink/runtime/data/configs/config.yaml.example' })
   console.log('  Added config template')
 }
 

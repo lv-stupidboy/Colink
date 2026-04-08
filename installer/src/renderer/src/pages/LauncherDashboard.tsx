@@ -17,27 +17,52 @@ interface LauncherDashboardProps {
   onStopService: () => void
 }
 
-// ISDP Logo SVG - 熄灯工厂主题
-const ISDPLogo = () => (
+// Colink Logo SVG - 六边形网络设计（缩小版）
+const ColinkLogo = () => (
   <svg width="48" height="48" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
     <defs>
-      <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" style={{ stopColor: '#374151' }} />
-        <stop offset="100%" style={{ stopColor: '#1f2937' }} />
-      </linearGradient>
-      <linearGradient id="bulbGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-        <stop offset="0%" style={{ stopColor: '#fbbf24' }} />
-        <stop offset="100%" style={{ stopColor: '#f59e0b' }} />
+      <linearGradient id="colinkGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" style={{ stopColor: '#10b981' }} />
+        <stop offset="100%" style={{ stopColor: '#3b82f6' }} />
       </linearGradient>
     </defs>
-    <rect x="2" y="2" width="28" height="28" rx="6" fill="url(#bgGrad)" />
-    <ellipse cx="16" cy="12" rx="6" ry="7" fill="url(#bulbGrad)" />
-    <rect x="13" y="18" width="6" height="2" rx="0.5" fill="#9ca3af" />
-    <rect x="13.5" y="20.5" width="5" height="1.5" rx="0.5" fill="#6b7280" />
-    <rect x="14" y="22.5" width="4" height="1.5" rx="0.5" fill="#4b5563" />
-    <line x1="13" y1="19" x2="19" y2="19" stroke="#6b7280" strokeWidth="0.5" />
-    <line x1="13.5" y1="21.25" x2="18.5" y2="21.25" stroke="#4b5563" strokeWidth="0.5" />
-    <path d="M14 14 Q16 11 18 14" stroke="#fcd34d" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+    {/* 背景 */}
+    <rect x="2" y="2" width="28" height="28" rx="6" fill="#0f172a" />
+    {/* 六边形轮廓线 - 缩小尺寸 */}
+    <polygon
+      points="16,6 24,10.5 24,21.5 16,26 8,21.5 8,10.5"
+      fill="none"
+      stroke="#10b981"
+      strokeWidth="1.2"
+      strokeOpacity="0.35"
+      strokeLinejoin="round"
+    />
+    {/* 从外环到中心的连接线 */}
+    <g stroke="#10b981" strokeWidth="0.8" strokeOpacity="0.35">
+      <line x1="16" y1="6" x2="16" y2="16" />
+      <line x1="24" y1="10.5" x2="16" y2="16" />
+      <line x1="24" y1="21.5" x2="16" y2="16" />
+      <line x1="16" y1="26" x2="16" y2="16" />
+      <line x1="8" y1="21.5" x2="16" y2="16" />
+      <line x1="8" y1="10.5" x2="16" y2="16" />
+    </g>
+    {/* 外环节点 (6个) */}
+    <circle cx="16" cy="6" r="1.8" fill="url(#colinkGrad)" />
+    <circle cx="24" cy="10.5" r="1.8" fill="url(#colinkGrad)" />
+    <circle cx="24" cy="21.5" r="1.8" fill="url(#colinkGrad)" />
+    <circle cx="16" cy="26" r="1.8" fill="url(#colinkGrad)" />
+    <circle cx="8" cy="21.5" r="1.8" fill="url(#colinkGrad)" />
+    <circle cx="8" cy="10.5" r="1.8" fill="url(#colinkGrad)" />
+    {/* 中心节点 */}
+    <circle cx="16" cy="16" r="3" fill="url(#colinkGrad)" />
+    {/* 节点高光 */}
+    <circle cx="16" cy="6" r="0.7" fill="white" opacity="0.3" />
+    <circle cx="24" cy="10.5" r="0.7" fill="white" opacity="0.3" />
+    <circle cx="24" cy="21.5" r="0.7" fill="white" opacity="0.3" />
+    <circle cx="16" cy="26" r="0.7" fill="white" opacity="0.3" />
+    <circle cx="8" cy="21.5" r="0.7" fill="white" opacity="0.3" />
+    <circle cx="8" cy="10.5" r="0.7" fill="white" opacity="0.3" />
+    <circle cx="16" cy="16" r="1.2" fill="white" opacity="0.4" />
   </svg>
 )
 
@@ -69,10 +94,10 @@ export function LauncherDashboard({
     <div style={{ padding: 24 }}>
       {/* Logo 和标题 */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16 }}>
-        <ISDPLogo />
+        <ColinkLogo />
         <div>
-          <Title level={3} style={{ margin: 0 }}>Lights-Out</Title>
-          <Text type="secondary">熄灯工厂</Text>
+          <Title level={3} style={{ margin: 0 }}>Colink</Title>
+          <Text type="secondary">多智能体协作平台</Text>
         </div>
       </div>
 

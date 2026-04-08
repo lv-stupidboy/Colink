@@ -1,9 +1,9 @@
 {
-  "name": "isdp-installer",
+  "name": "colink-installer",
   "version": "0.0.0",
-  "description": "ISDP Windows Installer",
+  "description": "Colink Windows Installer",
   "main": "./out/main/index.js",
-  "author": "ISDP Team",
+  "author": "Colink Team",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",

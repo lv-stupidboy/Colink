@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-ISDP (Intelligent Software Development Platform) - 智能软件开发平台，多 Agent 协同开发系统。
+Colink - 多智能体协作平台，多 Agent 协同开发系统。
 
 ## 常用命令
 

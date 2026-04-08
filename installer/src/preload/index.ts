@@ -26,8 +26,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // 安装状态
   checkInstalled: () => ipcRenderer.invoke('check-installed'),
+  checkOldISDP: () => ipcRenderer.invoke('check-old-isdp'),
+  uninstallOldISDP: () => ipcRenderer.invoke('uninstall-old-isdp'),
   readExistingConfig: (installDir: string) => ipcRenderer.invoke('read-existing-config', installDir),
   readFullConfig: (installDir: string) => ipcRenderer.invoke('read-full-config', installDir),
+  readMergedConfig: (installDir: string) => ipcRenderer.invoke('read-merged-config', installDir),
 
   // 服务管理
   startService: () => ipcRenderer.invoke('start-service'),

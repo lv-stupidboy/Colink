@@ -171,7 +171,7 @@ const invitePageHTML = `<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ISDP - 请输入邀请码</title>
+    <title>Colink - 请输入邀请码</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -250,7 +250,7 @@ const invitePageHTML = `<!DOCTYPE html>
 <body>
     <div class="container">
         <div class="logo">🔐</div>
-        <h1>智能软件开发平台</h1>
+        <h1>多智能体协作平台</h1>
         <p>请输入邀请码以访问系统</p>
         <div class="input-group">
             <input type="text" id="inviteCode" placeholder="请输入邀请码" autofocus>

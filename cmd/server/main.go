@@ -457,6 +457,7 @@ func main() {
 	// 前端静态文件服务
 	router.Static("/assets", "./web/assets")
 	router.StaticFile("/favicon.svg", "./web/favicon.svg")
+	router.StaticFile("/favicon.ico", "./web/favicon.ico")
 
 	// SPA fallback - 所有未匹配的路由返回 index.html
 	router.NoRoute(func(c *gin.Context) {

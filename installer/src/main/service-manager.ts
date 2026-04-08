@@ -15,7 +15,7 @@ export class ServiceManager {
       return { success: true }
     }
 
-    const serverPath = join(this.installDir, 'isdp-server.exe')
+    const serverPath = join(this.installDir, 'colink-server.exe')
     const configPath = join(this.installDir, 'data', 'configs', 'config.yaml')
 
     if (!existsSync(serverPath)) {

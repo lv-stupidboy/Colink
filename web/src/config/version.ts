@@ -10,10 +10,10 @@
 export const BASE_VERSION = '1.0.0';
 
 // 完整版本号（构建时自动注入）
-export const VERSION = 'v1.0.0-20260408-204137';
+export const VERSION = 'v1.0.0-20260408-025555';
 
 // 构建时间（构建时自动注入）
-export const BUILD_TIME = '2026-04-08 12:41:37';
+export const BUILD_TIME = '2026-04-08 18:55:55';
 
 // 内测标识
 export const BETA_LABEL = '内测中';

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { Button, Space, Spin, Card, Tag, Divider, Modal, message } from 'antd'
-import { PlayCircleOutlined, StopOutlined, SettingOutlined, FileTextOutlined, FolderOutlined, DeleteOutlined, ReloadOutlined, RedoOutlined, CloudUploadOutlined, CloseOutlined } from '@ant-design/icons'
+import { Button, Space, Spin, Card, Tag, Divider, Modal, message, Typography } from 'antd'
+import { PlayCircleOutlined, StopOutlined, SettingOutlined, FileTextOutlined, FolderOutlined, DeleteOutlined, ReloadOutlined, RedoOutlined, CloudUploadOutlined, CloseOutlined, WarningOutlined } from '@ant-design/icons'
 import { InstallConfig, InstalledVersion } from './types'
 import Layout from './components/Layout'
 import Welcome from './pages/Welcome'
@@ -13,7 +13,9 @@ import Complete from './pages/Complete'
 import { LauncherDashboard } from './pages/LauncherDashboard'
 import SelectAction from './pages/SelectAction'
 
-type AppMode = 'checking' | 'launcher' | 'select-action' | 'install' | 'installing' | 'complete'
+const { Text, Title } = Typography
+
+type AppMode = 'checking' | 'launcher' | 'select-action' | 'old-version-detected' | 'install' | 'installing' | 'complete'
 
 const INSTALL_PAGES = {
   1: Welcome,
@@ -32,7 +34,7 @@ export default function App() {
   const [installedVersion, setInstalledVersion] = useState<InstalledVersion | null>(null)
   const [serviceStatus, setServiceStatus] = useState<'running' | 'stopped'>('stopped')
   const [config, setConfig] = useState<InstallConfig>({
-    installDir: 'C:\\Program Files\\Lights-Out',
+    installDir: 'C:\\Program Files\\Colink',
     installMode: 'auto',
     dependencies: [],
     database: { host: '', port: 3306, database: 'isdp', username: 'root', password: '' },
@@ -43,6 +45,8 @@ export default function App() {
   })
   const [hasMissingDeps, setHasMissingDeps] = useState(false)
   const [dirValid, setDirValid] = useState(true)
+  const [oldISDPVersion, setOldISDPVersion] = useState<InstalledVersion | null>(null)
+  const [uninstallingOld, setUninstallingOld] = useState(false)
 
   useEffect(() => {
     checkInstalledVersion()
@@ -70,15 +74,26 @@ export default function App() {
         return
       }
 
-      // Setup 模式，检测安装状态
+      // Setup 模式，检测新版本安装状态
       const result = await window.electronAPI.checkInstalled()
       setInstalledVersion(result)
+
       if (result.installed && result.installDir) {
         setConfig(prev => ({ ...prev, installDir: result.installDir!, keepData: true }))
         setMode('select-action')  // 显示选择页面
-      } else {
-        setMode('install')
+        return
       }
+
+      // 检测旧版 ISDP（品牌更名前）
+      const oldResult = await window.electronAPI.checkOldISDP()
+      if (oldResult.installed) {
+        setOldISDPVersion(oldResult)
+        setMode('old-version-detected')
+        return
+      }
+
+      // 全新安装
+      setMode('install')
     } catch {
       setMode('install')
     }
@@ -172,6 +187,20 @@ export default function App() {
     await checkInstalledVersion()
   }
 
+  const handleUninstallOldISDP = async () => {
+    setUninstallingOld(true)
+    const result = await window.electronAPI.uninstallOldISDP()
+    setUninstallingOld(false)
+
+    if (result.success) {
+      message.success('旧版本已卸载')
+      setOldISDPVersion(null)
+      setMode('install')
+    } else {
+      message.error(result.error || '卸载失败')
+    }
+  }
+
   // 检测中
   if (mode === 'checking') {
     return (
@@ -184,7 +213,7 @@ export default function App() {
   // Launcher 模式（简化控制面板）
   if (mode === 'launcher') {
     return (
-      <Layout hideSteps title="Lights-Out">
+      <Layout hideSteps title="Colink">
         <LauncherDashboard
           installDir={installedVersion?.installDir || ''}
           serviceStatus={serviceStatus}
@@ -198,7 +227,7 @@ export default function App() {
   // 选择操作页面（已安装）
   if (mode === 'select-action') {
     return (
-      <Layout hideSteps title="Lights-Out Setup">
+      <Layout hideSteps title="Colink Setup">
         <SelectAction
           installDir={installedVersion?.installDir || ''}
           onUpgrade={handleStartInstall}
@@ -209,10 +238,67 @@ export default function App() {
     )
   }
 
+  // 检测到旧版本 ISDP
+  if (mode === 'old-version-detected') {
+    return (
+      <Layout hideSteps title="Colink Setup">
+        <div style={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: 24
+        }}>
+          <WarningOutlined style={{ fontSize: 64, color: '#faad14', marginBottom: 24 }} />
+          <Title level={3} style={{ marginBottom: 8 }}>检测到旧版本 ISDP</Title>
+          <Text type="secondary" style={{ marginBottom: 8, textAlign: 'center' }}>
+            产品已更名为 Colink，需要先卸载旧版本才能继续安装。
+          </Text>
+          {oldISDPVersion?.installDir && (
+            <Card size="small" style={{ marginBottom: 24, minWidth: 300 }}>
+              <Text type="secondary">安装位置：</Text>
+              <Text code>{oldISDPVersion.installDir}</Text>
+              {oldISDPVersion.version && (
+                <>
+                  <br />
+                  <Text type="secondary">版本：</Text>
+                  <Text>{oldISDPVersion.version}</Text>
+                </>
+              )}
+            </Card>
+          )}
+          <Space direction="vertical" style={{ width: '100%', maxWidth: 400 }} size="middle">
+            <Button
+              type="primary"
+              size="large"
+              block
+              loading={uninstallingOld}
+              onClick={handleUninstallOldISDP}
+            >
+              卸载旧版本并继续安装
+            </Button>
+            <Button
+              size="large"
+              block
+              onClick={() => window.electronAPI.closeWindow()}
+            >
+              取消
+            </Button>
+          </Space>
+          <Divider style={{ marginTop: 40, marginBottom: 16 }} />
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            卸载时会尝试保留数据目录（config、logs等）
+          </Text>
+        </div>
+      </Layout>
+    )
+  }
+
   // 安装中
   if (mode === 'installing') {
     return (
-      <Layout hideSteps title="Lights-Out Setup">
+      <Layout hideSteps title="Colink Setup">
         <Installing config={config} onComplete={handleInstallComplete} isUpgrade={isUpgrade} />
       </Layout>
     )
@@ -221,7 +307,7 @@ export default function App() {
   // 安装完成
   if (mode === 'complete') {
     return (
-      <Layout hideSteps title="Lights-Out Setup">
+      <Layout hideSteps title="Colink Setup">
         <Complete
           config={config}
           isUpgrade={isUpgrade}
@@ -240,7 +326,7 @@ export default function App() {
     : currentStep - 1
 
   return (
-    <Layout currentStep={stepIndex + 1} stepLabels={getStepLabels()} title="Lights-Out Setup">
+    <Layout currentStep={stepIndex + 1} stepLabels={getStepLabels()} title="Colink Setup">
       <PageComponent
         config={config}
         onConfigUpdate={(updates) => setConfig(prev => ({ ...prev, ...updates }))}

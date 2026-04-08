@@ -11,27 +11,40 @@ import { themeConfigs, defaultTheme } from '@/themes/themeConfig';
 type ThemeStore = ThemeState & ThemeActions;
 
 /**
- * 生成带主题色的 favicon SVG
+ * 生成带主题色的 favicon SVG - Colink 网络圆环设计
  */
-const generateFavicon = (primaryColor: string, primaryHover: string): string => {
+const generateFavicon = (primaryColor: string, secondaryColor: string): string => {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
   <defs>
-    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+    <linearGradient id="nodeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" style="stop-color:${primaryColor}"/>
-      <stop offset="100%" style="stop-color:${primaryHover}"/>
-    </linearGradient>
-    <linearGradient id="flameGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" style="stop-color:#fbbf24"/>
-      <stop offset="50%" style="stop-color:#f59e0b"/>
-      <stop offset="100%" style="stop-color:#ef4444"/>
+      <stop offset="100%" style="stop-color:${secondaryColor}"/>
     </linearGradient>
   </defs>
-  <rect x="2" y="2" width="28" height="28" rx="6" fill="url(#bgGrad)"/>
-  <path d="M16 5C16 5 11 9 11 15C11 17 11.5 19 12 20L13 22H19L20 20C20.5 19 21 17 21 15C21 9 16 5 16 5Z" fill="white"/>
-  <circle cx="16" cy="12" r="2" fill="${primaryColor}"/>
-  <path d="M11 18L9 22L11 23L12.5 20.5Z" fill="#e5e7eb"/>
-  <path d="M21 18L23 22L21 23L19.5 20.5Z" fill="#e5e7eb"/>
-  <path d="M13.5 22L14.5 27L16 25L17.5 27L18.5 22Z" fill="url(#flameGrad)"/>
+  <rect x="2" y="2" width="28" height="28" rx="6" fill="#0f172a"/>
+  <polygon points="16,3 27,9 27,23 16,29 5,23 5,9" fill="none" stroke="${primaryColor}" stroke-width="1.5" stroke-opacity="0.35" stroke-linejoin="round"/>
+  <g stroke="${primaryColor}" stroke-width="1" stroke-opacity="0.35">
+    <line x1="16" y1="3" x2="16" y2="16"/>
+    <line x1="27" y1="9" x2="16" y2="16"/>
+    <line x1="27" y1="23" x2="16" y2="16"/>
+    <line x1="16" y1="29" x2="16" y2="16"/>
+    <line x1="5" y1="23" x2="16" y2="16"/>
+    <line x1="5" y1="9" x2="16" y2="16"/>
+  </g>
+  <circle cx="16" cy="3" r="2.5" fill="url(#nodeGradient)"/>
+  <circle cx="27" cy="9" r="2.5" fill="url(#nodeGradient)"/>
+  <circle cx="27" cy="23" r="2.5" fill="url(#nodeGradient)"/>
+  <circle cx="16" cy="29" r="2.5" fill="url(#nodeGradient)"/>
+  <circle cx="5" cy="23" r="2.5" fill="url(#nodeGradient)"/>
+  <circle cx="5" cy="9" r="2.5" fill="url(#nodeGradient)"/>
+  <circle cx="16" cy="16" r="4" fill="url(#nodeGradient)"/>
+  <circle cx="16" cy="3" r="1" fill="white" opacity="0.3"/>
+  <circle cx="27" cy="9" r="1" fill="white" opacity="0.3"/>
+  <circle cx="27" cy="23" r="1" fill="white" opacity="0.3"/>
+  <circle cx="16" cy="29" r="1" fill="white" opacity="0.3"/>
+  <circle cx="5" cy="23" r="1" fill="white" opacity="0.3"/>
+  <circle cx="5" cy="9" r="1" fill="white" opacity="0.3"/>
+  <circle cx="16" cy="16" r="1.5" fill="white" opacity="0.4"/>
 </svg>`;
   return `data:image/svg+xml,${encodeURIComponent(svg)}`;
 };
@@ -74,7 +87,7 @@ export const useThemeStore = create<ThemeStore>()(
       },
     }),
     {
-      name: 'isdp-theme-storage', // localStorage key
+      name: 'colink-theme-storage', // localStorage key
       partialize: (state) => ({ currentTheme: state.currentTheme }), // 只持久化主题名称
       onRehydrateStorage: () => (state) => {
         // 页面加载时从 localStorage 恢复主题

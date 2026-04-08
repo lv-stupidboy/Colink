@@ -1,5 +1,5 @@
-appId: com.isdp.installer
-productName: ISDP Setup
+appId: com.colink.installer
+productName: Colink Setup
 directories:
   output: release
 
@@ -28,8 +28,8 @@ extraResources:
   - from: "../VERSION"
     to: "runtime/VERSION"
   # 后端服务（从 bin 目录读取构建产物）
-  - from: "../bin/isdp-server.exe"
-    to: "runtime/isdp-server.exe"
+  - from: "../bin/colink-server.exe"
+    to: "runtime/colink-server.exe"
   # 前端静态文件（从 Go 项目的 web 目录读取）
   - from: "../web/dist"
     to: "runtime/web"

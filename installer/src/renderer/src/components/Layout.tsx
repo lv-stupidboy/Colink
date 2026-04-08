@@ -8,7 +8,7 @@ interface LayoutProps {
   title?: string
 }
 
-export default function Layout({ currentStep = 1, stepLabels = [], children, hideSteps = false, title = 'Lights-Out' }: LayoutProps) {
+export default function Layout({ currentStep = 1, stepLabels = [], children, hideSteps = false, title = 'Colink' }: LayoutProps) {
   const handleMinimize = () => {
     window.electronAPI?.minimizeWindow()
   }

@@ -84,8 +84,11 @@ declare global {
 
       // 安装状态
       checkInstalled: () => Promise<InstalledVersion>
+      checkOldISDP: () => Promise<InstalledVersion>
+      uninstallOldISDP: () => Promise<{ success: boolean; error?: string }>
       readExistingConfig: (installDir: string) => Promise<{ success: boolean; config?: ExistingConfig; error?: string }>
       readFullConfig: (installDir: string) => Promise<string | null>
+      readMergedConfig: (installDir: string) => Promise<string | null>
       generateConfig: (config: object) => Promise<{ success: boolean; yaml?: string; error?: string }>
 
       // 服务管理

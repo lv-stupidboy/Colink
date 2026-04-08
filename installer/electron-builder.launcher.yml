@@ -1,5 +1,5 @@
-appId: com.isdp.launcher
-productName: ISDP
+appId: com.colink.launcher
+productName: Colink
 directories:
   output: release/launcher
 

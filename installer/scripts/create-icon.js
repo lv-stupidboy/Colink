@@ -11,6 +11,7 @@ async function createIcon() {
   const pngPath = path.join(rootDir, 'installer', 'resources', 'icon-256.png');
   const icoPath = path.join(rootDir, 'installer', 'build', 'icon.ico');
   const resourcesIcoPath = path.join(rootDir, 'installer', 'resources', 'icon.ico');
+  const faviconIcoPath = path.join(rootDir, 'web', 'public', 'favicon.ico');
 
   console.log('Converting SVG to PNG...');
 
@@ -33,10 +34,12 @@ async function createIcon() {
   // Write ICO files
   fs.writeFileSync(icoPath, icoBuffer);
   fs.writeFileSync(resourcesIcoPath, icoBuffer);
+  fs.writeFileSync(faviconIcoPath, icoBuffer);
 
   console.log('Icon created successfully!');
   console.log(`  - ${icoPath}`);
   console.log(`  - ${resourcesIcoPath}`);
+  console.log(`  - ${faviconIcoPath}`);
 }
 
 createIcon().catch(console.error);

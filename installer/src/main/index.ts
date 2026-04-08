@@ -12,13 +12,14 @@ import {
   runInstallation,
   readExistingConfig,
   readFullConfigYaml,
+  readMergedConfigPreview,
   copyApplicationFiles,
   writeRegistry,
   deleteRegistry
 } from './installer'
 import { ServiceManager } from './service-manager'
 import { showCloseConfirm } from './shared/window-utils'
-import { getInstalledVersion } from './shared/install-utils'
+import { getInstalledVersion, getOldISDPVersion, uninstallOldISDP } from './shared/install-utils'
 import mysql from 'mysql2/promise'
 
 const isDev = !app.isPackaged
@@ -104,7 +105,7 @@ function initServiceManager() {
   }
 }
 
-// 停止所有ISDP相关进程
+// 停止所有相关进程
 async function stopAllProcesses(): Promise<void> {
   // 停止服务管理器
   if (serviceManager) {
@@ -112,7 +113,13 @@ async function stopAllProcesses(): Promise<void> {
     serviceManager = null
   }
 
-  // 强制结束isdp-server.exe进程
+  // 强制结束服务进程
+  try {
+    execSync('taskkill /f /im colink-server.exe 2>nul', { encoding: 'utf8' })
+  } catch {
+    // 忽略错误
+  }
+  // 同时结束旧版进程名（兼容升级）
   try {
     execSync('taskkill /f /im isdp-server.exe 2>nul', { encoding: 'utf8' })
   } catch {
@@ -137,6 +144,16 @@ ipcMain.handle('get-resource-path', () => {
 
 ipcMain.handle('check-installed', async () => {
   return getInstalledVersion()
+})
+
+ipcMain.handle('check-old-isdp', async () => {
+  return getOldISDPVersion()
+})
+
+ipcMain.handle('uninstall-old-isdp', async () => {
+  // 先停止所有进程
+  await stopAllProcesses()
+  return uninstallOldISDP()
 })
 
 ipcMain.handle('check-dependency', async (_event, key: string) => {
@@ -240,13 +257,12 @@ ipcMain.handle('read-full-config', async (_event, dir: string) => {
   return readFullConfigYaml(dir)
 })
 
+ipcMain.handle('read-merged-config', async (_event, dir: string) => {
+  return readMergedConfigPreview(dir)
+})
+
 ipcMain.handle('generate-config', async (_event, config: any) => {
-  try {
-    const yaml = await generateConfigFile(config)
-    return { success: true, yaml }
-  } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : '生成配置失败' }
-  }
+  return generateConfigFile(config)
 })
 
 ipcMain.handle('start-installation', async (_event, config) => {
@@ -361,8 +377,8 @@ ipcMain.handle('confirm-uninstall', async () => {
       buttons: ['取消', '卸载'],
       defaultId: 0,
       cancelId: 0,
-      title: '卸载 Lights-Out',
-      message: '确定要卸载 Lights-Out 吗？',
+      title: '卸载 Colink',
+      message: '确定要卸载 Colink 吗？',
       detail: '检测到数据目录，卸载后可以选择保留或删除。',
       checkboxLabel: '保留数据目录',
       checkboxChecked: true,
@@ -379,8 +395,8 @@ ipcMain.handle('confirm-uninstall', async () => {
       buttons: ['取消', '卸载'],
       defaultId: 0,
       cancelId: 0,
-      title: '卸载 Lights-Out',
-      message: '确定要卸载 Lights-Out 吗？',
+      title: '卸载 Colink',
+      message: '确定要卸载 Colink 吗？',
       detail: '卸载后将无法使用本软件。',
     })
 
@@ -405,10 +421,16 @@ ipcMain.handle('uninstall', async (_event, keepData: boolean) => {
     deleteRegistry()
 
     // 删除快捷方式
-    const desktopPath = process.env.USERPROFILE + '\\Desktop\\ISDP.lnk'
-    const startMenuPath = process.env.APPDATA + '\\Microsoft\\Windows\\Start Menu\\Programs\\ISDP.lnk'
+    const desktopPath = process.env.USERPROFILE + '\\Desktop\\Colink.lnk'
+    const startMenuPath = process.env.APPDATA + '\\Microsoft\\Windows\\Start Menu\\Programs\\Colink.lnk'
     try { if (existsSync(desktopPath)) rmSync(desktopPath) } catch {}
     try { if (existsSync(startMenuPath)) rmSync(startMenuPath) } catch {}
+
+    // 同时删除旧版 ISDP 的快捷方式（兼容升级）
+    const oldDesktopPath = process.env.USERPROFILE + '\\Desktop\\ISDP.lnk'
+    const oldStartMenuPath = process.env.APPDATA + '\\Microsoft\\Windows\\Start Menu\\Programs\\ISDP.lnk'
+    try { if (existsSync(oldDesktopPath)) rmSync(oldDesktopPath) } catch {}
+    try { if (existsSync(oldStartMenuPath)) rmSync(oldStartMenuPath) } catch {}
 
     // 删除文件（除了data目录）
     const dir = installed.installDir
@@ -438,7 +460,7 @@ ipcMain.handle('uninstall', async (_event, keepData: boolean) => {
     }
 
     const entriesToDelete = [
-      'ISDP.exe', 'isdp-server.exe', 'web',
+      'Colink.exe', 'colink-server.exe', 'isdp-server.exe', 'web',
       // DLL 文件
       'ffmpeg.dll', 'd3dcompiler_47.dll', 'libEGL.dll', 'libGLESv2.dll',
       'vk_swiftshader.dll', 'vulkan-1.dll',
@@ -482,7 +504,7 @@ ipcMain.handle('uninstall', async (_event, keepData: boolean) => {
     dialog.showMessageBox(mainWindow!, {
       type: 'info',
       title: '卸载完成',
-      message: 'Lights-Out 已卸载',
+      message: 'Colink 已卸载',
       detail: keepData
         ? `数据目录已保留：${dir}\\data\n\n请手动删除安装目录：${dir}`
         : `请手动删除安装目录：${dir}`,

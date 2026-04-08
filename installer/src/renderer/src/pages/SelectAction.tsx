@@ -20,7 +20,7 @@ export default function SelectAction({ installDir, onUpgrade, onUninstall, onCan
       justifyContent: 'center',
       padding: 24
     }}>
-      <Title level={3} style={{ marginBottom: 8 }}>检测到已安装的 Lights-Out</Title>
+      <Title level={3} style={{ marginBottom: 8 }}>检测到已安装的 Colink</Title>
       <Text type="secondary" style={{ marginBottom: 30 }}>请选择要执行的操作</Text>
 
       <Card size="small" style={{ marginBottom: 30, minWidth: 300 }}>
@@ -36,7 +36,7 @@ export default function SelectAction({ installDir, onUpgrade, onUninstall, onCan
           block
           onClick={onUpgrade}
         >
-          升级 Lights-Out
+          升级 Colink
         </Button>
 
         <Button

@@ -31,40 +31,38 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
         database: config.database,
         serverPort: config.serverPort || 8080
       })
-      // 确保 result.yaml 是字符串
       if (result.success && result.yaml && typeof result.yaml === 'string') {
         setMergedConfigYaml(result.yaml)
       } else {
-        setMergedConfigYaml('# 配置生成失败：返回格式错误')
-        console.error('[SystemConfig] generateConfig returned unexpected format:', result)
+        // 显示具体错误信息
+        const errorMsg = result.error || '返回格式错误'
+        setMergedConfigYaml(`# 配置生成失败\n# 错误: ${errorMsg}`)
+        console.error('[SystemConfig] generateConfig failed:', result)
       }
     } catch (e) {
       console.warn('[SystemConfig] Failed to generate config:', e)
-      setMergedConfigYaml('# 配置加载失败')
+      setMergedConfigYaml(`# 配置加载失败\n# 错误: ${e instanceof Error ? e.message : '未知错误'}`)
     }
   }, [config.database, config.serverPort])
 
   // 加载完整配置预览
   const loadFullConfig = useCallback(async () => {
-    const targetDir = config.installDir || installedVersion?.installDir
-    if (!targetDir) {
-      await generateDefaultConfig()
-      return
+    // 升级模式：读取合并后的配置（用户配置 + 新模板）
+    if (isUpgrade && installedVersion?.installDir) {
+      try {
+        const result = await window.electronAPI.readMergedConfig(installedVersion.installDir)
+        if (result && typeof result === 'string') {
+          setMergedConfigYaml(result)
+          return
+        }
+      } catch (e) {
+        console.warn('[SystemConfig] Failed to load merged config:', e)
+      }
     }
 
-    try {
-      const result = await window.electronAPI.readFullConfig(targetDir)
-      // 确保 result 是字符串
-      if (result && typeof result === 'string') {
-        setMergedConfigYaml(result)
-      } else {
-        await generateDefaultConfig()
-      }
-    } catch (e) {
-      console.warn('[SystemConfig] Failed to load full config:', e)
-      await generateDefaultConfig()
-    }
-  }, [config.installDir, installedVersion, generateDefaultConfig])
+    // 安装模式或升级读取失败：使用用户输入生成配置预览
+    await generateDefaultConfig()
+  }, [isUpgrade, installedVersion, generateDefaultConfig])
 
   // 升级模式或安装目录已有配置时读取已有配置
   useEffect(() => {
@@ -177,7 +175,7 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
     <div style={{ flex: 1, overflow: 'auto' }}>
       <h2 style={{ fontSize: 22, marginBottom: 8, color: '#333' }}>系统配置</h2>
       <p style={{ color: '#666', marginBottom: 20 }}>
-        {isUpgrade ? '已加载现有配置，如需修改请直接调整' : '请配置 Lights-Out 运行所需的参数'}
+        {isUpgrade ? '已加载现有配置，如需修改请直接调整' : '请配置 Colink 运行所需的参数'}
         {configMerged && isUpgrade && (
           <span style={{ color: '#52c41a', marginLeft: 8 }}>
             <CheckCircleOutlined /> 配置已合并

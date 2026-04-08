@@ -198,8 +198,12 @@ function mergeObjects(user: any, template: any): any {
 
 // ==================== 文件操作 ====================
 
-// 强制结束所有ISDP相关进程（不包括当前进程）
+// 强制结束所有相关进程（不包括当前进程）
 export async function killAllProcesses(): Promise<void> {
+  try {
+    execSync('taskkill /f /im colink-server.exe 2>nul', { encoding: 'utf8' })
+  } catch {}
+  // 同时结束旧版进程名（兼容升级）
   try {
     execSync('taskkill /f /im isdp-server.exe 2>nul', { encoding: 'utf8' })
   } catch {}
@@ -244,9 +248,9 @@ export async function copyApplicationFiles(
       return { success: false, error: `运行时目录不存在: ${runtimeDir}` }
     }
 
-    // 复制 isdp-server.exe
-    const serverSrc = join(runtimeDir, 'isdp-server.exe')
-    const serverDest = join(destDir, 'isdp-server.exe')
+    // 复制 colink-server.exe
+    const serverSrc = join(runtimeDir, 'colink-server.exe')
+    const serverDest = join(destDir, 'colink-server.exe')
 
     if (existsSync(serverSrc)) {
       if (existsSync(serverDest)) {
@@ -254,7 +258,7 @@ export async function copyApplicationFiles(
       }
       await copyFile(serverSrc, serverDest)
     } else {
-      console.warn('[Copy] isdp-server.exe not found')
+      console.warn('[Copy] colink-server.exe not found')
     }
 
     // 复制 web/
@@ -381,9 +385,9 @@ export async function copyLauncherFiles(
     }
 
     // 验证关键文件
-    const exeDest = join(destDir, 'ISDP.exe')
+    const exeDest = join(destDir, 'Colink.exe')
     if (!fs.existsSync(exeDest)) {
-      return { success: false, error: '启动器可执行文件复制失败: ISDP.exe 不存在' }
+      return { success: false, error: '启动器可执行文件复制失败: Colink.exe 不存在' }
     }
 
     onProgress?.(100)
@@ -396,20 +400,99 @@ export async function copyLauncherFiles(
 
 // ==================== 配置文件 ====================
 
+// 从模板生成配置（新安装场景）
+// 只替换用户输入的数据库连接信息，其他配置保持模板默认值
+async function generateConfigFromTemplate(
+  templatePath: string,
+  db: { host: string; port: number; database: string; username: string; password: string },
+  serverPort: number = 8080
+): Promise<string> {
+  // 读取模板文件
+  const templateContent = await readFile(templatePath, 'utf-8')
+  const parsed = YAML.parse(templateContent)
+
+  // 只替换数据库连接信息（用户输入的值）
+  if (parsed?.database?.mysql) {
+    parsed.database.mysql.host = db.host
+    parsed.database.mysql.port = db.port
+    parsed.database.mysql.database = db.database
+    parsed.database.mysql.username = db.username
+    parsed.database.mysql.password = db.password
+  }
+
+  // 替换服务端口（用户输入的值）
+  if (parsed?.server) {
+    parsed.server.port = serverPort
+  }
+
+  return YAML.stringify(parsed)
+}
+
+// 查找配置模板文件（支持开发模式和打包模式）
+function findConfigTemplate(): string | null {
+  // 打包后：从 resources 目录读取
+  const packagedPath = join(process.resourcesPath, 'runtime', 'data', 'configs', 'config.yaml.example')
+  console.log('[ConfigTemplate] Checking packaged path:', packagedPath, 'exists:', existsSync(packagedPath))
+  if (existsSync(packagedPath)) {
+    return packagedPath
+  }
+
+  // 开发时：从项目根目录读取
+  // __dirname 在开发模式下是 installer/out/main/
+  const devPaths = [
+    // installer/out/main/ -> isdp/configs/
+    join(__dirname, '../../../configs/config.yaml.example'),
+    // installer/out/main/ -> installer/resources/runtime/data/configs/
+    join(__dirname, '../../resources/runtime/data/configs/config.yaml.example'),
+  ]
+
+  for (const p of devPaths) {
+    console.log('[ConfigTemplate] Checking dev path:', p, 'exists:', existsSync(p))
+    if (existsSync(p)) {
+      return p
+    }
+  }
+
+  // 最后尝试使用 app.isPackaged 判断
+  try {
+    const { app } = require('electron')
+    if (!app.isPackaged) {
+      // 开发模式，尝试从工作目录查找
+      const cwd = process.cwd()
+      const cwdPath = join(cwd, '../configs/config.yaml.example')
+      console.log('[ConfigTemplate] Checking cwd path:', cwdPath, 'exists:', existsSync(cwdPath))
+      if (existsSync(cwdPath)) {
+        return cwdPath
+      }
+    }
+  } catch {}
+
+  console.error('[ConfigTemplate] Template not found in any path')
+  return null
+}
+
 // 生成配置文件（支持两种调用方式）
 export async function generateConfigFile(
   destPathOrConfig: string | object,
   content?: string
 ): Promise<{ success: boolean; error?: string; yaml?: string }> {
   try {
-    // 如果第一个参数是对象，生成YAML字符串
+    // 如果第一个参数是对象，从模板生成YAML字符串（用于前端预览）
     if (typeof destPathOrConfig === 'object') {
       const config = destPathOrConfig as { database: any; serverPort?: number }
-      const yaml = generateConfigYaml(config.database, config.serverPort || 8080)
-      return { success: true, yaml }
+
+      // 查找模板文件
+      const templatePath = findConfigTemplate()
+      if (templatePath) {
+        const yaml = await generateConfigFromTemplate(templatePath, config.database, config.serverPort || 8080)
+        return { success: true, yaml }
+      }
+
+      // 模板不存在时，返回错误（不再兜底生成最小配置）
+      return { success: false, error: '配置模板文件不存在，请检查安装包完整性' }
     }
 
-    // 否则写入文件
+    // 写入文件
     const destPath = destPathOrConfig
     await mkdir(dirname(destPath), { recursive: true })
     await writeFile(destPath, content!, 'utf-8')
@@ -458,75 +541,77 @@ export async function readExistingConfig(installDir: string): Promise<{
 }
 
 // 读取完整配置文件内容（YAML格式）
+// 如果配置文件不存在，回退到读取模板文件
 export async function readFullConfigYaml(installDir: string): Promise<string | null> {
   try {
+    // 尝试读取已有配置文件
     const configPath = join(installDir, 'data', 'configs', 'config.yaml')
-    if (!existsSync(configPath)) {
-      return null
+    if (existsSync(configPath)) {
+      return await readFile(configPath, 'utf-8')
     }
-    return await readFile(configPath, 'utf-8')
+
+    // 配置文件不存在时，回退读取模板文件
+    const templatePath = findConfigTemplate()
+    if (templatePath) {
+      return await readFile(templatePath, 'utf-8')
+    }
+
+    return null
   } catch {
     return null
   }
 }
 
-function generateConfigYaml(db: { host: string; port: number; database: string; username: string; password: string }, serverPort: number = 8080): string {
-  const config = {
-    server: {
-      port: serverPort,
-      mode: 'release'
-    },
-    data: {
-      base_path: './data'
-    },
-    database: {
-      type: 'mysql',
-      mysql: {
-        host: db.host,
-        port: db.port,
-        database: db.database,
-        username: db.username,
-        password: db.password,
-        charset: 'utf8mb4'
-      }
-    },
-    sandbox: {
-      repos_dir: './data/repos'
-    },
-    claude: {
-      path: 'claude',
-      default_model: 'claude-sonnet-4-6',
-      timeout: '30m'
-    },
-    logging: {
-      level: 'info',
-      format: 'json'
-    },
-    agent_assets: {
-      base_path: './data/agent-assets'
-    },
-    agent_config: {
-      data_dir: './data/agent-configs'
-    }
-  }
+// 读取合并后的配置预览（升级场景使用）
+// 返回：用户配置 + 新模板合并后的结果
+export async function readMergedConfigPreview(installDir: string): Promise<string | null> {
+  try {
+    const configPath = join(installDir, 'data', 'configs', 'config.yaml')
+    const templatePath = findConfigTemplate()
 
-  return YAML.stringify(config)
+    // 如果用户配置不存在，直接返回模板
+    if (!existsSync(configPath)) {
+      if (templatePath) {
+        return await readFile(templatePath, 'utf-8')
+      }
+      return null
+    }
+
+    // 如果模板不存在，返回用户配置
+    if (!templatePath) {
+      return await readFile(configPath, 'utf-8')
+    }
+
+    // 合并用户配置和模板
+    const userContent = await readFile(configPath, 'utf-8')
+    const templateContent = await readFile(templatePath, 'utf-8')
+
+    const userYaml = YAML.parse(userContent)
+    const templateYaml = YAML.parse(templateContent)
+
+    // 合并：用户值优先，模板补充新字段
+    const mergedYaml = mergeObjects(userYaml, templateYaml)
+
+    return YAML.stringify(mergedYaml)
+  } catch (error) {
+    console.error('[ConfigPreview] Merge failed:', error)
+    return null
+  }
 }
 
 // ==================== 快捷方式 ====================
 
 export async function createDesktopShortcut(installDir: string): Promise<boolean> {
   try {
-    const launcherPath = join(installDir, 'ISDP.exe')
-    const iconPath = join(installDir, 'icon.ico')
-    const desktopPath = process.env.USERPROFILE + '\\Desktop\\ISDP.lnk'
+    const launcherPath = join(installDir, 'Colink.exe')
+    const desktopPath = process.env.USERPROFILE + '\\Desktop\\Colink.lnk'
 
+    // 不设置 IconLocation，让快捷方式自动使用 exe 内嵌的图标
     const vbsContent = `Set WshShell = WScript.CreateObject("WScript.Shell")
 Set oShellLink = WshShell.CreateShortcut("${desktopPath}")
 oShellLink.TargetPath = "${launcherPath}"
 oShellLink.WorkingDirectory = "${installDir}"
-oShellLink.Description = "ISDP"
-oShellLink.IconLocation = "${iconPath},0"
+oShellLink.Description = "Colink"
 oShellLink.Save
 WScript.Echo "OK"`
 
@@ -544,16 +629,15 @@ WScript.Echo "OK"`
 
 export async function createStartMenuShortcut(installDir: string): Promise<boolean> {
   try {
-    const launcherPath = join(installDir, 'ISDP.exe')
-    const iconPath = join(installDir, 'icon.ico')
-    const startMenuPath = process.env.APPDATA + '\\Microsoft\\Windows\\Start Menu\\Programs\\ISDP.lnk'
+    const launcherPath = join(installDir, 'Colink.exe')
+    const startMenuPath = process.env.APPDATA + '\\Microsoft\\Windows\\Start Menu\\Programs\\Colink.lnk'
 
+    // 不设置 IconLocation，让快捷方式自动使用 exe 内嵌的图标
     const vbsContent = `Set WshShell = WScript.CreateObject("WScript.Shell")
 Set oShellLink = WshShell.CreateShortcut("${startMenuPath}")
 oShellLink.TargetPath = "${launcherPath}"
 oShellLink.WorkingDirectory = "${installDir}"
-oShellLink.Description = "ISDP"
-oShellLink.IconLocation = "${iconPath},0"
+oShellLink.Description = "Colink"
 oShellLink.Save
 WScript.Echo "OK"`
 
@@ -573,16 +657,16 @@ WScript.Echo "OK"`
 
 export async function writeRegistry(installDir: string, version: string = '1.0.0'): Promise<boolean> {
   try {
-    const launcherPath = join(installDir, 'ISDP.exe')
+    const launcherPath = join(installDir, 'Colink.exe')
 
     const commands = [
-      `reg add "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ISDP" /v "DisplayName" /t REG_SZ /d "ISDP" /f`,
-      `reg add "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ISDP" /v "DisplayVersion" /t REG_SZ /d "${version}" /f`,
-      `reg add "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ISDP" /v "Publisher" /t REG_SZ /d "ISDP Team" /f`,
-      `reg add "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ISDP" /v "InstallLocation" /t REG_SZ /d "${installDir}" /f`,
-      `reg add "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ISDP" /v "DisplayIcon" /t REG_SZ /d "${launcherPath}" /f`,
-      `reg add "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ISDP" /v "NoModify" /t REG_DWORD /d 1 /f`,
-      `reg add "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ISDP" /v "NoRepair" /t REG_DWORD /d 1 /f`,
+      `reg add "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Colink" /v "DisplayName" /t REG_SZ /d "Colink" /f`,
+      `reg add "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Colink" /v "DisplayVersion" /t REG_SZ /d "${version}" /f`,
+      `reg add "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Colink" /v "Publisher" /t REG_SZ /d "Colink Team" /f`,
+      `reg add "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Colink" /v "InstallLocation" /t REG_SZ /d "${installDir}" /f`,
+      `reg add "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Colink" /v "DisplayIcon" /t REG_SZ /d "${launcherPath}" /f`,
+      `reg add "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Colink" /v "NoModify" /t REG_DWORD /d 1 /f`,
+      `reg add "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Colink" /v "NoRepair" /t REG_DWORD /d 1 /f`,
     ]
 
     let success = true
@@ -609,10 +693,10 @@ export async function writeRegistry(installDir: string, version: string = '1.0.0
 
 export function deleteRegistry(): boolean {
   try {
-    execSync('reg delete "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ISDP" /f', { encoding: 'utf8' })
+    execSync('reg delete "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Colink" /f', { encoding: 'utf8' })
   } catch {}
   try {
-    execSync('reg delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ISDP" /f', { encoding: 'utf8' })
+    execSync('reg delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Colink" /f', { encoding: 'utf8' })
   } catch {}
   return true
 }
@@ -642,7 +726,7 @@ export async function runInstallation(
 
   try {
     // Step 0: 停止所有进程
-    sendProgress('prepare', 'running', 0, '停止服务...', '正在停止所有 ISDP 相关进程...')
+    sendProgress('prepare', 'running', 0, '停止服务...', '正在停止所有相关进程...')
     await killAllProcesses()
     sendProgress('prepare', 'success', 100, '服务已停止', '所有进程已停止')
 
@@ -732,9 +816,17 @@ export async function runInstallation(
         sendProgress('config', 'success', 100, '配置已合并', '用户配置已保留，新字段已添加默认值')
       }
     } else {
-      // 新安装，生成配置文件
-      sendProgress('config', 'running', 50, '生成配置文件...', '使用提供的数据库信息生成配置')
-      const configContent = generateConfigYaml(config.database, config.serverPort || 8080)
+      // 新安装，从模板生成配置文件
+      sendProgress('config', 'running', 50, '生成配置文件...', '从模板生成配置，替换数据库连接信息')
+
+      // 确保模板文件存在
+      if (!existsSync(templatePath)) {
+        sendProgress('config', 'failed', 0, '模板文件不存在', `缺少配置模板: ${templatePath}`)
+        return { success: false, error: '配置模板文件不存在' }
+      }
+
+      // 从模板生成配置（只替换数据库连接信息）
+      const configContent = await generateConfigFromTemplate(templatePath, config.database, config.serverPort || 8080)
       const configResult = await generateConfigFile(configPath, configContent)
       if (!configResult.success) {
         sendProgress('config', 'failed', 0, configResult.error, `配置文件生成失败: ${configResult.error}`)

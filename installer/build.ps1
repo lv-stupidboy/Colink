@@ -1,4 +1,4 @@
-# ISDP Complete Build Script (Windows PowerShell)
+# Colink Complete Build Script (Windows PowerShell)
 
 $ErrorActionPreference = "Stop"
 
@@ -6,7 +6,7 @@ $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
-Write-Host "===== ISDP Build Started =====" -ForegroundColor Green
+Write-Host "===== Colink Build Started =====" -ForegroundColor Green
 
 # 0. Read version and generate full version with timestamp
 $VERSION = "dev"
@@ -25,7 +25,7 @@ if ([Environment]::Is64BitOperatingSystem) {
 }
 
 $FULL_VERSION = "v$VERSION-$BUILD_TIME"
-$PACKAGE_NAME = "ISDP-$FULL_VERSION-$OS-$ARCH"
+$PACKAGE_NAME = "Colink-$FULL_VERSION-$OS-$ARCH"
 Write-Host "Version: $FULL_VERSION" -ForegroundColor Cyan
 Write-Host "Platform: $OS-$ARCH" -ForegroundColor Cyan
 
@@ -37,7 +37,7 @@ Remove-Item -Path "release\*.zip" -Force -ErrorAction SilentlyContinue
 # 2. Build backend
 Write-Host "[2/6] Building backend..." -ForegroundColor Cyan
 Push-Location ..
-go build -ldflags "-X main.Version=$FULL_VERSION" -o bin\isdp-server.exe .\cmd\server
+go build -ldflags "-X main.Version=$FULL_VERSION" -o bin\colink-server.exe .\cmd\server
 Pop-Location
 
 # 3. Build frontend (ensure dependencies first)
@@ -65,9 +65,9 @@ npm run package:setup
 
 # 7. Create ZIP
 Write-Host "[7/7] Creating release package..." -ForegroundColor Cyan
-$env:ISDP_FULL_VERSION = $FULL_VERSION
-$env:ISDP_OS = $OS
-$env:ISDP_ARCH = $ARCH
+$env:COLINK_FULL_VERSION = $FULL_VERSION
+$env:COLINK_OS = $OS
+$env:COLINK_ARCH = $ARCH
 node scripts\create-zip.js
 
 Write-Host "===== Build Complete =====" -ForegroundColor Green

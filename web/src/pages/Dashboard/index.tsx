@@ -124,7 +124,7 @@ const Dashboard: React.FC = () => {
     <div style={{ padding: 12 }}>
       <div style={{ marginBottom: 12 }}>
         <Title level={2} style={{ margin: 0 }}>Dashboard</Title>
-        <Text type="secondary">Welcome to Lights-Out Factory</Text>
+        <Text type="secondary">Welcome to Colink</Text>
       </div>
 
       {/* 统计卡片 */}

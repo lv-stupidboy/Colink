@@ -64,7 +64,7 @@ export default function DirectorySelect({ config, onConfigUpdate, onValidationCh
   return (
     <div style={{ flex: 1 }}>
       <h2 style={{ fontSize: 22, marginBottom: 8, color: '#333' }}>选择安装位置</h2>
-      <p style={{ color: '#666', marginBottom: 30 }}>请选择 Lights-Out 的安装目录</p>
+      <p style={{ color: '#666', marginBottom: 30 }}>请选择 Colink 的安装目录</p>
 
       <div style={{ marginBottom: 20 }}>
         <label style={{ display: 'block', fontSize: 13, color: '#666', marginBottom: 8 }}>

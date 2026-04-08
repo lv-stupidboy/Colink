@@ -221,7 +221,7 @@ export default function Installing({ config, onComplete, isUpgrade }: Installing
           description={
             <div>
               <p style={{ marginBottom: 8 }}>安装目录：{config.installDir}</p>
-              <p style={{ marginBottom: 0 }}>请点击"完成"关闭安装程序，然后通过桌面快捷方式启动 ISDP。</p>
+              <p style={{ marginBottom: 0 }}>请点击"完成"关闭安装程序，然后通过桌面快捷方式启动 Colink。</p>
             </div>
           }
         />
