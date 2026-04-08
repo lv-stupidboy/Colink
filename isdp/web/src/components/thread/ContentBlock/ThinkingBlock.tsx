@@ -9,8 +9,6 @@ import './ContentBlock.css';
  * - streaming 时自动展开，完成后自动折叠（尊重用户交互）
  */
 
-const DIVIDER = '#E5E7EB';
-
 /** Chevron 图标 */
 function ChevronIcon({ expanded, color }: { expanded: boolean; color?: string }) {
   return (
@@ -126,18 +124,13 @@ const ThinkingBlock: React.FC<ThinkingBlockProps> = ({
     ? `${(block.duration / 1000).toFixed(1)}s`
     : '';
 
-  // 浅灰色背景
-   const surface = '#F5F5F5';
-  const surfaceInner = '#FAFAFA';
-
   return (
-    <div className="thinking-block-wrapper" style={{ backgroundColor: surface, borderRadius: 8 }}>
+    <div className="thinking-block-wrapper">
       {/* Header - 可点击展开/收起 */}
       <button
         type="button"
         onClick={handleToggle}
         className="thinking-block-header"
-        style={{ backgroundColor: surface }}
       >
         <ChevronIcon expanded={expanded} color={breedColor} />
         <BrainIcon />
@@ -153,8 +146,8 @@ const ThinkingBlock: React.FC<ThinkingBlockProps> = ({
 
       {/* Body - 展开后显示 */}
       {expanded && (
-        <div className="thinking-block-body" style={{ backgroundColor: surfaceInner }}>
-          <div style={{ height: 1, backgroundColor: DIVIDER }} />
+        <div className="thinking-block-body">
+          <div className="thinking-block-divider" />
           <div className="thinking-block-content">
             {content}
           </div>

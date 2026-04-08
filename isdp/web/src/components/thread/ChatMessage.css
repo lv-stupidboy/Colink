@@ -104,6 +104,24 @@
   background-color: var(--bg-elevated, #334155) !important;
 }
 
+/* 思考块深色模式适配 */
+[data-theme='dark'] .thinking-block {
+  background: var(--bg-elevated) !important;
+}
+
+[data-theme='dark'] .thinking-block-header {
+  background: transparent !important;
+}
+
+[data-theme='dark'] .thinking-block-header:hover {
+  background-color: var(--color-primary-opacity-10) !important;
+}
+
+[data-theme='dark'] .thinking-block-content {
+  color: var(--text-primary) !important;
+  background: transparent !important;
+}
+
 /* 圆角样式 */
 .rounded-2xl {
   border-radius: 16px;
@@ -166,6 +184,24 @@
 
 .chat-message-list::-webkit-scrollbar-thumb:hover {
   background-color: #bfbfbf;
+}
+
+/* 深色模式滚动条 */
+[data-theme='dark'] .chat-message-list {
+  scrollbar-color: var(--border-color) transparent;
+}
+
+[data-theme='dark'] .chat-message-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+[data-theme='dark'] .chat-message-list::-webkit-scrollbar-thumb {
+  background-color: var(--border-color);
+  border-radius: 3px;
+}
+
+[data-theme='dark'] .chat-message-list::-webkit-scrollbar-thumb:hover {
+  background-color: var(--text-secondary);
 }
 
 /* 空状态 */

@@ -181,6 +181,20 @@
   background: var(--text-secondary);
 }
 
+/* 深色模式滚动条 */
+[data-theme='dark'] .thread-messages::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+[data-theme='dark'] .thread-messages::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 3px;
+}
+
+[data-theme='dark'] .thread-messages::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+
 /* 空状态 */
 .thread-messages .ant-empty {
   margin: 0;

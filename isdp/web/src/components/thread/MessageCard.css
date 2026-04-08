@@ -47,3 +47,18 @@
   0%, 50% { opacity: 1; }
   51%, 100% { opacity: 0; }
 }
+
+/* ========== 深色主题适配 ========== */
+
+[data-theme='dark'] .message-agent {
+  background-color: var(--bg-container);
+  color: var(--text-primary);
+}
+
+[data-theme='dark'] .agent-name {
+  color: var(--text-primary);
+}
+
+[data-theme='dark'] .agent-role {
+  color: var(--text-secondary);
+}

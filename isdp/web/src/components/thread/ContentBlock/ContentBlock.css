@@ -167,6 +167,11 @@
   border-top: 1px solid rgba(0, 0, 0, 0.06);
 }
 
+.thinking-block-divider {
+  height: 1px;
+  background-color: rgba(0, 0, 0, 0.06);
+}
+
 .thinking-block-content {
   padding: 8px 12px 10px 12px;
   font-size: 12px;
@@ -499,4 +504,193 @@
 
 .tool-group-list {
   padding: 4px;
+}
+
+/* ========== 深色主题适配 ========== */
+
+[data-theme='dark'] .tool-call-row {
+  background: var(--bg-elevated);
+}
+
+[data-theme='dark'] .tool-call-row:hover {
+  background: var(--bg-base);
+}
+
+[data-theme='dark'] .tool-call-name {
+  color: var(--text-primary);
+}
+
+[data-theme='dark'] .tool-call-input {
+  color: var(--text-secondary);
+}
+
+[data-theme='dark'] .tool-call-duration {
+  color: var(--text-secondary);
+}
+
+[data-theme='dark'] .tool-call-detail {
+  background: var(--bg-base);
+  border-color: var(--border-color);
+}
+
+[data-theme='dark'] .tool-call-detail-label {
+  color: var(--text-secondary);
+}
+
+[data-theme='dark'] .tool-call-detail pre {
+  color: var(--text-primary);
+}
+
+/* 思考块深色模式 */
+[data-theme='dark'] .thinking-block-wrapper {
+  border-color: var(--border-color) !important;
+  background: var(--bg-elevated) !important;
+}
+
+[data-theme='dark'] .thinking-block-header {
+  color: var(--text-primary) !important;
+  background: transparent !important;
+}
+
+[data-theme='dark'] .thinking-block-header:hover {
+  background-color: var(--color-primary-opacity-10) !important;
+}
+
+[data-theme='dark'] .thinking-block-label {
+  color: var(--text-secondary) !important;
+}
+
+[data-theme='dark'] .thinking-block-duration {
+  color: var(--text-secondary) !important;
+}
+
+[data-theme='dark'] .thinking-block-preview {
+  color: var(--text-secondary) !important;
+}
+
+[data-theme='dark'] .thinking-block-body {
+  border-top-color: var(--border-color) !important;
+  background: transparent !important;
+}
+
+[data-theme='dark'] .thinking-block-divider {
+  background-color: var(--border-color) !important;
+}
+
+[data-theme='dark'] .thinking-block-content {
+  color: var(--text-primary) !important;
+  background: transparent !important;
+}
+
+/* 文本块深色模式 */
+[data-theme='dark'] .text-block table th,
+[data-theme='dark'] .text-block table td {
+  border-color: var(--border-color);
+}
+
+[data-theme='dark'] .text-block table th {
+  background: var(--bg-elevated);
+}
+
+[data-theme='dark'] .text-block table tr:hover {
+  background: var(--bg-elevated);
+}
+
+[data-theme='dark'] .text-block pre {
+  background: var(--bg-elevated);
+}
+
+[data-theme='dark'] .text-block code {
+  background: var(--bg-elevated);
+}
+
+[data-theme='dark'] .text-block blockquote {
+  border-left-color: var(--border-color);
+  color: var(--text-secondary);
+}
+
+[data-theme='dark'] .text-block hr {
+  border-top-color: var(--border-color);
+}
+
+/* 工具块深色模式 */
+[data-theme='dark'] .tool-block-wrapper {
+  border-color: var(--border-color);
+}
+
+[data-theme='dark'] .tool-block-header {
+  color: var(--text-primary);
+}
+
+[data-theme='dark'] .tool-block-header:hover {
+  background-color: var(--color-primary-opacity-10);
+}
+
+[data-theme='dark'] .tool-block-label {
+  color: var(--text-primary);
+}
+
+[data-theme='dark'] .tool-block-status {
+  color: var(--text-secondary);
+}
+
+[data-theme='dark'] .tool-block-duration-badge {
+  color: var(--text-secondary);
+}
+
+[data-theme='dark'] .tool-block-badge {
+  color: var(--text-secondary);
+  background: var(--color-primary-opacity-10);
+}
+
+[data-theme='dark'] .tool-block-body {
+  border-top-color: var(--border-color);
+}
+
+[data-theme='dark'] .tool-block-summary-btn {
+  color: var(--text-secondary);
+}
+
+[data-theme='dark'] .tool-block-summary-btn:hover {
+  background-color: var(--color-primary-opacity-10);
+}
+
+[data-theme='dark'] .tool-block-summary-collapsed {
+  color: var(--text-secondary);
+}
+
+[data-theme='dark'] .tool-block-row:hover {
+  background-color: var(--color-primary-opacity-5);
+}
+
+[data-theme='dark'] .tool-block-detail {
+  background: var(--bg-base);
+  border-color: var(--border-color);
+}
+
+[data-theme='dark'] .tool-block-detail pre {
+  color: var(--text-primary);
+}
+
+/* 工具组块深色模式 */
+[data-theme='dark'] .tool-group-block {
+  border-color: var(--border-color);
+  background: var(--bg-elevated);
+}
+
+[data-theme='dark'] .tool-group-header {
+  color: var(--text-primary);
+  border-bottom-color: var(--border-color);
+}
+
+[data-theme='dark'] .tool-group-title {
+  color: var(--color-primary);
+}
+
+[data-theme='dark'] .tool-group-count {
+  color: var(--text-secondary);
+}
+
+[data-theme='dark'] .tool-group-duration {
+  color: var(--text-secondary);
 }
