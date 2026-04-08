@@ -55,6 +55,7 @@ type Handler struct {
 	hub                 *Hub
 	runningAgentsGetter RunningAgentsGetter
 	invocationRecoverer InvocationRecoverer
+	cancelAgentFunc     func(ctx context.Context, invocationID uuid.UUID) error
 }
 
 // NewHandler 创建Handler
@@ -64,6 +65,11 @@ func NewHandler(hub *Hub, runningAgentsGetter RunningAgentsGetter, invocationRec
 		runningAgentsGetter: runningAgentsGetter,
 		invocationRecoverer: invocationRecoverer,
 	}
+}
+
+// SetCancelAgentFunc 设置取消Agent的回调函数
+func (h *Handler) SetCancelAgentFunc(fn func(ctx context.Context, invocationID uuid.UUID) error) {
+	h.cancelAgentFunc = fn
 }
 
 // HandleWebSocket 处理WebSocket连接
@@ -172,8 +178,9 @@ func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 
 // ClientMessage 客户端发送的消息
 type ClientMessage struct {
-	Type     string `json:"type"`
-	ThreadID string `json:"threadId"`
+	Type         string `json:"type"`
+	ThreadID     string `json:"threadId"`
+	InvocationID string `json:"invocationId,omitempty"`
 }
 
 // ReadPump 读取客户端消息（支持处理客户端请求）
@@ -199,6 +206,8 @@ func (c *Client) ReadPump() {
 		switch msg.Type {
 		case "recover_invocation_state":
 			c.handleRecoverInvocationState(msg.ThreadID)
+		case "cancel_invocation":
+			c.handleCancelInvocation(msg.ThreadID, msg.InvocationID)
 		}
 	}
 }
@@ -241,6 +250,36 @@ func (c *Client) handleRecoverInvocationState(threadID string) {
 			wsLogger.Info("Sent invocation recovery",
 				zap.String("threadId", threadID),
 				zap.String("invocationId", data.InvocationID))
+		}
+	}
+}
+
+// handleCancelInvocation 处理取消 invocation 请求
+func (c *Client) handleCancelInvocation(threadID, invocationID string) {
+	if c.Handler == nil || c.Handler.cancelAgentFunc == nil {
+		return
+	}
+
+	// 验证用户在 thread room 中
+	if c.ThreadID != threadID {
+		return
+	}
+
+	invocationUUID, err := uuid.Parse(invocationID)
+	if err != nil {
+		if wsLogger != nil {
+			wsLogger.Warn("Invalid invocationId", zap.String("invocationId", invocationID))
+		}
+		return
+	}
+
+	if err := c.Handler.cancelAgentFunc(context.Background(), invocationUUID); err != nil {
+		if wsLogger != nil {
+			wsLogger.Warn("CancelAgent failed", zap.Error(err), zap.String("invocationId", invocationID))
+		}
+	} else {
+		if wsLogger != nil {
+			wsLogger.Info("Invocation cancelled", zap.String("threadId", threadID), zap.String("invocationId", invocationID))
 		}
 	}
 }

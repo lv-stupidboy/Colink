@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -65,6 +66,11 @@ type RunningAgent struct {
 	// 结构化内容块累积（用于持久化）
 	AccumulatedContentBlocks []ContentBlockData // 累积的内容块
 	ContentBlocksMu          sync.Mutex         // 保护内容块累积字段
+
+	// CLI 进程管理（用于取消执行）
+	Adapter AgentAdapter // Adapter 引用（用于获取当前进程）
+	Cmd     *exec.Cmd    // CLI 进程引用（由 adapter 在执行时设置）
+	cmdMu   sync.Mutex   // 保护 Cmd 并发访问
 }
 
 // ContentBlockData 结构化内容块数据（用于序列化）

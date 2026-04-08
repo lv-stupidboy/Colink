@@ -29,6 +29,10 @@ type ClaudeAdapter struct {
 	// Session management
 	sessions map[string]*claudeSession
 	mu       sync.RWMutex
+
+	// CLI 进程管理（用于取消执行）
+	currentCmd   *exec.Cmd
+	currentCmdMu sync.RWMutex
 }
 
 // claudeSession Claude会话
@@ -71,6 +75,13 @@ func (a *ClaudeAdapter) Execute(ctx context.Context, req *ExecutionRequest) (*Ex
 		return nil, err
 	}
 	return result, nil
+}
+
+// GetCurrentProcess 获取当前执行的进程（用于取消）
+func (a *ClaudeAdapter) GetCurrentProcess() *exec.Cmd {
+	a.currentCmdMu.RLock()
+	defer a.currentCmdMu.RUnlock()
+	return a.currentCmd
 }
 
 // ExecuteWithStream 流式执行
@@ -178,6 +189,18 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionReq
 	}
 	logInfo("[PERF] CLI cmd.Start", zap.Duration("duration", time.Since(cliStartTime)))
 
+	// 保存当前进程引用（用于取消）
+	a.currentCmdMu.Lock()
+	a.currentCmd = cmd
+	a.currentCmdMu.Unlock()
+
+	// 确保执行结束后清除进程引用
+	defer func() {
+		a.currentCmdMu.Lock()
+		a.currentCmd = nil
+		a.currentCmdMu.Unlock()
+	}()
+
 	var wg sync.WaitGroup
 	var stderrOutput strings.Builder
 
@@ -200,6 +223,14 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionReq
 		chunkCount := 0
 		firstLineReceived := false
 		for scanner.Scan() {
+			// 检查 context 是否已取消（取消后停止处理输出）
+			select {
+			case <-ctx.Done():
+				logInfo("ExecuteWithStream: context cancelled, stopping output processing")
+				return
+			default:
+			}
+
 			line := scanner.Text()
 			if line == "" {
 				continue

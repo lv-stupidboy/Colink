@@ -28,6 +28,10 @@ type OpenCodeAdapter struct {
 	// Session management
 	sessions map[string]*openCodeSession
 	mu       sync.RWMutex
+
+	// CLI 进程管理（用于取消执行）
+	currentCmd   *exec.Cmd
+	currentCmdMu sync.RWMutex
 }
 
 // openCodeSession OpenCode会话
@@ -70,6 +74,13 @@ func (a *OpenCodeAdapter) Execute(ctx context.Context, req *ExecutionRequest) (*
 		return nil, err
 	}
 	return result, nil
+}
+
+// GetCurrentProcess 获取当前执行的进程（用于取消）
+func (a *OpenCodeAdapter) GetCurrentProcess() *exec.Cmd {
+	a.currentCmdMu.RLock()
+	defer a.currentCmdMu.RUnlock()
+	return a.currentCmd
 }
 
 // ExecuteWithStream 流式执行
@@ -157,6 +168,18 @@ func (a *OpenCodeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionR
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start command: %w", err)
 	}
+
+	// 保存当前进程引用（用于取消）
+	a.currentCmdMu.Lock()
+	a.currentCmd = cmd
+	a.currentCmdMu.Unlock()
+
+	// 确保执行结束后清除进程引用
+	defer func() {
+		a.currentCmdMu.Lock()
+		a.currentCmd = nil
+		a.currentCmdMu.Unlock()
+	}()
 
 	logInfo("OpenCode process started", zap.Int("pid", cmd.Process.Pid))
 

@@ -407,6 +407,39 @@ export const useAppStore = create<AppState & AppActions>()(
         if (status === 'completed' || status === 'failed' || status === 'cancelled') {
           // 找到完成的 agent 并移到历史列表
           const completedAgent = state.activeAgents.find((a) => a.id === invocationId);
+
+          // 对于 cancelled 状态，保留已输出的内容（转成临时消息）
+          // 只有 completed/failed 才清理流式状态
+          const isCancelled = status === 'cancelled';
+          const isCurrentStreaming = state.streamingInvocationId === invocationId;
+
+          // 如果取消且有流式内容，创建一个临时消息保留这些内容
+          let newMessages = state.messages;
+          if (isCancelled && isCurrentStreaming && state.streamingContentBlocks.length > 0) {
+            const tempMessage: Message = {
+              id: `agent-${invocationId}`,
+              threadId: state.currentThread?.id || '',
+              role: 'agent',
+              agentId: state.streamingAgentId || '',
+              content: state.streamingContentBlocks
+                .filter(b => b.type === 'text')
+                .map(b => b.type === 'text' ? b.content : '')
+                .join(''),
+              contentBlocks: state.streamingContentBlocks,
+              messageType: 'text',
+              metadata: {
+                agentName: state.streamingAgentName,
+                cancelled: true,
+              },
+              createdAt: new Date().toISOString(),
+            };
+            // 检查是否已存在
+            const exists = state.messages.some(m => m.id === tempMessage.id);
+            if (!exists) {
+              newMessages = [...state.messages, tempMessage];
+            }
+          }
+
           const newCompletedAgents = completedAgent
             ? [
                 ...state.completedAgents.filter((a) => a.id !== invocationId),
@@ -418,9 +451,21 @@ export const useAppStore = create<AppState & AppActions>()(
               ]
             : state.completedAgents;
 
+          // 重置流式状态（但 cancelled 不清空 contentBlocks，因为已转为消息）
           return {
+            messages: newMessages,
             activeAgents: state.activeAgents.filter((a) => a.id !== invocationId),
             completedAgents: newCompletedAgents,
+            // 重置流式状态
+            isStreaming: isCurrentStreaming ? false : state.isStreaming,
+            streamingInvocationId: isCurrentStreaming ? null : state.streamingInvocationId,
+            streamingAgentId: isCurrentStreaming ? null : state.streamingAgentId,
+            streamingAgentName: isCurrentStreaming ? null : state.streamingAgentName,
+            streamingContentBlocks: isCurrentStreaming ? [] : state.streamingContentBlocks,
+            // 重置进度状态
+            progressStatus: isCurrentStreaming ? 'idle' : state.progressStatus,
+            progressToolName: isCurrentStreaming ? null : state.progressToolName,
+            progressToolInput: isCurrentStreaming ? null : state.progressToolInput,
           };
         }
         // Agent 启动时添加到 activeAgents

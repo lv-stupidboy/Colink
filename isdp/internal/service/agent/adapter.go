@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"os/exec"
 
 	"github.com/anthropic/isdp/internal/model"
 )
@@ -28,6 +29,10 @@ type AgentAdapter interface {
 
 	// CheckHealth 检查CLI健康状态
 	CheckHealth(ctx context.Context) error
+
+	// GetCurrentProcess 获取当前执行的进程（用于取消）
+	// 返回 nil 表示当前没有正在执行的进程
+	GetCurrentProcess() *exec.Cmd
 }
 
 // SessionStatus 会话状态
