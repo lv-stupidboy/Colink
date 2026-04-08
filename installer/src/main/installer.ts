@@ -424,42 +424,24 @@ export async function readExistingConfig(installDir: string): Promise<{
     }
 
     const content = await readFile(configPath, 'utf-8')
-    const config = {
-      database: { host: '', port: 3306, database: 'isdp', username: 'root', password: '' },
-      serverPort: 8080
-    }
+    const parsed = YAML.parse(content)
 
-    const lines = content.split('\n')
-    let inMysql = false
-    let inServer = false
+    // 使用 YAML 库正确解析，自动处理引号等特殊字符
+    const dbConfig = parsed?.database?.mysql || {}
 
-    for (const line of lines) {
-      const trimmed = line.trim()
-
-      // 解析 server 配置
-      if (trimmed === 'server:') { inServer = true; inMysql = false; continue }
-      if (inServer && trimmed.startsWith('port:')) {
-        config.serverPort = parseInt(trimmed.replace('port:', '').trim()) || 8080
-      }
-      if (inServer && !trimmed.startsWith('port') && !trimmed.startsWith('mode') && trimmed.includes(':')) {
-        inServer = false
-      }
-
-      // 解析 mysql 配置
-      if (trimmed === 'mysql:') { inMysql = true; inServer = false; continue }
-      if (inMysql && !trimmed.startsWith('host') && !trimmed.startsWith('port') && !trimmed.startsWith('database') && !trimmed.startsWith('username') && !trimmed.startsWith('password') && !trimmed.startsWith('charset') && trimmed.includes(':')) {
-        inMysql = false
-      }
-      if (inMysql) {
-        if (trimmed.startsWith('host:')) config.database.host = trimmed.replace('host:', '').trim()
-        else if (trimmed.startsWith('port:')) config.database.port = parseInt(trimmed.replace('port:', '').trim()) || 3306
-        else if (trimmed.startsWith('database:')) config.database.database = trimmed.replace('database:', '').trim()
-        else if (trimmed.startsWith('username:')) config.database.username = trimmed.replace('username:', '').trim()
-        else if (trimmed.startsWith('password:')) config.database.password = trimmed.replace('password:', '').trim()
+    return {
+      success: true,
+      config: {
+        database: {
+          host: dbConfig.host || '',
+          port: dbConfig.port || 3306,
+          database: dbConfig.database || 'isdp',
+          username: dbConfig.username || 'root',
+          password: dbConfig.password || ''
+        },
+        serverPort: parsed?.server?.port || 8080
       }
     }
-
-    return { success: true, config }
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : '读取配置失败' }
   }
