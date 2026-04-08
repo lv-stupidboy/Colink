@@ -5,8 +5,10 @@ services:
       dockerfile: .devcontainer/Dockerfile
     volumes:
       - ..:/workspaces/isdp
-      - isdp-go-cache:/home/vscode/.cache/go-build
-      - isdp-data:/workspaces/isdp/isdp/data
+      - isdp-go-mod:/home/vscode/go/pkg/mod
+      - isdp-go-build:/home/vscode/.cache/go-build
+      - isdp-npm-cache:/home/vscode/.npm
+      - isdp-data:/workspaces/isdp/data
     # Uncomment for Docker-in-Docker sandbox support:
     # - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
@@ -15,7 +17,8 @@ services:
       redis:
         condition: service_started
     environment:
-      - ISDP_CONFIG=/workspaces/isdp/isdp/configs/config.yaml
+      - ISDP_CONFIG=/workspaces/isdp/configs/config.yaml
+      - GOMODCACHE=/home/vscode/go/pkg/mod
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
     command: sleep infinity
@@ -47,7 +50,9 @@ services:
       - redis-data:/data
 
 volumes:
-  isdp-go-cache:
+  isdp-go-mod:
+  isdp-go-build:
+  isdp-npm-cache:
   isdp-data:
   mysql-data:
   redis-data:

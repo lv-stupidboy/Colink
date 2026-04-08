@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "=== ISDP DevContainer Setup ==="
+echo "=== Colink DevContainer Setup ==="
 
-# ── Go backend ──────────────────────────────────────────────
+cd /workspaces/isdp
+
+# ── Go dependencies ─────────────────────────────────────────
 echo "[1/6] Installing Go dependencies..."
-cd /workspaces/isdp/isdp
-export GOMODCACHE="${HOME}/.cache/go-mod"
 go mod download
 
-# ── Frontend ────────────────────────────────────────────────
+# ── Frontend dependencies ───────────────────────────────────
 echo "[2/6] Installing frontend dependencies..."
-cd /workspaces/isdp/isdp/web
+cd /workspaces/isdp/web
 rm -rf node_modules
 npm install
 
@@ -21,7 +21,7 @@ npx playwright install chromium 2>/dev/null || echo "  Playwright install skippe
 
 # ── Dev config ──────────────────────────────────────────────
 echo "[4/6] Generating dev config..."
-cd /workspaces/isdp/isdp
+cd /workspaces/isdp
 
 DEV_CONFIG="configs/config.yaml"
 if [ ! -f "$DEV_CONFIG" ]; then
@@ -89,6 +89,15 @@ rule:
 
 agent_config:
   data_dir: ./data/agent-configs
+
+feishu:
+  enabled: false
+  app_id: ""
+  app_secret: ""
+  verification_token: ""
+  encrypt_key: ""
+  lark_cli_path: lark-cli
+  default_project_id: ""
 YAML
     echo "  Created configs/config.yaml (SQLite mode)"
 else
@@ -97,22 +106,28 @@ fi
 
 # ── Data directories ────────────────────────────────────────
 echo "[5/6] Creating data directories..."
-mkdir -p data/configs data/logs data/agent-assets data/agent-configs data/repos
+sudo mkdir -p data/configs data/logs data/agent-assets data/agent-configs data/repos
+sudo chown -R "$(id -u):$(id -g)" data
 
-echo "[6/6] Verifying agent CLIs..."
-claude --version 2>/dev/null && echo "  claude: OK" || echo "  claude: NOT FOUND (run: npm i -g @anthropic-ai/claude-code)"
-opencode --version 2>/dev/null && echo "  opencode: OK" || echo "  opencode: NOT FOUND (run: npm i -g @opencode-ai/opencode)"
+# ── Verify tooling ──────────────────────────────────────────
+echo "[6/6] Verifying tooling..."
+echo "  go:    $(go version | awk '{print $3}')"
+echo "  node:  $(node --version)"
+echo "  npm:   $(npm --version)"
+
+if claude --version &>/dev/null; then echo "  claude: OK"; else echo "  claude: NOT FOUND"; fi
+if opencode --version &>/dev/null; then echo "  opencode: OK"; else echo "  opencode: NOT FOUND"; fi
+if golangci-lint --version &>/dev/null; then echo "  golangci-lint: OK"; else echo "  golangci-lint: NOT FOUND"; fi
 
 echo ""
 echo "=== Setup Complete ==="
 echo ""
-echo "Backend:  cd isdp && make run"
-echo "Frontend: cd isdp/web && npm run dev"
-echo "Tests:    cd isdp && make test"
-echo "E2E:      cd isdp/web && npm run test:e2e"
+echo "Backend:  make run"
+echo "Frontend: cd web && npm run dev"
+echo "Tests:    make test"
+echo "E2E:      cd web && npm run test:e2e"
 echo ""
-echo "Agent CLIs: claude, opencode (credentials mounted from host ~/.claude, ~/.opencode)"
-echo "MySQL available at localhost:3306 (user: isdp, pass: isdp_dev_pass, db: isdp_dev)"
-echo "Redis available at localhost:6379"
+echo "MySQL: localhost:3306 (isdp / isdp_dev_pass / isdp_dev)"
+echo "Redis:  localhost:6379"
 echo ""
-echo "To switch to MySQL: edit isdp/configs/config.yaml → database.type: mysql"
+echo "To switch to MySQL: edit configs/config.yaml → database.type: mysql"

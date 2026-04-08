@@ -1,28 +1,25 @@
 {
-  "name": "ISDP Dev",
+  "name": "Colink Dev",
   "dockerComposeFile": "docker-compose.dev.yml",
   "service": "isdp-dev",
+  "workspaceFolder": "/workspaces/isdp",
   "mounts": [
-    "source=isdp-go-cache,target=/home/vscode/.cache/go-build,type=volume",
-    "source=isdp-data,target=/workspaces/isdp/isdp/data,type=volume",
+    "source=isdp-go-mod,target=/home/vscode/go/pkg/mod,type=volume",
+    "source=isdp-go-build,target=/home/vscode/.cache/go-build,type=volume",
+    "source=isdp-npm-cache,target=/home/vscode/.npm,type=volume",
+    "source=isdp-data,target=/workspaces/isdp/data,type=volume",
     "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind",
-    "source=${localEnv:HOME}/.opencode,target=/home/vscode/.opencode,type=bind"
+    "source=${localEnv:HOME}/.opencode,target=/home/vscode/.opencode,type=bind",
+    "source=${localEnv:HOME}/.config/opencode,target=/home/vscode/.config/opencode,type=bind",
+    "source=${localEnv:HOME}/.gitconfig,target=/home/vscode/.gitconfig_host,type=bind"
   ],
-  "forwardPorts": [
-    8080,
-    3000
-  ],
+  "forwardPorts": [8080, 3000],
   "portsAttributes": {
-    "8080": {
-      "label": "Go Backend",
-      "onAutoForward": "notify"
-    },
-    "3000": {
-      "label": "Vite Dev Server",
-      "onAutoForward": "silent"
-    }
+    "8080": { "label": "Go Backend", "onAutoForward": "notify" },
+    "3000": { "label": "Vite Dev Server", "onAutoForward": "silent" }
   },
   "postCreateCommand": "cd /workspaces/isdp && bash .devcontainer/post-create.sh",
+  "postStartCommand": "docker image prune -f 2>/dev/null || true",
   "remoteUser": "vscode",
   "customizations": {
     "vscode": {
@@ -30,27 +27,45 @@
         "go.toolsManagement.autoUpdate": true,
         "go.useLanguageServer": true,
         "go.lintTool": "golangci-lint",
+        "go.lintOnSave": "workspace",
+        "go.testOnSave": "off",
+        "go.buildOnSave": "off",
+        "go.formatTool": "gofmt",
         "editor.formatOnSave": true,
-        "[go]": {
-          "editor.defaultFormatter": "golang.go"
-        },
-        "[typescript][typescriptreact]": {
-          "editor.defaultFormatter": "esbenp.prettier-vscode"
-        },
+        "editor.defaultFormatter": null,
+        "editor.rulers": [120],
+        "[go]": { "editor.defaultFormatter": "golang.go" },
+        "[typescript][typescriptreact]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
+        "[json][jsonc][yaml]": { "editor.defaultFormatter": "esbenp.prettier-vscode" },
         "typescript.preferences.importModuleSpecifier": "non-relative",
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "terminal.integrated.scrollback": 10000,
         "files.watcherExclude": {
           "**/node_modules/**": true,
           "**/.git/objects/**": true,
-          "**/isdp/web/dist/**": true,
-          "**/isdp/bin/**": true
-        }
+          "**/web/dist/**": true,
+          "**/bin/**": true,
+          "**/data/**": true
+        },
+        "search.exclude": {
+          "**/node_modules": true,
+          "**/web/dist": true,
+          "**/bin": true,
+          "**/data": true
+        },
+        "files.insertFinalNewline": true,
+        "files.trimTrailingWhitespace": true,
+        "git.autofetch": true,
+        "git.confirmSync": false
       },
       "extensions": [
         "golang.Go",
         "esbenp.prettier-vscode",
         "dbaeumer.vscode-eslint",
         "bradlc.vscode-tailwindcss",
-        "ms-playwright.playwright"
+        "ms-playwright.playwright",
+        "editorconfig.editorconfig",
+        "yzhang.markdown-all-in-one"
       ]
     }
   }
