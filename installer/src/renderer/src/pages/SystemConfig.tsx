@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Button, Input, Row, Col, message, Spin, Typography } from 'antd'
 import { CheckCircleOutlined, EditOutlined } from '@ant-design/icons'
 import ConfigSection from '../components/ConfigSection'
@@ -23,6 +23,48 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
   const [editingYaml, setEditingYaml] = useState(false)
   const [yamlError, setYamlError] = useState<string | null>(null)
   const [configMerged, setConfigMerged] = useState(false)
+
+  // 生成默认配置预览
+  const generateDefaultConfig = useCallback(async () => {
+    try {
+      const result = await window.electronAPI.generateConfig({
+        database: config.database,
+        serverPort: config.serverPort || 8080
+      })
+      // 确保 result.yaml 是字符串
+      if (result.success && result.yaml && typeof result.yaml === 'string') {
+        setMergedConfigYaml(result.yaml)
+      } else {
+        setMergedConfigYaml('# 配置生成失败：返回格式错误')
+        console.error('[SystemConfig] generateConfig returned unexpected format:', result)
+      }
+    } catch (e) {
+      console.warn('[SystemConfig] Failed to generate config:', e)
+      setMergedConfigYaml('# 配置加载失败')
+    }
+  }, [config.database, config.serverPort])
+
+  // 加载完整配置预览
+  const loadFullConfig = useCallback(async () => {
+    const targetDir = config.installDir || installedVersion?.installDir
+    if (!targetDir) {
+      await generateDefaultConfig()
+      return
+    }
+
+    try {
+      const result = await window.electronAPI.readFullConfig(targetDir)
+      // 确保 result 是字符串
+      if (result && typeof result === 'string') {
+        setMergedConfigYaml(result)
+      } else {
+        await generateDefaultConfig()
+      }
+    } catch (e) {
+      console.warn('[SystemConfig] Failed to load full config:', e)
+      await generateDefaultConfig()
+    }
+  }, [config.installDir, installedVersion, generateDefaultConfig])
 
   // 升级模式或安装目录已有配置时读取已有配置
   useEffect(() => {
@@ -62,59 +104,21 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
     }
   }, [isUpgrade, installedVersion, config.installDir])
 
-  // 加载完整配置预览
+  // 加载完整配置预览（延迟触发）
   useEffect(() => {
-    const loadFullConfig = async () => {
-      const targetDir = config.installDir || installedVersion?.installDir
-      if (!targetDir) {
-        // 生成默认配置预览
-        await generateDefaultConfig()
-        return
-      }
-
-      try {
-        const yaml = await window.electronAPI.readFullConfig(targetDir)
-        if (yaml) {
-          setMergedConfigYaml(yaml)
-        } else {
-          await generateDefaultConfig()
-        }
-      } catch (e) {
-        console.warn('[SystemConfig] Failed to load full config:', e)
-        await generateDefaultConfig()
-      }
-    }
-
-    // 延迟加载，避免阻塞渲染
     const timer = setTimeout(() => {
       loadFullConfig().catch(e => console.error('[SystemConfig] loadFullConfig error:', e))
     }, 100)
 
     return () => clearTimeout(timer)
-  }, [config.installDir, installedVersion])
-
-  // 生成默认配置预览
-  const generateDefaultConfig = async () => {
-    try {
-      const result = await window.electronAPI.generateConfig({
-        database: config.database,
-        serverPort: config.serverPort || 8080
-      })
-      if (result.success && result.yaml) {
-        setMergedConfigYaml(result.yaml)
-      }
-    } catch (e) {
-      console.warn('[SystemConfig] Failed to generate config:', e)
-      setMergedConfigYaml('# 配置加载失败')
-    }
-  }
+  }, [loadFullConfig])
 
   // 当数据库配置变化时更新预览
   useEffect(() => {
     if (!editingYaml && !mergedConfigYaml) {
       generateDefaultConfig().catch(e => console.error(e))
     }
-  }, [config.database, config.serverPort, editingYaml, mergedConfigYaml])
+  }, [editingYaml, mergedConfigYaml, generateDefaultConfig])
 
   const handleDbChange = (field: string, value: string | number) => {
     onConfigUpdate({

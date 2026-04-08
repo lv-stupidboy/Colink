@@ -158,19 +158,13 @@ export default function App() {
   }
 
   const handleInstall = async () => {
+    // 只切换到安装页面，让 Installing 组件自己管理安装流程
     setMode('installing')
-    const result = await window.electronAPI.startInstallation(config)
-    if (result.success) {
-      setMode('complete')
-    } else {
-      message.error(result.error || '安装失败')
-      setMode('install')
-    }
   }
 
   const handleInstallComplete = () => {
-    // 安装完成，切换到完成页面让用户选择
-    setMode('complete')
+    // 用户在 Installing 页面点击完成后，直接关闭窗口
+    window.electronAPI.closeWindow()
   }
 
   const handleComplete = async () => {

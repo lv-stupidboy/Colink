@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Progress, Button, message, Collapse, Tag, Alert } from 'antd'
+import { Progress, Button, Tag, Alert } from 'antd'
 import { CheckCircleOutlined, LoadingOutlined, CloseCircleOutlined, RightOutlined, WarningOutlined, DatabaseOutlined } from '@ant-design/icons'
 import { InstallConfig, InstallProgress, InstalledVersion } from '../types'
 
@@ -206,6 +206,22 @@ export default function Installing({ config, onComplete, isUpgrade }: Installing
               <p style={{ marginBottom: 0, color: '#666', fontSize: 12 }}>
                 SQL文件位置：{config.installDir}\data\sql-change\migrations\
               </p>
+            </div>
+          }
+        />
+      )}
+
+      {/* 安装成功提示 */}
+      {installComplete && !installError && (
+        <Alert
+          type="success"
+          showIcon
+          style={{ marginBottom: 20 }}
+          message={isUpgrade ? '升级成功' : '安装成功'}
+          description={
+            <div>
+              <p style={{ marginBottom: 8 }}>安装目录：{config.installDir}</p>
+              <p style={{ marginBottom: 0 }}>请点击"完成"关闭安装程序，然后通过桌面快捷方式启动 ISDP。</p>
             </div>
           }
         />
