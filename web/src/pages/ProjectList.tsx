@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Button, Card, Space, Modal, Form, Input, message, Tag, Typography, Popconfirm } from 'antd';
+import { Table, Button, Card, Space, Modal, Form, Input, Select, message, Tag, Typography, Popconfirm } from 'antd';
 import { PlusOutlined, FolderOutlined, FolderOpenOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '@/api/client';
@@ -185,7 +185,7 @@ const ProjectList: React.FC = () => {
         onOk={() => form.submit()}
         onCancel={() => setModalVisible(false)}
       >
-        <Form form={form} layout="vertical" onFinish={handleCreate}>
+        <Form form={form} layout="vertical" onFinish={handleCreate} initialValues={{ type: 'service', mode: 'new' }}>
           <Form.Item name="name" label="项目名称" rules={[{ required: true, message: '请输入项目名称' }]}>
             <Input placeholder="请输入项目名称" autoComplete="off" />
           </Form.Item>
@@ -206,6 +206,19 @@ const ProjectList: React.FC = () => {
                 </Button>
               }
             />
+          </Form.Item>
+          <Form.Item name="type" label="项目类型" rules={[{ required: true }]}>
+            <Select placeholder="选择项目类型">
+              <Select.Option value="service">服务型项目</Select.Option>
+              <Select.Option value="app">应用型项目</Select.Option>
+              <Select.Option value="task">任务型项目</Select.Option>
+            </Select>
+          </Form.Item>
+          <Form.Item name="mode" label="创建模式" rules={[{ required: true }]}>
+            <Select placeholder="选择创建模式">
+              <Select.Option value="new">全新项目</Select.Option>
+              <Select.Option value="enhance">增强现有项目</Select.Option>
+            </Select>
           </Form.Item>
         </Form>
       </Modal>
