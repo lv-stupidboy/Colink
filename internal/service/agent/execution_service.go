@@ -495,15 +495,18 @@ func (es *ExecutionService) resolveConfigAndBaseAgent(ctx context.Context, req *
 	}
 
 	// 如果角色未指定基础Agent或获取失败，使用默认基础Agent
-	if baseAgent == nil && es.baseAgentSvc != nil {
-		baseAgent, err = es.baseAgentSvc.GetDefault(ctx)
+	// 注意：这里直接使用 repo.FindDefault 获取完整信息（含 ApiToken）
+	// 不能使用 baseAgentSvc.GetDefault，因为它会 sanitize 清除 ApiToken
+	if baseAgent == nil && es.baseAgentRepo != nil {
+		baseAgent, err = es.baseAgentRepo.FindDefault(ctx)
 		if err != nil {
 			logInfo("No default base agent found", zap.Error(err))
 			baseAgent = nil
 		} else if baseAgent != nil {
 			logInfo("Using default base agent",
 				zap.String("id", baseAgent.ID.String()),
-				zap.String("name", baseAgent.Name))
+				zap.String("name", baseAgent.Name),
+				zap.Bool("hasApiToken", baseAgent.ApiToken != ""))
 		}
 	}
 
