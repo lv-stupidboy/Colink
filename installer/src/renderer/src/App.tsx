@@ -4,6 +4,7 @@ import { PlayCircleOutlined, StopOutlined, SettingOutlined, FileTextOutlined, Fo
 import { InstallConfig, InstalledVersion } from './types'
 import Layout from './components/Layout'
 import Welcome from './pages/Welcome'
+import InviteVerification from './pages/InviteVerification'
 import DirectorySelect from './pages/DirectorySelect'
 import DependencyCheck from './pages/DependencyCheck'
 import ModeSelect from './pages/ModeSelect'
@@ -19,14 +20,15 @@ type AppMode = 'checking' | 'launcher' | 'select-action' | 'old-version-detected
 
 const INSTALL_PAGES = {
   1: Welcome,
-  2: DirectorySelect,
-  3: DependencyCheck,
-  4: ModeSelect,
-  5: SystemConfig,
+  2: InviteVerification,
+  3: DirectorySelect,
+  4: DependencyCheck,
+  5: ModeSelect,
+  6: SystemConfig,
 }
 
-const STEP_LABELS = ['欢迎', '目录选择', '依赖检测', '模式选择', '系统配置']
-const UPGRADE_STEP_LABELS = ['欢迎', '依赖检测', '系统配置']
+const STEP_LABELS = ['欢迎', '验证邀请码', '目录选择', '依赖检测', '模式选择', '系统配置']
+const UPGRADE_STEP_LABELS = ['欢迎', '验证邀请码', '依赖检测', '系统配置']
 
 export default function App() {
   const [mode, setMode] = useState<AppMode>('checking')
@@ -45,6 +47,7 @@ export default function App() {
   })
   const [hasMissingDeps, setHasMissingDeps] = useState(false)
   const [dirValid, setDirValid] = useState(true)
+  const [inviteVerified, setInviteVerified] = useState(false)
   const [oldISDPVersion, setOldISDPVersion] = useState<InstalledVersion | null>(null)
   const [uninstallingOld, setUninstallingOld] = useState(false)
 
@@ -149,13 +152,14 @@ export default function App() {
   const getStepLabels = () => isUpgrade ? UPGRADE_STEP_LABELS : STEP_LABELS
 
   const handleNext = () => {
-    if (currentStep >= 5) return
+    if (currentStep >= 6) return
     let nextStep = currentStep + 1
     if (isUpgrade) {
-      if (currentStep === 1) nextStep = 3
-      else if (currentStep === 3 && !hasMissingDeps) nextStep = 5
+      if (currentStep === 1) nextStep = 2  // Welcome -> InviteVerification
+      else if (currentStep === 2) nextStep = 4  // InviteVerification -> DependencyCheck
+      else if (currentStep === 4 && !hasMissingDeps) nextStep = 6  // skip ModeSelect if no missing deps
     } else {
-      if (currentStep === 3 && !hasMissingDeps) nextStep = 5
+      if (currentStep === 4 && !hasMissingDeps) nextStep = 6  // skip ModeSelect if no missing deps
     }
     setCurrentStep(nextStep)
   }
@@ -164,10 +168,11 @@ export default function App() {
     if (currentStep <= 1) return
     let prevStep = currentStep - 1
     if (isUpgrade) {
-      if (currentStep === 5) prevStep = 3
-      else if (currentStep === 3) prevStep = 1
+      if (currentStep === 6) prevStep = 4  // SystemConfig -> DependencyCheck
+      else if (currentStep === 4) prevStep = 2  // DependencyCheck -> InviteVerification
+      else if (currentStep === 2) prevStep = 1  // InviteVerification -> Welcome
     } else {
-      if (currentStep === 5 && !hasMissingDeps) prevStep = 3
+      if (currentStep === 6 && !hasMissingDeps) prevStep = 4
     }
     setCurrentStep(prevStep)
   }
@@ -322,7 +327,7 @@ export default function App() {
   // 安装向导
   const PageComponent = INSTALL_PAGES[currentStep as keyof typeof INSTALL_PAGES]
   const stepIndex = isUpgrade
-    ? (currentStep === 1 ? 0 : currentStep === 3 ? 1 : 2)
+    ? (currentStep === 1 ? 0 : currentStep === 2 ? 1 : currentStep === 4 ? 2 : 3)
     : currentStep - 1
 
   return (
@@ -334,14 +339,19 @@ export default function App() {
           setConfig(prev => ({ ...prev, dependencies: deps }))
           setHasMissingDeps(deps.some(d => !d.installed))
         }}
-        onValidationChange={(valid) => setDirValid(valid)}
+        onValidationChange={(valid) => {
+          // Step 2: InviteVerification 验证状态
+          if (currentStep === 2) setInviteVerified(valid)
+          // Step 3: DirectorySelect 目录验证状态
+          if (currentStep === 3) setDirValid(valid)
+        }}
         installedVersion={installedVersion}
         isUpgrade={isUpgrade}
       />
 
       <div className="footer-buttons">
         <Space>
-          {currentStep > 1 && !(isUpgrade && currentStep === 3) && (
+          {currentStep > 1 && !(isUpgrade && currentStep === 4) && !(isUpgrade && currentStep === 2) && (
             <Button onClick={handlePrev}>上一步</Button>
           )}
           {currentStep === 1 && (
@@ -349,10 +359,13 @@ export default function App() {
               {isUpgrade ? '开始升级' : '开始安装'}
             </Button>
           )}
-          {currentStep > 1 && currentStep < 5 && (
-            <Button type="primary" onClick={handleNext} disabled={currentStep === 2 && !dirValid}>下一步</Button>
+          {currentStep === 2 && inviteVerified && (
+            <Button type="primary" onClick={handleNext}>下一步</Button>
           )}
-          {currentStep === 5 && (
+          {currentStep > 2 && currentStep < 6 && (
+            <Button type="primary" onClick={handleNext} disabled={currentStep === 3 && !dirValid}>下一步</Button>
+          )}
+          {currentStep === 6 && (
             <Button type="primary" onClick={handleInstall}>
               {isUpgrade ? '升级' : '安装'}
             </Button>

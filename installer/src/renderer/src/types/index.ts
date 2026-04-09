@@ -1,5 +1,5 @@
 // 安装步骤
-export type StepId = 1 | 2 | 3 | 4 | 5
+export type StepId = 1 | 2 | 3 | 4 | 5 | 6
 
 // 依赖项
 export interface Dependency {
@@ -22,6 +22,28 @@ export interface DatabaseConfig {
   password: string
 }
 
+// 验证请求
+export interface InviteVerificationRequest {
+  code: string
+  username: string
+}
+
+// 验证响应
+export interface InviteVerificationResponse {
+  success: boolean
+  message: string
+  token?: string
+  user?: { id?: string; username?: string }
+}
+
+// 验证状态
+export interface VerificationState {
+  verified: boolean
+  token?: string
+  username?: string
+  verifiedAt?: number
+}
+
 // 安装配置
 export interface InstallConfig {
   installDir: string
@@ -32,6 +54,7 @@ export interface InstallConfig {
   createShortcut: boolean
   launchNow: boolean
   keepData?: boolean
+  verification?: VerificationState
 }
 
 // 安装进度
@@ -81,6 +104,9 @@ declare global {
       startInstallation: (config: object) => Promise<{ success: boolean; error?: string; dbChanges?: Array<{ version: string; files: string[] }> }>
       testDatabaseConnection: (config: object) => Promise<{ success: boolean; error?: string }>
       createShortcut: (path: string) => Promise<{ success: boolean }>
+
+      // 邀请码验证
+      verifyInviteCode: (request: InviteVerificationRequest) => Promise<InviteVerificationResponse>
 
       // 安装状态
       checkInstalled: () => Promise<InstalledVersion>

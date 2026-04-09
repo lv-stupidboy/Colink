@@ -24,6 +24,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   testDatabaseConnection: (config: object) => ipcRenderer.invoke('test-database-connection', config),
   createShortcut: (path: string) => ipcRenderer.invoke('create-shortcut', path),
 
+  // 邀请码验证
+  verifyInviteCode: (request: { code: string; username: string }) =>
+    ipcRenderer.invoke('verify-invite-code', request),
+
   // 安装状态
   checkInstalled: () => ipcRenderer.invoke('check-installed'),
   checkOldISDP: () => ipcRenderer.invoke('check-old-isdp'),

@@ -3,6 +3,8 @@ import { join, dirname } from 'path'
 import { execSync } from 'child_process'
 import { existsSync, readdirSync, rmSync } from 'fs'
 import { promises as fsPromises } from 'fs'
+import https from 'https'
+import http from 'http'
 const readFile = fsPromises.readFile
 import {
   checkDependency,
@@ -247,6 +249,72 @@ ipcMain.handle('test-database-connection', async (_event, config: any) => {
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : '连接失败' }
   }
+})
+
+// 验证邀请码
+// 验证 API URL 配置（支持开发/生产环境）
+const VERIFICATION_API_URL = isDev
+  ? 'http://localhost:3000/api/v1/auth/login'
+  : 'https://colink.ai/api/v1/auth/login'
+
+ipcMain.handle('verify-invite-code', async (_event, request: { code: string; username: string }) => {
+  return new Promise((resolve) => {
+    const postData = JSON.stringify({
+      code: request.code,
+      username: request.username
+    })
+
+    const urlObj = new URL(VERIFICATION_API_URL)
+    const isHttps = urlObj.protocol === 'https:'
+    const client = isHttps ? https : http
+
+    const options = {
+      hostname: urlObj.hostname,
+      port: urlObj.port || (isHttps ? 443 : 80),
+      path: urlObj.pathname,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(postData)
+      },
+      timeout: 15000 // 15秒超时
+    }
+
+    const req = client.request(options, (res) => {
+      let data = ''
+      res.on('data', chunk => data += chunk)
+      res.on('end', () => {
+        try {
+          const result = JSON.parse(data)
+          resolve(result)
+        } catch (e) {
+          resolve({
+            success: false,
+            message: '响应解析失败，请稍后重试'
+          })
+        }
+      })
+    })
+
+    req.on('error', (e) => {
+      console.error('[VerifyInviteCode] Request error:', e)
+      resolve({
+        success: false,
+        message: `网络错误: ${e.message}`
+      })
+    })
+
+    req.on('timeout', () => {
+      req.destroy()
+      resolve({
+        success: false,
+        message: '请求超时，请检查网络连接'
+      })
+    })
+
+    req.write(postData)
+    req.end()
+  })
 })
 
 ipcMain.handle('read-existing-config', async (_event, dir: string) => {
