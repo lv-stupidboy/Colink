@@ -533,22 +533,19 @@ func (s *Service) ImportPreview(ctx context.Context, zipData []byte) (*model.Tea
 		}
 	}
 
-	// 检查角色是否已存在
+	// 检查角色是否已存在（按ID匹配，因为角色名称允许重复）
 	for _, role := range manifest.Roles {
 		previewRole := model.TeamPackagePreviewRole{
 			Name:   role.Name,
 			Exists: false,
 		}
-		agents, err := s.agentRepo.List(ctx)
-		if err != nil {
-			s.logger.Warn("获取角色列表失败", zap.Error(err))
-		} else {
-			for _, agent := range agents {
-				if agent.Name == role.Name {
-					previewRole.Exists = true
-					previewRole.LocalID = agent.ID.String()
-					break
-				}
+		// 按ID检查角色是否存在
+		roleID, err := uuid.Parse(role.ID)
+		if err == nil {
+			existing, err := s.agentRepo.FindByID(ctx, roleID)
+			if err == nil && existing != nil {
+				previewRole.Exists = true
+				previewRole.LocalID = existing.ID.String()
 			}
 		}
 		preview.Roles = append(preview.Roles, previewRole)
@@ -1299,29 +1296,25 @@ func (s *Service) importRole(ctx context.Context, role model.TeamPackageRole, ov
 		return uuid.Nil, detail
 	}
 
-	// 检查是否已存在
-	agents, err := s.agentRepo.List(ctx)
-	if err == nil {
-		for _, agent := range agents {
-			if agent.Name == role.Name {
-				if !overwrite {
-					detail.Status = "skipped"
-					detail.Message = "已存在相同名称的 Role"
-					return uuid.Nil, detail
-				}
-				// 覆盖模式：先删除旧角色及其绑定关系
-				if err := s.deleteRoleBindings(ctx, agent.ID); err != nil {
-					s.logger.Warn("删除旧角色绑定关系失败", zap.Error(err))
-				}
-				if err := s.agentRepo.Delete(ctx, agent.ID); err != nil {
-					detail.Status = "failed"
-					detail.Message = fmt.Sprintf("删除旧 Role 记录失败: %v", err)
-					return uuid.Nil, detail
-				}
-				break
-			}
+	// 按ID检查角色是否已存在（角色名称允许重复，所以按ID匹配）
+	existing, err := s.agentRepo.FindByID(ctx, originalID)
+	if err == nil && existing != nil {
+		if !overwrite {
+			detail.Status = "skipped"
+			detail.Message = "已存在相同ID的 Role"
+			return uuid.Nil, detail
+		}
+		// 覆盖模式：先删除旧角色及其绑定关系
+		if err := s.deleteRoleBindings(ctx, existing.ID); err != nil {
+			s.logger.Warn("删除旧角色绑定关系失败", zap.Error(err))
+		}
+		if err := s.agentRepo.Delete(ctx, existing.ID); err != nil {
+			detail.Status = "failed"
+			detail.Message = fmt.Sprintf("删除旧 Role 记录失败: %v", err)
+			return uuid.Nil, detail
 		}
 	}
+
 
 	// 创建角色，使用原始ID
 	now := time.Now()
