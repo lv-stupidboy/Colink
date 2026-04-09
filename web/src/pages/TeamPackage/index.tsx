@@ -388,28 +388,40 @@ const TeamPackageManagement: React.FC = () => {
               {/* 操作按钮 */}
               <div style={{ marginTop: 16, textAlign: 'right' }}>
                 <Space>
-                  <Popconfirm
-                    title="确定要覆盖所有冲突项吗？"
-                    onConfirm={() => handleImportConfirm('overwrite')}
-                    okText="确定"
-                    cancelText="取消"
-                  >
+                  {getConflictCount() === 0 ? (
                     <Button
                       type="primary"
                       icon={<CloudUploadOutlined />}
                       loading={importing}
-                      disabled={getConflictCount() === 0}
+                      onClick={() => handleImportConfirm('overwrite')}
                     >
-                      全部覆盖
+                      确认导入
                     </Button>
-                  </Popconfirm>
-                  <Button
-                    icon={<CloudUploadOutlined />}
-                    loading={importing}
-                    onClick={() => handleImportConfirm('skip')}
-                  >
-                    全部跳过
-                  </Button>
+                  ) : (
+                    <>
+                      <Popconfirm
+                        title="确定要覆盖所有冲突项吗？"
+                        onConfirm={() => handleImportConfirm('overwrite')}
+                        okText="确定"
+                        cancelText="取消"
+                      >
+                        <Button
+                          type="primary"
+                          icon={<CloudUploadOutlined />}
+                          loading={importing}
+                        >
+                          全部覆盖
+                        </Button>
+                      </Popconfirm>
+                      <Button
+                        icon={<CloudUploadOutlined />}
+                        loading={importing}
+                        onClick={() => handleImportConfirm('skip')}
+                      >
+                        全部跳过
+                      </Button>
+                    </>
+                  )}
                 </Space>
               </div>
             </div>
