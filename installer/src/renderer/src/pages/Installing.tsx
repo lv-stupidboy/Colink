@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Progress, Button, Tag, Alert } from 'antd'
+import { Progress, Button, Tag, Alert, message } from 'antd'
 import { CheckCircleOutlined, LoadingOutlined, CloseCircleOutlined, RightOutlined, WarningOutlined, DatabaseOutlined } from '@ant-design/icons'
 import { InstallConfig, InstallProgress, InstalledVersion } from '../types'
 
