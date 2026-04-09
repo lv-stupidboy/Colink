@@ -1,24 +1,12 @@
 -- ISDP 数据库初始化脚本
 -- 版本: 1.0.0
--- 生成日期: 2026-04-08
+-- 生成日期: 2026-04-09
 -- 说明: 新环境初始化时执行此脚本创建所有表结构
+-- 注意: 主表在前，绑定表在后（因为绑定表有外键约束）
 
 SET NAMES utf8mb4;
 
--- 表: agent_command_bindings
-CREATE TABLE `agent_command_bindings` (
-  `id` varchar(64) NOT NULL COMMENT '绑定唯一标识符',
-  `agent_role_id` varchar(64) NOT NULL COMMENT 'AgentRole ID',
-  `command_id` varchar(64) NOT NULL COMMENT 'Command ID',
-  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_agent_command` (`agent_role_id`,`command_id`),
-  KEY `idx_agent_command_bindings_agent_role_id` (`agent_role_id`),
-  KEY `idx_agent_command_bindings_command_id` (`command_id`),
-  CONSTRAINT `fk_agent_command_agent` FOREIGN KEY (`agent_role_id`) REFERENCES `agent_configs` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_agent_command_command` FOREIGN KEY (`command_id`) REFERENCES `commands` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Agent与Command关联表'
-;
+-- ==================== 主表 ====================
 
 -- 表: agent_configs
 CREATE TABLE `agent_configs` (
@@ -71,66 +59,6 @@ CREATE TABLE `agent_invocations` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Agent调用记录表'
 ;
 
--- 表: agent_rule_bindings
-CREATE TABLE `agent_rule_bindings` (
-  `id` varchar(64) NOT NULL COMMENT '绑定唯一标识符',
-  `agent_role_id` varchar(64) NOT NULL COMMENT 'AgentRole ID',
-  `rule_id` varchar(64) NOT NULL COMMENT 'Rule ID',
-  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_agent_rule` (`agent_role_id`,`rule_id`),
-  KEY `idx_agent_rule_bindings_agent_role_id` (`agent_role_id`),
-  KEY `idx_agent_rule_bindings_rule_id` (`rule_id`),
-  CONSTRAINT `fk_agent_rule_agent` FOREIGN KEY (`agent_role_id`) REFERENCES `agent_configs` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_agent_rule_rule` FOREIGN KEY (`rule_id`) REFERENCES `rules` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Agent与Rule关联表'
-;
-
--- 表: agent_settings_bindings
-CREATE TABLE `agent_settings_bindings` (
-  `id` varchar(64) NOT NULL COMMENT '绑定唯一标识符',
-  `agent_role_id` varchar(64) NOT NULL COMMENT 'AgentRole ID',
-  `settings_id` varchar(64) NOT NULL COMMENT 'Settings ID',
-  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_agent_settings` (`agent_role_id`,`settings_id`),
-  KEY `idx_agent_settings_bindings_agent_role_id` (`agent_role_id`),
-  KEY `idx_agent_settings_bindings_settings_id` (`settings_id`),
-  CONSTRAINT `fk_agent_settings_agent` FOREIGN KEY (`agent_role_id`) REFERENCES `agent_configs` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_agent_settings_settings` FOREIGN KEY (`settings_id`) REFERENCES `settings` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Agent与Settings关联表'
-;
-
--- 表: agent_skill_bindings
-CREATE TABLE `agent_skill_bindings` (
-  `id` varchar(64) NOT NULL COMMENT '关联唯一标识符',
-  `agent_role_id` varchar(64) NOT NULL COMMENT 'AgentRole ID',
-  `skill_id` varchar(64) NOT NULL COMMENT 'Skill ID',
-  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_binding` (`agent_role_id`,`skill_id`),
-  KEY `idx_agent_skill_bindings_agent_role_id` (`agent_role_id`),
-  KEY `idx_agent_skill_bindings_skill_id` (`skill_id`),
-  CONSTRAINT `fk_binding_agent` FOREIGN KEY (`agent_role_id`) REFERENCES `agent_configs` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_binding_skill` FOREIGN KEY (`skill_id`) REFERENCES `skills` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Agent与Skill关联表'
-;
-
--- 表: agent_subagent_bindings
-CREATE TABLE `agent_subagent_bindings` (
-  `id` varchar(64) NOT NULL COMMENT '关联唯一标识符',
-  `agent_role_id` varchar(64) NOT NULL COMMENT 'AgentRole ID',
-  `subagent_id` varchar(64) NOT NULL COMMENT 'Subagent ID',
-  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_agent_subagent_binding` (`agent_role_id`,`subagent_id`),
-  KEY `idx_agent_subagent_bindings_agent_role_id` (`agent_role_id`),
-  KEY `idx_agent_subagent_bindings_subagent_id` (`subagent_id`),
-  CONSTRAINT `fk_agent_subagent_agent` FOREIGN KEY (`agent_role_id`) REFERENCES `agent_configs` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_agent_subagent_subagent` FOREIGN KEY (`subagent_id`) REFERENCES `subagents` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Agent与Subagent关联表'
-;
-
 -- 表: artifacts
 CREATE TABLE `artifacts` (
   `id` varchar(64) NOT NULL COMMENT '产物唯一标识符',
@@ -165,21 +93,6 @@ CREATE TABLE `base_agents` (
   KEY `idx_base_agents_type` (`type`),
   KEY `idx_base_agents_is_default` (`is_default`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='基础Agent配置表'
-;
-
--- 表: command_skill_bindings
-CREATE TABLE `command_skill_bindings` (
-  `id` varchar(64) NOT NULL COMMENT '绑定唯一标识符',
-  `command_id` varchar(64) NOT NULL COMMENT 'Command ID',
-  `skill_id` varchar(64) NOT NULL COMMENT 'Skill ID',
-  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_command_skill` (`command_id`,`skill_id`),
-  KEY `idx_command_skill_bindings_command_id` (`command_id`),
-  KEY `idx_command_skill_bindings_skill_id` (`skill_id`),
-  CONSTRAINT `fk_command_skill_command` FOREIGN KEY (`command_id`) REFERENCES `commands` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_command_skill_skill` FOREIGN KEY (`skill_id`) REFERENCES `skills` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Command与Skill关联表'
 ;
 
 -- 表: commands
@@ -360,21 +273,6 @@ CREATE TABLE `skills` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='技能表'
 ;
 
--- 表: subagent_skill_bindings
-CREATE TABLE `subagent_skill_bindings` (
-  `id` varchar(64) NOT NULL COMMENT '绑定唯一标识符',
-  `subagent_id` varchar(64) NOT NULL COMMENT 'Subagent ID',
-  `skill_id` varchar(64) NOT NULL COMMENT 'Skill ID',
-  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_subagent_skill` (`subagent_id`,`skill_id`),
-  KEY `idx_subagent_skill_bindings_subagent_id` (`subagent_id`),
-  KEY `idx_subagent_skill_bindings_skill_id` (`skill_id`),
-  CONSTRAINT `fk_subagent_skill_skill` FOREIGN KEY (`skill_id`) REFERENCES `skills` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_subagent_skill_subagent` FOREIGN KEY (`subagent_id`) REFERENCES `subagents` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Subagent与Skill关联表'
-;
-
 -- 表: subagents
 CREATE TABLE `subagents` (
   `id` varchar(64) NOT NULL COMMENT 'Subagent唯一标识符',
@@ -424,3 +322,109 @@ CREATE TABLE `workflow_templates` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='工作流模板表'
 ;
 
+-- ==================== 绑定表（有外键约束，放在最后） ====================
+
+-- 表: agent_command_bindings
+CREATE TABLE `agent_command_bindings` (
+  `id` varchar(64) NOT NULL COMMENT '绑定唯一标识符',
+  `agent_role_id` varchar(64) NOT NULL COMMENT 'AgentRole ID',
+  `command_id` varchar(64) NOT NULL COMMENT 'Command ID',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_agent_command` (`agent_role_id`,`command_id`),
+  KEY `idx_agent_command_bindings_agent_role_id` (`agent_role_id`),
+  KEY `idx_agent_command_bindings_command_id` (`command_id`),
+  CONSTRAINT `fk_agent_command_agent` FOREIGN KEY (`agent_role_id`) REFERENCES `agent_configs` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_agent_command_command` FOREIGN KEY (`command_id`) REFERENCES `commands` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Agent与Command关联表'
+;
+
+-- 表: agent_rule_bindings
+CREATE TABLE `agent_rule_bindings` (
+  `id` varchar(64) NOT NULL COMMENT '绑定唯一标识符',
+  `agent_role_id` varchar(64) NOT NULL COMMENT 'AgentRole ID',
+  `rule_id` varchar(64) NOT NULL COMMENT 'Rule ID',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_agent_rule` (`agent_role_id`,`rule_id`),
+  KEY `idx_agent_rule_bindings_agent_role_id` (`agent_role_id`),
+  KEY `idx_agent_rule_bindings_rule_id` (`rule_id`),
+  CONSTRAINT `fk_agent_rule_agent` FOREIGN KEY (`agent_role_id`) REFERENCES `agent_configs` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_agent_rule_rule` FOREIGN KEY (`rule_id`) REFERENCES `rules` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Agent与Rule关联表'
+;
+
+-- 表: agent_settings_bindings
+CREATE TABLE `agent_settings_bindings` (
+  `id` varchar(64) NOT NULL COMMENT '绑定唯一标识符',
+  `agent_role_id` varchar(64) NOT NULL COMMENT 'AgentRole ID',
+  `settings_id` varchar(64) NOT NULL COMMENT 'Settings ID',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_agent_settings` (`agent_role_id`,`settings_id`),
+  KEY `idx_agent_settings_bindings_agent_role_id` (`agent_role_id`),
+  KEY `idx_agent_settings_bindings_settings_id` (`settings_id`),
+  CONSTRAINT `fk_agent_settings_agent` FOREIGN KEY (`agent_role_id`) REFERENCES `agent_configs` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_agent_settings_settings` FOREIGN KEY (`settings_id`) REFERENCES `settings` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Agent与Settings关联表'
+;
+
+-- 表: agent_skill_bindings
+CREATE TABLE `agent_skill_bindings` (
+  `id` varchar(64) NOT NULL COMMENT '关联唯一标识符',
+  `agent_role_id` varchar(64) NOT NULL COMMENT 'AgentRole ID',
+  `skill_id` varchar(64) NOT NULL COMMENT 'Skill ID',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_binding` (`agent_role_id`,`skill_id`),
+  KEY `idx_agent_skill_bindings_agent_role_id` (`agent_role_id`),
+  KEY `idx_agent_skill_bindings_skill_id` (`skill_id`),
+  CONSTRAINT `fk_binding_agent` FOREIGN KEY (`agent_role_id`) REFERENCES `agent_configs` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_binding_skill` FOREIGN KEY (`skill_id`) REFERENCES `skills` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Agent与Skill关联表'
+;
+
+-- 表: agent_subagent_bindings
+CREATE TABLE `agent_subagent_bindings` (
+  `id` varchar(64) NOT NULL COMMENT '关联唯一标识符',
+  `agent_role_id` varchar(64) NOT NULL COMMENT 'AgentRole ID',
+  `subagent_id` varchar(64) NOT NULL COMMENT 'Subagent ID',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_agent_subagent_binding` (`agent_role_id`,`subagent_id`),
+  KEY `idx_agent_subagent_bindings_agent_role_id` (`agent_role_id`),
+  KEY `idx_agent_subagent_bindings_subagent_id` (`subagent_id`),
+  CONSTRAINT `fk_agent_subagent_agent` FOREIGN KEY (`agent_role_id`) REFERENCES `agent_configs` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_agent_subagent_subagent` FOREIGN KEY (`subagent_id`) REFERENCES `subagents` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Agent与Subagent关联表'
+;
+
+-- 表: command_skill_bindings
+CREATE TABLE `command_skill_bindings` (
+  `id` varchar(64) NOT NULL COMMENT '绑定唯一标识符',
+  `command_id` varchar(64) NOT NULL COMMENT 'Command ID',
+  `skill_id` varchar(64) NOT NULL COMMENT 'Skill ID',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_command_skill` (`command_id`,`skill_id`),
+  KEY `idx_command_skill_bindings_command_id` (`command_id`),
+  KEY `idx_command_skill_bindings_skill_id` (`skill_id`),
+  CONSTRAINT `fk_command_skill_command` FOREIGN KEY (`command_id`) REFERENCES `commands` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_command_skill_skill` FOREIGN KEY (`skill_id`) REFERENCES `skills` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Command与Skill关联表'
+;
+
+-- 表: subagent_skill_bindings
+CREATE TABLE `subagent_skill_bindings` (
+  `id` varchar(64) NOT NULL COMMENT '绑定唯一标识符',
+  `subagent_id` varchar(64) NOT NULL COMMENT 'Subagent ID',
+  `skill_id` varchar(64) NOT NULL COMMENT 'Skill ID',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_subagent_skill` (`subagent_id`,`skill_id`),
+  KEY `idx_subagent_skill_bindings_subagent_id` (`subagent_id`),
+  KEY `idx_subagent_skill_bindings_skill_id` (`skill_id`),
+  CONSTRAINT `fk_subagent_skill_skill` FOREIGN KEY (`skill_id`) REFERENCES `skills` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_subagent_skill_subagent` FOREIGN KEY (`subagent_id`) REFERENCES `subagents` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Subagent与Skill关联表'
+;
