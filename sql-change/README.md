@@ -55,10 +55,17 @@ database:
 ```
 sql-change/
 ├── README.md                          # 本说明文档
-├── init_db_mysql.sql                  # MySQL 完整初始化脚本（最新版本）
-└── migrations/                        # 增量变更脚本目录
-    ├── 20260319_add_workflow_template_id_to_threads.sql
-    └── ...
+├── init.sql                           # MySQL 完整初始化脚本（当前版本）
+├── history/                           # 增量变更历史（归档）
+│   ├── 20260319_add_workflow_template_id_to_threads.sql
+│   └── ...
+└── migrations/                        # 按版本归档的增量变更
+    ├── v1.0.1/
+    │   ├── 202604110001_fix_sandboxes_table.sql           # MySQL 版本
+    │   ├── 202604110001_fix_sandboxes_table_sqlite.sql    # SQLite 版本
+    │   ├── 202604110002_fix_skills_source_type_comment.sql
+    │   └── ...
+    └── v1.0.2/                        # 后续版本
 ```
 
 ## 变更脚本命名规范
@@ -127,10 +134,10 @@ mysql -h <host> -u <user> -p<password> <database> < migrations/20260319_xxx.sql
 
 ## 当前数据库版本
 
-- **版本**: 2.3
-- **最后更新**: 2026-03-20
-- **数据库类型**: MySQL 8.0
-- **字符集**: utf8mb4
+- **版本**: 1.0.1
+- **最后更新**: 2026-04-11
+- **数据库类型**: MySQL 8.0 / SQLite
+- **字符集**: utf8mb4 (MySQL)
 
 ## 表结构概览
 
