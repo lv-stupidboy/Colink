@@ -54,6 +54,75 @@ export async function installNpmPackage(packageName: string): Promise<{ success:
 
 // ==================== 数据库变更检测 ====================
 
+// 数据库迁移结果
+interface MigrationResult {
+  success: boolean
+  currentVersion?: number
+  targetVersion?: number
+  error?: string
+}
+
+// 执行数据库迁移（使用 migrate.exe）
+export async function runDatabaseMigration(
+  installDir: string,
+  dbPath: string,
+  migrationsDir: string,
+  mainWindow?: BrowserWindow
+): Promise<MigrationResult> {
+  try {
+    // migrate.exe 位于 tools 目录
+    const migrateTool = join(installDir, 'tools', 'migrate.exe')
+
+    // 如果工具不存在，跳过迁移
+    if (!existsSync(migrateTool)) {
+      console.warn('[Migration] migrate.exe not found, skipping')
+      return { success: true }
+    }
+
+    // 如果数据库不存在，跳过迁移（首次安装由服务初始化）
+    if (!existsSync(dbPath)) {
+      console.log('[Migration] Database not found, skipping (new install)')
+      return { success: true }
+    }
+
+    // 备份数据库
+    const backupPath = `${dbPath}.backup-${Date.now()}`
+    await copyFile(dbPath, backupPath)
+    console.log('[Migration] Backup created:', backupPath)
+
+    // 执行迁移
+    const { stdout, stderr } = await execAsync(
+      `"${migrateTool}" up --db "${dbPath}" --dir "${migrationsDir}" --type sqlite --backup --json`,
+      { timeout: 60000 }
+    )
+
+    // 解析结果
+    try {
+      const result = JSON.parse(stdout.trim())
+      if (result.success) {
+        console.log('[Migration] Success:', result.currentVersion, '->', result.targetVersion)
+        return result
+      } else {
+        console.error('[Migration] Failed:', result.error)
+        // 恢复备份
+        await copyFile(backupPath, dbPath)
+        return { success: false, error: result.error }
+      }
+    } catch {
+      // JSON 解析失败，检查是否成功
+      if (stderr && stderr.includes('error')) {
+        // 恢复备份
+        await copyFile(backupPath, dbPath)
+        return { success: false, error: stderr }
+      }
+      return { success: true }
+    }
+  } catch (error) {
+    console.error('[Migration] Error:', error)
+    return { success: false, error: error instanceof Error ? error.message : '迁移执行失败' }
+  }
+}
+
 // 检测数据库变更（根据版本范围筛选）
 export async function checkDatabaseChanges(
   installDir: string,
@@ -288,6 +357,16 @@ export async function copyApplicationFiles(
       await mkdir(sqlChangeDest, { recursive: true })
       cpSync(sqlChangeSrc, sqlChangeDest, { recursive: true })
       console.log('[Copy] SQL change directory copied')
+    }
+
+    // 复制 migrate.exe 到 tools 目录（用于数据库迁移）
+    const migrateSrc = join(runtimeDir, 'tools', 'migrate.exe')
+    const toolsDest = join(destDir, 'tools')
+    if (existsSync(migrateSrc)) {
+      await mkdir(toolsDest, { recursive: true })
+      const migrateDest = join(toolsDest, 'migrate.exe')
+      await copyFile(migrateSrc, migrateDest)
+      console.log('[Copy] migrate.exe copied')
     }
 
     // 复制配置模板（用于升级时配置合并）
@@ -767,6 +846,30 @@ export async function runInstallation(
       }
     } else {
       sendProgress('dbcheck', 'success', 100, '跳过检测', '新安装不需要检查数据库变更')
+    }
+
+    // Step 1.6: 执行数据库迁移（仅升级安装且有变更）
+    if (dbChanges.length > 0) {
+      sendProgress('migration', 'running', 0, '执行数据库迁移...', '备份并迁移数据库...')
+      const dbPath = join(config.installDir, 'data', 'isdp.db')
+      const migrationsDir = join(config.installDir, 'data', 'sql-change', 'migrations')
+
+      const migrationResult = await runDatabaseMigration(
+        config.installDir,
+        dbPath,
+        migrationsDir,
+        mainWindow
+      )
+
+      if (migrationResult.success) {
+        sendProgress('migration', 'success', 100, '数据库迁移成功',
+          migrationResult.targetVersion ? `版本: ${migrationResult.currentVersion} -> ${migrationResult.targetVersion}` : '数据库结构已更新')
+      } else {
+        sendProgress('migration', 'failed', 0, '数据库迁移失败', migrationResult.error || '未知错误')
+        return { success: false, error: `数据库迁移失败: ${migrationResult.error}`, dbChanges }
+      }
+    } else {
+      sendProgress('migration', 'success', 100, '跳过迁移', '无数据库变更需要执行')
     }
 
     // Step 2-3: 安装依赖
