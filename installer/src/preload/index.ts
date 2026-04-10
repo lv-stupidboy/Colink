@@ -28,6 +28,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   verifyInviteCode: (request: { code: string; username: string }) =>
     ipcRenderer.invoke('verify-invite-code', request),
 
+  // 获取系统用户名
+  getSystemUsername: () => ipcRenderer.invoke('get-system-username'),
+
   // 安装状态
   checkInstalled: () => ipcRenderer.invoke('check-installed'),
   checkOldISDP: () => ipcRenderer.invoke('check-old-isdp'),

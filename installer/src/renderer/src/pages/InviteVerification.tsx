@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Button, Input, Alert, Typography } from 'antd'
 import { CheckCircleOutlined, WarningOutlined } from '@ant-design/icons'
 import { InstallConfig, InstalledVersion } from '../types'
@@ -24,9 +24,18 @@ export default function InviteVerification({
   const [error, setError] = useState<string | null>(null)
   const [verified, setVerified] = useState(false)
 
+  // 组件加载时自动获取系统用户名
+  useEffect(() => {
+    const fetchUsername = async () => {
+      const sysUsername = await window.electronAPI.getSystemUsername()
+      setUsername(sysUsername)
+    }
+    fetchUsername()
+  }, [])
+
   const handleVerify = async () => {
-    if (!code.trim() || !username.trim()) {
-      setError('请填写邀请码和用户名')
+    if (!code.trim()) {
+      setError('请填写邀请码')
       return
     }
 
@@ -36,7 +45,7 @@ export default function InviteVerification({
     try {
       const response = await window.electronAPI.verifyInviteCode({
         code: code.trim(),
-        username: username.trim()
+        username: username
       })
 
       if (response.success) {
@@ -46,13 +55,13 @@ export default function InviteVerification({
           verification: {
             verified: true,
             token: response.token,
-            username: response.user?.username || username.trim(),
+            username: response.user?.username || username,
             verifiedAt: Date.now()
           }
         })
         onValidationChange?.(true)
       } else {
-        setError(response.message || '验证失败，请检查邀请码和用户名')
+        setError(response.message || '验证失败，请检查邀请码')
         onValidationChange?.(false)
       }
     } catch (e) {
@@ -90,7 +99,7 @@ export default function InviteVerification({
     <div style={{ flex: 1 }}>
       <h2 style={{ fontSize: 22, marginBottom: 8, color: '#333' }}>验证邀请码</h2>
       <p style={{ color: '#666', marginBottom: 30 }}>
-        请输入您的邀请码和用户名以继续安装 Colink
+        请输入邀请码以继续安装 Colink
       </p>
 
       <div style={{ maxWidth: 400 }}>
@@ -108,18 +117,9 @@ export default function InviteVerification({
           />
         </div>
 
-        <div style={{ marginBottom: 20 }}>
-          <label style={{ display: 'block', fontSize: 13, color: '#666', marginBottom: 8 }}>
-            用户名
-          </label>
-          <Input
-            placeholder="请输入用户名"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            disabled={loading}
-            size="large"
-            onPressEnter={handleVerify}
-          />
+        <div style={{ marginBottom: 20, padding: '12px 16px', background: '#f5f5f5', borderRadius: 8 }}>
+          <Text type="secondary" style={{ fontSize: 13 }}>当前用户：</Text>
+          <Text strong>{username || '获取中...'}</Text>
         </div>
 
         {error && (
@@ -138,7 +138,7 @@ export default function InviteVerification({
           block
           loading={loading}
           onClick={handleVerify}
-          disabled={!code.trim() || !username.trim()}
+          disabled={!code.trim()}
         >
           验证
         </Button>

@@ -284,6 +284,11 @@ function getVerificationApiUrl(): string {
   return installerConfig.verificationApiUrl
 }
 
+// 获取系统用户名
+ipcMain.handle('get-system-username', () => {
+  return process.env.USERNAME || process.env.USER || 'unknown'
+})
+
 ipcMain.handle('verify-invite-code', async (_event, request: { code: string; username: string }) => {
   return new Promise((resolve) => {
     try {

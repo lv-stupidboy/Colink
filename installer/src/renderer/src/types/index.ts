@@ -108,6 +108,9 @@ declare global {
       // 邀请码验证
       verifyInviteCode: (request: InviteVerificationRequest) => Promise<InviteVerificationResponse>
 
+      // 获取系统用户名
+      getSystemUsername: () => Promise<string>
+
       // 安装状态
       checkInstalled: () => Promise<InstalledVersion>
       checkOldISDP: () => Promise<InstalledVersion>
