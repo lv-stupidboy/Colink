@@ -321,26 +321,23 @@ func main() {
 		_ = sandboxService // TODO: wire into sandbox handler
 	}
 
-	// ========== 飞书 IM 集成 ==========
-	var feishuBridgeSvc *im.FeishuBridgeService
+	// ========== IM Integration ==========
+	var imBridgeSvc *im.IMBridgeService
 	if cfg.Feishu.Enabled {
 		imSessionRepo := repo.NewIMSessionRepository(db)
 		larkClient := im.NewLarkCLIClient(cfg.Feishu.LarkCLIPath, logger)
-
-		larkHealthy := true
-		if err := larkClient.CheckHealth(context.Background()); err != nil {
-			logger.Warn("lark-cli 健康检查失败，消息发送功能已禁用（webhook 仍可接收）", zap.Error(err))
-			larkHealthy = false
+		feishuAdapter := im.NewFeishuAdapter(larkClient, logger)
+		if err := feishuAdapter.CheckHealth(context.Background()); err != nil {
+			logger.Warn("Feishu adapter health check failed", zap.Error(err))
 		}
-
-		feishuBridgeSvc = im.NewFeishuBridgeService(
-			imSessionRepo, threadRepo, projectRepo,
-			orchestrator, larkClient, wsHub, cfg.Feishu, logger,
-		)
-		feishuBridgeSvc.SetLarkHealthy(larkHealthy)
-
-		orchestrator.GetExecutionService().AddChunkListener(feishuBridgeSvc.OnAgentChunk)
-		logger.Info("飞书 IM 集成已启用")
+		retryCfg := im.DefaultRetryConfig()
+		rateLimiter := im.NewRateLimiter(20, 60*time.Second)
+		dedupCache := im.NewDedupCache(1000)
+		feishuDelivery := im.NewDeliveryService(feishuAdapter, retryCfg, rateLimiter, dedupCache, logger)
+		imBridgeSvc = im.NewIMBridgeService(imSessionRepo, threadRepo, projectRepo, orchestrator, wsHub, nil, logger)
+		imBridgeSvc.RegisterAdapter(feishuAdapter, feishuDelivery)
+		orchestrator.GetExecutionService().AddChunkListener(imBridgeSvc.OnAgentChunk)
+		logger.Info("IM integration enabled", zap.String("platform", "feishu"))
 	}
 
 	// 设置Gin模式
@@ -465,8 +462,8 @@ func main() {
 	wsHandler.RegisterRoutes(v1)
 
 	// 飞书 Webhook Handler
-	if feishuBridgeSvc != nil {
-		feishuHandler := api.NewFeishuWebhookHandler(feishuBridgeSvc, cfg.Feishu.VerificationToken)
+	if imBridgeSvc != nil {
+		feishuHandler := api.NewFeishuWebhookHandler(imBridgeSvc, cfg.Feishu.VerificationToken)
 		feishuHandler.RegisterRoutes(v1)
 	}
 

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -10,11 +11,11 @@ import (
 )
 
 type FeishuWebhookHandler struct {
-	bridgeSvc   *im.FeishuBridgeService
+	bridgeSvc   *im.IMBridgeService
 	verifyToken string
 }
 
-func NewFeishuWebhookHandler(bridgeSvc *im.FeishuBridgeService, verifyToken string) *FeishuWebhookHandler {
+func NewFeishuWebhookHandler(bridgeSvc *im.IMBridgeService, verifyToken string) *FeishuWebhookHandler {
 	return &FeishuWebhookHandler{
 		bridgeSvc:   bridgeSvc,
 		verifyToken: verifyToken,
@@ -31,7 +32,7 @@ func (h *FeishuWebhookHandler) RegisterRoutes(r *gin.RouterGroup) {
 func (h *FeishuWebhookHandler) HandleWebhook(c *gin.Context) {
 	bodyBytes, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read request body"})
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 		return
 	}
 
@@ -49,12 +50,12 @@ func (h *FeishuWebhookHandler) HandleWebhook(c *gin.Context) {
 
 	var event im.FeishuWebhookEvent
 	if err := json.Unmarshal(bodyBytes, &event); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 		return
 	}
 
 	if event.Header.Token != h.verifyToken {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 		return
 	}
 
@@ -62,7 +63,26 @@ func (h *FeishuWebhookHandler) HandleWebhook(c *gin.Context) {
 	case "im.message.receive_v1":
 		var msgEvent im.FeishuMessageReceivedEvent
 		if err := json.Unmarshal(event.Event, &msgEvent); err == nil {
-			go h.bridgeSvc.HandleMessageEvent(c.Request.Context(), msgEvent)
+			text := msgEvent.Message.ParseTextContent()
+			userID := ""
+			if msgEvent.Sender.SenderID.OpenID != "" {
+				userID = msgEvent.Sender.SenderID.OpenID
+			} else if msgEvent.Sender.SenderID.UserID != "" {
+				userID = msgEvent.Sender.SenderID.UserID
+			}
+			detachedCtx := context.WithoutCancel(c.Request.Context())
+			go func() {
+				_ = h.bridgeSvc.HandleInboundMessage(
+					detachedCtx,
+					"feishu",
+					msgEvent.Message.ChatID,
+					msgEvent.Message.ChatType,
+					userID,
+					"",
+					msgEvent.Message.MessageID,
+					text,
+				)
+			}()
 		}
 	default:
 	}

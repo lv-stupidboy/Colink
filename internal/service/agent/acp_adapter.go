@@ -23,15 +23,15 @@ type acpAdapterConfig struct {
 }
 
 type acpSession struct {
-	id         string
-	isdpID     string
-	transport  *acpTransport
-	cmd        *exec.Cmd
-	ctx        context.Context
-	cancel     context.CancelFunc
-	status     SessionStatus
-	output     strings.Builder
-	mu         sync.Mutex
+	id        string
+	isdpID    string
+	transport *acpTransport
+	cmd       *exec.Cmd
+	ctx       context.Context
+	cancel    context.CancelFunc
+	status    SessionStatus
+	output    strings.Builder
+	mu        sync.Mutex
 }
 
 // BaseACPAdapter implements AgentAdapter using ACP (Agent Client Protocol) over stdio.
@@ -41,6 +41,19 @@ type BaseACPAdapter struct {
 	baseAgent *model.BaseAgent
 	sessions  map[string]*acpSession
 	mu        sync.RWMutex
+}
+
+// GetCurrentProcess returns the current running process from active sessions.
+// Returns nil if no process is currently running.
+func (a *BaseACPAdapter) GetCurrentProcess() *exec.Cmd {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	for _, session := range a.sessions {
+		if session.cmd != nil && session.cmd.Process != nil {
+			return session.cmd
+		}
+	}
+	return nil
 }
 
 func (a *BaseACPAdapter) Execute(ctx context.Context, req *ExecutionRequest) (*ExecutionResult, error) {
