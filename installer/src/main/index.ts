@@ -26,6 +26,30 @@ import mysql from 'mysql2/promise'
 
 const isDev = !app.isPackaged
 
+// 安装器配置
+interface InstallerConfig {
+  verificationApiUrl?: string
+}
+
+let installerConfig: InstallerConfig = {}
+
+// 读取安装器配置文件
+function loadInstallerConfig(): InstallerConfig {
+  try {
+    const configPath = isDev
+      ? join(__dirname, '../../resources/installer-config.json')
+      : join(process.resourcesPath, 'installer-config.json')
+
+    if (existsSync(configPath)) {
+      const content = require('fs').readFileSync(configPath, 'utf-8')
+      return JSON.parse(content)
+    }
+  } catch (e) {
+    console.warn('[Installer] Failed to load installer config:', e)
+  }
+  return {}
+}
+
 let mainWindow: BrowserWindow | null = null
 let serviceManager: ServiceManager | null = null
 let installDir: string = ''
@@ -252,10 +276,12 @@ ipcMain.handle('test-database-connection', async (_event, config: any) => {
 })
 
 // 验证邀请码
-// 验证 API URL 配置（支持开发/生产环境）
-const VERIFICATION_API_URL = isDev
-  ? 'http://localhost:3000/api/v1/auth/login'
-  : 'https://colink.ai/api/v1/auth/login'
+// 验证 API URL：优先从配置文件读取，否则使用默认值
+const DEFAULT_VERIFICATION_API_URL = 'https://colink.ai/api/v1/auth/login'
+
+function getVerificationApiUrl(): string {
+  return installerConfig.verificationApiUrl || DEFAULT_VERIFICATION_API_URL
+}
 
 ipcMain.handle('verify-invite-code', async (_event, request: { code: string; username: string }) => {
   return new Promise((resolve) => {
@@ -264,7 +290,9 @@ ipcMain.handle('verify-invite-code', async (_event, request: { code: string; use
       username: request.username
     })
 
-    const urlObj = new URL(VERIFICATION_API_URL)
+    const apiUrl = getVerificationApiUrl()
+    console.log('[VerifyInviteCode] Using API URL:', apiUrl)
+    const urlObj = new URL(apiUrl)
     const isHttps = urlObj.protocol === 'https:'
     const client = isHttps ? https : http
 
@@ -645,6 +673,10 @@ if (!gotTheLock) {
   })
 
   app.whenReady().then(async () => {
+    // 加载安装器配置
+    installerConfig = loadInstallerConfig()
+    console.log('[Installer] Loaded config:', installerConfig)
+
     // 检测是否已安装（前端会处理选项展示）
     const installed = getInstalledVersion()
     startupAction = installed.installed ? 'upgrade' : 'install'

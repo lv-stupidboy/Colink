@@ -24,6 +24,9 @@ extraResources:
   # 图标
   - from: "build/icon.ico"
     to: "icon.ico"
+  # 安装器配置
+  - from: "resources/installer-config.json"
+    to: "installer-config.json"
   # 版本号文件
   - from: "../VERSION"
     to: "runtime/VERSION"
