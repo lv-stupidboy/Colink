@@ -288,12 +288,13 @@ func (o *Orchestrator) GetInvocationStatus(ctx context.Context, invocationID uui
 
 // SpawnRequest 启动请求
 type SpawnRequest struct {
-	ThreadID    uuid.UUID
-	ConfigID    uuid.UUID
-	Role        model.AgentRole
-	Input       string
-	ProjectPath string // 工作目录
-	SessionID   string // 会话ID（用于 --resume 复用已有会话）
+	ThreadID        uuid.UUID
+	ConfigID        uuid.UUID
+	Role            model.AgentRole
+	Input           string
+	ProjectPath     string           // 工作目录
+	SessionID       string           // 会话ID（用于 --resume 复用已有会话）
+	SessionStrategy SessionStrategy  // 会话策略：new 或 resume
 }
 
 // ContextLayers 上下文层
