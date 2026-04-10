@@ -276,72 +276,80 @@ ipcMain.handle('test-database-connection', async (_event, config: any) => {
 })
 
 // 验证邀请码
-// 验证 API URL：优先从配置文件读取，否则使用默认值
-const DEFAULT_VERIFICATION_API_URL = 'https://colink.ai/api/v1/auth/login'
-
+// 验证 API URL 从配置文件读取
 function getVerificationApiUrl(): string {
-  return installerConfig.verificationApiUrl || DEFAULT_VERIFICATION_API_URL
+  if (!installerConfig.verificationApiUrl) {
+    throw new Error('验证服务地址未配置，请在 installer-config.json 中设置 verificationApiUrl')
+  }
+  return installerConfig.verificationApiUrl
 }
 
 ipcMain.handle('verify-invite-code', async (_event, request: { code: string; username: string }) => {
   return new Promise((resolve) => {
-    const postData = JSON.stringify({
-      code: request.code,
-      username: request.username
-    })
+    try {
+      const postData = JSON.stringify({
+        code: request.code,
+        username: request.username
+      })
 
-    const apiUrl = getVerificationApiUrl()
-    console.log('[VerifyInviteCode] Using API URL:', apiUrl)
-    const urlObj = new URL(apiUrl)
-    const isHttps = urlObj.protocol === 'https:'
-    const client = isHttps ? https : http
+      const apiUrl = getVerificationApiUrl()
+      console.log('[VerifyInviteCode] Using API URL:', apiUrl)
+      const urlObj = new URL(apiUrl)
+      const isHttps = urlObj.protocol === 'https:'
+      const client = isHttps ? https : http
 
-    const options = {
-      hostname: urlObj.hostname,
-      port: urlObj.port || (isHttps ? 443 : 80),
-      path: urlObj.pathname,
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(postData)
-      },
-      timeout: 15000 // 15秒超时
+      const options = {
+        hostname: urlObj.hostname,
+        port: urlObj.port || (isHttps ? 443 : 80),
+        path: urlObj.pathname,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(postData)
+        },
+        timeout: 15000 // 15秒超时
+      }
+
+      const req = client.request(options, (res) => {
+        let data = ''
+        res.on('data', chunk => data += chunk)
+        res.on('end', () => {
+          try {
+            const result = JSON.parse(data)
+            resolve(result)
+          } catch (e) {
+            resolve({
+              success: false,
+              message: '响应解析失败，请稍后重试'
+            })
+          }
+        })
+      })
+
+      req.on('error', (e) => {
+        console.error('[VerifyInviteCode] Request error:', e)
+        resolve({
+          success: false,
+          message: `网络错误: ${e.message}`
+        })
+      })
+
+      req.on('timeout', () => {
+        req.destroy()
+        resolve({
+          success: false,
+          message: '请求超时，请检查网络连接'
+        })
+      })
+
+      req.write(postData)
+      req.end()
+    } catch (e) {
+      resolve({
+        success: false,
+        message: e instanceof Error ? e.message : '验证服务配置错误'
+      })
     }
-
-    const req = client.request(options, (res) => {
-      let data = ''
-      res.on('data', chunk => data += chunk)
-      res.on('end', () => {
-        try {
-          const result = JSON.parse(data)
-          resolve(result)
-        } catch (e) {
-          resolve({
-            success: false,
-            message: '响应解析失败，请稍后重试'
-          })
-        }
-      })
-    })
-
-    req.on('error', (e) => {
-      console.error('[VerifyInviteCode] Request error:', e)
-      resolve({
-        success: false,
-        message: `网络错误: ${e.message}`
-      })
-    })
-
-    req.on('timeout', () => {
-      req.destroy()
-      resolve({
-        success: false,
-        message: '请求超时，请检查网络连接'
-      })
-    })
-
-    req.write(postData)
-    req.end()
   })
 })
 
