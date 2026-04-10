@@ -1,4 +1,4 @@
-# ISDP Installer
+# Colink Installer
 
 Electron-based dual-app architecture. **Setup** (install/upgrade/uninstall) and **Launcher** (runtime service control) share renderer UI but have separate main processes and packaging configs.
 
@@ -55,7 +55,7 @@ Renderer calls `is-launcher-mode` on startup to determine which UI flow to show.
 
 ## Service Management
 
-`ServiceManager` spawns `isdp-server.exe` as child process (not a Windows service). Config path passed as argument. `killAllProcesses()` uses `taskkill` for clean shutdown before install/exit.
+`ServiceManager` spawns `colink-server.exe` as child process (not a Windows service). Config path passed as argument. `killAllProcesses()` uses `taskkill` for clean shutdown before install/exit.
 
 ## Packaging
 
@@ -63,10 +63,10 @@ Two separate electron-builder configs:
 
 | Config | Product | Entry | Output |
 |--------|---------|-------|--------|
-| `electron-builder.yml` | ISDP Setup | `out/main/index.js` | `release/` — bundles server, web, launcher |
-| `electron-builder.launcher.yml` | ISDP | `out/main/launcher-entry.js` | `release/launcher/` — standalone launcher |
+| `electron-builder.yml` | Colink Setup | `out/main/index.js` | `release/` — bundles server, web, launcher |
+| `electron-builder.launcher.yml` | Colink | `out/main/launcher-entry.js` | `release/launcher/` — standalone launcher |
 
-Setup's `extraResources` bundles: `runtime/isdp-server.exe`, `runtime/web/`, `release/launcher/win-unpacked/`.
+Setup's `extraResources` bundles: `runtime/colink-server.exe`, `runtime/web/`, `release/launcher/win-unpacked/`.
 
 **Build order**: `npm run build` → `npm run package:launcher` → `npm run package:setup` → `node scripts/create-zip.js`
 

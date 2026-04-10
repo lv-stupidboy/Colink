@@ -1,4 +1,4 @@
-# ISDP Frontend
+# Colink Frontend
 
 React 18 + TypeScript + Vite + Ant Design 5 + Zustand 4. Dev server port 3000, proxies `/api/*` to backend 8080.
 
@@ -79,6 +79,7 @@ Table/Card for list display
 - **Config**: `playwright.config.ts` — Chromium, baseURL `localhost:3001`, HTML+JSON reporters.
 - **Fixtures**: `tests/fixtures/test-fixtures.ts` — custom result aggregation.
 - **Test IDs**: FT-01 through FT-12 mapped to test plan.
+- **Custom runner**: `tests/test-runner.ts` — classifies failures as frontend/backend via regex.
 
 ## Theme System
 

@@ -525,7 +525,7 @@ Wave FINAL (after ALL tasks — 4 parallel reviews, then user okay):
   - Files: `internal/service/im/feishu_bridge_service.go`, `internal/service/im/feishu_bridge_service_test.go`
   - Pre-commit: `go test -race ./internal/service/im/...`
 
-- [ ] 4. LRU Dedup Cache Module
+- [x] 4. LRU Dedup Cache Module
 
   **What to do**:
   - Create new file `internal/service/im/dedup.go` containing a thread-safe LRU dedup cache:
@@ -613,7 +613,7 @@ Wave FINAL (after ALL tasks — 4 parallel reviews, then user okay):
   - Files: `internal/service/im/dedup.go`, `internal/service/im/dedup_test.go`
   - Pre-commit: `go test -race ./internal/service/im/...`
 
-- [ ] 5. Sliding Window Rate Limiter Module
+- [x] 5. Sliding Window Rate Limiter Module
 
   **What to do**:
   - Create new file `internal/service/im/rate_limiter.go`:
@@ -701,7 +701,7 @@ Wave FINAL (after ALL tasks — 4 parallel reviews, then user okay):
   - Files: `internal/service/im/rate_limiter.go`, `internal/service/im/rate_limiter_test.go`
   - Pre-commit: `go test ./internal/service/im/...`
 
-- [ ] 6. Error Classification Module
+- [x] 6. Error Classification Module
 
   **What to do**:
   - Create new file `internal/service/im/errors.go`:
@@ -789,7 +789,7 @@ Wave FINAL (after ALL tasks — 4 parallel reviews, then user okay):
 
 ### Wave 2 — Integration
 
-- [ ] 7. Retry with Exponential Backoff
+- [x] 7. Retry with Exponential Backoff
 
   **What to do**:
   - Create new file `internal/service/im/retry.go`:
@@ -890,7 +890,7 @@ Wave FINAL (after ALL tasks — 4 parallel reviews, then user okay):
   - Files: `internal/service/im/retry.go`, `internal/service/im/retry_test.go`
   - Pre-commit: `go test ./internal/service/im/...`
 
-- [ ] 8. Integrate Dedup into Bridge Service
+- [x] 8. Integrate Dedup into Bridge Service
 
   **What to do**:
   - Add `dedupCache *DedupCache` field to `FeishuBridgeService` struct
@@ -956,7 +956,7 @@ Wave FINAL (after ALL tasks — 4 parallel reviews, then user okay):
   - Files: `internal/service/im/feishu_bridge_service.go`
   - Pre-commit: `go test ./internal/service/im/...`
 
-- [ ] 9. Integrate Rate Limiter into Bridge Service
+- [x] 9. Integrate Rate Limiter into Bridge Service
 
   **What to do**:
   - Add `rateLimiter *RateLimiter` field to `FeishuBridgeService` struct
@@ -1020,7 +1020,7 @@ Wave FINAL (after ALL tasks — 4 parallel reviews, then user okay):
   - Files: `internal/service/im/feishu_bridge_service.go`
   - Pre-commit: `go test ./internal/service/im/...`
 
-- [ ] 10. Comprehensive Tests for Bridge Service and Webhook Handler
+- [x] 10. Comprehensive Tests for Bridge Service and Webhook Handler
 
   **What to do**:
   - Create/expand `internal/service/im/feishu_bridge_service_test.go` with thorough tests covering the EXISTING bridge service logic (these were missing — zero bridge service tests existed before):
@@ -1114,7 +1114,7 @@ Wave FINAL (after ALL tasks — 4 parallel reviews, then user okay):
 
 ### Wave 3 — Abstraction Definitions
 
-- [ ] 11. Define IMAdapter Interface and Types
+- [x] 11. Define IMAdapter Interface and Types
 
   **What to do**:
   - Create new file `internal/service/im/adapter.go`:
@@ -1242,7 +1242,7 @@ Wave FINAL (after ALL tasks — 4 parallel reviews, then user okay):
   - Files: `internal/service/im/adapter.go`, `internal/service/im/types.go`, `internal/service/im/adapter_test.go`
   - Pre-commit: `go build ./...`
 
-- [ ] 12. Build DeliveryService
+- [x] 12. Build DeliveryService
 
   **What to do**:
   - Create new file `internal/service/im/delivery.go`:
@@ -1352,7 +1352,7 @@ Wave FINAL (after ALL tasks — 4 parallel reviews, then user okay):
   - Files: `internal/service/im/delivery.go`, `internal/service/im/delivery_test.go`
   - Pre-commit: `go test ./internal/service/im/...`
 
-- [ ] 13. Per-Session Lock Module
+- [x] 13. Per-Session Lock Module
 
   **What to do**:
   - Create new file `internal/service/im/session_lock.go`:
@@ -1435,7 +1435,7 @@ Wave FINAL (after ALL tasks — 4 parallel reviews, then user okay):
 
 ### Wave 4 — Platform Refactor
 
-- [ ] 14. Extract FeishuAdapter from Bridge Service
+- [x] 14. Extract FeishuAdapter from Bridge Service
 
   **What to do**:
   - Create new file `internal/service/im/feishu_adapter.go` implementing `IMAdapter`:
@@ -1543,7 +1543,7 @@ Wave FINAL (after ALL tasks — 4 parallel reviews, then user okay):
   - Files: `internal/service/im/feishu_adapter.go`, `internal/service/im/feishu_adapter_test.go`
   - Pre-commit: `go test ./internal/service/im/...`
 
-- [ ] 15. Build Generic IMBridgeService
+- [x] 15. Build Generic IMBridgeService
 
   **What to do**:
   - Create new file `internal/service/im/bridge_service.go` — the platform-agnostic bridge:
@@ -1661,7 +1661,7 @@ Wave FINAL (after ALL tasks — 4 parallel reviews, then user okay):
   - Files: `internal/service/im/bridge_service.go`, `internal/service/im/bridge_service_test.go`
   - Pre-commit: `make test`
 
-- [ ] 16. Streaming Card Support for Feishu
+- [x] 16. Streaming Card Support for Feishu
 
   **What to do**:
   - Implement the streaming card methods in `FeishuAdapter` (stubbed in T14):
@@ -1767,7 +1767,7 @@ Wave FINAL (after ALL tasks — 4 parallel reviews, then user okay):
 
 ### Wave 5 — Rewire and Config
 
-- [ ] 17. Rewire main.go to New IM Architecture
+- [x] 17. Rewire main.go to New IM Architecture
 
   **What to do**:
   - Replace the IM initialization block in `cmd/server/main.go` (lines 331-351) with the new architecture:
@@ -1881,7 +1881,7 @@ Wave FINAL (after ALL tasks — 4 parallel reviews, then user okay):
   - Files: `cmd/server/main.go`, `internal/api/feishu_webhook_handler.go`
   - Pre-commit: `make test`
 
-- [ ] 18. Multi-Platform Config Schema
+- [x] 18. Multi-Platform Config Schema
 
   **What to do**:
   - Update `pkg/config/config.go` to support multi-platform IM configuration:
@@ -1971,7 +1971,7 @@ Wave FINAL (after ALL tasks — 4 parallel reviews, then user okay):
   - Files: `pkg/config/config.go`, `configs/config.yaml.example`
   - Pre-commit: `go build ./...`
 
-- [ ] 19. Integration Tests for Full Flow
+- [x] 19. Integration Tests for Full Flow
 
   **What to do**:
   - Create `internal/service/im/integration_test.go` — end-to-end test of the full IM flow:
@@ -2049,7 +2049,7 @@ Wave FINAL (after ALL tasks — 4 parallel reviews, then user okay):
 
 ### Wave 6 — Registry, Stubs, Validation
 
-- [ ] 20. Adapter Factory and Registry
+- [x] 20. Adapter Factory and Registry
 
   **What to do**:
   - Create new file `internal/service/im/registry.go`:
@@ -2143,7 +2143,7 @@ Wave FINAL (after ALL tasks — 4 parallel reviews, then user okay):
   - Files: `internal/service/im/registry.go`, `internal/service/im/registry_test.go`
   - Pre-commit: `go test ./internal/service/im/...`
 
-- [ ] 21. Slack Adapter Stub
+- [x] 21. Slack Adapter Stub
 
   **What to do**:
   - Create new file `internal/service/im/slack_adapter.go`:
@@ -2211,7 +2211,7 @@ Wave FINAL (after ALL tasks — 4 parallel reviews, then user okay):
   - Files: `internal/service/im/slack_adapter.go`
   - Pre-commit: `go build ./...`
 
-- [ ] 22. Discord Adapter Stub
+- [x] 22. Discord Adapter Stub
 
   **What to do**:
   - Create new file `internal/service/im/discord_adapter.go`:
@@ -2257,7 +2257,7 @@ Wave FINAL (after ALL tasks — 4 parallel reviews, then user okay):
   - Files: `internal/service/im/discord_adapter.go`
   - Pre-commit: `go build ./...`
 
-- [ ] 23. Input Validation Module
+- [x] 23. Input Validation Module
 
   **What to do**:
   - Create new file `internal/service/im/validation.go`:
@@ -2358,19 +2358,19 @@ Wave FINAL (after ALL tasks — 4 parallel reviews, then user okay):
 
 > 4 review agents run in PARALLEL. ALL must APPROVE. Present consolidated results to user and get explicit "okay" before completing.
 
-- [ ] TF1. **Plan Compliance Audit** — `oracle`
+- [x] TF1. **Plan Compliance Audit** — `oracle`
   Read the plan end-to-end. For each "Must Have": verify implementation exists (read file, run command). For each "Must NOT Have": search codebase for forbidden patterns — reject with file:line if found. Check evidence files exist in `.sisyphus/evidence/`. Compare deliverables against plan.
   Output: `Must Have [N/N] | Must NOT Have [N/N] | Tasks [N/N] | VERDICT: APPROVE/REJECT`
 
-- [ ] TF2. **Code Quality Review** — `unspecified-high`
+- [x] TF2. **Code Quality Review** — `unspecified-high`
   Run `go vet ./...` + `go build ./...` + `make test`. Review all changed files for: `interface{}` abuse, empty catches, fmt.Println in prod, commented-out code, unused imports. Check for AI slop: excessive comments, over-abstraction, generic names (data/result/item/temp). Verify all error returns are checked.
   Output: `Build [PASS/FAIL] | Vet [PASS/FAIL] | Tests [N pass/N fail] | Files [N clean/N issues] | VERDICT`
 
-- [ ] TF3. **Real Manual QA** — `unspecified-high`
+- [x] TF3. **Real Manual QA** — `unspecified-high`
   Start from clean state. Execute EVERY QA scenario from EVERY task — follow exact steps, capture evidence. Test cross-task integration: webhook → bridge → adapter → delivery → lark-cli flow. Test edge cases: empty message, very long message, rapid messages, invalid JSON. Save to `.sisyphus/evidence/final-qa/`.
   Output: `Scenarios [N/N pass] | Integration [N/N] | Edge Cases [N tested] | VERDICT`
 
-- [ ] TF4. **Scope Fidelity Check** — `deep`
+- [x] TF4. **Scope Fidelity Check** — `deep`
   For each task: read "What to do", read actual diff (`git log`/`git diff`). Verify 1:1 — everything in spec was built (no missing), nothing beyond spec was built (no creep). Check "Must NOT do" compliance. Detect cross-task contamination: Task N touching Task M's files. Flag unaccounted changes.
   Output: `Tasks [N/N compliant] | Contamination [CLEAN/N issues] | Unaccounted [CLEAN/N files] | VERDICT`
 
