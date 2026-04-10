@@ -19,6 +19,14 @@ const (
 	ChunkTypeUsage      ChunkType = "usage"     // Token 使用更新
 )
 
+// SessionStrategy 会话策略类型
+type SessionStrategy string
+
+const (
+	SessionStrategyNew    SessionStrategy = "new"    // 新会话，不传递历史（跨角色调用）
+	SessionStrategyResume SessionStrategy = "resume" // 恢复会话，传递历史（同角色调用）
+)
+
 // TokenUsage Token使用统计
 type TokenUsage struct {
 	InputTokens           int64   `json:"inputTokens,omitempty"`
@@ -45,13 +53,14 @@ type Chunk struct {
 
 // ExecutionRequest 统一的执行请求
 type ExecutionRequest struct {
-	Config    *model.AgentRoleConfig
-	BaseAgent *model.BaseAgent
-	Context   *ContextLayers
-	Input     string
-	WorkDir   string
-	ConfigDir string // Agent配置目录路径（使用生成的配置）
-	SessionID string // 会话ID（用于 --resume 复用已有会话，避免冷启动延迟）
+	Config          *model.AgentRoleConfig
+	BaseAgent       *model.BaseAgent
+	Context         *ContextLayers
+	Input           string
+	WorkDir         string
+	ConfigDir       string           // Agent配置目录路径（使用生成的配置）
+	SessionID       string           // 会话ID（用于 --resume 复用已有会话，避免冷启动延迟）
+	SessionStrategy SessionStrategy  // 会话策略：new 或 resume
 }
 
 // ExecutionResult 执行结果

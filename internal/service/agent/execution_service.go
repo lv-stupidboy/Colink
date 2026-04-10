@@ -374,22 +374,37 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 	// 构建ExecutionRequest
 	execReqBuildStart := time.Now()
 
-	// 获取已有的会话ID（用于 --resume 复用会话）
+	// 根据会话策略决定是否使用 --resume
+	// 跨角色调用（SessionStrategyNew）：不传递历史，使用新会话
+	// 同角色调用（SessionStrategyResume）：传递历史，尝试恢复会话
 	sessionKey := fmt.Sprintf("%s:%s", req.ThreadID.String(), config.ID.String())
-	es.csMu.RLock()
-	sessionID := es.cliSessions[sessionKey]
-	es.csMu.RUnlock()
+	var sessionID string
+	if req.SessionStrategy == SessionStrategyResume {
+		// 同角色调用：尝试恢复会话
+		es.csMu.RLock()
+		sessionID = es.cliSessions[sessionKey]
+		es.csMu.RUnlock()
+		logInfo("A2A 会话策略: resume，尝试复用会话",
+			zap.String("sessionKey", sessionKey),
+			zap.String("sessionId", sessionID),
+			zap.Bool("hasSession", sessionID != ""))
+	} else {
+		// 跨角色调用或默认：不使用会话缓存，确保新会话
+		logInfo("A2A 会话策略: new，使用新会话（不传递历史）",
+			zap.String("sessionKey", sessionKey))
+	}
 
 	execReq := &ExecutionRequest{
-		Config:    config,
-		BaseAgent: baseAgent,
-		Context:   contextLayers,
-		Input:     req.Input,
-		WorkDir:   req.ProjectPath,
-		ConfigDir: config.ConfigPath, // 使用生成的配置目录
-		SessionID: sessionID,          // 传递会话ID以支持 --resume
+		Config:          config,
+		BaseAgent:       baseAgent,
+		Context:         contextLayers,
+		Input:           req.Input,
+		WorkDir:         req.ProjectPath,
+		ConfigDir:       config.ConfigPath,
+		SessionID:       sessionID,
+		SessionStrategy: req.SessionStrategy,
 	}
-	logInfo("[PERF] buildExecutionRequest", zap.Duration("duration", time.Since(execReqBuildStart)), zap.String("sessionID", sessionID), zap.Bool("isResume", sessionID != ""))
+	logInfo("[PERF] buildExecutionRequest", zap.Duration("duration", time.Since(execReqBuildStart)), zap.String("sessionID", sessionID), zap.String("sessionStrategy", string(req.SessionStrategy)))
 
 	// CLI 执行阶段（这是主要耗时点）
 	cliStart := time.Now()
@@ -403,12 +418,38 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 		es.broadcastChunk(req.ThreadID, invocation.ID, chunk, config.ID.String(), config.Name)
 	})
 
+	// 会话恢复失败降级机制
+	if err != nil && sessionID != "" && isResumeFallbackError(err) {
+		logWarn("Session resume failed, falling back to new session",
+			zap.String("invocationId", invocation.ID.String()),
+			zap.String("sessionId", sessionID),
+			zap.Error(err))
+
+		// 清除缓存的 sessionID
+		es.csMu.Lock()
+		delete(es.cliSessions, sessionKey)
+		es.csMu.Unlock()
+
+		// 降级：使用新会话重试
+		execReq.SessionID = ""
+		outputBuilder.Reset()
+		result, err = adapter.ExecuteWithStream(ctx, execReq, func(chunk Chunk) {
+			outputBuilder.WriteString(chunk.Content)
+			es.broadcastChunk(req.ThreadID, invocation.ID, chunk, config.ID.String(), config.Name)
+		})
+
+		if err == nil {
+			logInfo("Session fallback succeeded, created new session",
+				zap.String("invocationId", invocation.ID.String()))
+		}
+	}
+
 	cliDuration := time.Since(cliStart)
 	logInfo("[PERF] CLI execution completed", zap.Duration("duration", cliDuration), zap.String("invocationID", invocation.ID.String()))
 
 	if err != nil {
 		logError("Adapter.ExecuteWithStream failed", zap.Error(err))
-		es.handleAgentError(ctx, invocation, fmt.Errorf("adapter execution failed: %w", err))
+		es.handleAgentErrorWithContext(ctx, invocation, fmt.Errorf("adapter execution failed: %w", err), execReq)
 		return
 	}
 
@@ -637,6 +678,150 @@ func (es *ExecutionService) handleAgentError(ctx context.Context, invocation *mo
 	}
 
 	es.broadcastStatus(invocation.ThreadID, invocation.ID, "failed", invocation.Role, "", "")
+}
+
+// handleAgentErrorWithContext 处理 Agent 错误（带执行请求上下文，用于详细诊断）
+func (es *ExecutionService) handleAgentErrorWithContext(ctx context.Context, invocation *model.AgentInvocation, err error, execReq *ExecutionRequest) {
+	// 输出详细诊断日志
+	es.logErrorDiagnostics(ctx, invocation, err, execReq)
+
+	invocation.Status = model.InvocationStatusFailed
+	invocation.Output = fmt.Sprintf("执行失败: %s\n\n详细信息请查看 server.log", err.Error())
+	invocation.CompletedAt = timePtr(time.Now())
+	if updateErr := es.invocationRepo.Update(ctx, invocation); updateErr != nil {
+		logError("Failed to update invocation on error", zap.Error(updateErr))
+	}
+
+	es.broadcastStatus(invocation.ThreadID, invocation.ID, "failed", invocation.Role, "", "")
+}
+
+// isResumeFallbackError 判断是否为可降级的 resume 错误
+func isResumeFallbackError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := strings.ToLower(err.Error())
+	fallbackPatterns := []string{
+		"session not found",
+		"session expired",
+		"context too large",
+		"invalid session",
+		"no such session",
+		"session corrupt",
+	}
+	for _, pattern := range fallbackPatterns {
+		if strings.Contains(errStr, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+// logErrorDiagnostics 输出详细的错误诊断日志
+func (es *ExecutionService) logErrorDiagnostics(ctx context.Context, invocation *model.AgentInvocation, err error, execReq *ExecutionRequest) {
+	// 获取运行时信息
+	var historyLength int
+	var inputLength int
+	var workDir, configDir, model string
+	var sessionID string
+	var isResumeAttempt bool
+
+	if execReq != nil {
+		inputLength = len(execReq.Input)
+		if execReq.Context != nil && execReq.Context.Layer1 != "" {
+			historyLength = strings.Count(execReq.Context.Layer1, "\n")
+		}
+		workDir = execReq.WorkDir
+		configDir = execReq.ConfigDir
+		sessionID = execReq.SessionID
+		isResumeAttempt = sessionID != ""
+		if execReq.BaseAgent != nil {
+			model = execReq.BaseAgent.DefaultModel
+		}
+	}
+
+	// 生成建议
+	suggestions := generateErrorSuggestions(err, sessionID, isResumeAttempt)
+
+	// 构建诊断日志
+	logError("Agent 执行失败 - 诊断报告",
+		// 基本信息
+		zap.String("invocationId", invocation.ID.String()),
+		zap.String("threadId", invocation.ThreadID.String()),
+		zap.String("agentId", invocation.AgentConfigID.String()),
+		zap.String("agentName", invocation.AgentName),
+		zap.String("agentRole", string(invocation.Role)),
+
+		// 错误信息
+		zap.String("errorType", getErrorType(err)),
+		zap.String("errorMessage", err.Error()),
+
+		// 上下文诊断
+		zap.Int("inputLength", inputLength),
+		zap.Int("historyLength", historyLength),
+		zap.String("sessionId", sessionID),
+		zap.Bool("isResumeAttempt", isResumeAttempt),
+
+		// CLI 诊断
+		zap.String("workDir", workDir),
+		zap.String("configDir", configDir),
+		zap.String("model", model),
+		zap.Duration("duration", time.Since(invocation.CreatedAt)),
+
+		// 建议
+		zap.Strings("suggestions", suggestions))
+}
+
+// getErrorType 从错误中提取类型
+func getErrorType(err error) string {
+	if err == nil {
+		return "unknown"
+	}
+	errStr := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(errStr, "timeout"):
+		return "cli_timeout"
+	case strings.Contains(errStr, "session"):
+		return "session_error"
+	case strings.Contains(errStr, "api"):
+		return "api_error"
+	case strings.Contains(errStr, "context") || strings.Contains(errStr, "token"):
+		return "context_overflow"
+	case strings.Contains(errStr, "permission"):
+		return "permission_error"
+	default:
+		return "unknown"
+	}
+}
+
+// generateErrorSuggestions 根据错误类型生成建议
+func generateErrorSuggestions(err error, sessionID string, isResumeAttempt bool) []string {
+	var suggestions []string
+	errType := getErrorType(err)
+
+	switch errType {
+	case "session_error":
+		suggestions = append(suggestions, "会话恢复失败，已尝试降级到新会话")
+		suggestions = append(suggestions, "如问题持续，建议清理旧会话缓存")
+	case "cli_timeout":
+		suggestions = append(suggestions, "执行超时，可能是任务过于复杂")
+		suggestions = append(suggestions, "建议简化任务或增加超时时间")
+	case "api_error":
+		suggestions = append(suggestions, "API 调用失败，请检查 API 配置和网络连接")
+	case "context_overflow":
+		suggestions = append(suggestions, "上下文过长，建议开启新会话")
+		suggestions = append(suggestions, "或减少历史消息长度")
+	case "permission_error":
+		suggestions = append(suggestions, "权限不足，请检查工作目录访问权限")
+	default:
+		suggestions = append(suggestions, "请检查日志获取详细信息")
+	}
+
+	if isResumeAttempt && sessionID != "" {
+		suggestions = append(suggestions, fmt.Sprintf("会话恢复尝试失败 (sessionID: %s)", sessionID[:8]+"..."))
+	}
+
+	return suggestions
 }
 
 // loadThreadContext 预加载 Thread 上下文，一次性获取所有需要的数据
@@ -1048,22 +1233,54 @@ func (es *ExecutionService) checkRouting(ctx context.Context, threadID uuid.UUID
 		}
 		es.a2aMu.Unlock()
 
+		// 决定会话策略：跨角色使用新会话，同角色使用 resume
+		var sessionStrategy SessionStrategy
+		if a2aCtx.FromAgent != nil && a2aCtx.FromAgent.ID == targetConfig.ID {
+			// 同一 Agent 再次调用 → 恢复会话
+			sessionStrategy = SessionStrategyResume
+			logInfo("A2A 会话策略: 同Agent调用，使用 resume",
+				zap.String("fromAgent", a2aCtx.FromAgent.Name),
+				zap.String("toAgent", targetConfig.Name))
+		} else if a2aCtx.FromAgent != nil && a2aCtx.FromAgent.Role == string(targetConfig.Role) {
+			// 同角色不同实例 → 恢复会话
+			sessionStrategy = SessionStrategyResume
+			logInfo("A2A 会话策略: 同角色调用，使用 resume",
+				zap.String("fromRole", a2aCtx.FromAgent.Role),
+				zap.String("toAgent", targetConfig.Name))
+		} else {
+			// 跨角色 → 新会话，不传递历史
+			sessionStrategy = SessionStrategyNew
+			logInfo("A2A 会话策略: 跨角色调用，使用新会话",
+				zap.String("fromAgent", a2aCtx.FromAgent.Name),
+				zap.String("fromRole", a2aCtx.FromAgent.Role),
+				zap.String("toAgent", targetConfig.Name),
+				zap.String("toRole", string(targetConfig.Role)))
+
+			// 清除该 Agent 的会话缓存，确保不传递历史
+			sessionKey := fmt.Sprintf("%s:%s", threadID.String(), targetConfig.ID.String())
+			es.csMu.Lock()
+			delete(es.cliSessions, sessionKey)
+			es.csMu.Unlock()
+		}
+
 		logInfo("A2A 路由触发",
 			zap.String("fromAgent", currentConfig.Name),
 			zap.String("toAgent", targetConfig.Name),
 			zap.Int("depth", a2aCtx.Depth),
-			zap.String("threadId", threadID.String()))
+			zap.String("threadId", threadID.String()),
+			zap.String("sessionStrategy", string(sessionStrategy)))
 
 		// 构建 A2A 输入（原始用户消息 + 前序响应上下文 + 触发者信息）
 		a2aInput := es.buildA2AInput(ctx, threadID, currentConfig, a2aCtx, output)
 
 		// 使用构建的 A2A 输入
 		es.SpawnAgent(ctx, &SpawnRequest{
-			ThreadID:    threadID,
-			ConfigID:    targetConfig.ID,
-			Role:        targetConfig.Role,
-			Input:       a2aInput,
-			ProjectPath: projectPath,
+			ThreadID:        threadID,
+			ConfigID:        targetConfig.ID,
+			Role:            targetConfig.Role,
+			Input:           a2aInput,
+			ProjectPath:     projectPath,
+			SessionStrategy: sessionStrategy,
 		})
 	}
 
@@ -1376,19 +1593,51 @@ func (es *ExecutionService) checkSignalRouting(ctx context.Context, threadID uui
 			}
 		es.a2aMu.Unlock()
 
+		// 决定会话策略：跨角色使用新会话，同角色使用 resume
+		var sessionStrategy SessionStrategy
+		if a2aCtx.FromAgent != nil && a2aCtx.FromAgent.ID == targetConfig.ID {
+			// 同一 Agent 再次调用 → 恢复会话
+			sessionStrategy = SessionStrategyResume
+			logInfo("A2A 会话策略: 同Agent调用，使用 resume",
+				zap.String("fromAgent", a2aCtx.FromAgent.Name),
+				zap.String("toAgent", targetConfig.Name))
+		} else if a2aCtx.FromAgent != nil && a2aCtx.FromAgent.Role == string(targetConfig.Role) {
+			// 同角色不同实例 → 恢复会话
+			sessionStrategy = SessionStrategyResume
+			logInfo("A2A 会话策略: 同角色调用，使用 resume",
+				zap.String("fromRole", a2aCtx.FromAgent.Role),
+				zap.String("toAgent", targetConfig.Name))
+		} else {
+			// 跨角色 → 新会话，不传递历史
+			sessionStrategy = SessionStrategyNew
+			logInfo("A2A 会话策略: 跨角色调用，使用新会话",
+				zap.String("fromAgent", a2aCtx.FromAgent.Name),
+				zap.String("fromRole", a2aCtx.FromAgent.Role),
+				zap.String("toAgent", targetConfig.Name),
+				zap.String("toRole", string(targetConfig.Role)))
+
+			// 清除该 Agent 的会话缓存，确保不传递历史
+			sessionKey := fmt.Sprintf("%s:%s", threadID.String(), targetConfig.ID.String())
+			es.csMu.Lock()
+			delete(es.cliSessions, sessionKey)
+			es.csMu.Unlock()
+		}
+
 		logInfo("A2A 触发执行",
 			zap.String("fromAgent", config.Name),
 			zap.String("toAgent", targetConfig.Name),
 			zap.Int("depth", a2aCtx.Depth),
-			zap.String("threadId", threadID.String()))
+			zap.String("threadId", threadID.String()),
+			zap.String("sessionStrategy", string(sessionStrategy)))
 
 		// 触发下一个 Agent
 		es.SpawnAgent(ctx, &SpawnRequest{
-			ThreadID:    threadID,
-			ConfigID:    targetConfig.ID,
-			Role:        targetConfig.Role,
-			Input:       output,
-			ProjectPath: projectPath,
+			ThreadID:        threadID,
+			ConfigID:        targetConfig.ID,
+			Role:            targetConfig.Role,
+			Input:           output,
+			ProjectPath:     projectPath,
+			SessionStrategy: sessionStrategy,
 		})
 	}
 }

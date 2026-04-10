@@ -54,6 +54,22 @@ func (a *AgentRoleConfig) TableName() string {
 	return "agent_configs"
 }
 
+// IsSameRole 判断是否为同一角色类型
+func (a *AgentRoleConfig) IsSameRole(other *AgentRoleConfig) bool {
+	if a == nil || other == nil {
+		return false
+	}
+	return a.Role == other.Role
+}
+
+// IsSameAgent 判断是否为同一个 Agent 实例
+func (a *AgentRoleConfig) IsSameAgent(other *AgentRoleConfig) bool {
+	if a == nil || other == nil {
+		return false
+	}
+	return a.ID == other.ID
+}
+
 // CreateAgentRequest 创建Agent请求
 type CreateAgentRequest struct {
 	Name           string    `json:"name" binding:"required"`
