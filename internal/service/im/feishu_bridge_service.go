@@ -17,7 +17,8 @@ import (
 	"go.uber.org/zap"
 )
 
-// FeishuBridgeService bridges Feishu IM messages to ISDP agent execution
+// FeishuBridgeService bridges Feishu IM messages to ISDP agent execution.
+// Deprecated: use IMBridgeService with FeishuAdapter + DeliveryService.
 type FeishuBridgeService struct {
 	sessionRepo  *repo.IMSessionRepository
 	threadRepo   *repo.ThreadRepository
@@ -36,6 +37,12 @@ type FeishuBridgeService struct {
 	bufferMu    sync.Mutex
 	buffers     map[string]*chunkBuffer
 	larkHealthy bool
+
+	// dedupCache deduplicates incoming messages by message ID
+	dedupCache *DedupCache
+
+	// rateLimiter enforces outbound message rate limits per chat
+	rateLimiter *RateLimiter
 }
 
 // chunkBuffer buffers text chunks with debounce timer
@@ -69,6 +76,8 @@ func NewFeishuBridgeService(
 		pendingChats: make(map[string]bool),
 		buffers:      make(map[string]*chunkBuffer),
 		larkHealthy:  true,
+		dedupCache:   NewDedupCache(1000),
+		rateLimiter:  NewRateLimiter(20, 60*time.Second),
 	}
 }
 
@@ -83,6 +92,13 @@ func (s *FeishuBridgeService) HandleMessageEvent(ctx context.Context, event Feis
 	text := event.Message.ParseTextContent()
 	if text == "" {
 		s.logger.Debug("empty message text, ignoring")
+		return
+	}
+
+	// Check for duplicate message
+	messageID := event.Message.MessageID
+	if s.dedupCache.IsDuplicate(messageID) {
+		s.logger.Debug("duplicate message, skipping", zap.String("messageID", messageID))
 		return
 	}
 
@@ -216,10 +232,18 @@ func (s *FeishuBridgeService) OnAgentChunk(threadID, invocationID uuid.UUID, chu
 		s.accumulateAndFlush(chatID, invocationID.String(), chunk.Content)
 
 	case agent.ChunkTypeToolUse:
+		if !s.rateLimiter.TryAcquire(chatID) {
+			s.logger.Warn("rate limited, dropping message", zap.String("chatID", chatID))
+			return
+		}
 		msg := fmt.Sprintf("🔧 Using tool: %s", chunk.ToolName)
 		_ = s.larkClient.SendCardMessage(ctx, chatID, s.buildSimpleCard(msg, "blue"))
 
 	case agent.ChunkTypeToolResult:
+		if !s.rateLimiter.TryAcquire(chatID) {
+			s.logger.Warn("rate limited, dropping message", zap.String("chatID", chatID))
+			return
+		}
 		statusIcon := "✅"
 		if chunk.IsError {
 			statusIcon = "❌"
@@ -228,11 +252,19 @@ func (s *FeishuBridgeService) OnAgentChunk(threadID, invocationID uuid.UUID, chu
 		_ = s.larkClient.SendCardMessage(ctx, chatID, s.buildSimpleCard(msg, "green"))
 
 	case agent.ChunkTypeError:
+		if !s.rateLimiter.TryAcquire(chatID) {
+			s.logger.Warn("rate limited, dropping message", zap.String("chatID", chatID))
+			return
+		}
 		msg := fmt.Sprintf("⚠️ Error: %s", chunk.Content)
 		_ = s.larkClient.SendCardMessage(ctx, chatID, s.buildSimpleCard(msg, "red"))
 
 	case agent.ChunkTypeStatus:
 		if chunk.Content == "completed" || chunk.Content == "failed" || chunk.Content == "stopped" {
+			if !s.rateLimiter.TryAcquire(chatID) {
+				s.logger.Warn("rate limited, dropping message", zap.String("chatID", chatID))
+				return
+			}
 			s.sendCompletionCard(ctx, chatID, invocationID.String(), chunk.Content)
 		}
 
@@ -246,10 +278,8 @@ func (s *FeishuBridgeService) OnAgentChunk(threadID, invocationID uuid.UUID, chu
 
 // accumulateAndFlush buffers text and flushes on threshold or timer
 func (s *FeishuBridgeService) accumulateAndFlush(chatID, invocationID, text string) {
-	key := chatID + ":" + invocationID
-
 	s.bufferMu.Lock()
-	defer s.bufferMu.Unlock()
+	key := chatID + ":" + invocationID
 
 	// Get or create buffer
 	buf, exists := s.buffers[key]
@@ -263,23 +293,51 @@ func (s *FeishuBridgeService) accumulateAndFlush(chatID, invocationID, text stri
 
 	// Append text
 	buf.text.WriteString(text)
+	currentLen := buf.text.Len()
 
-	// Flush if >= 200 chars
-	if buf.text.Len() >= 200 {
-		s.flushBufferLocked(key, buf)
+	// Cancel existing timer if any
+	if buf.timer != nil {
+		buf.timer.Stop()
+	}
+
+	// Flush immediately if >= 200 chars (copy content under lock)
+	if currentLen >= 200 {
+		flushed := buf.text.String()
+		buf.text.Reset()
+		s.bufferMu.Unlock()
+		s.sendText(chatID, flushed)
 		return
 	}
 
-	// Start timer if not running
-	if buf.timer == nil {
-		buf.timer = time.AfterFunc(500*time.Millisecond, func() {
-			s.bufferMu.Lock()
-			defer s.bufferMu.Unlock()
-			if buf, exists := s.buffers[key]; exists {
-				s.flushBufferLocked(key, buf)
-			}
-		})
-	}
+	// Set debounce timer - capture content snapshot in closure
+	buf.timer = time.AfterFunc(500*time.Millisecond, func() {
+		s.bufferMu.Lock()
+		b, ok := s.buffers[key]
+		if !ok || b.text.Len() == 0 {
+			s.bufferMu.Unlock()
+			return
+		}
+		flushed := b.text.String()
+		b.text.Reset()
+		if b.timer != nil {
+			b.timer.Stop()
+		}
+		s.bufferMu.Unlock()
+		s.sendText(chatID, flushed)
+	})
+	s.bufferMu.Unlock()
+}
+
+// sendText sends text to Feishu asynchronously
+func (s *FeishuBridgeService) sendText(chatID, text string) {
+	go func() {
+		if !s.rateLimiter.TryAcquire(chatID) {
+			s.logger.Warn("rate limited, dropping message", zap.String("chatID", chatID))
+			return
+		}
+		ctx := context.Background()
+		_ = s.larkClient.SendTextMessage(ctx, chatID, text)
+	}()
 }
 
 // flushBufferLocked sends buffered text to Feishu (caller must hold bufferMu)
@@ -301,6 +359,10 @@ func (s *FeishuBridgeService) flushBufferLocked(key string, buf *chunkBuffer) {
 
 	// Send asynchronously to not block
 	go func() {
+		if !s.rateLimiter.TryAcquire(chatID) {
+			s.logger.Warn("rate limited, dropping message", zap.String("chatID", chatID))
+			return
+		}
 		ctx := context.Background()
 		_ = s.larkClient.SendTextMessage(ctx, chatID, text)
 	}()
