@@ -2,7 +2,9 @@
 package im
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"time"
@@ -90,6 +92,86 @@ func (c *LarkCLIClient) CheckHealth(ctx context.Context) error {
 			zap.String("cliPath", c.cliPath),
 			zap.Error(err))
 		return fmt.Errorf("lark-cli not installed or not in PATH: %w", err)
+	}
+
+	return nil
+}
+
+// CreateCard 创建流式卡片
+func (c *LarkCLIClient) CreateCard(ctx context.Context, chatID string) (cardID, messageID string, err error) {
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, c.cliPath, "im", "card-create", "--chat-id", chatID, "--output", "json")
+
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+
+	if err := cmd.Run(); err != nil {
+		c.logger.Error("failed to create card",
+			zap.String("chatID", chatID),
+			zap.Error(err))
+		return "", "", fmt.Errorf("failed to create card: %w", err)
+	}
+
+	var result struct {
+		CardID    string `json:"card_id"`
+		MessageID string `json:"message_id"`
+	}
+
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		c.logger.Error("failed to parse card creation response",
+			zap.String("output", stdout.String()),
+			zap.Error(err))
+		return "", "", fmt.Errorf("failed to parse card creation response: %w", err)
+	}
+
+	return result.CardID, result.MessageID, nil
+}
+
+// UpdateCardContent 更新卡片内容
+func (c *LarkCLIClient) UpdateCardContent(ctx context.Context, cardID, content string, sequence int) error {
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, c.cliPath, "im", "card-update",
+		"--card-id", cardID,
+		"--content", content,
+		"--sequence", fmt.Sprintf("%d", sequence))
+
+	if err := cmd.Run(); err != nil {
+		c.logger.Error("failed to update card content",
+			zap.String("cardID", cardID),
+			zap.Int("sequence", sequence),
+			zap.Error(err))
+		return fmt.Errorf("failed to update card content: %w", err)
+	}
+
+	return nil
+}
+
+// SetStreamingMode 设置卡片流式模式
+func (c *LarkCLIClient) SetStreamingMode(ctx context.Context, cardID string, enabled bool, sequence int) error {
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+
+	mode := "false"
+	if enabled {
+		mode = "true"
+	}
+
+	cmd := exec.CommandContext(ctx, c.cliPath, "im", "card-streaming",
+		"--card-id", cardID,
+		"--enabled", mode,
+		"--sequence", fmt.Sprintf("%d", sequence))
+
+	if err := cmd.Run(); err != nil {
+		c.logger.Error("failed to set streaming mode",
+			zap.String("cardID", cardID),
+			zap.Bool("enabled", enabled),
+			zap.Int("sequence", sequence),
+			zap.Error(err))
+		return fmt.Errorf("failed to set streaming mode: %w", err)
 	}
 
 	return nil

@@ -27,6 +27,7 @@ type Config struct {
 	Command     CommandConfig     `mapstructure:"command"`
 	Rule        RuleConfig        `mapstructure:"rule"`
 	Feishu      FeishuConfig      `mapstructure:"feishu"`
+	IM          IMConfig          `mapstructure:"im"`
 }
 
 // DataConfig 数据目录配置
@@ -241,7 +242,7 @@ type RuleConfig struct {
 	UploadMaxSize int `mapstructure:"upload_max_size"`
 }
 
-// FeishuConfig 飞书集成配置
+// FeishuConfig 飞书集成配置 (deprecated: use IM.Platforms instead)
 type FeishuConfig struct {
 	Enabled           bool   `mapstructure:"enabled"`
 	AppID             string `mapstructure:"app_id"`
@@ -255,6 +256,59 @@ type FeishuConfig struct {
 // ApplyDefaults 设置飞书配置默认值
 func (c *FeishuConfig) ApplyDefaults() {
 	if c.LarkCLIPath == "" {
+		c.LarkCLIPath = "lark-cli"
+	}
+}
+
+// IMConfig 多平台IM集成配置
+type IMConfig struct {
+	Platforms []IMPlatformConfig `mapstructure:"platforms"`
+}
+
+// IMPlatformConfig IM平台配置
+type IMPlatformConfig struct {
+	// 平台类型: "feishu", "slack", "discord"
+	Type string `mapstructure:"type"`
+	// 是否启用
+	Enabled bool `mapstructure:"enabled"`
+
+	// 通用配置
+	RateLimitMax    int           `mapstructure:"rate_limit_max"`    // 速率限制最大请求数，默认: 20
+	RateLimitWindow time.Duration `mapstructure:"rate_limit_window"` // 速率限制时间窗口，默认: 60s
+	MaxRetries      int           `mapstructure:"max_retries"`       // 最大重试次数，默认: 3
+
+	// Feishu-specific 配置
+	AppID             string `mapstructure:"app_id"`
+	AppSecret         string `mapstructure:"app_secret"`
+	VerificationToken string `mapstructure:"verification_token"`
+	EncryptKey        string `mapstructure:"encrypt_key"`
+	LarkCLIPath       string `mapstructure:"lark_cli_path"`
+	DefaultProjectID  string `mapstructure:"default_project_id"`
+
+	// TODO: Slack-specific 配置
+	// BotToken string `mapstructure:"bot_token"`
+	// SigningSecret string `mapstructure:"signing_secret"`
+
+	// TODO: Discord-specific 配置
+	// BotToken string `mapstructure:"bot_token"`
+	// ApplicationID string `mapstructure:"application_id"`
+}
+
+// ApplyDefaults 设置IM平台配置默认值
+func (c *IMPlatformConfig) ApplyDefaults() {
+	// 通用默认值
+	if c.RateLimitMax == 0 {
+		c.RateLimitMax = 20
+	}
+	if c.RateLimitWindow == 0 {
+		c.RateLimitWindow = 60 * time.Second
+	}
+	if c.MaxRetries == 0 {
+		c.MaxRetries = 3
+	}
+
+	// Feishu 平台默认值
+	if c.Type == "feishu" && c.LarkCLIPath == "" {
 		c.LarkCLIPath = "lark-cli"
 	}
 }
@@ -352,6 +406,11 @@ func Load(configPath string) (*Config, error) {
 	cfg.Database.ApplyDefaults()
 	cfg.Feishu.ApplyDefaults()
 
+	// 应用IM平台默认值
+	for i := range cfg.IM.Platforms {
+		cfg.IM.Platforms[i].ApplyDefaults()
+	}
+
 	// 验证必须的路径配置
 	if err := validateConfig(&cfg); err != nil {
 		return nil, err
@@ -400,6 +459,32 @@ func validateConfig(cfg *Config) error {
 		return fmt.Errorf("配置错误: sandbox.repos_dir 未设置")
 	}
 
+	// 验证启用的IM平台配置
+	for i, platform := range cfg.IM.Platforms {
+		if !platform.Enabled {
+			continue
+		}
+
+		if platform.Type == "" {
+			return fmt.Errorf("配置错误: im.platforms[%d].type 未设置", i)
+		}
+
+		// Feishu 平台必需配置验证
+		if platform.Type == "feishu" {
+			if platform.AppID == "" {
+				return fmt.Errorf("配置错误: im.platforms[%d] (feishu) app_id 未设置", i)
+			}
+			if platform.AppSecret == "" {
+				return fmt.Errorf("配置错误: im.platforms[%d] (feishu) app_secret 未设置", i)
+			}
+			if platform.VerificationToken == "" {
+				return fmt.Errorf("配置错误: im.platforms[%d] (feishu) verification_token 未设置", i)
+			}
+		}
+
+		// TODO: 添加 Slack/Discord 验证
+	}
+
 	return nil
 }
 
@@ -430,4 +515,7 @@ func setDefaults() {
 	viper.SetDefault("rule.upload_max_size", 2)
 	viper.SetDefault("feishu.enabled", false)
 	viper.SetDefault("feishu.lark_cli_path", "lark-cli")
+
+	// IM 平台默认值（可选配置，默认为空数组）
+	// 具体平台配置通过 ApplyDefaults() 动态设置
 }

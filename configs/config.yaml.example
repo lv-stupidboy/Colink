@@ -88,7 +88,7 @@ rule:
 agent_config:
    data_dir: ./data/agent-configs
 
-# 飞书集成配置
+# 飞书集成配置 (deprecated: use im.platforms instead)
 feishu:
    enabled: false
    app_id: ""
@@ -97,3 +97,39 @@ feishu:
    encrypt_key: ""
    lark_cli_path: lark-cli
    default_project_id: ""
+
+# Multi-platform IM configuration
+im:
+  platforms:
+    # Feishu (Lark) platform
+    - type: feishu
+      enabled: false
+      # Rate limiting
+      rate_limit_max: 20
+      rate_limit_window: 60s
+      max_retries: 3
+      # Feishu-specific
+      app_id: ""
+      app_secret: ""
+      verification_token: ""
+      encrypt_key: ""
+      lark_cli_path: lark-cli
+      default_project_id: ""
+
+    # Slack platform (future)
+    # - type: slack
+    #   enabled: false
+    #   rate_limit_max: 20
+    #   rate_limit_window: 60s
+    #   max_retries: 3
+    #   bot_token: ""
+    #   signing_secret: ""
+
+    # Discord platform (future)
+    # - type: discord
+    #   enabled: false
+    #   rate_limit_max: 20
+    #   rate_limit_window: 60s
+    #   max_retries: 3
+    #   bot_token: ""
+    #   application_id: ""
