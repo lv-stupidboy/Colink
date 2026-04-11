@@ -86,6 +86,47 @@ sql-change/
 - 安装器统一调用 `migrate up` 命令
 - goose 自动处理首次安装和版本升级
 
+**migrate 工具使用：**
+
+```bash
+# 构建工具
+go build -o bin/migrate.exe ./cmd/migrate
+
+# 查看当前版本
+bin/migrate.exe version --db ./data/sqlite/colink.db
+
+# 查看迁移状态
+bin/migrate.exe status --db ./data/sqlite/colink.db --version 1.1.0
+
+# 执行版本迁移（自动执行未执行的脚本，记录版本）
+bin/migrate.exe up --db ./data/sqlite/colink.db --version 1.1.0
+
+# 执行单个 SQL 文件（不记录版本，用于开发协作）
+bin/migrate.exe run --db ./data/sqlite/colink.db --file sql-change/v1.1.0/sqlite/xxx.sql
+
+# 预览模式（不执行）
+bin/migrate.exe up --db ./data/sqlite/colink.db --version 1.1.0 --dry-run
+bin/migrate.exe run --db ./data/sqlite/colink.db --file xxx.sql --dry-run
+
+# 执行前备份
+bin/migrate.exe up --db ./data/sqlite/colink.db --version 1.1.0 --backup
+bin/migrate.exe run --db ./data/sqlite/colink.db --file xxx.sql --backup
+
+# JSON 输出（用于脚本集成）
+bin/migrate.exe up --db ./data/sqlite/colink.db --version 1.1.0 --json
+```
+
+**命令对比：**
+| 命令 | 执行范围 | 版本记录 | 适用场景 |
+|------|----------|----------|----------|
+| `up` | 版本目录下所有未执行的脚本 | 记录 goose 版本 | 正式迁移、安装器自动执行 |
+| `run` | 单个指定文件 | 不记录版本 | 开发协作、手动执行其他人的变更 |
+
+**开发协作流程：**
+1. 拉取代码后，检查 `sql-change/` 目录是否有新增 SQL 文件
+2. 使用 `migrate run --file xxx.sql` 执行其他开发人员的变更
+3. 或使用 `migrate up --version xxx` 执行整个版本目录的变更
+
 **新增变更工作流：**
 1. 在 `sql-change/v{版本}/{db_type}/` 下创建新 SQL 文件
 2. 文件名遵循命名规范，内容包含变更说明注释
