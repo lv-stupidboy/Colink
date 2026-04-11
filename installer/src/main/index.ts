@@ -396,27 +396,7 @@ ipcMain.handle('start-installation', async (_event, config) => {
 
   const result = await runInstallation(configWithVersion, resourcePath, mainWindow!, sourceDir)
 
-  // 如果有数据库变更，弹窗提示
-  if (result.success && result.dbChanges && result.dbChanges.length > 0) {
-    let detail = '本次升级涉及以下数据库变更，请手动执行：\n\n'
-    for (const change of result.dbChanges) {
-      detail += `${change.version}：\n`
-      for (const file of change.files) {
-        detail += `  - ${file}\n`
-      }
-      detail += '\n'
-    }
-    detail += `SQL文件位置：${config.installDir}\\data\\sql-change\\migrations\\`
-
-    dialog.showMessageBox(mainWindow!, {
-      type: 'warning',
-      title: '数据库变更提示',
-      message: '检测到数据库变更',
-      detail,
-      buttons: ['我知道了']
-    })
-  }
-
+  // 数据库变更提示已通过进度信息发送，无需额外弹框
   return result
 })
 
