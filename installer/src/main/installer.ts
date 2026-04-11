@@ -219,51 +219,56 @@ function compareVersions(a: [number, number, number], b: [number, number, number
 
 // ==================== 配置合并 ====================
 
-// 合并用户配置与模板配置（用户值优先）
-// 支持 overrides 参数强制覆盖特定字段
+// 合并配置文件
+// 合并优先级（从高到低）：
+// 1. overrides（安装器页面修改的字段：databaseType, serverPort, customYaml）
+// 2. 已有用户配置文件（升级场景）
+// 3. 模板默认值（新字段）
 export async function mergeConfigFiles(
   userConfigPath: string,
   templateConfigPath: string,
-  overrides?: { databaseType?: 'sqlite' | 'mysql'; serverPort?: number }
+  overrides?: {
+    databaseType?: 'sqlite' | 'mysql'
+    serverPort?: number
+    customYaml?: string  // 用户在预览中编辑的完整 YAML
+  }
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    // 如果用户配置不存在，直接复制模板
-    if (!existsSync(userConfigPath)) {
-      const templateContent = await readFile(templateConfigPath, 'utf-8')
-      let finalContent = templateContent
-
-      // 应用 overrides
-      if (overrides) {
-        const parsed = YAML.parse(templateContent)
-        if (overrides.databaseType && parsed?.database) {
-          parsed.database.type = overrides.databaseType
-        }
-        if (overrides.serverPort && parsed?.server) {
-          parsed.server.port = overrides.serverPort
-        }
-        finalContent = YAML.stringify(parsed)
-      }
-
-      await writeFile(userConfigPath, finalContent, 'utf-8')
-      return { success: true }
-    }
-
     // 读取模板配置
-    if (!existsSync(templateConfigPath)) {
-      return { success: true } // 模板不存在，跳过合并
+    let templateYaml: any = {}
+    if (existsSync(templateConfigPath)) {
+      const templateContent = await readFile(templateConfigPath, 'utf-8')
+      templateYaml = YAML.parse(templateContent)
     }
 
-    const templateContent = await readFile(templateConfigPath, 'utf-8')
-    const userContent = await readFile(userConfigPath, 'utf-8')
+    // 解析已有用户配置（如果存在）
+    let userYaml: any = {}
+    if (existsSync(userConfigPath)) {
+      const userContent = await readFile(userConfigPath, 'utf-8')
+      userYaml = YAML.parse(userContent)
+    }
 
-    // 解析 YAML
-    const templateYaml = YAML.parse(templateContent)
-    const userYaml = YAML.parse(userContent)
+    // 解析 customYaml（如果提供）
+    let customYamlParsed: any = {}
+    if (overrides?.customYaml) {
+      try {
+        customYamlParsed = YAML.parse(overrides.customYaml)
+      } catch (e) {
+        console.warn('[Config] Failed to parse customYaml, ignoring:', e)
+      }
+    }
 
-    // 合并配置：用户值优先，模板补充缺失字段
-    let mergedYaml = mergeObjects(userYaml, templateYaml)
+    // 合并顺序：template → user → customYaml → overrides（优先级递增）
+    // 1. 先用模板作为基础
+    let mergedYaml = { ...templateYaml }
 
-    // 应用 overrides（强制覆盖）
+    // 2. 合入已有用户配置（用户值覆盖模板默认值）
+    mergedYaml = mergeObjects(userYaml, mergedYaml)
+
+    // 3. 合入 customYaml（安装器编辑的值覆盖已有配置）
+    mergedYaml = mergeObjects(customYamlParsed, mergedYaml)
+
+    // 4. 强制覆盖 overrides 中的特定字段（确保安装器页面的设置生效）
     if (overrides) {
       if (overrides.databaseType && mergedYaml?.database) {
         mergedYaml.database.type = overrides.databaseType
@@ -273,11 +278,16 @@ export async function mergeConfigFiles(
       }
     }
 
-    // 写回配置文件
+    // 写入配置文件
     const mergedContent = YAML.stringify(mergedYaml)
+    await mkdir(dirname(userConfigPath), { recursive: true })
     await writeFile(userConfigPath, mergedContent, 'utf-8')
 
-    console.log('[Config] Merged with template, overrides:', overrides)
+    console.log('[Config] Merged successfully', {
+      hasUserConfig: existsSync(userConfigPath),
+      hasCustomYaml: !!overrides?.customYaml,
+      overrides: { databaseType: overrides?.databaseType, serverPort: overrides?.serverPort }
+    })
     return { success: true }
   } catch (error) {
     console.error('[Config] Merge failed:', error)
@@ -1020,54 +1030,25 @@ export async function runInstallation(
     const configPath = join(config.installDir, 'data', 'configs', 'config.yaml')
     const templatePath = join(config.installDir, 'data', 'configs', 'config.yaml.example')
 
-    if (existsSync(configPath)) {
-      // 已有配置文件，执行合并（强制更新数据库类型）
-      sendProgress('config', 'running', 50, '合并配置文件...', '保留用户配置，更新数据库类型')
+    // 构建合并参数（安装器页面修改的配置优先）
+    const overrides = {
+      databaseType: config.database.type || 'sqlite',
+      serverPort: config.serverPort || 8080,
+      customYaml: config.customYaml  // 用户在预览中编辑的 YAML 内容
+    }
 
-      // 用户选择的配置作为 overrides
-      const overrides = {
-        databaseType: config.database.type || 'sqlite',
-        serverPort: config.serverPort || 8080
-      }
+    // 统一调用 mergeConfigFiles（支持新安装和升级场景）
+    const mergeResult = await mergeConfigFiles(configPath, templatePath, overrides)
 
-      const mergeResult = await mergeConfigFiles(configPath, templatePath, overrides)
-      if (!mergeResult.success) {
-        console.warn('[Config] Merge failed, keeping existing config:', mergeResult.error)
-        sendProgress('config', 'warning', 100, '配置合并失败，保留现有配置', mergeResult.error)
-      } else {
-        const dbInfo = overrides.databaseType === 'sqlite'
-          ? 'SQLite: ./data/sqlite/colink.db'
-          : `MySQL: ${config.database.host}:${config.database.port}/${config.database.database}`
-        sendProgress('config', 'success', 100, '配置已合并', `数据库类型已更新为 ${overrides.databaseType}\n${dbInfo}`)
-      }
+    if (!mergeResult.success) {
+      console.warn('[Config] Merge failed:', mergeResult.error)
+      sendProgress('config', 'warning', 100, '配置处理失败', mergeResult.error)
     } else {
-      // 新安装，从模板生成配置文件
-      sendProgress('config', 'running', 50, '生成配置文件...', '从模板生成配置，替换数据库连接信息')
-
-      // 确保模板文件存在
-      if (!existsSync(templatePath)) {
-        sendProgress('config', 'failed', 0, '模板文件不存在', `缺少配置模板: ${templatePath}`)
-        return { success: false, error: '配置模板文件不存在' }
-      }
-
-      // 从模板生成配置（使用用户选择的数据库类型）
-      const configContent = await generateConfigFromTemplate(
-        templatePath,
-        config.database.type || 'sqlite',
-        config.database,
-        config.serverPort || 8080
-      )
-      const configResult = await generateConfigFile(configPath, configContent)
-      if (!configResult.success) {
-        sendProgress('config', 'failed', 0, configResult.error, `配置文件生成失败: ${configResult.error}`)
-        return { success: false, error: configResult.error }
-      }
-
-      // 显示配置信息
-      const dbInfo = config.database.type === 'sqlite'
+      const dbInfo = overrides.databaseType === 'sqlite'
         ? 'SQLite: ./data/sqlite/colink.db'
         : `MySQL: ${config.database.host}:${config.database.port}/${config.database.database}`
-      sendProgress('config', 'success', 100, '配置文件已生成', dbInfo)
+      const customInfo = overrides.customYaml ? '（含自定义编辑）' : ''
+      sendProgress('config', 'success', 100, '配置已生成', `数据库类型: ${overrides.databaseType}${customInfo}\n${dbInfo}`)
     }
 
     // Step 5: 创建快捷方式

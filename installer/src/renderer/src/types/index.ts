@@ -56,6 +56,7 @@ export interface InstallConfig {
   launchNow: boolean
   keepData?: boolean
   verification?: VerificationState
+  customYaml?: string  // 用户在预览中编辑的完整 YAML 内容
 }
 
 // 安装进度

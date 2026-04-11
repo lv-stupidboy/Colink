@@ -127,7 +127,8 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
     const newMysqlConfig = { ...mysqlConfig, [field]: value }
     setMysqlConfig(newMysqlConfig)
     onConfigUpdate({
-      database: { type: 'mysql', ...newMysqlConfig }
+      database: { type: 'mysql', ...newMysqlConfig },
+      customYaml: undefined  // 清除自定义 YAML，让预览重新生成
     })
     setConfigMerged(false)
   }
@@ -164,6 +165,8 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
       }
       setEditingYaml(false)
       setYamlError(null)
+      // 将编辑后的 YAML 内容传递到 config
+      onConfigUpdate({ customYaml: mergedConfigYaml })
       message.success('配置已更新')
     } catch (e) {
       setYamlError('配置格式错误')
@@ -203,12 +206,14 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
               if (newType === 'mysql') {
                 // 切换到 MySQL 时使用保存的 mysqlConfig
                 onConfigUpdate({
-                  database: { type: 'mysql', ...mysqlConfig }
+                  database: { type: 'mysql', ...mysqlConfig },
+                  customYaml: undefined  // 清除自定义 YAML
                 })
               } else {
                 // 切换到 SQLite 时只保留 type
                 onConfigUpdate({
-                  database: { type: 'sqlite' }
+                  database: { type: 'sqlite' },
+                  customYaml: undefined  // 清除自定义 YAML
                 })
               }
               setConfigMerged(false)
@@ -334,7 +339,10 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
                 type="number"
                 value={config.serverPort || 8080}
                 onChange={(e) => {
-                  onConfigUpdate({ serverPort: parseInt(e.target.value) || 8080 })
+                  onConfigUpdate({
+                    serverPort: parseInt(e.target.value) || 8080,
+                    customYaml: undefined  // 清除自定义 YAML
+                  })
                   setConfigMerged(false)
                 }}
                 placeholder="8080"
