@@ -10,6 +10,7 @@ import (
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
 	"github.com/anthropic/isdp/internal/service/agent"
+	"github.com/anthropic/isdp/pkg/config"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
@@ -76,8 +77,8 @@ func TestIMBridgeService_HandleInboundMessage_CreatesSessionAndSpawns(t *testing
 	defer db.Close()
 
 	sessionRepo := repo.NewIMSessionRepository(db)
-	threadRepo := repo.NewThreadRepository(db)
-	projectRepo := repo.NewProjectRepository(db)
+	threadRepo := repo.NewThreadRepository(db, config.DBTypeSQLite)
+	projectRepo := repo.NewProjectRepository(db, config.DBTypeSQLite)
 	spawner := &mockSpawner{}
 
 	svc := NewIMBridgeService(sessionRepo, threadRepo, projectRepo, spawner, nil, NewSessionLock(), zap.NewNop())
@@ -111,8 +112,8 @@ func TestIMBridgeService_HandleInboundMessage_ReusesSession(t *testing.T) {
 	defer db.Close()
 
 	sessionRepo := repo.NewIMSessionRepository(db)
-	threadRepo := repo.NewThreadRepository(db)
-	projectRepo := repo.NewProjectRepository(db)
+	threadRepo := repo.NewThreadRepository(db, config.DBTypeSQLite)
+	projectRepo := repo.NewProjectRepository(db, config.DBTypeSQLite)
 	spawner := &mockSpawner{}
 
 	svc := NewIMBridgeService(sessionRepo, threadRepo, projectRepo, spawner, nil, NewSessionLock(), zap.NewNop())
@@ -147,7 +148,7 @@ func TestIMBridgeService_OnAgentChunk_RoutesTextAndCard(t *testing.T) {
 	defer db.Close()
 
 	sessionRepo := repo.NewIMSessionRepository(db)
-	threadRepo := repo.NewThreadRepository(db)
+	threadRepo := repo.NewThreadRepository(db, config.DBTypeSQLite)
 
 	threadID := uuid.New()
 	thread := &model.Thread{ID: threadID, ProjectID: uuid.Nil, Name: "test", Status: model.ThreadStatusIdle, CurrentPhase: model.PhaseRequirement}
@@ -189,7 +190,7 @@ func TestIMBridgeService_OnAgentChunk_StatusIgnoredWhenNotTerminal(t *testing.T)
 	defer db.Close()
 
 	sessionRepo := repo.NewIMSessionRepository(db)
-	threadRepo := repo.NewThreadRepository(db)
+	threadRepo := repo.NewThreadRepository(db, config.DBTypeSQLite)
 
 	threadID := uuid.New()
 	thread := &model.Thread{ID: threadID, ProjectID: uuid.Nil, Name: "test", Status: model.ThreadStatusIdle, CurrentPhase: model.PhaseRequirement}

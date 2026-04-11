@@ -242,6 +242,11 @@ type RuleConfig struct {
 	UploadMaxSize int `mapstructure:"upload_max_size"`
 }
 
+const (
+	EventModeWebhook  = "webhook"
+	EventModeListener = "listener"
+)
+
 // FeishuConfig 飞书集成配置 (deprecated: use IM.Platforms instead)
 type FeishuConfig struct {
 	Enabled           bool   `mapstructure:"enabled"`
@@ -251,12 +256,16 @@ type FeishuConfig struct {
 	EncryptKey        string `mapstructure:"encrypt_key"`
 	LarkCLIPath       string `mapstructure:"lark_cli_path"`
 	DefaultProjectID  string `mapstructure:"default_project_id"`
+	EventMode         string `mapstructure:"event_mode"`
 }
 
 // ApplyDefaults 设置飞书配置默认值
 func (c *FeishuConfig) ApplyDefaults() {
 	if c.LarkCLIPath == "" {
 		c.LarkCLIPath = "lark-cli"
+	}
+	if c.EventMode == "" {
+		c.EventMode = EventModeListener
 	}
 }
 
@@ -284,6 +293,7 @@ type IMPlatformConfig struct {
 	EncryptKey        string `mapstructure:"encrypt_key"`
 	LarkCLIPath       string `mapstructure:"lark_cli_path"`
 	DefaultProjectID  string `mapstructure:"default_project_id"`
+	EventMode         string `mapstructure:"event_mode"`
 
 	// TODO: Slack-specific 配置
 	// BotToken string `mapstructure:"bot_token"`
@@ -310,6 +320,9 @@ func (c *IMPlatformConfig) ApplyDefaults() {
 	// Feishu 平台默认值
 	if c.Type == "feishu" && c.LarkCLIPath == "" {
 		c.LarkCLIPath = "lark-cli"
+	}
+	if c.Type == "feishu" && c.EventMode == "" {
+		c.EventMode = EventModeListener
 	}
 }
 
@@ -515,6 +528,7 @@ func setDefaults() {
 	viper.SetDefault("rule.upload_max_size", 2)
 	viper.SetDefault("feishu.enabled", false)
 	viper.SetDefault("feishu.lark_cli_path", "lark-cli")
+	viper.SetDefault("feishu.event_mode", EventModeListener)
 
 	// IM 平台默认值（可选配置，默认为空数组）
 	// 具体平台配置通过 ApplyDefaults() 动态设置

@@ -97,6 +97,9 @@ feishu:
    encrypt_key: ""
    lark_cli_path: lark-cli
    default_project_id: ""
+   # Event mode: "listener" (default) uses lark-cli WebSocket - no public URL needed
+   #             "webhook" uses HTTP webhook - requires public URL for Feishu to call
+   event_mode: listener
 
 # Multi-platform IM configuration
 im:
@@ -115,6 +118,7 @@ im:
       encrypt_key: ""
       lark_cli_path: lark-cli
       default_project_id: ""
+      event_mode: listener
 
     # Slack platform (future)
     # - type: slack

@@ -10,6 +10,7 @@ import (
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
 	"github.com/anthropic/isdp/internal/service/agent"
+	"github.com/anthropic/isdp/pkg/config"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
@@ -163,8 +164,8 @@ func TestFullIMFlow(t *testing.T) {
 	defer db.Close()
 
 	sessionRepo := repo.NewIMSessionRepository(db)
-	threadRepo := repo.NewThreadRepository(db)
-	projectRepo := repo.NewProjectRepository(db)
+	threadRepo := repo.NewThreadRepository(db, config.DBTypeSQLite)
+	projectRepo := repo.NewProjectRepository(db, config.DBTypeSQLite)
 
 	adapter := newIntegrationTestAdapter("feishu", 4000)
 	rateLimiter := NewRateLimiter(20, 60*time.Second)

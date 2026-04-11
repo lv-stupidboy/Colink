@@ -323,6 +323,7 @@ func main() {
 
 	// ========== IM Integration ==========
 	var imBridgeSvc *im.IMBridgeService
+	var eventListener *im.EventListener
 	if cfg.Feishu.Enabled {
 		imSessionRepo := repo.NewIMSessionRepository(db)
 		larkClient := im.NewLarkCLIClient(cfg.Feishu.LarkCLIPath, logger)
@@ -337,7 +338,30 @@ func main() {
 		imBridgeSvc = im.NewIMBridgeService(imSessionRepo, threadRepo, projectRepo, orchestrator, wsHub, nil, logger)
 		imBridgeSvc.RegisterAdapter(feishuAdapter, feishuDelivery)
 		orchestrator.GetExecutionService().AddChunkListener(imBridgeSvc.OnAgentChunk)
-		logger.Info("IM integration enabled", zap.String("platform", "feishu"))
+
+		eventMode := cfg.Feishu.EventMode
+		if eventMode == "" {
+			eventMode = config.EventModeListener
+		}
+
+		switch eventMode {
+		case config.EventModeListener:
+			eventListener = im.NewEventListener(cfg.Feishu.LarkCLIPath, imBridgeSvc, logger)
+			if err := eventListener.Start(context.Background()); err != nil {
+				logger.Error("Failed to start IM event listener, falling back to webhook mode", zap.Error(err))
+				eventListener = nil
+			}
+		case config.EventModeWebhook:
+			logger.Info("IM event mode: webhook (requires public URL)")
+		default:
+			logger.Warn("Unknown event_mode, defaulting to listener", zap.String("event_mode", eventMode))
+			eventListener = im.NewEventListener(cfg.Feishu.LarkCLIPath, imBridgeSvc, logger)
+			if err := eventListener.Start(context.Background()); err != nil {
+				logger.Error("Failed to start IM event listener", zap.Error(err))
+				eventListener = nil
+			}
+		}
+		logger.Info("IM integration enabled", zap.String("platform", "feishu"), zap.String("event_mode", eventMode))
 	}
 
 	// 设置Gin模式
@@ -461,8 +485,8 @@ func main() {
 	wsHandler := ws.NewHandler(wsHub, orchestrator, orchestrator)
 	wsHandler.RegisterRoutes(v1)
 
-	// 飞书 Webhook Handler
-	if imBridgeSvc != nil {
+	// 飞书 Webhook Handler (仅 webhook 模式)
+	if imBridgeSvc != nil && eventListener == nil {
 		feishuHandler := api.NewFeishuWebhookHandler(imBridgeSvc, cfg.Feishu.VerificationToken)
 		feishuHandler.RegisterRoutes(v1)
 	}
@@ -520,6 +544,10 @@ func main() {
 	<-quit
 
 	logger.Info("Shutting down server...")
+
+	if eventListener != nil {
+		eventListener.Stop()
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -634,7 +662,6 @@ func requestLogger(logger *zap.Logger) gin.HandlerFunc {
 		}
 	}
 }
-
 
 // performLogMaintenance 执行日志维护任务
 func performLogMaintenance(logger *zap.Logger, logDir string) {

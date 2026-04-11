@@ -6,21 +6,44 @@ echo "=== Colink DevContainer Setup ==="
 cd /workspaces/isdp
 
 # ── Go dependencies ─────────────────────────────────────────
-echo "[1/6] Installing Go dependencies..."
+echo "[1/8] Installing Go dependencies..."
 go mod download
 
 # ── Frontend dependencies ───────────────────────────────────
-echo "[2/6] Installing frontend dependencies..."
+echo "[2/8] Installing frontend dependencies..."
 cd /workspaces/isdp/web
 rm -rf node_modules
 npm install
 
 # ── Playwright browsers ─────────────────────────────────────
-echo "[3/6] Installing Playwright browsers..."
+echo "[3/8] Installing Playwright browsers..."
 npx playwright install chromium 2>/dev/null || echo "  Playwright install skipped (non-fatal)"
 
+# ── agent-browser ───────────────────────────────────────────
+echo "[4/8] Installing agent-browser..."
+npm install -g agent-browser 2>/dev/null || echo "  agent-browser install skipped"
+
+# Chromium: ARM64 has no Chrome for Testing, use system package
+ARCH=$(uname -m)
+if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
+    if ! chromium --version &>/dev/null; then
+        sudo apt-get update -qq && sudo apt-get install -y -qq chromium 2>/dev/null \
+            || echo "  Chromium install skipped"
+    fi
+    mkdir -p ~/.agent-browser
+    if [ ! -f ~/.agent-browser/config.json ]; then
+        echo '{"executablePath":"/usr/bin/chromium"}' > ~/.agent-browser/config.json
+    fi
+else
+    agent-browser install 2>/dev/null || echo "  agent-browser Chrome install skipped"
+fi
+
+# ── agent-browser skills for opencode ───────────────────────
+echo "[5/8] Installing agent-browser skills..."
+npx skills add vercel-labs/agent-browser --yes 2>/dev/null || echo "  agent-browser skills install skipped"
+
 # ── Dev config ──────────────────────────────────────────────
-echo "[4/6] Generating dev config..."
+echo "[6/8] Generating dev config..."
 cd /workspaces/isdp
 
 DEV_CONFIG="configs/config.yaml"
@@ -105,12 +128,12 @@ else
 fi
 
 # ── Data directories ────────────────────────────────────────
-echo "[5/6] Creating data directories..."
+echo "[7/8] Creating data directories..."
 sudo mkdir -p data/configs data/logs data/agent-assets data/agent-configs data/repos
 sudo chown -R "$(id -u):$(id -g)" data
 
 # ── Verify tooling ──────────────────────────────────────────
-echo "[6/6] Verifying tooling..."
+echo "[8/8] Verifying tooling..."
 echo "  go:    $(go version | awk '{print $3}')"
 echo "  node:  $(node --version)"
 echo "  npm:   $(npm --version)"
@@ -118,6 +141,7 @@ echo "  npm:   $(npm --version)"
 if claude --version &>/dev/null; then echo "  claude: OK"; else echo "  claude: NOT FOUND"; fi
 if opencode --version &>/dev/null; then echo "  opencode: OK"; else echo "  opencode: NOT FOUND"; fi
 if golangci-lint --version &>/dev/null; then echo "  golangci-lint: OK"; else echo "  golangci-lint: NOT FOUND"; fi
+if agent-browser --version &>/dev/null; then echo "  agent-browser: $(agent-browser --version)"; else echo "  agent-browser: NOT FOUND"; fi
 
 echo ""
 echo "=== Setup Complete ==="
