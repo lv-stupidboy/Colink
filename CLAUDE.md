@@ -61,39 +61,54 @@ color: #333333;
 
 ### 数据库变更
 
-迁移脚本位于 `sql-change/` 目录：
+迁移脚本位于 `sql-change/` 目录，按版本号组织：
 
 ```
 sql-change/
-├── init/                     # 初始化脚本
-│   ├── init-mysql.sql        # MySQL 初始化（过渡期保留）
-│   └── init-sqlite.sql       # SQLite 初始化（首次安装执行）
-├── history/                  # 历史归档（1.0.0 之前，仅 MySQL，不再使用）
-└── v1.0.1/                   # 版本增量变更（按版本号目录）
-    ├── mysql/                # MySQL 迁移脚本（过渡期保留）
-    │   ├── 202604110001_fix_sandboxes_table.sql
-    │   └── 202604110002_fix_skills_source_type_comment.sql
-    └── sqlite/               # SQLite 迁移脚本
-        ├── 202604110001_fix_sandboxes_table.sql
-        └── 202604110002_fix_skills_source_type_comment.sql
+├── history/              # 历史归档（不再使用）
+├── v1.0.0/               # 版本目录
+│   └── mysql/            # 按数据库类型分目录
+│       └── *.sql
+└── v1.1.0/
+    ├── mysql/
+    └── sqlite/
 ```
 
-**归档规则：**
-- 新版本发布时创建 `v{版本号}` 目录，如 `v1.0.1`
-- 目录下按数据库类型分 `mysql/` 和 `sqlite/` 子目录
-- 文件命名：`YYYYMMDDNNNN_description.sql`（日期+序号+描述）
-- **MySQL 禁止使用 `DROP COLUMN IF EXISTS`**（MySQL 5.7 不支持）
-- **SQLite 表结构变更需重建表**（SQLite ALTER TABLE 限制较多）
+**管理规则：**
+- 新版本发布时创建 `v{版本号}` 目录
+- 目录下按数据库类型分 `mysql/` 和 `sqlite/`
+- 文件命名：`{序号}_description.sql`
+- 必须包含 `-- +goose Up` 和 `-- +goose Down` 注释
+- MySQL 禁止 `DROP COLUMN IF EXISTS`（5.7 不支持）
+- SQLite 表结构变更需重建表
 
-**执行流程：**
-- 新环境 SQLite：执行 `init/init-sqlite.sql`
-- 新环境 MySQL：执行 `init/init-mysql.sql`（过渡期保留）
-- 版本升级：执行 `v{版本}/{db_type}/` 下对应 SQL
+**执行方式：**
+- 安装器统一调用 `migrate up` 命令
+- goose 自动处理首次安装和版本升级
 
-**过渡期策略：**
-- SQLite 和 MySQL 表结构保持一致
-- 迁移脚本需提供双版本
-- 后续移除 MySQL 后不再新增 mysql/ 目录
+**新增变更工作流：**
+1. 在 `sql-change/v{版本}/{db_type}/` 下创建新 SQL 文件
+2. 文件名遵循命名规范，内容包含变更说明注释
+3. 同步更新 `init/init-sqlite.sql`（合并变更内容）
+4. 测试验证后提交代码
+
+**团队数据库命名：**
+- 正式数据库：`product`（团队共享，谨慎操作）
+- 开发数据库：`dev_<姓名拼音>`（如 dev_zhangsan）
+- 账号密码通过团队内部渠道获取，严禁提交到代码仓库
+
+**主要表结构：**
+| 表名 | 说明 |
+|------|------|
+| base_agents | 基础 Agent 配置（Claude、OpenAI 等） |
+| workflow_templates | 工作流模板 |
+| projects | 项目信息 |
+| threads | 开发会话 |
+| messages | 对话消息 |
+| agent_configs | Agent 角色配置 |
+| agent_invocations | Agent 调用记录 |
+| artifacts | 开发产物 |
+| sandboxes | 沙箱容器 |
 
 ### 数据库类型
 - 默认使用 SQLite（`modernc.org/sqlite` 纯 Go 驱动，无需 CGO）

@@ -15,11 +15,12 @@ export type InstallMode = 'auto' | 'manual' | 'skip'
 
 // 数据库配置
 export interface DatabaseConfig {
-  host: string
-  port: number
-  database: string
-  username: string
-  password: string
+  type: 'sqlite' | 'mysql'  // 数据库类型，默认 sqlite
+  host?: string             // MySQL 主机
+  port?: number             // MySQL 端口
+  database?: string         // MySQL 数据库名
+  username?: string         // MySQL 用户名
+  password?: string         // MySQL 密码
 }
 
 // 验证请求

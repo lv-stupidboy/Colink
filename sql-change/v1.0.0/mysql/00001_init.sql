@@ -1,7 +1,10 @@
+-- +goose Up
+-- +goose StatementBegin
+
 -- ISDP MySQL 数据库初始化脚本
 -- 版本: 1.0.0
 -- 生成日期: 2026-04-09
--- 说明: 新环境初始化时执行此脚本创建所有表结构（过渡期保留）
+-- 说明: MySQL 首次支持，完整表结构（过渡期保留）
 -- 注意: 主表在前，绑定表在后（因为绑定表有外键约束）
 
 SET NAMES utf8mb4;
@@ -428,3 +431,10 @@ CREATE TABLE `subagent_skill_bindings` (
   CONSTRAINT `fk_subagent_skill_subagent` FOREIGN KEY (`subagent_id`) REFERENCES `subagents` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Subagent与Skill关联表'
 ;
+
+-- +goose StatementEnd
+
+-- +goose Down
+-- +goose StatementBegin
+-- MySQL 初始化脚本无需回滚，首次安装时会创建完整结构
+-- +goose StatementEnd

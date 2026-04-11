@@ -35,13 +35,19 @@ Remove-Item -Path "..\bin\*" -Force -ErrorAction SilentlyContinue
 Remove-Item -Path "release\*.zip" -Force -ErrorAction SilentlyContinue
 
 # 2. Build backend
-Write-Host "[2/6] Building backend..." -ForegroundColor Cyan
+Write-Host "[2/7] Building backend..." -ForegroundColor Cyan
 Push-Location ..
 go build -ldflags "-X main.Version=$FULL_VERSION" -o bin\colink-server.exe .\cmd\server
 Pop-Location
 
+# 2.1 Build migrate tool
+Write-Host "[2.1/7] Building migrate tool..." -ForegroundColor Cyan
+Push-Location ..
+go build -o bin\migrate.exe .\cmd\migrate
+Pop-Location
+
 # 3. Build frontend (ensure dependencies first)
-Write-Host "[3/6] Building frontend..." -ForegroundColor Cyan
+Write-Host "[3/7] Building frontend..." -ForegroundColor Cyan
 Push-Location ..\web
 if (-not (Test-Path "node_modules")) {
     Write-Host "  Installing frontend dependencies..." -ForegroundColor Yellow
@@ -51,16 +57,16 @@ npm run build
 Pop-Location
 
 # 4. Build installer
-Write-Host "[4/6] Building installer..." -ForegroundColor Cyan
+Write-Host "[4/7] Building installer..." -ForegroundColor Cyan
 npm install
 npm run build
 
 # 5. Package launcher
-Write-Host "[5/6] Packaging launcher..." -ForegroundColor Cyan
+Write-Host "[5/7] Packaging launcher..." -ForegroundColor Cyan
 npm run package:launcher
 
 # 6. Package setup
-Write-Host "[6/6] Packaging setup..." -ForegroundColor Cyan
+Write-Host "[6/7] Packaging setup..." -ForegroundColor Cyan
 npm run package:setup
 
 # 7. Create ZIP

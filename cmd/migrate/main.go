@@ -8,7 +8,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/pressly/goose/v3"
@@ -20,7 +19,6 @@ type Result struct {
 	Success        bool   `json:"success"`
 	CurrentVersion int64  `json:"currentVersion,omitempty"`
 	TargetVersion  int64  `json:"targetVersion,omitempty"`
-	Init           bool   `json:"init,omitempty"`
 	Migrations     int    `json:"migrations,omitempty"`
 	BackupPath     string `json:"backupPath,omitempty"`
 	Error          string `json:"error,omitempty"`
@@ -29,16 +27,15 @@ type Result struct {
 
 // CLI 参数
 type CLIArgs struct {
-	Command        string // init, up, down, status, reset, version
-	DBPath         string // SQLite 数据库路径
-	Version        string // 版本号，如 "1.0.1"
-	InitSQLPath    string // 初始化 SQL 路径
-	MigrationsDir  string // 迁移脚本目录
-	Target         int64  // 目标 goose 版本（可选）
-	DryRun         bool   // 预览模式
-	Backup         bool   // 迁移前备份
-	Verbose        bool   // 详细输出
-	JSONOutput     bool   // JSON 格式输出
+	Command       string // up, down, status, version
+	DBPath        string // SQLite 数据库路径
+	Version       string // 版本号，如 "1.1.0"
+	MigrationsDir string // 迁移脚本目录
+	Target        int64  // 目标 goose 版本（可选）
+	DryRun        bool   // 预览模式
+	Backup        bool   // 迁移前备份
+	Verbose       bool   // 详细输出
+	JSONOutput    bool   // JSON 格式输出
 }
 
 func main() {
@@ -52,28 +49,23 @@ func main() {
 
 	// 执行命令
 	switch args.Command {
-	case "init":
-		runInit(args)
 	case "status":
-		runWithDB(args, runStatus)
+		runStatus(args)
 	case "version":
-		runWithDB(args, runVersion)
+		runVersion(args)
 	case "up":
-		runWithDB(args, runUp)
+		runUp(args)
 	case "down":
-		runWithDB(args, runDown)
-	case "reset":
-		runWithDB(args, runReset)
+		runDown(args)
 	default:
-		outputError(args.JSONOutput, fmt.Sprintf("未知命令: %s\n可用命令: init, up, down, status, reset, version", args.Command))
+		outputError(args.JSONOutput, fmt.Sprintf("未知命令: %s\n可用命令: up, down, status, version", args.Command))
 		os.Exit(1)
 	}
 }
 
 func parseArgs() CLIArgs {
 	args := CLIArgs{
-		Command:     "status",
-		InitSQLPath: "sql-change/init/init-sqlite.sql",
+		Command: "status",
 	}
 
 	for i := 1; i < len(os.Args); i++ {
@@ -87,11 +79,6 @@ func parseArgs() CLIArgs {
 		case "--version":
 			if i+1 < len(os.Args) {
 				args.Version = os.Args[i+1]
-				i++
-			}
-		case "--init-sql":
-			if i+1 < len(os.Args) {
-				args.InitSQLPath = os.Args[i+1]
 				i++
 			}
 		case "--dir":
@@ -113,7 +100,7 @@ func parseArgs() CLIArgs {
 		case "-v", "--verbose":
 			args.Verbose = true
 			goose.SetVerbose(true)
-		case "init", "up", "down", "status", "reset", "version":
+		case "up", "down", "status", "version":
 			args.Command = arg
 		}
 	}
@@ -126,100 +113,18 @@ func parseArgs() CLIArgs {
 	return args
 }
 
-// runInit 执行初始化（首次安装）
-func runInit(args CLIArgs) {
-	result := Result{}
-
-	// 1. 检查 init SQL 文件
-	if _, err := os.Stat(args.InitSQLPath); os.IsNotExist(err) {
-		result.Error = fmt.Sprintf("init SQL not found: %s", args.InitSQLPath)
-		outputResult(args.JSONOutput, result)
-		os.Exit(1)
-	}
-
-	// 2. 检查数据库是否已存在
-	if _, err := os.Stat(args.DBPath); err == nil {
-		db, err := openDB(args.DBPath)
-		if err != nil {
-			result.Error = fmt.Sprintf("打开数据库失败: %v", err)
-			outputResult(args.JSONOutput, result)
-			os.Exit(1)
+// runStatus 显示当前数据库版本和迁移状态
+func runStatus(args CLIArgs) {
+	// 数据库不存在时返回版本 0
+	if _, err := os.Stat(args.DBPath); os.IsNotExist(err) {
+		if args.JSONOutput {
+			outputResult(args.JSONOutput, Result{Success: true, CurrentVersion: 0, Message: "database not found"})
+		} else {
+			fmt.Println("Current goose version: 0 (database not found)")
 		}
-		defer db.Close()
-
-		// 检查表数量
-		var tableCount int
-		ctx := context.Background()
-		db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").Scan(&tableCount)
-
-		result.Success = true
-		result.Message = fmt.Sprintf("database already exists (%d tables)", tableCount)
-		outputResult(args.JSONOutput, result)
 		return
 	}
 
-	// 3. 创建数据库目录
-	os.MkdirAll(filepath.Dir(args.DBPath), 0755)
-
-	// 4. 读取 init SQL
-	sqlContent, err := os.ReadFile(args.InitSQLPath)
-	if err != nil {
-		result.Error = fmt.Sprintf("读取 init SQL 失败: %v", err)
-		outputResult(args.JSONOutput, result)
-		os.Exit(1)
-	}
-
-	// 5. 创建数据库并执行 SQL
-	db, err := openDB(args.DBPath)
-	if err != nil {
-		result.Error = fmt.Sprintf("创建数据库失败: %v", err)
-		outputResult(args.JSONOutput, result)
-		os.Exit(1)
-	}
-	defer db.Close()
-
-	ctx := context.Background()
-	db.ExecContext(ctx, "PRAGMA foreign_keys = ON")
-
-	// 执行 SQL（事务）
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		result.Error = fmt.Sprintf("开始事务失败: %v", err)
-		outputResult(args.JSONOutput, result)
-		os.Exit(1)
-	}
-
-	statements := splitSQL(string(sqlContent))
-	for i, stmt := range statements {
-		if stmt == "" {
-			continue
-		}
-		if _, err := tx.ExecContext(ctx, stmt); err != nil {
-			tx.Rollback()
-			result.Error = fmt.Sprintf("执行语句 %d 失败: %v", i+1, err)
-			outputResult(args.JSONOutput, result)
-			os.Exit(1)
-		}
-	}
-
-	if err := tx.Commit(); err != nil {
-		result.Error = fmt.Sprintf("提交事务失败: %v", err)
-		outputResult(args.JSONOutput, result)
-		os.Exit(1)
-	}
-
-	// 验证表数量
-	var tableCount int
-	db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").Scan(&tableCount)
-
-	result.Success = true
-	result.Init = true
-	result.Message = fmt.Sprintf("initialized %d tables from %s", tableCount, args.InitSQLPath)
-	outputResult(args.JSONOutput, result)
-}
-
-// runWithDB 打开数据库后执行操作
-func runWithDB(args CLIArgs, fn func(context.Context, *sql.DB, CLIArgs)) {
 	db, err := openDB(args.DBPath)
 	if err != nil {
 		outputError(args.JSONOutput, fmt.Sprintf("打开数据库失败: %v", err))
@@ -228,10 +133,6 @@ func runWithDB(args CLIArgs, fn func(context.Context, *sql.DB, CLIArgs)) {
 	defer db.Close()
 
 	ctx := context.Background()
-	fn(ctx, db, args)
-}
-
-func runStatus(ctx context.Context, db *sql.DB, args CLIArgs) {
 	version, err := goose.GetDBVersionContext(ctx, db)
 	if err != nil {
 		outputError(args.JSONOutput, fmt.Sprintf("获取版本失败: %v", err))
@@ -253,7 +154,26 @@ func runStatus(ctx context.Context, db *sql.DB, args CLIArgs) {
 	}
 }
 
-func runVersion(ctx context.Context, db *sql.DB, args CLIArgs) {
+// runVersion 显示当前数据库版本
+func runVersion(args CLIArgs) {
+	// 数据库不存在时返回版本 0
+	if _, err := os.Stat(args.DBPath); os.IsNotExist(err) {
+		if args.JSONOutput {
+			outputResult(args.JSONOutput, Result{Success: true, CurrentVersion: 0, Message: "database not found"})
+		} else {
+			fmt.Println("Current goose version: 0 (database not found)")
+		}
+		return
+	}
+
+	db, err := openDB(args.DBPath)
+	if err != nil {
+		outputError(args.JSONOutput, fmt.Sprintf("打开数据库失败: %v", err))
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
 	version, err := goose.GetDBVersionContext(ctx, db)
 	if err != nil {
 		outputError(args.JSONOutput, fmt.Sprintf("获取版本失败: %v", err))
@@ -267,12 +187,39 @@ func runVersion(ctx context.Context, db *sql.DB, args CLIArgs) {
 	}
 }
 
-func runUp(ctx context.Context, db *sql.DB, args CLIArgs) {
+// runUp 执行迁移（包括首次初始化）
+// 如果数据库不存在，会自动创建并执行迁移
+func runUp(args CLIArgs) {
 	if args.MigrationsDir == "" {
 		outputError(args.JSONOutput, "需要指定 --version 或 --dir")
 		os.Exit(1)
 	}
 
+	// 检查迁移目录是否存在
+	if _, err := os.Stat(args.MigrationsDir); os.IsNotExist(err) {
+		outputError(args.JSONOutput, fmt.Sprintf("迁移目录不存在: %s", args.MigrationsDir))
+		os.Exit(1)
+	}
+
+	// 检查数据库是否已存在
+	dbExists := true
+	if _, err := os.Stat(args.DBPath); os.IsNotExist(err) {
+		dbExists = false
+		// 创建数据库目录
+		os.MkdirAll(filepath.Dir(args.DBPath), 0755)
+	}
+
+	// 打开数据库（不存在时会创建）
+	db, err := openDB(args.DBPath)
+	if err != nil {
+		outputError(args.JSONOutput, fmt.Sprintf("打开数据库失败: %v", err))
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+
+	// 获取当前版本
 	currentVersion, err := goose.GetDBVersionContext(ctx, db)
 	if err != nil {
 		outputError(args.JSONOutput, fmt.Sprintf("获取版本失败: %v", err))
@@ -285,9 +232,9 @@ func runUp(ctx context.Context, db *sql.DB, args CLIArgs) {
 		return
 	}
 
-	// 备份
+	// 备份（仅数据库已存在时）
 	var backupPath string
-	if args.Backup {
+	if args.Backup && dbExists && currentVersion > 0 {
 		backupPath = createBackup(args.DBPath, args.Verbose)
 	}
 
@@ -303,27 +250,49 @@ func runUp(ctx context.Context, db *sql.DB, args CLIArgs) {
 		os.Exit(1)
 	}
 
+	// 获取新版本
 	newVersion, _ := goose.GetDBVersionContext(ctx, db)
+
+	// 验证表数量（用于确认初始化成功）
+	var tableCount int
+	db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").Scan(&tableCount)
+
+	migrations := int(newVersion - currentVersion)
+	var message string
+	if !dbExists {
+		message = fmt.Sprintf("initialized database with %d tables (version %d)", tableCount, newVersion)
+	} else if migrations > 0 {
+		message = fmt.Sprintf("migrated %d versions (%d -> %d)", migrations, currentVersion, newVersion)
+	} else {
+		message = fmt.Sprintf("no migrations needed (version %d)", currentVersion)
+	}
 
 	if args.JSONOutput {
 		outputResult(args.JSONOutput, Result{
 			Success:        true,
 			CurrentVersion: currentVersion,
 			TargetVersion:  newVersion,
-			Migrations:     int(newVersion - currentVersion),
+			Migrations:     migrations,
 			BackupPath:     backupPath,
+			Message:        message,
 		})
 	} else {
-		fmt.Printf("✓ Migrated: %d -> %d\n", currentVersion, newVersion)
+		fmt.Printf("✓ %s\n", message)
 		if backupPath != "" {
 			fmt.Printf("  Backup: %s\n", backupPath)
 		}
 	}
 }
 
-func runDown(ctx context.Context, db *sql.DB, args CLIArgs) {
+// runDown 回滚迁移
+func runDown(args CLIArgs) {
 	if args.MigrationsDir == "" {
 		outputError(args.JSONOutput, "需要指定 --version 或 --dir")
+		os.Exit(1)
+	}
+
+	if _, err := os.Stat(args.DBPath); os.IsNotExist(err) {
+		outputError(args.JSONOutput, "数据库不存在")
 		os.Exit(1)
 	}
 
@@ -332,7 +301,22 @@ func runDown(ctx context.Context, db *sql.DB, args CLIArgs) {
 		return
 	}
 
-	var err error
+	db, err := openDB(args.DBPath)
+	if err != nil {
+		outputError(args.JSONOutput, fmt.Sprintf("打开数据库失败: %v", err))
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+
+	// 备份
+	var backupPath string
+	if args.Backup {
+		backupPath = createBackup(args.DBPath, args.Verbose)
+	}
+
+	// 执行回滚
 	if args.Target > 0 {
 		err = goose.DownToContext(ctx, db, args.MigrationsDir, args.Target)
 	} else {
@@ -345,22 +329,7 @@ func runDown(ctx context.Context, db *sql.DB, args CLIArgs) {
 	}
 
 	newVersion, _ := goose.GetDBVersionContext(ctx, db)
-	outputResult(args.JSONOutput, Result{Success: true, TargetVersion: newVersion})
-}
-
-func runReset(ctx context.Context, db *sql.DB, args CLIArgs) {
-	if args.DryRun {
-		fmt.Println("Dry-run: would reset all migrations to version 0")
-		return
-	}
-
-	err := goose.ResetContext(ctx, db, args.MigrationsDir)
-	if err != nil {
-		outputError(args.JSONOutput, fmt.Sprintf("重置失败: %v", err))
-		os.Exit(1)
-	}
-
-	outputResult(args.JSONOutput, Result{Success: true, TargetVersion: 0})
+	outputResult(args.JSONOutput, Result{Success: true, TargetVersion: newVersion, BackupPath: backupPath})
 }
 
 // openDB 打开 SQLite 数据库
@@ -400,32 +369,6 @@ func createBackup(dbPath string, verbose bool) string {
 		log.Printf("备份已创建: %s", backupPath)
 	}
 	return backupPath
-}
-
-func splitSQL(sql string) []string {
-	var statements []string
-	var current strings.Builder
-
-	for _, line := range strings.Split(sql, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "--") {
-			continue
-		}
-
-		current.WriteString(line)
-		current.WriteString("\n")
-
-		if strings.HasSuffix(trimmed, ";") {
-			statements = append(statements, current.String())
-			current.Reset()
-		}
-	}
-
-	if current.Len() > 0 {
-		statements = append(statements, current.String())
-	}
-
-	return statements
 }
 
 func outputResult(jsonOutput bool, result Result) {

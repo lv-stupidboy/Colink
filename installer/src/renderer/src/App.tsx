@@ -39,7 +39,7 @@ export default function App() {
     installDir: 'C:\\Program Files\\Colink',
     installMode: 'auto',
     dependencies: [],
-    database: { host: '', port: 3306, database: 'isdp', username: 'root', password: '' },
+    database: { type: 'sqlite', host: '', port: 3306, database: 'isdp', username: 'root', password: '' },
     serverPort: 8080,
     createShortcut: true,
     launchNow: true,

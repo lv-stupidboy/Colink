@@ -182,17 +182,17 @@ export default function Installing({ config, onComplete, isUpgrade }: Installing
         </div>
       )}
 
-      {/* 数据库变更提示 */}
+      {/* 数据库变更提示（自动执行后显示结果） */}
       {dbChanges && dbChanges.length > 0 && (
         <Alert
-          type="warning"
+          type="info"
           showIcon
           icon={<DatabaseOutlined />}
           style={{ marginBottom: 20 }}
-          message="检测到数据库变更"
+          message="数据库迁移已完成"
           description={
             <div>
-              <p style={{ marginBottom: 8 }}>本次升级涉及以下数据库变更，请手动执行：</p>
+              <p style={{ marginBottom: 8 }}>已自动执行以下版本迁移：</p>
               {dbChanges.map(change => (
                 <div key={change.version} style={{ marginBottom: 8 }}>
                   <strong>{change.version}：</strong>
@@ -203,9 +203,6 @@ export default function Installing({ config, onComplete, isUpgrade }: Installing
                   </ul>
                 </div>
               ))}
-              <p style={{ marginBottom: 0, color: '#666', fontSize: 12 }}>
-                SQL文件位置：{config.installDir}\data\sql-change\migrations\
-              </p>
             </div>
           }
         />

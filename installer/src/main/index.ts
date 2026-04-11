@@ -259,6 +259,12 @@ ipcMain.handle('get-disk-space', async (_event, path: string) => {
 
 ipcMain.handle('test-database-connection', async (_event, config: any) => {
   try {
+    // SQLite 模式不需要测试连接
+    if (config.type === 'sqlite') {
+      return { success: true, message: 'SQLite 无需测试连接' }
+    }
+
+    // MySQL 模式：测试连接
     const connection = await mysql.createConnection({
       host: config.host,
       port: config.port,

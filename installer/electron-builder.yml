@@ -33,6 +33,12 @@ extraResources:
   # 后端服务（从 bin 目录读取构建产物）
   - from: "../bin/colink-server.exe"
     to: "runtime/colink-server.exe"
+  # 迁移工具（从 bin 目录读取构建产物）
+  - from: "../bin/migrate.exe"
+    to: "runtime/tools/migrate.exe"
+  # SQL 变更脚本（初始化和版本迁移）
+  - from: "../sql-change"
+    to: "runtime/data/sql-change"
   # 前端静态文件（从 Go 项目的 web 目录读取）
   - from: "../web/dist"
     to: "runtime/web"

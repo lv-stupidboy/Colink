@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Button, Input, Row, Col, message, Spin, Typography } from 'antd'
+import { Button, Input, Row, Col, message, Spin, Typography, Radio } from 'antd'
 import { CheckCircleOutlined, EditOutlined } from '@ant-design/icons'
 import ConfigSection from '../components/ConfigSection'
-import { InstallConfig, InstalledVersion } from '../types'
+import { InstallConfig, InstalledVersion, DatabaseConfig } from '../types'
 import { testConnection } from '../services/database-connector'
 
 const { Text } = Typography
@@ -24,45 +24,20 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
   const [yamlError, setYamlError] = useState<string | null>(null)
   const [configMerged, setConfigMerged] = useState(false)
 
-  // 生成默认配置预览
-  const generateDefaultConfig = useCallback(async () => {
-    try {
-      const result = await window.electronAPI.generateConfig({
-        database: config.database,
-        serverPort: config.serverPort || 8080
-      })
-      if (result.success && result.yaml && typeof result.yaml === 'string') {
-        setMergedConfigYaml(result.yaml)
-      } else {
-        // 显示具体错误信息
-        const errorMsg = result.error || '返回格式错误'
-        setMergedConfigYaml(`# 配置生成失败\n# 错误: ${errorMsg}`)
-        console.error('[SystemConfig] generateConfig failed:', result)
-      }
-    } catch (e) {
-      console.warn('[SystemConfig] Failed to generate config:', e)
-      setMergedConfigYaml(`# 配置加载失败\n# 错误: ${e instanceof Error ? e.message : '未知错误'}`)
-    }
-  }, [config.database, config.serverPort])
-
-  // 加载完整配置预览
-  const loadFullConfig = useCallback(async () => {
-    // 升级模式：读取合并后的配置（用户配置 + 新模板）
-    if (isUpgrade && installedVersion?.installDir) {
-      try {
-        const result = await window.electronAPI.readMergedConfig(installedVersion.installDir)
-        if (result && typeof result === 'string') {
-          setMergedConfigYaml(result)
-          return
-        }
-      } catch (e) {
-        console.warn('[SystemConfig] Failed to load merged config:', e)
-      }
-    }
-
-    // 安装模式或升级读取失败：使用用户输入生成配置预览
-    await generateDefaultConfig()
-  }, [isUpgrade, installedVersion, generateDefaultConfig])
+  // 保存 MySQL 配置，即使切换到 sqlite 也保留（用于切换回来时恢复）
+  const [mysqlConfig, setMysqlConfig] = useState<{
+    host: string
+    port: number
+    database: string
+    username: string
+    password: string
+  }>({
+    host: 'localhost',
+    port: 3306,
+    database: 'isdp',
+    username: 'root',
+    password: ''
+  })
 
   // 升级模式或安装目录已有配置时读取已有配置
   useEffect(() => {
@@ -81,6 +56,16 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
             database: result.config.database,
             serverPort: result.config.serverPort || 8080
           })
+          // 如果是 MySQL 配置，保存到 mysqlConfig state
+          if (result.config.database.type === 'mysql') {
+            setMysqlConfig({
+              host: result.config.database.host || 'localhost',
+              port: result.config.database.port || 3306,
+              database: result.config.database.database || 'isdp',
+              username: result.config.database.username || 'root',
+              password: result.config.database.password || ''
+            })
+          }
           if (!isUpgrade) {
             message.info('已加载该目录下的现有配置')
           }
@@ -102,25 +87,47 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
     }
   }, [isUpgrade, installedVersion, config.installDir])
 
-  // 加载完整配置预览（延迟触发）
+  // 当数据库类型或配置变化时更新预览
   useEffect(() => {
-    const timer = setTimeout(() => {
-      loadFullConfig().catch(e => console.error('[SystemConfig] loadFullConfig error:', e))
-    }, 100)
+    if (editingYaml) return // 编辑模式不自动更新
 
-    return () => clearTimeout(timer)
-  }, [loadFullConfig])
+    const generatePreview = async () => {
+      try {
+        // 根据 database.type 构建完整的配置对象
+        const dbConfig = (config.database.type || 'sqlite') === 'mysql'
+          ? { type: 'mysql', ...mysqlConfig }
+          : { type: 'sqlite' }
 
-  // 当数据库配置变化时更新预览
-  useEffect(() => {
-    if (!editingYaml && !mergedConfigYaml) {
-      generateDefaultConfig().catch(e => console.error(e))
+        console.log('[SystemConfig] Generating preview with dbConfig:', dbConfig)
+
+        const result = await window.electronAPI.generateConfig({
+          database: dbConfig,
+          serverPort: config.serverPort || 8080
+        })
+
+        console.log('[SystemConfig] generateConfig result:', result)
+
+        if (result.success && result.yaml && typeof result.yaml === 'string') {
+          setMergedConfigYaml(result.yaml)
+        } else {
+          const errorMsg = result.error || '返回格式错误'
+          setMergedConfigYaml(`# 配置生成失败\n# 错误: ${errorMsg}`)
+        }
+      } catch (e) {
+        console.warn('[SystemConfig] Failed to generate config:', e)
+        setMergedConfigYaml(`# 配置加载失败\n# 错误: ${e instanceof Error ? e.message : '未知错误'}`)
+      }
     }
-  }, [editingYaml, mergedConfigYaml, generateDefaultConfig])
 
+    generatePreview()
+  }, [config.database.type, mysqlConfig, config.serverPort, editingYaml])
+
+  // MySQL 配置变化时更新 mysqlConfig state
   const handleDbChange = (field: string, value: string | number) => {
+    const newMysqlConfig = { ...mysqlConfig, [field]: value }
+    setMysqlConfig(newMysqlConfig)
     onConfigUpdate({
-      database: { ...config.database, [field]: value }
+      database: { type: 'mysql', ...newMysqlConfig }
     })
     setConfigMerged(false)
   }
@@ -129,7 +136,7 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
     setTesting(true)
     setTestResult(null)
 
-    const result = await testConnection(config.database)
+    const result = await testConnection({ type: 'mysql', ...mysqlConfig })
     setTesting(false)
 
     if (result.success) {
@@ -184,79 +191,136 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
       </p>
 
       <ConfigSection title="数据库配置">
-        <Row gutter={20}>
-          <Col span={16}>
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', fontSize: 13, color: '#666', marginBottom: 6 }}>
-                数据库地址
-              </label>
-              <Input
-                value={config.database.host}
-                onChange={(e) => handleDbChange('host', e.target.value)}
-                placeholder="rm-xxx.mysql.rds.aliyuncs.com"
-              />
-            </div>
-          </Col>
-          <Col span={8}>
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', fontSize: 13, color: '#666', marginBottom: 6 }}>
-                端口
-              </label>
-              <Input
-                type="number"
-                value={config.database.port}
-                onChange={(e) => handleDbChange('port', parseInt(e.target.value) || 3306)}
-              />
-            </div>
-          </Col>
-        </Row>
-
+        {/* 数据库类型选择 */}
         <div style={{ marginBottom: 16 }}>
           <label style={{ display: 'block', fontSize: 13, color: '#666', marginBottom: 6 }}>
-            数据库名
+            数据库类型
           </label>
-          <Input
-            value={config.database.database}
-            onChange={(e) => handleDbChange('database', e.target.value)}
-          />
+          <Radio.Group
+            value={config.database.type || 'sqlite'}
+            onChange={(e) => {
+              const newType = e.target.value as 'sqlite' | 'mysql'
+              if (newType === 'mysql') {
+                // 切换到 MySQL 时使用保存的 mysqlConfig
+                onConfigUpdate({
+                  database: { type: 'mysql', ...mysqlConfig }
+                })
+              } else {
+                // 切换到 SQLite 时只保留 type
+                onConfigUpdate({
+                  database: { type: 'sqlite' }
+                })
+              }
+              setConfigMerged(false)
+              setTestResult(null)
+            }}
+            style={{ width: '100%' }}
+          >
+            <Radio.Button value="sqlite" style={{ width: '50%', textAlign: 'center' }}>
+              SQLite（推荐）
+            </Radio.Button>
+            <Radio.Button value="mysql" style={{ width: '50%', textAlign: 'center' }}>
+              MySQL（过渡期保留）
+            </Radio.Button>
+          </Radio.Group>
         </div>
 
-        <Row gutter={20}>
-          <Col span={12}>
+        {/* SQLite 模式：显示路径提示 */}
+        {(config.database.type || 'sqlite') === 'sqlite' && (
+          <div style={{
+            background: '#f0f5ff',
+            border: '1px solid #adc6ff',
+            borderRadius: 4,
+            padding: 12,
+            marginBottom: 16
+          }}>
+            <Text type="secondary">
+              SQLite 数据库将自动创建在安装目录下：./data/sqlite/colink.db
+            </Text>
+            <Text type="secondary" style={{ display: 'block', marginTop: 4 }}>
+              无需额外配置，首次安装时自动初始化数据库结构。
+            </Text>
+          </div>
+        )}
+
+        {/* MySQL 模式：显示原有配置项 */}
+        {(config.database.type || 'sqlite') === 'mysql' && (
+          <>
+            <Row gutter={20}>
+              <Col span={16}>
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ display: 'block', fontSize: 13, color: '#666', marginBottom: 6 }}>
+                    数据库地址
+                  </label>
+                  <Input
+                    value={mysqlConfig.host}
+                    onChange={(e) => handleDbChange('host', e.target.value)}
+                    placeholder="rm-xxx.mysql.rds.aliyuncs.com"
+                  />
+                </div>
+              </Col>
+              <Col span={8}>
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ display: 'block', fontSize: 13, color: '#666', marginBottom: 6 }}>
+                    端口
+                  </label>
+                  <Input
+                    type="number"
+                    value={mysqlConfig.port}
+                    onChange={(e) => handleDbChange('port', parseInt(e.target.value) || 3306)}
+                  />
+                </div>
+              </Col>
+            </Row>
+
             <div style={{ marginBottom: 16 }}>
               <label style={{ display: 'block', fontSize: 13, color: '#666', marginBottom: 6 }}>
-                用户名
+                数据库名
               </label>
               <Input
-                value={config.database.username}
-                onChange={(e) => handleDbChange('username', e.target.value)}
+                value={mysqlConfig.database}
+                onChange={(e) => handleDbChange('database', e.target.value)}
               />
             </div>
-          </Col>
-          <Col span={12}>
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', fontSize: 13, color: '#666', marginBottom: 6 }}>
-                密码
-              </label>
-              <Input.Password
-                value={config.database.password}
-                onChange={(e) => handleDbChange('password', e.target.value)}
-              />
-            </div>
-          </Col>
-        </Row>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Button onClick={handleTestConnection} loading={testing}>
-            测试连接
-          </Button>
-          {testResult && (
-            <span style={{ color: testResult.success ? '#52c41a' : '#ff4d4f' }}>
-              {testResult.success && <CheckCircleOutlined style={{ marginRight: 4 }} />}
-              {testResult.message}
-            </span>
-          )}
-        </div>
+            <Row gutter={20}>
+              <Col span={12}>
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ display: 'block', fontSize: 13, color: '#666', marginBottom: 6 }}>
+                    用户名
+                  </label>
+                  <Input
+                    value={mysqlConfig.username}
+                    onChange={(e) => handleDbChange('username', e.target.value)}
+                  />
+                </div>
+              </Col>
+              <Col span={12}>
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ display: 'block', fontSize: 13, color: '#666', marginBottom: 6 }}>
+                    密码
+                  </label>
+                  <Input.Password
+                    value={mysqlConfig.password}
+                    onChange={(e) => handleDbChange('password', e.target.value)}
+                  />
+                </div>
+              </Col>
+            </Row>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Button onClick={handleTestConnection} loading={testing}>
+                测试连接
+              </Button>
+              {testResult && (
+                <span style={{ color: testResult.success ? '#52c41a' : '#ff4d4f' }}>
+                  {testResult.success && <CheckCircleOutlined style={{ marginRight: 4 }} />}
+                  {testResult.message}
+                </span>
+              )}
+            </div>
+          </>
+        )}
       </ConfigSection>
 
       <ConfigSection title="服务配置">

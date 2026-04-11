@@ -1,7 +1,10 @@
+-- +goose Up
+-- +goose StatementBegin
+
 -- ISDP SQLite 数据库初始化脚本
--- 版本: 1.0.1
+-- 版本: 1.1.0
 -- 生成日期: 2026-04-11
--- 说明: 新环境首次安装时执行此脚本创建所有表结构
+-- 说明: SQLite 首次支持，完整表结构
 -- 数据库文件: data/sqlite/colink.db
 -- 驱动: modernc.org/sqlite (纯 Go，无需 CGO)
 
@@ -403,3 +406,10 @@ CREATE INDEX IF NOT EXISTS idx_command_skill_bindings_command_id ON command_skil
 CREATE INDEX IF NOT EXISTS idx_command_skill_bindings_skill_id ON command_skill_bindings(skill_id);
 CREATE INDEX IF NOT EXISTS idx_subagent_skill_bindings_subagent_id ON subagent_skill_bindings(subagent_id);
 CREATE INDEX IF NOT EXISTS idx_subagent_skill_bindings_skill_id ON subagent_skill_bindings(skill_id);
+
+-- +goose StatementEnd
+
+-- +goose Down
+-- +goose StatementBegin
+-- SQLite 初始化脚本无需回滚，首次安装时会创建完整结构
+-- +goose StatementEnd

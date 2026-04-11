@@ -98,46 +98,38 @@ for (const file of files) {
 console.log('Adding database changes...')
 const sqlChangeDir = join(__dirname, '../sql-change')
 
-// 1. 添加初始化 SQL
-const initSqlPath = join(sqlChangeDir, 'init.sql')
-if (existsSync(initSqlPath)) {
-  archive.file(initSqlPath, { name: 'Colink/runtime/data/sql-change/init.sql' })
-  console.log('  Added init.sql')
-}
+// 添加版本迁移目录（v1.0.0, v1.1.0 等）
+const versions = readdirSync(sqlChangeDir)
+  .filter(f => {
+    const stat = statSync(join(sqlChangeDir, f))
+    return stat.isDirectory() && f.startsWith('v')
+  })
+  .sort()
 
-// 2. 添加增量迁移目录（按版本号组织）
-const migrationsDir = join(sqlChangeDir, 'migrations')
-if (existsSync(migrationsDir)) {
-  const versions = readdirSync(migrationsDir)
-    .filter(f => {
-      const stat = statSync(join(migrationsDir, f))
-      return stat.isDirectory() && f.startsWith('v')
-    })
-    .sort()
+for (const version of versions) {
+  const versionSrc = join(sqlChangeDir, version)
 
-  for (const version of versions) {
-    const versionSrc = join(migrationsDir, version)
-    const sqlFiles = readdirSync(versionSrc)
-      .filter(f => f.endsWith('.sql'))
-      .sort()
+  // 检查 mysql 和 sqlite 子目录
+  const dbTypes = ['mysql', 'sqlite']
+  for (const dbType of dbTypes) {
+    const dbTypeSrc = join(versionSrc, dbType)
+    if (existsSync(dbTypeSrc)) {
+      const sqlFiles = readdirSync(dbTypeSrc)
+        .filter(f => f.endsWith('.sql'))
+        .sort()
 
-    if (sqlFiles.length > 0) {
-      const versionDest = `Colink/runtime/data/sql-change/migrations/${version}`
+      if (sqlFiles.length > 0) {
+        const versionDest = `Colink/runtime/data/sql-change/${version}/${dbType}`
 
-      for (const sqlFile of sqlFiles) {
-        const sqlPath = join(versionSrc, sqlFile)
-        archive.file(sqlPath, { name: `${versionDest}/${sqlFile}` })
+        for (const sqlFile of sqlFiles) {
+          const sqlPath = join(dbTypeSrc, sqlFile)
+          archive.file(sqlPath, { name: `${versionDest}/${sqlFile}` })
+        }
+
+        console.log(`  Added ${sqlFiles.length} SQL files to ${version}/${dbType}`)
       }
-
-      // 生成 README.txt
-      const readmeContent = generateDbChangeReadme(version, sqlFiles)
-      archive.append(readmeContent, { name: `${versionDest}/README.txt` })
-
-      console.log(`  Added ${sqlFiles.length} SQL files to ${version}`)
     }
   }
-} else {
-  console.log('  No migrations directory found, skipping')
 }
 
 // 添加配置模板文件
@@ -148,21 +140,3 @@ if (existsSync(templatePath)) {
 }
 
 archive.finalize()
-
-// 生成数据库变更 README
-function generateDbChangeReadme(version, sqlFiles) {
-  let content = `=== 版本 ${version} 数据库变更 ===\n\n`
-  content += `包含以下 SQL 文件：\n\n`
-
-  for (const file of sqlFiles) {
-    content += `  - ${file}\n`
-  }
-
-  content += `\n执行顺序：按文件名前缀（日期序号）依次执行\n`
-  content += `\n执行方法：\n`
-  content += `  mysqlsh --sql -h <host> -P 3306 -u <user> -p<password> -D <database> -f <文件路径>\n`
-  content += `\n或使用 MySQL 客户端：\n`
-  content += `  mysql -h <host> -P 3306 -u <user> -p<password> <database> < <文件路径>\n`
-
-  return content
-}
