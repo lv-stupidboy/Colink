@@ -1,6 +1,8 @@
 package agent
 
-import "github.com/anthropic/isdp/internal/model"
+import (
+	"github.com/anthropic/isdp/internal/model"
+)
 
 type OpenCodeACPAdapter struct {
 	*BaseACPAdapter

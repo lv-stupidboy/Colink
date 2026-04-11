@@ -35,8 +35,8 @@ debug_thread_manager.go → Solo/debug mode thread management
 | `Chunk` | Streaming output: text, error, status, thinking, tool_use, tool_result, usage. Includes `Done` (thinking completion) and `IsError` fields. |
 | `TokenUsage` | inputTokens, outputTokens, cacheReadTokens, costUsd, durationMs |
 | `SessionStatus` | idle → running → completed/failed/stopped |
-| `BaseACPAdapter` | ACP protocol base. JSON-RPC 2.0 over stdio. Session management, notification parsing. |
-| `OpenCodeACPAdapter` | Wraps BaseACPAdapter with OpenCode-specific CLI args and environment. |
+| `BaseACPAdapter` | ACP protocol base. JSON-RPC 2.0 over stdio. Session management, notification parsing. Sets `OPENCODE_PURE=1` in `buildEnv()` to isolate from user-level plugins. |
+| `OpenCodeACPAdapter` | Wraps BaseACPAdapter with OpenCode-specific CLI args and `OPENCODE_CONFIG_DIR` for per-agent config (agents/skills/rules/commands). |
 
 ## Adapter Factory
 
@@ -51,7 +51,7 @@ func NewAdapter(baseAgent *model.BaseAgent) AgentAdapter {
 ```
 
 Claude/OpenCode adapters: `sessions map[string]*session`, `sync.RWMutex`, spawn CLI via `exec.Cmd`.
-ACP adapters: `BaseACPAdapter` manages stdio transport, `OpenCodeACPAdapter` adds OpenCode CLI configuration.
+ACP adapters: `BaseACPAdapter` manages stdio transport, `OpenCodeACPAdapter` adds OpenCode CLI configuration. Env isolation: `OPENCODE_PURE=1` blocks user plugins; `OPENCODE_CONFIG_DIR` passes agent-specific configs that bypass the PURE gate.
 
 ## Execution Constants
 

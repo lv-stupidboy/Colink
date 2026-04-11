@@ -130,7 +130,6 @@ func parseACPUsageUpdate(raw json.RawMessage) ([]Chunk, error) {
 		Usage: &TokenUsage{
 			InputTokens:  usage.InputTokens,
 			OutputTokens: usage.OutputTokens,
-			CostUsd:      usage.Cost,
 		},
 	}}, nil
 }

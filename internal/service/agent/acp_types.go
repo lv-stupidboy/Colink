@@ -35,13 +35,76 @@ type acpInitializeResult struct {
 }
 
 type acpNewSessionParams struct {
-	SessionID string `json:"sessionId"`
-	CWD       string `json:"cwd"`
-	Model     string `json:"model"`
+	CWD        string        `json:"cwd"`
+	MCPServers []interface{} `json:"mcpServers"`
 }
 
+// session/new response: configOptions (newer) and/or legacy models/modes
 type acpNewSessionResult struct {
+	SessionID     string                 `json:"sessionId"`
+	Models        *acpSessionModels      `json:"models,omitempty"`
+	Modes         *acpSessionModes       `json:"modes,omitempty"`
+	ConfigOptions []acpSessionConfigOpt  `json:"configOptions,omitempty"`
+	Meta          map[string]interface{} `json:"_meta,omitempty"`
+}
+
+// acpSessionModels holds available and current model info (legacy API).
+type acpSessionModels struct {
+	AvailableModels []acpModelInfo `json:"availableModels"`
+	DefaultModelID  string         `json:"defaultModelId,omitempty"`
+	CurrentModelID  string         `json:"currentModelId,omitempty"`
+}
+
+type acpModelInfo struct {
+	ModelID string `json:"modelId"`
+	Name    string `json:"name"`
+}
+
+// acpSessionModes holds available and current mode/agent info (legacy API).
+type acpSessionModes struct {
+	AvailableModes []acpModeInfo `json:"availableModes"`
+	DefaultModeID  string        `json:"defaultModeId,omitempty"`
+	CurrentModeID  string        `json:"currentModeId,omitempty"`
+}
+
+type acpModeInfo struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+type acpSessionConfigOpt struct {
+	ConfigID string `json:"id"`
+	Name     string `json:"name"`
+	Category string `json:"category,omitempty"`
+	Type     string `json:"type"`
+	Options  []struct {
+		Name  string `json:"name"`
+		Value string `json:"value"`
+	} `json:"options,omitempty"`
+	CurrentValue string `json:"currentValue,omitempty"`
+	Default      string `json:"default,omitempty"`
+}
+
+// acpSetModelParams sets the model for an existing session.
+// Maps to ACP method "session/set_model" (legacy, widely supported).
+type acpSetModelParams struct {
 	SessionID string `json:"sessionId"`
+	ModelID   string `json:"modelId"`
+}
+
+// acpSetModeParams sets the mode (agent) for an existing session.
+// Maps to ACP method "session/set_mode" (legacy, widely supported).
+type acpSetModeParams struct {
+	SessionID string `json:"sessionId"`
+	ModeID    string `json:"modeId"`
+}
+
+// acpSetConfigOptionParams sets a config option for an existing session.
+// Maps to ACP method "session/set_config_option" (newer API).
+type acpSetConfigOptionParams struct {
+	SessionID string `json:"sessionId"`
+	ConfigID  string `json:"configId"`
+	Value     string `json:"value"`
 }
 
 type acpCancelParams struct {
@@ -110,10 +173,10 @@ type acpToolCallUpdate struct {
 }
 
 type acpUsageUpdate struct {
-	SessionUpdate string  `json:"sessionUpdate"`
-	InputTokens   int64   `json:"inputTokens,omitempty"`
-	OutputTokens  int64   `json:"outputTokens,omitempty"`
-	Cost          float64 `json:"cost,omitempty"`
+	SessionUpdate string          `json:"sessionUpdate"`
+	InputTokens   int64           `json:"inputTokens,omitempty"`
+	OutputTokens  int64           `json:"outputTokens,omitempty"`
+	Cost          json.RawMessage `json:"cost,omitempty"`
 }
 
 type acpPlanUpdate struct {

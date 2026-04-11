@@ -129,28 +129,33 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionRe
 	logInfo("[PERF] ACP initialize handshake", zap.Duration("duration", time.Since(cliStartTime)),
 		zap.Int("protocolVersion", initResp.ProtocolVersion))
 
-	sessionID := uuid.New().String()
 	sessionNewResult, err := transport.SendRequest("session/new", &acpNewSessionParams{
-		SessionID: sessionID,
-		CWD:       req.WorkDir,
-		Model:     a.baseAgent.DefaultModel,
+		CWD:        req.WorkDir,
+		MCPServers: []interface{}{},
 	})
 	if err != nil {
 		a.cleanup(session)
 		wg.Wait()
-		return nil, fmt.Errorf("ACP: session/new failed (model=%s): %w", a.baseAgent.DefaultModel, err)
+		return nil, fmt.Errorf("ACP: session/new failed: %w", err)
 	}
 
 	var sessionResp acpNewSessionResult
-	if err := json.Unmarshal(sessionNewResult, &sessionResp); err == nil && sessionResp.SessionID != "" {
+	if err := json.Unmarshal(sessionNewResult, &sessionResp); err != nil {
+		logWarn("ACP: session/new response parse warning", zap.Error(err))
+	}
+	if sessionResp.SessionID != "" {
 		session.id = sessionResp.SessionID
 	} else {
-		session.id = sessionID
+		session.id = uuid.New().String()
 	}
 
 	logInfo("ACP: session created",
 		zap.String("sessionId", session.id),
-		zap.String("model", a.baseAgent.DefaultModel))
+		zap.Int("configOptions", len(sessionResp.ConfigOptions)))
+
+	if err := a.configureSession(transport, session, &sessionResp, req); err != nil {
+		logWarn("ACP: session configuration warning", zap.Error(err))
+	}
 
 	prompt := a.buildPromptFromRequest(req)
 	promptResult, err := transport.SendRequest("session/prompt", &acpPromptParams{
@@ -253,9 +258,8 @@ func (a *BaseACPAdapter) StartSession(ctx context.Context, sessionID string, req
 	}
 
 	sessionNewResult, err := transport.SendRequest("session/new", &acpNewSessionParams{
-		SessionID: sessionID,
-		CWD:       req.WorkDir,
-		Model:     a.baseAgent.DefaultModel,
+		CWD:        req.WorkDir,
+		MCPServers: []interface{}{},
 	})
 	if err != nil {
 		transport.Close()
@@ -266,6 +270,10 @@ func (a *BaseACPAdapter) StartSession(ctx context.Context, sessionID string, req
 	var sessionResp acpNewSessionResult
 	if err := json.Unmarshal(sessionNewResult, &sessionResp); err == nil && sessionResp.SessionID != "" {
 		session.id = sessionResp.SessionID
+	}
+
+	if err := a.configureSession(transport, session, &sessionResp, req); err != nil {
+		logWarn("ACP: session configuration warning", zap.Error(err))
 	}
 
 	a.sessions[sessionID] = session
@@ -466,6 +474,11 @@ func (a *BaseACPAdapter) buildEnv(req *ExecutionRequest) []string {
 		}
 	}
 
+	// OPENCODE_PURE=1 disables external plugins (e.g. oh-my-openagent) that may
+	// set an invalid default_agent for ACP sessions, causing session/new to fail
+	// with "Internal error". Built-in agents (build, plan, explore…) remain available.
+	envMap["OPENCODE_PURE"] = "1"
+
 	if extraEnv := a.config.buildEnv(req); len(extraEnv) > 0 {
 		for _, e := range extraEnv {
 			if idx := strings.Index(e, "="); idx > 0 {
@@ -479,6 +492,45 @@ func (a *BaseACPAdapter) buildEnv(req *ExecutionRequest) []string {
 		env = append(env, fmt.Sprintf("%s=%s", k, v))
 	}
 	return env
+}
+
+func (a *BaseACPAdapter) configureSession(transport *acpTransport, session *acpSession, sessionResp *acpNewSessionResult, req *ExecutionRequest) error {
+	desiredModel := a.baseAgent.DefaultModel
+
+	if len(sessionResp.ConfigOptions) > 0 {
+		return a.configureViaConfigOptions(transport, session, sessionResp, desiredModel)
+	}
+
+	return a.configureViaLegacyAPI(transport, session, sessionResp, desiredModel)
+}
+
+func (a *BaseACPAdapter) configureViaConfigOptions(transport *acpTransport, session *acpSession, sessionResp *acpNewSessionResult, desiredModel string) error {
+	for _, opt := range sessionResp.ConfigOptions {
+		if opt.ConfigID == "model" && desiredModel != "" {
+			if _, err := transport.SendRequest("session/set_config_option", &acpSetConfigOptionParams{
+				SessionID: session.id,
+				ConfigID:  "model",
+				Value:     desiredModel,
+			}); err != nil {
+				return fmt.Errorf("set_config_option model=%s: %w", desiredModel, err)
+			}
+			logInfo("ACP: model set via configOptions", zap.String("model", desiredModel))
+		}
+	}
+	return nil
+}
+
+func (a *BaseACPAdapter) configureViaLegacyAPI(transport *acpTransport, session *acpSession, sessionResp *acpNewSessionResult, desiredModel string) error {
+	if desiredModel != "" {
+		if _, err := transport.SendRequest("session/set_model", &acpSetModelParams{
+			SessionID: session.id,
+			ModelID:   desiredModel,
+		}); err != nil {
+			return fmt.Errorf("set_model %s: %w", desiredModel, err)
+		}
+		logInfo("ACP: model set via legacy API", zap.String("model", desiredModel))
+	}
+	return nil
 }
 
 func (a *BaseACPAdapter) cleanup(session *acpSession) {

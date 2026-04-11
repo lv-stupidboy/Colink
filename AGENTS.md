@@ -152,4 +152,5 @@ cd installer && .\build.ps1      # Windows: same flow
 - **Feishu IM**: Feishu is a frontend entry point, NOT an AgentAdapter. Agent execution still goes through `Orchestrator → ExecutionService → Claude/OpenCode/ACP adapter`.
 - **ChunkListener**: External chunk listeners registered via `ExecutionService.AddChunkListener()` receive ALL chunk types including usage and status.
 - **ACP protocol**: JSON-RPC 2.0 over stdio. `BaseACPAdapter` is the base; `OpenCodeACPAdapter` adds OpenCode-specific CLI args. New agent types can extend `BaseACPAdapter`.
+- **ACP config isolation**: `buildEnv()` sets `OPENCODE_PURE=1` to block user-level OpenCode plugins (e.g. oh-my-openagent) that set `default_agent` to a plugin-defined agent unavailable in ACP context. `OPENCODE_CONFIG_DIR` passes per-agent config directories (agents/skills/rules/commands) which load independently and are NOT gated by OPENCODE_PURE — only `plugin/` subdirs are blocked.
 - **10 TODO items**: Permission validation, message dedup, merge logic, artifact retrieval, GitLab API, Git query, markdown rendering, artifact preview — all marked TODO in code.
