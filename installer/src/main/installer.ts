@@ -141,12 +141,13 @@ export async function runDatabaseMigration(
   }
 }
 
-// 检测数据库变更（根据版本范围筛选）
-// 路径格式：sql-change/v{version}/sqlite/*.sql
+// 检测数据库变更（根据版本范围和数据库类型筛选）
+// 路径格式：sql-change/v{version}/{dbType}/*.sql
 export async function checkDatabaseChanges(
-  sqlChangeDir: string,  // 直接传入 sql-change 目录路径
+  sqlChangeDir: string,
   currentVersion: string,
-  newVersion: string
+  newVersion: string,
+  dbType: 'sqlite' | 'mysql' = 'sqlite'
 ): Promise<{ hasChanges: boolean; changes: Array<{ version: string; files: string[] }> }> {
   try {
     // 如果目录不存在，返回无变更
@@ -178,15 +179,19 @@ export async function checkDatabaseChanges(
       // 版本在范围内：大于当前版本，小于或等于新版本
       // 新安装时 currentVersion 为 "0.0.0"，会提示所有版本
       if (compareVersions(version, current) > 0 && compareVersions(version, newVer) <= 0) {
-        // 检查 sqlite 子目录
-        const sqlitePath = join(sqlChangeDir, versionDir, 'sqlite')
-        if (existsSync(sqlitePath)) {
-          const sqlFiles = readdirSync(sqlitePath)
+        // 检查对应数据库类型的子目录
+        const dbTypePath = join(sqlChangeDir, versionDir, dbType)
+        if (existsSync(dbTypePath)) {
+          const sqlFiles = readdirSync(dbTypePath)
             .filter(f => f.endsWith('.sql'))
             .sort()
 
           if (sqlFiles.length > 0) {
-            changes.push({ version: versionDir, files: sqlFiles })
+            // 返回完整路径：包含 dbType 目录
+            changes.push({
+              version: versionDir,
+              files: sqlFiles.map(f => `${dbType}/${f}`)
+            })
           }
         }
       }
@@ -764,34 +769,41 @@ export async function runInstallation(
     // sql-change 从安装包资源目录读取，不复制到用户安装目录
     const sqlChangeDir = join(process.resourcesPath, 'runtime', 'data', 'sql-change')
 
-    // Step 1.5: 检测数据库变更（仅升级安装）
+    // Step 1.5: 检测数据库变更（仅升级安装，根据数据库类型检测对应目录）
     let dbChanges: Array<{ version: string; files: string[] }> = []
+    const dbType = config.database.type || 'sqlite'
+
     if (config.currentVersion && config.newVersion) {
-      sendProgress('dbcheck', 'running', 0, '检查数据库变更...', `检查版本范围: ${config.currentVersion} -> ${config.newVersion}`)
+      sendProgress('dbcheck', 'running', 0, '检查数据库变更...', `检查版本范围: ${config.currentVersion} -> ${config.newVersion} (${dbType})`)
       const dbResult = await checkDatabaseChanges(
         sqlChangeDir,
         config.currentVersion,
-        config.newVersion
+        config.newVersion,
+        dbType
       )
       if (dbResult.hasChanges) {
         dbChanges = dbResult.changes
-        const details = dbChanges.map(c => `${c.version}: ${c.files.join(', ')}`).join('\n')
-        sendProgress('dbcheck', 'warning', 100, `检测到 ${dbChanges.length} 个版本的数据库变更`, details)
+        const details = dbChanges.map(c => `${c.version}:\n  ${c.files.join('\n  ')}`).join('\n')
+        const actionHint = dbType === 'mysql'
+          ? 'MySQL 需手动执行迁移'
+          : 'SQLite 将自动执行迁移'
+        sendProgress('dbcheck', 'warning', 100, `检测到 ${dbChanges.length} 个版本的 ${dbType} 数据库变更`, `${actionHint}\n${details}`)
       } else {
-        sendProgress('dbcheck', 'success', 100, '无数据库变更', '无需执行数据库迁移')
+        sendProgress('dbcheck', 'success', 100, '无数据库变更', `${dbType} 无需执行数据库迁移`)
       }
     } else {
       sendProgress('dbcheck', 'success', 100, '跳过检测', '新安装不需要检查数据库变更')
     }
 
-    // Step 1.6: 数据库迁移（仅 SQLite 自动执行，MySQL 提示手动执行）
+    // Step 1.6: 数据库迁移（SQLite 自动执行，MySQL 提示手动执行）
     const dbPath = join(config.installDir, 'data', 'sqlite', 'colink.db')
 
     // MySQL 场景：提示用户手动执行
-    if (config.database.type === 'mysql') {
+    if (dbType === 'mysql') {
       if (dbChanges.length > 0) {
+        const manualHint = dbChanges.map(c => `${c.version}:\n  sql-change/${c.version}/${c.files.join('\n  ')}`).join('\n')
         sendProgress('migration', 'warning', 100, 'MySQL 数据库需手动迁移',
-          `请手动执行以下版本的 SQL 脚本：\n${dbChanges.map(c => c.version).join(', ')}`)
+          `请手动执行以下 SQL 脚本：\n${manualHint}`)
       } else {
         sendProgress('migration', 'success', 100, '无需迁移', 'MySQL 模式，无数据库变更')
       }
@@ -824,7 +836,7 @@ export async function runInstallation(
       await mkdir(dirname(dbPath), { recursive: true })
 
       if (versionsToRun.length === 0) {
-        sendProgress('migration', 'success', 100, '无需迁移', '当前版本已是最新')
+        sendProgress('migration', 'success', 100, '无需迁移', 'SQLite 数据库已是最新')
       } else {
         // 按版本顺序逐个执行迁移
         let totalMigrations = 0
@@ -834,8 +846,8 @@ export async function runInstallation(
           const progress = Math.round(((i + 1) / versionsToRun.length) * 100)
 
           sendProgress('migration', 'running', progress,
-            `迁移数据库到 ${versionDir}...`,
-            `执行版本 ${versionDir} 的变更脚本`)
+            `迁移 SQLite 数据库到 ${versionDir}...`,
+            `执行 sql-change/${versionDir}/sqlite/ 下的脚本`)
 
           const result = await runDatabaseMigration(
             dbPath,
@@ -852,8 +864,8 @@ export async function runInstallation(
           totalMigrations += result.migrations || 0
         }
 
-        sendProgress('migration', 'success', 100, '数据库迁移成功',
-          `已执行 ${versionsToRun.length} 个版本迁移 (${totalMigrations} 个脚本)`)
+        sendProgress('migration', 'success', 100, 'SQLite 数据库迁移成功',
+          `已执行 ${versionsToRun.length} 个版本迁移 (${totalMigrations} 个 sqlite 脚本)`)
       }
     }
 
