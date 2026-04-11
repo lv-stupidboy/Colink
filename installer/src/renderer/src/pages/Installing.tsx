@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Progress, Button, Tag, Alert, message } from 'antd'
-import { CheckCircleOutlined, LoadingOutlined, CloseCircleOutlined, RightOutlined, WarningOutlined, DatabaseOutlined } from '@ant-design/icons'
+import { CheckCircleOutlined, LoadingOutlined, CloseCircleOutlined, RightOutlined, WarningOutlined } from '@ant-design/icons'
 import { InstallConfig, InstallProgress, InstalledVersion } from '../types'
 
 interface InstallingProps {
@@ -45,7 +45,6 @@ export default function Installing({ config, onComplete, isUpgrade }: Installing
   )
   const [installError, setInstallError] = useState<string | null>(null)
   const [installComplete, setInstallComplete] = useState(false)
-  const [dbChanges, setDbChanges] = useState<Array<{ version: string; files: string[] }> | null>(null)
   const [expandedSteps, setExpandedSteps] = useState<string[]>([])
 
   useEffect(() => {
@@ -76,12 +75,6 @@ export default function Installing({ config, onComplete, isUpgrade }: Installing
         setInstallError(progress.message || `${progress.step} 失败`)
       }
 
-      // 检测数据库变更
-      if (progress.step === 'dbcheck' && progress.status === 'warning') {
-        // 从message中解析数据库变更信息（如果后端传递了）
-        setDbChanges([]) // 实际数据会从完成结果中获取
-      }
-
       // 只有在没有错误且 registry 成功时才完成
       if (progress.status === 'success' && progress.step === 'registry' && !installError) {
         setInstallComplete(true)
@@ -98,8 +91,6 @@ export default function Installing({ config, onComplete, isUpgrade }: Installing
       if (!result.success) {
         setInstallError(result.error || '安装失败')
         message.error(result.error || '安装失败')
-      } else if (result.dbChanges && result.dbChanges.length > 0) {
-        setDbChanges(result.dbChanges)
       }
     }).catch(err => {
       if (!isMounted) return
@@ -183,31 +174,7 @@ export default function Installing({ config, onComplete, isUpgrade }: Installing
         </div>
       )}
 
-      {/* 数据库变更提示（自动执行后显示结果） */}
-      {dbChanges && dbChanges.length > 0 && (
-        <Alert
-          type="info"
-          showIcon
-          icon={<DatabaseOutlined />}
-          style={{ marginBottom: 20 }}
-          message="数据库迁移已完成"
-          description={
-            <div>
-              <p style={{ marginBottom: 8 }}>已自动执行以下版本迁移：</p>
-              {dbChanges.map(change => (
-                <div key={change.version} style={{ marginBottom: 8 }}>
-                  <strong>{change.version}：</strong>
-                  <ul style={{ margin: '4px 0', paddingLeft: 20 }}>
-                    {change.files.map(file => (
-                      <li key={file}>{file}</li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
-            </div>
-          }
-        />
-      )}
+      {/* 数据库变更提示 - 不再显示弹框，进度信息已经足够 */}
 
       {/* 安装成功提示 */}
       {installComplete && !installError && (

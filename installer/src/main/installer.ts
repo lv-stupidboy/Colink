@@ -839,7 +839,7 @@ export async function runInstallation(
         sendProgress('migration', 'success', 100, '无需迁移', 'SQLite 数据库已是最新')
       } else {
         // 按版本顺序逐个执行迁移
-        let totalMigrations = 0
+        const migrationDetails: string[] = []
 
         for (let i = 0; i < versionsToRun.length; i++) {
           const versionDir = versionsToRun[i]
@@ -861,11 +861,17 @@ export async function runInstallation(
             return { success: false, error: `数据库迁移失败: ${result.error}` }
           }
 
-          totalMigrations += result.migrations || 0
+          // 记录每个版本的迁移结果
+          if (result.message) {
+            migrationDetails.push(`${versionDir}: ${result.message}`)
+          }
         }
 
-        sendProgress('migration', 'success', 100, 'SQLite 数据库迁移成功',
-          `已执行 ${versionsToRun.length} 个版本迁移 (${totalMigrations} 个 sqlite 脚本)`)
+        // 显示详细的迁移结果
+        const detailStr = migrationDetails.length > 0
+          ? migrationDetails.join('\n')
+          : `${versionsToRun.length} 个版本已处理`
+        sendProgress('migration', 'success', 100, 'SQLite 数据库迁移完成', detailStr)
       }
     }
 
