@@ -52,10 +52,12 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
       try {
         const result = await window.electronAPI.readExistingConfig(targetDir)
         if (result.success && result.config) {
-          console.log('[SystemConfig] Loaded existing config from:', targetDir)
+          console.log('[SystemConfig] Loaded existing config from:', targetDir, 'original type:', result.config.database.type)
 
-          // 升级场景：强制切换到 sqlite，但保留 mysql 配置供用户切换回来
-          const dbConfig = isUpgrade
+          // 不管升级还是安装场景，只要原来是 MySQL 都默认切换到 SQLite
+          // 保留 MySQL 配置供用户手动切换回来
+          const wasMySQL = result.config.database.type === 'mysql' || result.config.database.host
+          const dbConfig = wasMySQL
             ? { type: 'sqlite' as 'sqlite' | 'mysql' }
             : result.config.database
 
@@ -65,7 +67,7 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
           })
 
           // 保存 mysql 配置到 state（用于切换回来时恢复）
-          if (result.config.database.type === 'mysql' || result.config.database.host) {
+          if (wasMySQL) {
             setMysqlConfig({
               host: result.config.database.host || 'localhost',
               port: result.config.database.port || 3306,
