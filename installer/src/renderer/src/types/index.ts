@@ -56,7 +56,7 @@ export interface InstallConfig {
   launchNow: boolean
   keepData?: boolean
   verification?: VerificationState
-  customYaml?: string  // 用户在预览中编辑的完整 YAML 内容
+  configYaml?: string  // 预览的完整配置 YAML（所见即所得）
 }
 
 // 安装进度
@@ -118,9 +118,11 @@ declare global {
       checkOldISDP: () => Promise<InstalledVersion>
       uninstallOldISDP: () => Promise<{ success: boolean; error?: string }>
       readExistingConfig: (installDir: string) => Promise<{ success: boolean; config?: ExistingConfig; error?: string }>
-      readFullConfig: (installDir: string) => Promise<string | null>
-      readMergedConfig: (installDir: string) => Promise<string | null>
-      generateConfig: (config: object) => Promise<{ success: boolean; yaml?: string; error?: string }>
+      generateConfigPreview: (params: {
+        installDir?: string
+        database: DatabaseConfig
+        serverPort?: number
+      }) => Promise<{ success: boolean; yaml?: string; error?: string }>
 
       // 服务管理
       startService: () => Promise<{ success: boolean; error?: string }>

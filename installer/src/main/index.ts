@@ -9,12 +9,11 @@ const readFile = fsPromises.readFile
 import {
   checkDependency,
   installNpmPackage,
-  generateConfigFile,
+  generateConfigPreview,
+  writeConfigFile,
   createDesktopShortcut,
   runInstallation,
   readExistingConfig,
-  readFullConfigYaml,
-  readMergedConfigPreview,
   copyApplicationFiles,
   writeRegistry,
   deleteRegistry
@@ -368,16 +367,12 @@ ipcMain.handle('read-existing-config', async (_event, dir: string) => {
   return readExistingConfig(dir)
 })
 
-ipcMain.handle('read-full-config', async (_event, dir: string) => {
-  return readFullConfigYaml(dir)
-})
-
-ipcMain.handle('read-merged-config', async (_event, dir: string) => {
-  return readMergedConfigPreview(dir)
-})
-
-ipcMain.handle('generate-config', async (_event, config: any) => {
-  return generateConfigFile(config)
+ipcMain.handle('generate-config-preview', async (_event, params: {
+  installDir?: string
+  database: { type: 'sqlite' | 'mysql'; host?: string; port?: number; database?: string; username?: string; password?: string }
+  serverPort?: number
+}) => {
+  return generateConfigPreview(params)
 })
 
 ipcMain.handle('start-installation', async (_event, config) => {

@@ -94,21 +94,26 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
     const generatePreview = async () => {
       try {
         // 根据 database.type 构建完整的配置对象
-        const dbConfig = (config.database.type || 'sqlite') === 'mysql'
+        const dbType = (config.database.type || 'sqlite') as 'sqlite' | 'mysql'
+        const dbConfig: DatabaseConfig = dbType === 'mysql'
           ? { type: 'mysql', ...mysqlConfig }
           : { type: 'sqlite' }
 
         console.log('[SystemConfig] Generating preview with dbConfig:', dbConfig)
 
-        const result = await window.electronAPI.generateConfig({
+        // 调用新的 generateConfigPreview API
+        const result = await window.electronAPI.generateConfigPreview({
+          installDir: config.installDir || installedVersion?.installDir,
           database: dbConfig,
           serverPort: config.serverPort || 8080
         })
 
-        console.log('[SystemConfig] generateConfig result:', result)
+        console.log('[SystemConfig] generateConfigPreview result:', result)
 
         if (result.success && result.yaml && typeof result.yaml === 'string') {
           setMergedConfigYaml(result.yaml)
+          // 同时更新 configYaml，确保预览内容传递到安装流程
+          onConfigUpdate({ configYaml: result.yaml })
         } else {
           const errorMsg = result.error || '返回格式错误'
           setMergedConfigYaml(`# 配置生成失败\n# 错误: ${errorMsg}`)
@@ -120,15 +125,14 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
     }
 
     generatePreview()
-  }, [config.database.type, mysqlConfig, config.serverPort, editingYaml])
+  }, [config.database.type, mysqlConfig, config.serverPort, editingYaml, config.installDir, installedVersion?.installDir])
 
   // MySQL 配置变化时更新 mysqlConfig state
   const handleDbChange = (field: string, value: string | number) => {
     const newMysqlConfig = { ...mysqlConfig, [field]: value }
     setMysqlConfig(newMysqlConfig)
     onConfigUpdate({
-      database: { type: 'mysql', ...newMysqlConfig },
-      customYaml: undefined  // 清除自定义 YAML，让预览重新生成
+      database: { type: 'mysql', ...newMysqlConfig }
     })
     setConfigMerged(false)
   }
@@ -166,7 +170,7 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
       setEditingYaml(false)
       setYamlError(null)
       // 将编辑后的 YAML 内容传递到 config
-      onConfigUpdate({ customYaml: mergedConfigYaml })
+      onConfigUpdate({ configYaml: mergedConfigYaml })
       message.success('配置已更新')
     } catch (e) {
       setYamlError('配置格式错误')
@@ -206,14 +210,12 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
               if (newType === 'mysql') {
                 // 切换到 MySQL 时使用保存的 mysqlConfig
                 onConfigUpdate({
-                  database: { type: 'mysql', ...mysqlConfig },
-                  customYaml: undefined  // 清除自定义 YAML
+                  database: { type: 'mysql', ...mysqlConfig }
                 })
               } else {
                 // 切换到 SQLite 时只保留 type
                 onConfigUpdate({
-                  database: { type: 'sqlite' },
-                  customYaml: undefined  // 清除自定义 YAML
+                  database: { type: 'sqlite' }
                 })
               }
               setConfigMerged(false)
@@ -339,10 +341,7 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
                 type="number"
                 value={config.serverPort || 8080}
                 onChange={(e) => {
-                  onConfigUpdate({
-                    serverPort: parseInt(e.target.value) || 8080,
-                    customYaml: undefined  // 清除自定义 YAML
-                  })
+                  onConfigUpdate({ serverPort: parseInt(e.target.value) || 8080 })
                   setConfigMerged(false)
                 }}
                 placeholder="8080"
@@ -367,7 +366,6 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
               <>
                 <Button size="small" onClick={() => {
                   setEditingYaml(false)
-                  loadFullConfig()
                   setYamlError(null)
                 }}>
                   取消

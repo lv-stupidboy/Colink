@@ -20,7 +20,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   checkDependency: (dep: string) => ipcRenderer.invoke('check-dependency', dep),
   installDependency: (dep: string) => ipcRenderer.invoke('install-dependency', dep),
   startInstallation: (config: object) => ipcRenderer.invoke('start-installation', config),
-  generateConfig: (config: object) => ipcRenderer.invoke('generate-config', config),
+  generateConfigPreview: (params: {
+    installDir?: string
+    database: { type: 'sqlite' | 'mysql'; host?: string; port?: number; database?: string; username?: string; password?: string }
+    serverPort?: number
+  }) => ipcRenderer.invoke('generate-config-preview', params),
   testDatabaseConnection: (config: object) => ipcRenderer.invoke('test-database-connection', config),
   createShortcut: (path: string) => ipcRenderer.invoke('create-shortcut', path),
 
@@ -36,8 +40,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   checkOldISDP: () => ipcRenderer.invoke('check-old-isdp'),
   uninstallOldISDP: () => ipcRenderer.invoke('uninstall-old-isdp'),
   readExistingConfig: (installDir: string) => ipcRenderer.invoke('read-existing-config', installDir),
-  readFullConfig: (installDir: string) => ipcRenderer.invoke('read-full-config', installDir),
-  readMergedConfig: (installDir: string) => ipcRenderer.invoke('read-merged-config', installDir),
 
   // 服务管理
   startService: () => ipcRenderer.invoke('start-service'),

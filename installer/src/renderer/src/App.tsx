@@ -33,7 +33,7 @@ const UPGRADE_STEP_LABELS = ['欢迎', '验证邀请码', '依赖检测', '系�
 export default function App() {
   const [mode, setMode] = useState<AppMode>('checking')
   const [currentStep, setCurrentStep] = useState(1)
-  const [installedVersion, setInstalledVersion] = useState<InstalledVersion | null>(null)
+  const [installedVersion, setInstalledVersion] = useState<InstalledVersion | undefined>(undefined)
   const [serviceStatus, setServiceStatus] = useState<'running' | 'stopped'>('stopped')
   const [config, setConfig] = useState<InstallConfig>({
     installDir: 'C:\\Program Files\\Colink',
