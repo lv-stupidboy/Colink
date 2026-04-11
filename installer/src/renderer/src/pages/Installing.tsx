@@ -143,8 +143,8 @@ export default function Installing({ config, onComplete, isUpgrade }: Installing
   const completedSteps = steps.filter(s => s.status === 'success' || s.status === 'warning').length
   const totalProgress = Math.round((completedSteps / steps.length) * 100)
 
-  // 需要手动执行的步骤（warning 状态）
-  const warningSteps = steps.filter(s => s.status === 'warning')
+  // 只有数据库迁移步骤需要手动执行的提示（MySQL 场景）
+  const migrationWarning = steps.find(s => s.step === 'migration' && s.status === 'warning')
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
@@ -177,34 +177,30 @@ export default function Installing({ config, onComplete, isUpgrade }: Installing
         </div>
       )}
 
-      {/* 需要手动执行的步骤提示 */}
-      {installComplete && !installError && warningSteps.length > 0 && (
+      {/* MySQL 数据库迁移需手动执行 */}
+      {installComplete && !installError && migrationWarning && (
         <Alert
           type="warning"
           showIcon
           style={{ marginBottom: 20 }}
-          message="部分步骤需要手动完成"
+          message="MySQL 数据库迁移需手动完成"
           description={
             <div>
-              {warningSteps.map(step => (
-                <div key={step.step} style={{ marginBottom: 8 }}>
-                  <strong>{step.label}</strong>：{step.message}
-                  {step.details && (
-                    <pre style={{
-                      margin: '4px 0 0 0',
-                      padding: 8,
-                      background: '#fffbe6',
-                      borderRadius: 4,
-                      fontSize: 12,
-                      fontFamily: 'Consolas, Monaco, monospace',
-                      whiteSpace: 'pre-wrap',
-                      wordBreak: 'break-word',
-                    }}>
-                      {step.details}
-                    </pre>
-                  )}
-                </div>
-              ))}
+              <p style={{ marginBottom: 8 }}>{migrationWarning.message}</p>
+              {migrationWarning.details && (
+                <pre style={{
+                  margin: '4px 0 0 0',
+                  padding: 8,
+                  background: '#fffbe6',
+                  borderRadius: 4,
+                  fontSize: 12,
+                  fontFamily: 'Consolas, Monaco, monospace',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                }}>
+                  {migrationWarning.details}
+                </pre>
+              )}
             </div>
           }
         />
