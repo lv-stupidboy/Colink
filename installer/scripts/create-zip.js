@@ -94,49 +94,7 @@ for (const file of files) {
   }
 }
 
-// 添加数据库变更目录
-console.log('Adding database changes...')
-const sqlChangeDir = join(__dirname, '../../sql-change')
-
-// 添加版本迁移目录（v1.0.0, v1.1.0 等）
-const versions = readdirSync(sqlChangeDir)
-  .filter(f => {
-    const stat = statSync(join(sqlChangeDir, f))
-    return stat.isDirectory() && f.startsWith('v')
-  })
-  .sort()
-
-for (const version of versions) {
-  const versionSrc = join(sqlChangeDir, version)
-
-  // 检查 mysql 和 sqlite 子目录
-  const dbTypes = ['mysql', 'sqlite']
-  for (const dbType of dbTypes) {
-    const dbTypeSrc = join(versionSrc, dbType)
-    if (existsSync(dbTypeSrc)) {
-      const sqlFiles = readdirSync(dbTypeSrc)
-        .filter(f => f.endsWith('.sql'))
-        .sort()
-
-      if (sqlFiles.length > 0) {
-        const versionDest = `Colink/runtime/data/sql-change/${version}/${dbType}`
-
-        for (const sqlFile of sqlFiles) {
-          const sqlPath = join(dbTypeSrc, sqlFile)
-          archive.file(sqlPath, { name: `${versionDest}/${sqlFile}` })
-        }
-
-        console.log(`  Added ${sqlFiles.length} SQL files to ${version}/${dbType}`)
-      }
-    }
-  }
-}
-
-// 添加配置模板文件
-const templatePath = join(__dirname, '../../configs/config.yaml.example')
-if (existsSync(templatePath)) {
-  archive.file(templatePath, { name: 'Colink/runtime/data/configs/config.yaml.example' })
-  console.log('  Added config template')
-}
+// sql-change 和 config.yaml.example 已由 electron-builder.yml 的 extraResources 打包
+// 打包到 resources/runtime/data/ 目录，无需在此重复添加
 
 archive.finalize()
