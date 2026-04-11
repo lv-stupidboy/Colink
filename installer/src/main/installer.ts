@@ -801,7 +801,11 @@ export async function runInstallation(
     // MySQL 场景：提示用户手动执行
     if (dbType === 'mysql') {
       if (dbChanges.length > 0) {
-        const manualHint = dbChanges.map(c => `${c.version}:\n  sql-change/${c.version}/${c.files.join('\n  ')}`).join('\n')
+        // 每个文件单独拼接完整路径
+        const manualHint = dbChanges.map(c => {
+          const filesList = c.files.map(f => `  sql-change/${c.version}/${f}`).join('\n')
+          return `${c.version}:\n${filesList}`
+        }).join('\n')
         sendProgress('migration', 'warning', 100, 'MySQL 数据库需手动迁移',
           `请手动执行以下 SQL 脚本：\n${manualHint}`)
       } else {
