@@ -787,7 +787,7 @@ export async function runInstallation(
         const actionHint = dbType === 'mysql'
           ? 'MySQL 需手动执行迁移'
           : 'SQLite 将自动执行迁移'
-        sendProgress('dbcheck', 'warning', 100, `检测到 ${dbChanges.length} 个版本的 ${dbType} 数据库变更`, `${actionHint}\n${details}`)
+        sendProgress('dbcheck', 'success', 100, `检测到 ${dbChanges.length} 个版本的 ${dbType} 数据库变更`, `${actionHint}\n${details}`)
       } else {
         sendProgress('dbcheck', 'success', 100, '无数据库变更', `${dbType} 无需执行数据库迁移`)
       }

@@ -143,8 +143,9 @@ export default function Installing({ config, onComplete, isUpgrade }: Installing
   const completedSteps = steps.filter(s => s.status === 'success' || s.status === 'warning').length
   const totalProgress = Math.round((completedSteps / steps.length) * 100)
 
-  // 只有数据库迁移步骤需要手动执行的提示（MySQL 场景）
-  const migrationWarning = steps.find(s => s.step === 'migration' && s.status === 'warning')
+  // 数据库迁移提示：只针对 migration 步骤，有迁移内容时才显示
+  const migrationStep = steps.find(s => s.step === 'migration')
+  const showMigrationAlert = installComplete && !installError && migrationStep && migrationStep.details
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
@@ -177,30 +178,30 @@ export default function Installing({ config, onComplete, isUpgrade }: Installing
         </div>
       )}
 
-      {/* MySQL 数据库迁移需手动执行 */}
-      {installComplete && !installError && migrationWarning && (
+      {/* 数据库迁移提示 */}
+      {showMigrationAlert && migrationStep && (
         <Alert
-          type="warning"
+          type={migrationStep.status === 'warning' ? 'warning' : 'success'}
           showIcon
           style={{ marginBottom: 20 }}
-          message="MySQL 数据库迁移需手动完成"
+          message={migrationStep.status === 'warning'
+            ? 'MySQL 数据库需手动迁移'
+            : 'SQLite 数据库已自动迁移'}
           description={
             <div>
-              <p style={{ marginBottom: 8 }}>{migrationWarning.message}</p>
-              {migrationWarning.details && (
-                <pre style={{
-                  margin: '4px 0 0 0',
-                  padding: 8,
-                  background: '#fffbe6',
-                  borderRadius: 4,
-                  fontSize: 12,
-                  fontFamily: 'Consolas, Monaco, monospace',
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word',
-                }}>
-                  {migrationWarning.details}
-                </pre>
-              )}
+              <p style={{ marginBottom: 8 }}>{migrationStep.message}</p>
+              <pre style={{
+                margin: 0,
+                padding: 8,
+                background: migrationStep.status === 'warning' ? '#fffbe6' : '#f6ffed',
+                borderRadius: 4,
+                fontSize: 12,
+                fontFamily: 'Consolas, Monaco, monospace',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+              }}>
+                {migrationStep.details}
+              </pre>
             </div>
           }
         />
