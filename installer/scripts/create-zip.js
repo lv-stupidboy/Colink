@@ -9,7 +9,7 @@ let arch = process.env.COLINK_ARCH
 
 if (!fullVersion) {
   // Fallback: generate from VERSION file + timestamp
-  const rootVersionPath = join(__dirname, '../VERSION')
+  const rootVersionPath = join(__dirname, '../../VERSION')
   let baseVersion
   if (existsSync(rootVersionPath)) {
     baseVersion = readFileSync(rootVersionPath, 'utf-8').trim()
@@ -96,7 +96,7 @@ for (const file of files) {
 
 // 添加数据库变更目录
 console.log('Adding database changes...')
-const sqlChangeDir = join(__dirname, '../sql-change')
+const sqlChangeDir = join(__dirname, '../../sql-change')
 
 // 添加版本迁移目录（v1.0.0, v1.1.0 等）
 const versions = readdirSync(sqlChangeDir)
@@ -133,7 +133,7 @@ for (const version of versions) {
 }
 
 // 添加配置模板文件
-const templatePath = join(__dirname, '../configs/config.yaml.example')
+const templatePath = join(__dirname, '../../configs/config.yaml.example')
 if (existsSync(templatePath)) {
   archive.file(templatePath, { name: 'Colink/runtime/data/configs/config.yaml.example' })
   console.log('  Added config template')
