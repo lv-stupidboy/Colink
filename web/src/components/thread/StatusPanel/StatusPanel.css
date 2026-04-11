@@ -136,6 +136,14 @@
   background: #ef4444;
 }
 
+.agent-dot.cancelled {
+  background: #f59e0b;
+}
+
+.agent-dot.interrupted {
+  background: #f59e0b;
+}
+
 .agent-dot.pending {
   background: #d1d5db;
 }
@@ -186,6 +194,34 @@
 .agent-status-badge.failed {
   background: #fee2e2;
   color: #dc2626;
+}
+
+.agent-status-badge.cancelled {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.agent-status-badge.interrupted {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+/* Agent cancel button */
+.agent-cancel-btn {
+  cursor: pointer;
+  padding: 2px 4px;
+  margin-left: 4px;
+  color: #6b7280;
+  font-size: 12px;
+  border-radius: 4px;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+}
+
+.agent-cancel-btn:hover {
+  color: #ef4444;
+  background: #fee2e2;
 }
 
 .agent-meta {
@@ -657,6 +693,15 @@
 [data-theme='dark'] .agent-status-badge {
   background: var(--bg-elevated);
   color: var(--text-secondary);
+}
+
+[data-theme='dark'] .agent-cancel-btn {
+  color: var(--text-secondary);
+}
+
+[data-theme='dark'] .agent-cancel-btn:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.2);
 }
 
 [data-theme='dark'] .agent-meta {

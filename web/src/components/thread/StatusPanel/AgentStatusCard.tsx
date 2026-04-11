@@ -1,8 +1,9 @@
 import React from 'react';
-import { RobotOutlined } from '@ant-design/icons';
+import { RobotOutlined, StopOutlined } from '@ant-design/icons';
 import type { AgentInvocation } from '@/types';
 import type { TokenUsage } from '@/types/status';
 import { DurationDisplay } from './DurationDisplay';
+import { useAppStore } from '@/store';
 
 interface Props {
   activeAgents: AgentInvocation[];
@@ -15,6 +16,8 @@ const statusLabels: Record<string, string> = {
   streaming: '输出',
   completed: '完成',
   failed: '失败',
+  cancelled: '已取消',
+  interrupted: '中断',
 };
 
 const formatTokens = (n: number): string => {
@@ -24,6 +27,16 @@ const formatTokens = (n: number): string => {
 };
 
 export const AgentStatusCard: React.FC<Props> = ({ activeAgents, agentUsage }) => {
+  const { cancelAgent } = useAppStore();
+
+  const handleCancel = async (agentId: string) => {
+    try {
+      await cancelAgent(agentId);
+    } catch (err) {
+      console.error('Failed to cancel agent:', err);
+    }
+  };
+
   return (
     <div className="status-section">
       <div className="status-section-title">
@@ -42,6 +55,15 @@ export const AgentStatusCard: React.FC<Props> = ({ activeAgents, agentUsage }) =
                 <span className={`agent-status-badge ${agent.status}`}>
                   {statusLabels[agent.status] || agent.status}
                 </span>
+                {(agent.status === 'running' || agent.status === 'streaming') && (
+                  <span
+                    className="agent-cancel-btn"
+                    onClick={() => handleCancel(agent.id)}
+                    title="取消执行"
+                  >
+                    <StopOutlined />
+                  </span>
+                )}
               </div>
               <div className="agent-meta">
                 <DurationDisplay
