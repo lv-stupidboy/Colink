@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Button, Input, Row, Col, message, Spin, Typography, Radio } from 'antd'
-import { CheckCircleOutlined, EditOutlined } from '@ant-design/icons'
+import { Button, Input, Row, Col, message, Spin, Typography, Radio, Alert } from 'antd'
+import { CheckCircleOutlined, EditOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import ConfigSection from '../components/ConfigSection'
 import { InstallConfig, InstalledVersion, DatabaseConfig } from '../types'
 import { testConnection } from '../services/database-connector'
@@ -24,6 +24,7 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
   const [yamlError, setYamlError] = useState<string | null>(null)
   const [configMerged, setConfigMerged] = useState(false)
   const [userSelectedDbType, setUserSelectedDbType] = useState<boolean>(false)  // 用户是否手动选择了数据库类型
+  const [wasMySQLDetected, setWasMySQLDetected] = useState<boolean>(false)  // 检测到原配置是 MySQL
 
   // 保存 MySQL 配置，即使切换到 sqlite 也保留（用于切换回来时恢复）
   const [mysqlConfig, setMysqlConfig] = useState<{
@@ -68,6 +69,7 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
 
           // 保存 mysql 配置到 state（用于切换回来时恢复）
           if (wasMySQL) {
+            setWasMySQLDetected(true)  // 标记检测到原配置是 MySQL
             setMysqlConfig({
               host: result.config.database.host || 'localhost',
               port: result.config.database.port || 3306,
@@ -223,6 +225,28 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
           </span>
         )}
       </p>
+
+      {/* MySQL 迁移提示 */}
+      {wasMySQLDetected && (
+        <Alert
+          type="info"
+          showIcon
+          icon={<InfoCircleOutlined />}
+          style={{ marginBottom: 20 }}
+          message="数据库类型已自动切换为 SQLite"
+          description={
+            <div>
+              <p style={{ marginBottom: 8 }}>
+                检测到您之前使用的是 MySQL 数据库，已自动切换为 SQLite。
+              </p>
+              <p style={{ marginBottom: 0 }}>
+                <strong>后续版本将不再支持 MySQL</strong>，请使用 SQLite 作为默认数据库。
+                如需临时切换回 MySQL（仅限过渡期），可在下方手动选择。
+              </p>
+            </div>
+          }
+        />
+      )}
 
       <ConfigSection title="数据库配置">
         {/* 数据库类型选择 */}
