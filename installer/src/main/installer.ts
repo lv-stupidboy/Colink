@@ -68,19 +68,18 @@ interface MigrationResult {
 // 执行数据库迁移（使用 migrate.exe）
 // 统一使用 up 命令：首次安装或升级都执行 goose 迁移
 export async function runDatabaseMigration(
-  installDir: string,
   dbPath: string,
   sqlChangeDir: string,
   targetVersion?: string,  // 目标版本号，如 "1.1.0"
   mainWindow?: BrowserWindow
 ): Promise<MigrationResult> {
   try {
-    // migrate.exe 位于 tools 目录
-    const migrateTool = join(installDir, 'tools', 'migrate.exe')
+    // migrate.exe 位于安装包资源目录的 tools 目录
+    const migrateTool = join(process.resourcesPath, 'runtime', 'tools', 'migrate.exe')
 
     // 如果工具不存在，跳过迁移
     if (!existsSync(migrateTool)) {
-      console.warn('[Migration] migrate.exe not found, skipping')
+      console.warn('[Migration] migrate.exe not found at:', migrateTool)
       return { success: true, message: 'migrate.exe not found' }
     }
 
@@ -145,19 +144,17 @@ export async function runDatabaseMigration(
 // 检测数据库变更（根据版本范围筛选）
 // 路径格式：sql-change/v{version}/sqlite/*.sql
 export async function checkDatabaseChanges(
-  installDir: string,
+  sqlChangeDir: string,  // 直接传入 sql-change 目录路径
   currentVersion: string,
   newVersion: string
 ): Promise<{ hasChanges: boolean; changes: Array<{ version: string; files: string[] }> }> {
   try {
-    const sqlChangeDir = join(installDir, 'data', 'sql-change')
-
     // 如果目录不存在，返回无变更
     if (!existsSync(sqlChangeDir)) {
       return { hasChanges: false, changes: [] }
     }
 
-    // 扫描版本目录（v1.0.1, v1.0.2 等）
+    // 扫描版本目录（v1.0.0, v1.1.0 等）
     const versions = readdirSync(sqlChangeDir)
       .filter(f => {
         const fullPath = join(sqlChangeDir, f)
@@ -372,25 +369,6 @@ export async function copyApplicationFiles(
     await mkdir(join(destDir, 'data', 'agent-assets'), { recursive: true })
     await mkdir(join(destDir, 'data', 'agent-configs'), { recursive: true })
     await mkdir(join(destDir, 'data', 'repos'), { recursive: true })
-
-    // 复制数据库变更目录（如果存在）
-    const sqlChangeSrc = join(runtimeDir, 'data', 'sql-change')
-    if (existsSync(sqlChangeSrc)) {
-      const sqlChangeDest = join(destDir, 'data', 'sql-change')
-      await mkdir(sqlChangeDest, { recursive: true })
-      cpSync(sqlChangeSrc, sqlChangeDest, { recursive: true })
-      console.log('[Copy] SQL change directory copied')
-    }
-
-    // 复制 migrate.exe 到 tools 目录（用于数据库迁移）
-    const migrateSrc = join(runtimeDir, 'tools', 'migrate.exe')
-    const toolsDest = join(destDir, 'tools')
-    if (existsSync(migrateSrc)) {
-      await mkdir(toolsDest, { recursive: true })
-      const migrateDest = join(toolsDest, 'migrate.exe')
-      await copyFile(migrateSrc, migrateDest)
-      console.log('[Copy] migrate.exe copied')
-    }
 
     // 复制配置模板（用于升级时配置合并）
     const templateSrc = join(runtimeDir, 'data', 'configs', 'config.yaml.example')
@@ -884,12 +862,15 @@ export async function runInstallation(
     }
     sendProgress('copy', 'success', 100, '文件复制完成', `已复制所有文件到 ${config.installDir}`)
 
+    // sql-change 从安装包资源目录读取，不复制到用户安装目录
+    const sqlChangeDir = join(process.resourcesPath, 'runtime', 'data', 'sql-change')
+
     // Step 1.5: 检测数据库变更（仅升级安装）
     let dbChanges: Array<{ version: string; files: string[] }> = []
     if (config.currentVersion && config.newVersion) {
       sendProgress('dbcheck', 'running', 0, '检查数据库变更...', `检查版本范围: ${config.currentVersion} -> ${config.newVersion}`)
       const dbResult = await checkDatabaseChanges(
-        config.installDir,
+        sqlChangeDir,
         config.currentVersion,
         config.newVersion
       )
@@ -904,34 +885,77 @@ export async function runInstallation(
       sendProgress('dbcheck', 'success', 100, '跳过检测', '新安装不需要检查数据库变更')
     }
 
-    // Step 1.6: 数据库迁移（统一使用 up 命令）
-    const sqlChangeDir = join(config.installDir, 'data', 'sql-change')
+    // Step 1.6: 数据库迁移（仅 SQLite 自动执行，MySQL 提示手动执行）
     const dbPath = join(config.installDir, 'data', 'sqlite', 'colink.db')
 
-    // 确定目标版本
-    const targetVersion = config.newVersion || '1.1.0'
-
-    sendProgress('migration', 'running', 0,
-      existsSync(dbPath) ? '执行数据库迁移...' : '初始化数据库...',
-      existsSync(dbPath) ? '备份并迁移数据库' : '创建 SQLite 数据库')
-
-    const migrationResult = await runDatabaseMigration(
-      config.installDir,
-      dbPath,
-      sqlChangeDir,
-      targetVersion,
-      mainWindow
-    )
-
-    if (migrationResult.success) {
-      const details = migrationResult.message ||
-        (existsSync(dbPath)
-          ? `版本: ${migrationResult.currentVersion} -> ${migrationResult.targetVersion}`
-          : '数据库已初始化')
-      sendProgress('migration', 'success', 100, '数据库迁移成功', details)
+    // MySQL 场景：提示用户手动执行
+    if (config.database.type === 'mysql') {
+      if (dbChanges.length > 0) {
+        sendProgress('migration', 'warning', 100, 'MySQL 数据库需手动迁移',
+          `请手动执行以下版本的 SQL 脚本：\n${dbChanges.map(c => c.version).join(', ')}`)
+      } else {
+        sendProgress('migration', 'success', 100, '无需迁移', 'MySQL 模式，无数据库变更')
+      }
     } else {
-      sendProgress('migration', 'failed', 0, '数据库迁移失败', migrationResult.error || '未知错误')
-      return { success: false, error: `数据库迁移失败: ${migrationResult.error}` }
+      // SQLite 场景：自动执行迁移
+      const currentVer = config.currentVersion || '0.0.0'
+      const targetVer = config.newVersion || '1.1.0'
+
+      // 扫描所有版本目录，筛选需要执行的
+      const versionDirs = readdirSync(sqlChangeDir)
+        .filter(f => f.startsWith('v'))
+        .sort()
+
+      const versionsToRun: string[] = []
+      const current = parseVersion(currentVer)
+      const target = parseVersion(targetVer)
+
+      for (const versionDir of versionDirs) {
+        const version = parseVersion(versionDir.replace('v', ''))
+        // 版本在范围内：大于当前版本，小于或等于目标版本
+        if (compareVersions(version, current) > 0 && compareVersions(version, target) <= 0) {
+          const sqlitePath = join(sqlChangeDir, versionDir, 'sqlite')
+          if (existsSync(sqlitePath)) {
+            versionsToRun.push(versionDir)
+          }
+        }
+      }
+
+      // 创建数据库目录
+      await mkdir(dirname(dbPath), { recursive: true })
+
+      if (versionsToRun.length === 0) {
+        sendProgress('migration', 'success', 100, '无需迁移', '当前版本已是最新')
+      } else {
+        // 按版本顺序逐个执行迁移
+        let totalMigrations = 0
+
+        for (let i = 0; i < versionsToRun.length; i++) {
+          const versionDir = versionsToRun[i]
+          const progress = Math.round(((i + 1) / versionsToRun.length) * 100)
+
+          sendProgress('migration', 'running', progress,
+            `迁移数据库到 ${versionDir}...`,
+            `执行版本 ${versionDir} 的变更脚本`)
+
+          const result = await runDatabaseMigration(
+            dbPath,
+            sqlChangeDir,
+            versionDir.replace('v', ''),
+            mainWindow
+          )
+
+          if (!result.success) {
+            sendProgress('migration', 'failed', 0, '数据库迁移失败', result.error || '未知错误')
+            return { success: false, error: `数据库迁移失败: ${result.error}` }
+          }
+
+          totalMigrations += result.migrations || 0
+        }
+
+        sendProgress('migration', 'success', 100, '数据库迁移成功',
+          `已执行 ${versionsToRun.length} 个版本迁移 (${totalMigrations} 个脚本)`)
+      }
     }
 
     // Step 2-3: 安装依赖

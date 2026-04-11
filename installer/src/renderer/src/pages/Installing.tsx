@@ -26,6 +26,7 @@ const INSTALL_STEPS = [
   { key: 'prepare', label: '准备工作', description: '初始化安装环境' },
   { key: 'copy', label: '复制文件', description: '复制应用程序文件到安装目录' },
   { key: 'dbcheck', label: '检测数据库变更', description: '检查是否需要执行数据库迁移' },
+  { key: 'migration', label: '数据库迁移', description: '执行 SQLite 数据库迁移脚本' },
   { key: 'claude', label: '安装 Claude CLI', description: '安装 Anthropic Claude CLI 工具' },
   { key: 'opencode', label: '安装 OpenCode', description: '安装 OpenCode 工具' },
   { key: 'config', label: '生成配置文件', description: '合并用户配置与模板配置' },
