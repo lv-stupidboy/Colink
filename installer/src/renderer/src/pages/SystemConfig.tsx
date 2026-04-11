@@ -23,6 +23,7 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
   const [editingYaml, setEditingYaml] = useState(false)
   const [yamlError, setYamlError] = useState<string | null>(null)
   const [configMerged, setConfigMerged] = useState(false)
+  const [userSelectedDbType, setUserSelectedDbType] = useState<boolean>(false)  // 用户是否手动选择了数据库类型
 
   // 保存 MySQL 配置，即使切换到 sqlite 也保留（用于切换回来时恢复）
   const [mysqlConfig, setMysqlConfig] = useState<{
@@ -101,13 +102,28 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
 
     const generatePreview = async () => {
       try {
-        // 根据 database.type 构建完整的配置对象
-        const dbType = (config.database.type || 'sqlite') as 'sqlite' | 'mysql'
-        const dbConfig: DatabaseConfig = dbType === 'mysql'
+        // 确定实际使用的数据库类型：
+        // 1. 如果用户手动选择了，使用用户选择的值
+        // 2. 否则升级场景默认 sqlite，非升级场景使用 config 中的值
+        let effectiveDbType: 'sqlite' | 'mysql'
+        if (userSelectedDbType) {
+          effectiveDbType = (config.database.type || 'sqlite') as 'sqlite' | 'mysql'
+        } else if (isUpgrade) {
+          effectiveDbType = 'sqlite'
+        } else {
+          effectiveDbType = (config.database.type || 'sqlite') as 'sqlite' | 'mysql'
+        }
+
+        const dbConfig: DatabaseConfig = effectiveDbType === 'mysql'
           ? { type: 'mysql', ...mysqlConfig }
           : { type: 'sqlite' }
 
-        console.log('[SystemConfig] Generating preview with dbConfig:', dbConfig)
+        console.log('[SystemConfig] Generating preview:', {
+          isUpgrade,
+          userSelectedDbType,
+          configDbType: config.database.type,
+          effectiveDbType,
+        })
 
         // 调用新的 generateConfigPreview API
         const result = await window.electronAPI.generateConfigPreview({
@@ -133,12 +149,13 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
     }
 
     generatePreview()
-  }, [config.database.type, mysqlConfig, config.serverPort, editingYaml, config.installDir, installedVersion?.installDir])
+  }, [isUpgrade, userSelectedDbType, config.database.type, mysqlConfig, config.serverPort, editingYaml, config.installDir, installedVersion?.installDir])
 
   // MySQL 配置变化时更新 mysqlConfig state
   const handleDbChange = (field: string, value: string | number) => {
     const newMysqlConfig = { ...mysqlConfig, [field]: value }
     setMysqlConfig(newMysqlConfig)
+    setUserSelectedDbType(true)  // 用户手动修改了数据库配置
     onConfigUpdate({
       database: { type: 'mysql', ...newMysqlConfig }
     })
@@ -215,6 +232,7 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
             value={config.database.type || 'sqlite'}
             onChange={(e) => {
               const newType = e.target.value as 'sqlite' | 'mysql'
+              setUserSelectedDbType(true)  // 用户手动选择了数据库类型
               if (newType === 'mysql') {
                 // 切换到 MySQL 时使用保存的 mysqlConfig
                 onConfigUpdate({
