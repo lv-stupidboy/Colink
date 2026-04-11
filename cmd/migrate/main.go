@@ -27,10 +27,11 @@ type Result struct {
 
 // CLI 参数
 type CLIArgs struct {
-	Command       string // up, down, status, version
+	Command       string // up, down, status, version, run
 	DBPath        string // SQLite 数据库路径
 	Version       string // 版本号，如 "1.1.0"
 	MigrationsDir string // 迁移脚本目录
+	File          string // 单个 SQL 文件路径（用于 run 命令）
 	Target        int64  // 目标 goose 版本（可选）
 	DryRun        bool   // 预览模式
 	Backup        bool   // 迁移前备份
@@ -57,8 +58,10 @@ func main() {
 		runUp(args)
 	case "down":
 		runDown(args)
+	case "run":
+		runRun(args)
 	default:
-		outputError(args.JSONOutput, fmt.Sprintf("未知命令: %s\n可用命令: up, down, status, version", args.Command))
+		outputError(args.JSONOutput, fmt.Sprintf("未知命令: %s\n可用命令: up, down, status, version, run", args.Command))
 		os.Exit(1)
 	}
 }
@@ -86,6 +89,11 @@ func parseArgs() CLIArgs {
 				args.MigrationsDir = os.Args[i+1]
 				i++
 			}
+		case "--file":
+			if i+1 < len(os.Args) {
+				args.File = os.Args[i+1]
+				i++
+			}
 		case "--target":
 			if i+1 < len(os.Args) {
 				fmt.Sscanf(os.Args[i+1], "%d", &args.Target)
@@ -100,7 +108,7 @@ func parseArgs() CLIArgs {
 		case "-v", "--verbose":
 			args.Verbose = true
 			goose.SetVerbose(true)
-		case "up", "down", "status", "version":
+		case "up", "down", "status", "version", "run":
 			args.Command = arg
 		}
 	}
@@ -330,6 +338,87 @@ func runDown(args CLIArgs) {
 
 	newVersion, _ := goose.GetDBVersionContext(ctx, db)
 	outputResult(args.JSONOutput, Result{Success: true, TargetVersion: newVersion, BackupPath: backupPath})
+}
+
+// runRun 执行单个 SQL 文件（不记录版本）
+// 用于开发协作场景：手动执行其他开发人员的 SQL 变更
+func runRun(args CLIArgs) {
+	if args.File == "" {
+		outputError(args.JSONOutput, "需要指定 --file 参数")
+		os.Exit(1)
+	}
+
+	// 检查文件是否存在
+	if _, err := os.Stat(args.File); os.IsNotExist(err) {
+		outputError(args.JSONOutput, fmt.Sprintf("SQL 文件不存在: %s", args.File))
+		os.Exit(1)
+	}
+
+	// 读取 SQL 文件内容
+	sqlContent, err := os.ReadFile(args.File)
+	if err != nil {
+		outputError(args.JSONOutput, fmt.Sprintf("读取文件失败: %v", err))
+		os.Exit(1)
+	}
+
+	if args.DryRun {
+		if args.JSONOutput {
+			outputResult(args.JSONOutput, Result{Success: true, Message: "dry-run: would execute SQL file"})
+		} else {
+			fmt.Printf("Dry-run: would execute %s\n", args.File)
+			fmt.Printf("Content preview:\n%s\n", truncate(string(sqlContent), 500))
+		}
+		return
+	}
+
+	// 检查数据库是否已存在
+	dbExists := true
+	if _, err := os.Stat(args.DBPath); os.IsNotExist(err) {
+		dbExists = false
+		os.MkdirAll(filepath.Dir(args.DBPath), 0755)
+	}
+
+	// 打开数据库
+	db, err := openDB(args.DBPath)
+	if err != nil {
+		outputError(args.JSONOutput, fmt.Sprintf("打开数据库失败: %v", err))
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	// 备份（仅数据库已存在时）
+	var backupPath string
+	if args.Backup && dbExists {
+		backupPath = createBackup(args.DBPath, args.Verbose)
+	}
+
+	ctx := context.Background()
+
+	// 直接执行 SQL（不通过 goose）
+	// 忽略 goose 注释，直接执行 SQL 语句
+	_, err = db.ExecContext(ctx, string(sqlContent))
+	if err != nil {
+		outputError(args.JSONOutput, fmt.Sprintf("执行 SQL 失败: %v", err))
+		os.Exit(1)
+	}
+
+	message := fmt.Sprintf("executed SQL file: %s", filepath.Base(args.File))
+	if args.JSONOutput {
+		outputResult(args.JSONOutput, Result{Success: true, BackupPath: backupPath, Message: message})
+	} else {
+		fmt.Printf("✓ %s\n", message)
+		if backupPath != "" {
+			fmt.Printf("  Backup: %s\n", backupPath)
+		}
+	}
+}
+
+// truncate 截断字符串
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
 
 // openDB 打开 SQLite 数据库
