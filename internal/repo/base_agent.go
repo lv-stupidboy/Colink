@@ -12,12 +12,14 @@ import (
 
 // BaseAgentRepository 基础Agent数据访问
 type BaseAgentRepository struct {
-	db *sql.DB
+	BaseRepository
 }
 
 // NewBaseAgentRepository 创建基础Agent Repository
-func NewBaseAgentRepository(db *sql.DB) *BaseAgentRepository {
-	return &BaseAgentRepository{db: db}
+func NewBaseAgentRepository(db *sql.DB, dbType DBType) *BaseAgentRepository {
+	return &BaseAgentRepository{
+		BaseRepository: NewBaseRepository(db, dbType),
+	}
 }
 
 // Create 创建基础Agent
@@ -26,7 +28,7 @@ func (r *BaseAgentRepository) Create(ctx context.Context, agent *model.BaseAgent
 		INSERT INTO base_agents (id, name, type, api_url, api_token, default_model, cli_path, git_bash_path, max_tokens, timeout_minutes, is_default, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
-	_, err := r.db.ExecContext(ctx, query,
+	_, err := r.DB().ExecContext(ctx, query,
 		agent.ID.String(), agent.Name, agent.Type, agent.ApiURL, agent.ApiToken, agent.DefaultModel, agent.CliPath, agent.GitBashPath, agent.MaxTokens, agent.TimeoutMinutes, agent.IsDefault, agent.CreatedAt, agent.UpdatedAt,
 	)
 	return err
@@ -41,8 +43,9 @@ func (r *BaseAgentRepository) FindByID(ctx context.Context, id uuid.UUID) (*mode
 	agent := &model.BaseAgent{}
 	var idStr string
 	var apiURL, apiToken, defaultModel, cliPath, gitBashPath sql.NullString
-	err := r.db.QueryRowContext(ctx, query, id.String()).Scan(
-		&idStr, &agent.Name, &agent.Type, &apiURL, &apiToken, &defaultModel, &cliPath, &gitBashPath, &agent.MaxTokens, &agent.TimeoutMinutes, &agent.IsDefault, &agent.CreatedAt, &agent.UpdatedAt,
+	var createdAt, updatedAt SQLiteTimeScanner
+	err := r.DB().QueryRowContext(ctx, query, id.String()).Scan(
+		&idStr, &agent.Name, &agent.Type, &apiURL, &apiToken, &defaultModel, &cliPath, &gitBashPath, &agent.MaxTokens, &agent.TimeoutMinutes, &agent.IsDefault, &createdAt, &updatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find base agent: %w", err)
@@ -53,6 +56,8 @@ func (r *BaseAgentRepository) FindByID(ctx context.Context, id uuid.UUID) (*mode
 	agent.DefaultModel = defaultModel.String
 	agent.CliPath = cliPath.String
 	agent.GitBashPath = gitBashPath.String
+	agent.CreatedAt = createdAt.Time
+	agent.UpdatedAt = updatedAt.Time
 	return agent, nil
 }
 
@@ -62,7 +67,7 @@ func (r *BaseAgentRepository) FindByType(ctx context.Context, agentType model.Ba
 		SELECT id, name, type, api_url, api_token, default_model, cli_path, git_bash_path, max_tokens, timeout_minutes, is_default, created_at, updated_at
 		FROM base_agents WHERE type = ? ORDER BY is_default DESC, name
 	`
-	rows, err := r.db.QueryContext(ctx, query, agentType)
+	rows, err := r.DB().QueryContext(ctx, query, agentType)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find base agents: %w", err)
 	}
@@ -73,8 +78,9 @@ func (r *BaseAgentRepository) FindByType(ctx context.Context, agentType model.Ba
 		agent := &model.BaseAgent{}
 		var idStr string
 		var apiURL, apiToken, defaultModel, cliPath, gitBashPath sql.NullString
+		var createdAt, updatedAt SQLiteTimeScanner
 		err := rows.Scan(
-			&idStr, &agent.Name, &agent.Type, &apiURL, &apiToken, &defaultModel, &cliPath, &gitBashPath, &agent.MaxTokens, &agent.TimeoutMinutes, &agent.IsDefault, &agent.CreatedAt, &agent.UpdatedAt,
+			&idStr, &agent.Name, &agent.Type, &apiURL, &apiToken, &defaultModel, &cliPath, &gitBashPath, &agent.MaxTokens, &agent.TimeoutMinutes, &agent.IsDefault, &createdAt, &updatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan base agent: %w", err)
@@ -85,6 +91,8 @@ func (r *BaseAgentRepository) FindByType(ctx context.Context, agentType model.Ba
 		agent.DefaultModel = defaultModel.String
 		agent.CliPath = cliPath.String
 		agent.GitBashPath = gitBashPath.String
+		agent.CreatedAt = createdAt.Time
+		agent.UpdatedAt = updatedAt.Time
 		agents = append(agents, agent)
 	}
 	return agents, nil
@@ -96,7 +104,7 @@ func (r *BaseAgentRepository) List(ctx context.Context) ([]*model.BaseAgent, err
 		SELECT id, name, type, api_url, api_token, default_model, cli_path, git_bash_path, max_tokens, timeout_minutes, is_default, created_at, updated_at
 		FROM base_agents ORDER BY is_default DESC, type, name
 	`
-	rows, err := r.db.QueryContext(ctx, query)
+	rows, err := r.DB().QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list base agents: %w", err)
 	}
@@ -107,8 +115,9 @@ func (r *BaseAgentRepository) List(ctx context.Context) ([]*model.BaseAgent, err
 		agent := &model.BaseAgent{}
 		var idStr string
 		var apiURL, apiToken, defaultModel, cliPath, gitBashPath sql.NullString
+		var createdAt, updatedAt SQLiteTimeScanner
 		err := rows.Scan(
-			&idStr, &agent.Name, &agent.Type, &apiURL, &apiToken, &defaultModel, &cliPath, &gitBashPath, &agent.MaxTokens, &agent.TimeoutMinutes, &agent.IsDefault, &agent.CreatedAt, &agent.UpdatedAt,
+			&idStr, &agent.Name, &agent.Type, &apiURL, &apiToken, &defaultModel, &cliPath, &gitBashPath, &agent.MaxTokens, &agent.TimeoutMinutes, &agent.IsDefault, &createdAt, &updatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan base agent: %w", err)
@@ -119,6 +128,8 @@ func (r *BaseAgentRepository) List(ctx context.Context) ([]*model.BaseAgent, err
 		agent.DefaultModel = defaultModel.String
 		agent.CliPath = cliPath.String
 		agent.GitBashPath = gitBashPath.String
+		agent.CreatedAt = createdAt.Time
+		agent.UpdatedAt = updatedAt.Time
 		agents = append(agents, agent)
 	}
 	return agents, nil
@@ -137,7 +148,7 @@ func (r *BaseAgentRepository) Update(ctx context.Context, agent *model.BaseAgent
 		WHERE id = ?
 	`
 	agent.UpdatedAt = time.Now()
-	_, err := r.db.ExecContext(ctx, query,
+	_, err := r.DB().ExecContext(ctx, query,
 		agent.Name, agent.Type, agent.ApiURL, agent.ApiToken, agent.DefaultModel, agent.CliPath, agent.GitBashPath, agent.MaxTokens, agent.TimeoutMinutes, agent.IsDefault, agent.UpdatedAt, agent.ID.String(),
 	)
 	return err
@@ -146,7 +157,7 @@ func (r *BaseAgentRepository) Update(ctx context.Context, agent *model.BaseAgent
 // Delete 删除基础Agent
 func (r *BaseAgentRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	query := `DELETE FROM base_agents WHERE id = ?`
-	_, err := r.db.ExecContext(ctx, query, id.String())
+	_, err := r.DB().ExecContext(ctx, query, id.String())
 	return err
 }
 
@@ -159,8 +170,9 @@ func (r *BaseAgentRepository) FindDefault(ctx context.Context) (*model.BaseAgent
 	agent := &model.BaseAgent{}
 	var idStr string
 	var apiURL, apiToken, defaultModel, cliPath, gitBashPath sql.NullString
-	err := r.db.QueryRowContext(ctx, query).Scan(
-		&idStr, &agent.Name, &agent.Type, &apiURL, &apiToken, &defaultModel, &cliPath, &gitBashPath, &agent.MaxTokens, &agent.TimeoutMinutes, &agent.IsDefault, &agent.CreatedAt, &agent.UpdatedAt,
+	var createdAt, updatedAt SQLiteTimeScanner
+	err := r.DB().QueryRowContext(ctx, query).Scan(
+		&idStr, &agent.Name, &agent.Type, &apiURL, &apiToken, &defaultModel, &cliPath, &gitBashPath, &agent.MaxTokens, &agent.TimeoutMinutes, &agent.IsDefault, &createdAt, &updatedAt,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -174,12 +186,14 @@ func (r *BaseAgentRepository) FindDefault(ctx context.Context) (*model.BaseAgent
 	agent.DefaultModel = defaultModel.String
 	agent.CliPath = cliPath.String
 	agent.GitBashPath = gitBashPath.String
+	agent.CreatedAt = createdAt.Time
+	agent.UpdatedAt = updatedAt.Time
 	return agent, nil
 }
 
 // SetDefault 设置默认基础Agent（事务操作：先清除所有默认，再设置指定为默认）
 func (r *BaseAgentRepository) SetDefault(ctx context.Context, id uuid.UUID) error {
-	tx, err := r.db.BeginTx(ctx, nil)
+	tx, err := r.DB().BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
@@ -201,6 +215,6 @@ func (r *BaseAgentRepository) SetDefault(ctx context.Context, id uuid.UUID) erro
 // ClearDefault 清除指定基础Agent的默认状态
 func (r *BaseAgentRepository) ClearDefault(ctx context.Context, id uuid.UUID) error {
 	query := "UPDATE base_agents SET is_default = false, updated_at = ? WHERE id = ?"
-	_, err := r.db.ExecContext(ctx, query, time.Now(), id.String())
+	_, err := r.DB().ExecContext(ctx, query, time.Now(), id.String())
 	return err
 }

@@ -12,12 +12,14 @@ import (
 
 // RuleRepository Rule数据访问
 type RuleRepository struct {
-	db *sql.DB
+	BaseRepository
 }
 
 // NewRuleRepository 创建Rule Repository
-func NewRuleRepository(db *sql.DB) *RuleRepository {
-	return &RuleRepository{db: db}
+func NewRuleRepository(db *sql.DB, dbType DBType) *RuleRepository {
+	return &RuleRepository{
+		BaseRepository: NewBaseRepository(db, dbType),
+	}
 }
 
 // Create 创建Rule
@@ -26,7 +28,7 @@ func (r *RuleRepository) Create(ctx context.Context, rule *model.Rule) error {
 		INSERT INTO rules (id, name, description, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?)
 	`
-	_, err := r.db.ExecContext(ctx, query,
+	_, err := r.DB().ExecContext(ctx, query,
 		rule.ID.String(), rule.Name, rule.Description, rule.CreatedAt, rule.UpdatedAt,
 	)
 	return err
@@ -39,9 +41,10 @@ func scanRule(scanner interface {
 	rule := &model.Rule{}
 	var idStr string
 	var description sql.NullString
+	var createdAt, updatedAt SQLiteTimeScanner
 
 	err := scanner.Scan(
-		&idStr, &rule.Name, &description, &rule.CreatedAt, &rule.UpdatedAt,
+		&idStr, &rule.Name, &description, &createdAt, &updatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -51,6 +54,8 @@ func scanRule(scanner interface {
 	if description.Valid {
 		rule.Description = description.String
 	}
+	rule.CreatedAt = createdAt.Time
+	rule.UpdatedAt = updatedAt.Time
 
 	return rule, nil
 }
@@ -61,7 +66,7 @@ func (r *RuleRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.Rul
 		SELECT id, name, description, created_at, updated_at
 		FROM rules WHERE id = ?
 	`
-	rule, err := scanRule(r.db.QueryRowContext(ctx, query, id.String()))
+	rule, err := scanRule(r.DB().QueryRowContext(ctx, query, id.String()))
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("rule not found: %w", err)
@@ -77,7 +82,7 @@ func (r *RuleRepository) FindByName(ctx context.Context, name string) (*model.Ru
 		SELECT id, name, description, created_at, updated_at
 		FROM rules WHERE name = ?
 	`
-	rule, err := scanRule(r.db.QueryRowContext(ctx, query, name))
+	rule, err := scanRule(r.DB().QueryRowContext(ctx, query, name))
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("rule not found: %w", err)
@@ -106,7 +111,7 @@ func (r *RuleRepository) List(ctx context.Context, query *model.RuleListQuery) (
 	// 计算总数
 	countQuery := "SELECT COUNT(*) FROM rules " + whereClause
 	var total int64
-	err := r.db.QueryRowContext(ctx, countQuery, args...).Scan(&total)
+	err := r.DB().QueryRowContext(ctx, countQuery, args...).Scan(&total)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to count rules: %w", err)
 	}
@@ -132,7 +137,7 @@ func (r *RuleRepository) List(ctx context.Context, query *model.RuleListQuery) (
 	`
 	args = append(args, pageSize, offset)
 
-	rows, err := r.db.QueryContext(ctx, listQuery, args...)
+	rows, err := r.DB().QueryContext(ctx, listQuery, args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to list rules: %w", err)
 	}
@@ -157,7 +162,7 @@ func (r *RuleRepository) Update(ctx context.Context, rule *model.Rule) error {
 		SET name = ?, description = ?, updated_at = ?
 		WHERE id = ?
 	`
-	_, err := r.db.ExecContext(ctx, query,
+	_, err := r.DB().ExecContext(ctx, query,
 		rule.Name, rule.Description, rule.UpdatedAt, rule.ID.String(),
 	)
 	return err
@@ -166,6 +171,6 @@ func (r *RuleRepository) Update(ctx context.Context, rule *model.Rule) error {
 // Delete 删除Rule
 func (r *RuleRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	query := `DELETE FROM rules WHERE id = ?`
-	_, err := r.db.ExecContext(ctx, query, id.String())
+	_, err := r.DB().ExecContext(ctx, query, id.String())
 	return err
 }

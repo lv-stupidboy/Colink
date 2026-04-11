@@ -41,7 +41,8 @@ func TestDatabaseConfigDefaults(t *testing.T) {
 	if cfg.Type != DBTypeSQLite {
 		t.Errorf("expected default type sqlite, got %s", cfg.Type)
 	}
-	if cfg.Path != "./data/isdp.db" {
-		t.Errorf("expected default path ./data/isdp.db, got %s", cfg.Path)
+	// Path 不再有默认值，必须在配置文件中指定
+	if cfg.Path != "" {
+		t.Errorf("expected empty path (must be configured), got %s", cfg.Path)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/google/uuid"
@@ -13,12 +14,14 @@ import (
 
 // SkillRepository Skill数据访问
 type SkillRepository struct {
-	db *sql.DB
+	BaseRepository
 }
 
 // NewSkillRepository 创建Skill Repository
-func NewSkillRepository(db *sql.DB) *SkillRepository {
-	return &SkillRepository{db: db}
+func NewSkillRepository(db *sql.DB, dbType DBType) *SkillRepository {
+	return &SkillRepository{
+		BaseRepository: NewBaseRepository(db, dbType),
+	}
 }
 
 // Create 创建Skill
@@ -41,7 +44,7 @@ func (r *SkillRepository) Create(ctx context.Context, skill *model.Skill) error 
 		projectID = skill.ProjectID.String()
 	}
 
-	_, err := r.db.ExecContext(ctx, query,
+	_, err := r.DB().ExecContext(ctx, query,
 		skill.ID.String(), skill.Name, skill.Description, tags, skill.SourceType, sourceRegistryID, authorID, projectID, supportedAgents, skill.UseCount, skill.Status, skill.IsPublic, skill.CreatedAt, skill.UpdatedAt,
 	)
 	return err
@@ -56,9 +59,10 @@ func scanSkill(scanner interface {
 	var description sql.NullString
 	var tags, supportedAgents []byte
 	var sourceRegistryID, authorID, projectID sql.NullString
+	var createdAt, updatedAt SQLiteTimeScanner
 
 	err := scanner.Scan(
-		&idStr, &skill.Name, &description, &tags, &skill.SourceType, &sourceRegistryID, &authorID, &projectID, &supportedAgents, &skill.UseCount, &skill.Status, &skill.IsPublic, &skill.CreatedAt, &skill.UpdatedAt,
+		&idStr, &skill.Name, &description, &tags, &skill.SourceType, &sourceRegistryID, &authorID, &projectID, &supportedAgents, &skill.UseCount, &skill.Status, &skill.IsPublic, &createdAt, &updatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -79,6 +83,8 @@ func scanSkill(scanner interface {
 		skill.ProjectID, _ = uuid.Parse(projectID.String)
 	}
 	json.Unmarshal(supportedAgents, &skill.SupportedAgents)
+	skill.CreatedAt = createdAt.Time
+	skill.UpdatedAt = updatedAt.Time
 
 	return skill, nil
 }
@@ -89,7 +95,7 @@ func (r *SkillRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.Sk
 		SELECT id, name, description, tags, source_type, source_registry_id, author_id, project_id, supported_agents, use_count, status, is_public, created_at, updated_at
 		FROM skills WHERE id = ?
 	`
-	skill, err := scanSkill(r.db.QueryRowContext(ctx, query, id.String()))
+	skill, err := scanSkill(r.DB().QueryRowContext(ctx, query, id.String()))
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("skill not found: %w", err)
@@ -105,7 +111,7 @@ func (r *SkillRepository) FindByName(ctx context.Context, name string) (*model.S
 		SELECT id, name, description, tags, source_type, source_registry_id, author_id, project_id, supported_agents, use_count, status, is_public, created_at, updated_at
 		FROM skills WHERE name = ?
 	`
-	skill, err := scanSkill(r.db.QueryRowContext(ctx, query, name))
+	skill, err := scanSkill(r.DB().QueryRowContext(ctx, query, name))
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("skill not found: %w", err)
@@ -122,8 +128,9 @@ func (r *SkillRepository) List(ctx context.Context, query *model.SkillListQuery)
 	var args []interface{}
 
 	if query.Tag != "" {
-		conditions = append(conditions, "JSON_CONTAINS(tags, ?)")
-		args = append(args, `"`+query.Tag+`"`)
+		// 使用 LIKE 模糊匹配 JSON 数组（兼容 SQLite 和 MySQL）
+		conditions = append(conditions, "tags LIKE ?")
+		args = append(args, `%"`+query.Tag+`"%`)
 	}
 	if query.SourceType != "" {
 		conditions = append(conditions, "source_type = ?")
@@ -135,8 +142,9 @@ func (r *SkillRepository) List(ctx context.Context, query *model.SkillListQuery)
 		args = append(args, searchPattern, searchPattern)
 	}
 	if query.AgentType != "" {
-		conditions = append(conditions, "JSON_CONTAINS(supported_agents, ?)")
-		args = append(args, `"`+query.AgentType+`"`)
+		// 使用 LIKE 模糊匹配 JSON 数组（兼容 SQLite 和 MySQL）
+		conditions = append(conditions, "supported_agents LIKE ?")
+		args = append(args, `%"`+query.AgentType+`"%`)
 	}
 
 	whereClause := ""
@@ -147,7 +155,7 @@ func (r *SkillRepository) List(ctx context.Context, query *model.SkillListQuery)
 	// 计算总数
 	countQuery := "SELECT COUNT(*) FROM skills " + whereClause
 	var total int64
-	err := r.db.QueryRowContext(ctx, countQuery, args...).Scan(&total)
+	err := r.DB().QueryRowContext(ctx, countQuery, args...).Scan(&total)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to count skills: %w", err)
 	}
@@ -173,7 +181,7 @@ func (r *SkillRepository) List(ctx context.Context, query *model.SkillListQuery)
 	`
 	args = append(args, pageSize, offset)
 
-	rows, err := r.db.QueryContext(ctx, listQuery, args...)
+	rows, err := r.DB().QueryContext(ctx, listQuery, args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to list skills: %w", err)
 	}
@@ -193,9 +201,11 @@ func (r *SkillRepository) List(ctx context.Context, query *model.SkillListQuery)
 
 // Update 更新Skill
 func (r *SkillRepository) Update(ctx context.Context, skill *model.Skill) error {
+	now := time.Now()
+	skill.UpdatedAt = now
 	query := `
 		UPDATE skills
-		SET name = ?, description = ?, tags = ?, source_type = ?, source_registry_id = ?, author_id = ?, project_id = ?, supported_agents = ?, use_count = ?, status = ?, is_public = ?, updated_at = NOW()
+		SET name = ?, description = ?, tags = ?, source_type = ?, source_registry_id = ?, author_id = ?, project_id = ?, supported_agents = ?, use_count = ?, status = ?, is_public = ?, updated_at = ?
 		WHERE id = ?
 	`
 	supportedAgents, _ := json.Marshal(skill.SupportedAgents)
@@ -212,8 +222,8 @@ func (r *SkillRepository) Update(ctx context.Context, skill *model.Skill) error 
 		projectID = skill.ProjectID.String()
 	}
 
-	_, err := r.db.ExecContext(ctx, query,
-		skill.Name, skill.Description, tags, skill.SourceType, sourceRegistryID, authorID, projectID, supportedAgents, skill.UseCount, skill.Status, skill.IsPublic, skill.ID.String(),
+	_, err := r.DB().ExecContext(ctx, query,
+		skill.Name, skill.Description, tags, skill.SourceType, sourceRegistryID, authorID, projectID, supportedAgents, skill.UseCount, skill.Status, skill.IsPublic, now, skill.ID.String(),
 	)
 	return err
 }
@@ -221,28 +231,30 @@ func (r *SkillRepository) Update(ctx context.Context, skill *model.Skill) error 
 // Delete 删除Skill
 func (r *SkillRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	query := `DELETE FROM skills WHERE id = ?`
-	_, err := r.db.ExecContext(ctx, query, id.String())
+	_, err := r.DB().ExecContext(ctx, query, id.String())
 	return err
 }
 
 // IncrementUseCount 增加使用次数
 func (r *SkillRepository) IncrementUseCount(ctx context.Context, id uuid.UUID) error {
-	query := `UPDATE skills SET use_count = use_count + 1, updated_at = NOW() WHERE id = ?`
-	_, err := r.db.ExecContext(ctx, query, id.String())
+	now := time.Now()
+	query := `UPDATE skills SET use_count = use_count + 1, updated_at = ? WHERE id = ?`
+	_, err := r.DB().ExecContext(ctx, query, now, id.String())
 	return err
 }
 
 // UpdateUseCount 更新使用次数（直接设置值）
 func (r *SkillRepository) UpdateUseCount(ctx context.Context, skillID string, count int) error {
-	query := `UPDATE skills SET use_count = ?, updated_at = NOW() WHERE id = ?`
-	_, err := r.db.ExecContext(ctx, query, count, skillID)
+	now := time.Now()
+	query := `UPDATE skills SET use_count = ?, updated_at = ? WHERE id = ?`
+	_, err := r.DB().ExecContext(ctx, query, count, now, skillID)
 	return err
 }
 
 // GetAllTags 获取所有标签
 func (r *SkillRepository) GetAllTags(ctx context.Context) ([]string, error) {
 	query := `SELECT DISTINCT tags FROM skills WHERE tags IS NOT NULL AND tags != '[]'`
-	rows, err := r.db.QueryContext(ctx, query)
+	rows, err := r.DB().QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get tags: %w", err)
 	}
@@ -273,12 +285,14 @@ func (r *SkillRepository) GetAllTags(ctx context.Context) ([]string, error) {
 
 // AgentSkillBindingRepository Agent-Skill绑定数据访问
 type AgentSkillBindingRepository struct {
-	db *sql.DB
+	BaseRepository
 }
 
 // NewAgentSkillBindingRepository 创建AgentSkillBinding Repository
-func NewAgentSkillBindingRepository(db *sql.DB) *AgentSkillBindingRepository {
-	return &AgentSkillBindingRepository{db: db}
+func NewAgentSkillBindingRepository(db *sql.DB, dbType DBType) *AgentSkillBindingRepository {
+	return &AgentSkillBindingRepository{
+		BaseRepository: NewBaseRepository(db, dbType),
+	}
 }
 
 // Create 创建绑定
@@ -287,7 +301,7 @@ func (r *AgentSkillBindingRepository) Create(ctx context.Context, binding *model
 		INSERT INTO agent_skill_bindings (id, agent_role_id, skill_id, created_at)
 		VALUES (?, ?, ?, ?)
 	`
-	_, err := r.db.ExecContext(ctx, query,
+	_, err := r.DB().ExecContext(ctx, query,
 		binding.ID.String(), binding.AgentRoleID.String(), binding.SkillID.String(), binding.CreatedAt,
 	)
 	return err
@@ -296,7 +310,7 @@ func (r *AgentSkillBindingRepository) Create(ctx context.Context, binding *model
 // FindByAgentRoleID 根据AgentRole ID查找绑定的Skill ID列表
 func (r *AgentSkillBindingRepository) FindByAgentRoleID(ctx context.Context, agentRoleID uuid.UUID) ([]uuid.UUID, error) {
 	query := `SELECT skill_id FROM agent_skill_bindings WHERE agent_role_id = ?`
-	rows, err := r.db.QueryContext(ctx, query, agentRoleID.String())
+	rows, err := r.DB().QueryContext(ctx, query, agentRoleID.String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to find bindings: %w", err)
 	}
@@ -317,7 +331,7 @@ func (r *AgentSkillBindingRepository) FindByAgentRoleID(ctx context.Context, age
 // FindBySkillID 根据Skill ID查找绑定的AgentRole ID列表
 func (r *AgentSkillBindingRepository) FindBySkillID(ctx context.Context, skillID uuid.UUID) ([]uuid.UUID, error) {
 	query := `SELECT agent_role_id FROM agent_skill_bindings WHERE skill_id = ?`
-	rows, err := r.db.QueryContext(ctx, query, skillID.String())
+	rows, err := r.DB().QueryContext(ctx, query, skillID.String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to find bindings: %w", err)
 	}
@@ -338,14 +352,14 @@ func (r *AgentSkillBindingRepository) FindBySkillID(ctx context.Context, skillID
 // DeleteByAgentRoleID 删除AgentRole的所有绑定
 func (r *AgentSkillBindingRepository) DeleteByAgentRoleID(ctx context.Context, agentRoleID uuid.UUID) error {
 	query := `DELETE FROM agent_skill_bindings WHERE agent_role_id = ?`
-	_, err := r.db.ExecContext(ctx, query, agentRoleID.String())
+	_, err := r.DB().ExecContext(ctx, query, agentRoleID.String())
 	return err
 }
 
 // DeleteBinding 删除特定绑定
 func (r *AgentSkillBindingRepository) DeleteBinding(ctx context.Context, agentRoleID, skillID uuid.UUID) error {
 	query := `DELETE FROM agent_skill_bindings WHERE agent_role_id = ? AND skill_id = ?`
-	_, err := r.db.ExecContext(ctx, query, agentRoleID.String(), skillID.String())
+	_, err := r.DB().ExecContext(ctx, query, agentRoleID.String(), skillID.String())
 	return err
 }
 
@@ -353,7 +367,7 @@ func (r *AgentSkillBindingRepository) DeleteBinding(ctx context.Context, agentRo
 func (r *AgentSkillBindingRepository) ExistsBinding(ctx context.Context, agentRoleID, skillID uuid.UUID) (bool, error) {
 	query := `SELECT COUNT(*) FROM agent_skill_bindings WHERE agent_role_id = ? AND skill_id = ?`
 	var count int
-	err := r.db.QueryRowContext(ctx, query, agentRoleID.String(), skillID.String()).Scan(&count)
+	err := r.DB().QueryRowContext(ctx, query, agentRoleID.String(), skillID.String()).Scan(&count)
 	if err != nil {
 		return false, err
 	}

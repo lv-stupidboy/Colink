@@ -16,6 +16,19 @@ func (d *MySQLDialect) Placeholder() string     { return "?" }
 func (d *MySQLDialect) QuoteIdentifier() string { return "`" }
 func (d *MySQLDialect) AutoIncrement() string   { return "AUTO_INCREMENT" }
 
+// NowExpr 返回空字符串，表示使用参数传入时间（兼容两种数据库）
+func (d *MySQLDialect) NowExpr() string { return "" }
+
+// JSONContainsExpr 返回 JSON_CONTAINS 精确匹配表达式（MySQL 支持）
+func (d *MySQLDialect) JSONContainsExpr(column string) string {
+	return "JSON_CONTAINS(" + column + ", ?)"
+}
+
+// JSONContainsParam 格式化参数为 JSON 值格式
+func (d *MySQLDialect) JSONContainsParam(value string) string {
+	return `"` + value + `"`
+}
+
 // newMySQLDB 创建MySQL数据库连接
 func newMySQLDB(cfg DBConfig) (*sql.DB, Dialect, error) {
 	mc := cfg.MySQL

@@ -12,12 +12,14 @@ import (
 
 // SubagentSkillBindingRepository Subagent-Skill绑定数据访问
 type SubagentSkillBindingRepository struct {
-	db *sql.DB
+	BaseRepository
 }
 
 // NewSubagentSkillBindingRepository 创建SubagentSkillBinding Repository
-func NewSubagentSkillBindingRepository(db *sql.DB) *SubagentSkillBindingRepository {
-	return &SubagentSkillBindingRepository{db: db}
+func NewSubagentSkillBindingRepository(db *sql.DB, dbType DBType) *SubagentSkillBindingRepository {
+	return &SubagentSkillBindingRepository{
+		BaseRepository: NewBaseRepository(db, dbType),
+	}
 }
 
 // Create 创建绑定
@@ -26,7 +28,7 @@ func (r *SubagentSkillBindingRepository) Create(ctx context.Context, binding *mo
 		INSERT INTO subagent_skill_bindings (id, subagent_id, skill_id, created_at)
 		VALUES (?, ?, ?, ?)
 	`
-	_, err := r.db.ExecContext(ctx, query,
+	_, err := r.DB().ExecContext(ctx, query,
 		binding.ID.String(), binding.SubagentID.String(), binding.SkillID.String(), binding.CreatedAt,
 	)
 	return err
@@ -35,7 +37,7 @@ func (r *SubagentSkillBindingRepository) Create(ctx context.Context, binding *mo
 // FindBySubagentID 根据Subagent ID查找绑定的Skill ID列表
 func (r *SubagentSkillBindingRepository) FindBySubagentID(ctx context.Context, subagentID uuid.UUID) ([]uuid.UUID, error) {
 	query := `SELECT skill_id FROM subagent_skill_bindings WHERE subagent_id = ?`
-	rows, err := r.db.QueryContext(ctx, query, subagentID.String())
+	rows, err := r.DB().QueryContext(ctx, query, subagentID.String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to find bindings: %w", err)
 	}
@@ -62,7 +64,7 @@ func (r *SubagentSkillBindingRepository) FindSkillsBySubagentID(ctx context.Cont
 		WHERE b.subagent_id = ?
 		ORDER BY s.created_at DESC
 	`
-	rows, err := r.db.QueryContext(ctx, query, subagentID.String())
+	rows, err := r.DB().QueryContext(ctx, query, subagentID.String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to find skills: %w", err)
 	}
@@ -82,14 +84,14 @@ func (r *SubagentSkillBindingRepository) FindSkillsBySubagentID(ctx context.Cont
 // DeleteBySubagentID 删除Subagent的所有绑定
 func (r *SubagentSkillBindingRepository) DeleteBySubagentID(ctx context.Context, subagentID uuid.UUID) error {
 	query := `DELETE FROM subagent_skill_bindings WHERE subagent_id = ?`
-	_, err := r.db.ExecContext(ctx, query, subagentID.String())
+	_, err := r.DB().ExecContext(ctx, query, subagentID.String())
 	return err
 }
 
 // DeleteBinding 删除特定绑定
 func (r *SubagentSkillBindingRepository) DeleteBinding(ctx context.Context, subagentID, skillID uuid.UUID) error {
 	query := `DELETE FROM subagent_skill_bindings WHERE subagent_id = ? AND skill_id = ?`
-	_, err := r.db.ExecContext(ctx, query, subagentID.String(), skillID.String())
+	_, err := r.DB().ExecContext(ctx, query, subagentID.String(), skillID.String())
 	return err
 }
 
@@ -97,7 +99,7 @@ func (r *SubagentSkillBindingRepository) DeleteBinding(ctx context.Context, suba
 func (r *SubagentSkillBindingRepository) ExistsBinding(ctx context.Context, subagentID, skillID uuid.UUID) (bool, error) {
 	query := `SELECT COUNT(*) FROM subagent_skill_bindings WHERE subagent_id = ? AND skill_id = ?`
 	var count int
-	err := r.db.QueryRowContext(ctx, query, subagentID.String(), skillID.String()).Scan(&count)
+	err := r.DB().QueryRowContext(ctx, query, subagentID.String(), skillID.String()).Scan(&count)
 	if err != nil {
 		return false, err
 	}
@@ -107,7 +109,7 @@ func (r *SubagentSkillBindingRepository) ExistsBinding(ctx context.Context, suba
 // FindBySkillID 根据Skill ID查找绑定的Subagent ID列表
 func (r *SubagentSkillBindingRepository) FindBySkillID(ctx context.Context, skillID uuid.UUID) ([]uuid.UUID, error) {
 	query := `SELECT subagent_id FROM subagent_skill_bindings WHERE skill_id = ?`
-	rows, err := r.db.QueryContext(ctx, query, skillID.String())
+	rows, err := r.DB().QueryContext(ctx, query, skillID.String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to find bindings: %w", err)
 	}

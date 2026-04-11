@@ -79,12 +79,9 @@ func (c *DataConfig) GetReposPath() string {
 	return c.BasePath + "/repos"
 }
 
-// GetDBPath 获取SQLite数据库路径
+// GetDBPath 获取SQLite数据库路径（已废弃，请使用 DatabaseConfig.Path）
 func (c *DataConfig) GetDBPath() string {
-	if c.BasePath == "" {
-		return ""
-	}
-	return c.BasePath + "/isdp.db"
+	return "" // 返回空，强制使用 DatabaseConfig.Path
 }
 
 // ServerConfig 服务器配置
@@ -146,9 +143,7 @@ func (c *DatabaseConfig) ApplyDefaults() {
 	if c.Type == "" {
 		c.Type = DBTypeSQLite
 	}
-	if c.Path == "" {
-		c.Path = "./data/isdp.db"
-	}
+	// Path 不设默认值，必须在配置文件中明确指定
 	c.MySQL.ApplyDefaults()
 }
 
@@ -350,6 +345,24 @@ func validateConfig(cfg *Config) error {
 	// 数据目录必须配置
 	if cfg.Data.BasePath == "" {
 		return fmt.Errorf("配置错误: data.base_path 未设置")
+	}
+
+	// SQLite 数据库路径必须配置
+	if cfg.Database.Type == DBTypeSQLite && cfg.Database.Path == "" {
+		return fmt.Errorf("配置错误: database.path 未设置（SQLite数据库路径）")
+	}
+
+	// MySQL 数据库配置必须完整
+	if cfg.Database.Type == DBTypeMySQL {
+		if cfg.Database.MySQL.Host == "" {
+			return fmt.Errorf("配置错误: database.mysql.host 未设置")
+		}
+		if cfg.Database.MySQL.Database == "" {
+			return fmt.Errorf("配置错误: database.mysql.database 未设置")
+		}
+		if cfg.Database.MySQL.Username == "" {
+			return fmt.Errorf("配置错误: database.mysql.username 未设置")
+		}
 	}
 
 	// Agent资产目录必须配置

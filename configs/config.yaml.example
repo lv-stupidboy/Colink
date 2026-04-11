@@ -9,10 +9,10 @@ data:
 
 database:
   # 数据库类型: sqlite | mysql
-  type: mysql
+  type: sqlite
 
   # SQLite配置 (type=sqlite时生效)
-  path: ./data/isdp.db
+  path: ./data/sqlite/colink.db
 
   # MySQL配置 (type=mysql时生效)
   mysql:

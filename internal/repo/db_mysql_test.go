@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 )
 
 func TestMySQLDialect(t *testing.T) {
@@ -17,6 +18,67 @@ func TestMySQLDialect(t *testing.T) {
 	}
 	if d.AutoIncrement() != "AUTO_INCREMENT" {
 		t.Errorf("expected AUTO_INCREMENT, got %s", d.AutoIncrement())
+	}
+	// NowExpr 应返回空字符串（使用参数传入时间）
+	if d.NowExpr() != "" {
+		t.Errorf("expected empty NowExpr, got %s", d.NowExpr())
+	}
+}
+
+func TestMySQLDialect_JSONMethods(t *testing.T) {
+	d := &MySQLDialect{}
+
+	// 测试 JSON_CONTAINS 表达式
+	expr := d.JSONContainsExpr("`agent_ids`")
+	expectedExpr := "JSON_CONTAINS(`agent_ids`, ?)"
+	if expr != expectedExpr {
+		t.Errorf("expected JSON_CONTAINS expression '%s', got '%s'", expectedExpr, expr)
+	}
+
+	// 测试 JSON 参数格式化
+	param := d.JSONContainsParam("test-uuid")
+	expectedParam := `"test-uuid"`
+	if param != expectedParam {
+		t.Errorf("expected JSON param '%s', got '%s'", expectedParam, param)
+	}
+}
+
+func TestSQLiteTimeScanner_MySQLCompatibility(t *testing.T) {
+	// 测试 SQLiteTimeScanner 对 MySQL time.Time 的兼容性
+	// MySQL 使用 parseTime=true，返回 time.Time 类型
+
+	scanner := &SQLiteTimeScanner{}
+	testTime := time.Date(2026, 4, 11, 10, 5, 13, 0, time.Local)
+
+	err := scanner.Scan(testTime)
+	if err != nil {
+		t.Fatalf("failed to scan time.Time: %v", err)
+	}
+
+	if !scanner.Valid {
+		t.Error("expected Valid to be true")
+	}
+
+	if !scanner.Time.Equal(testTime) {
+		t.Errorf("expected time %v, got %v", testTime, scanner.Time)
+	}
+}
+
+func TestSQLiteTimeScanner_NilHandling(t *testing.T) {
+	// 测试 NULL 值处理
+	scanner := &SQLiteTimeScanner{}
+
+	err := scanner.Scan(nil)
+	if err != nil {
+		t.Fatalf("failed to scan nil: %v", err)
+	}
+
+	if scanner.Valid {
+		t.Error("expected Valid to be false for nil value")
+	}
+
+	if !scanner.Time.IsZero() {
+		t.Error("expected Time to be zero for nil value")
 	}
 }
 

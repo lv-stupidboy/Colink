@@ -65,70 +65,39 @@ color: #333333;
 
 ```
 sql-change/
-├── init.sql         # 当前版本初始化 SQL
-├── history/         # 历史归档（1.0.0 之前）
-└── migrations/      # 按版本归档的增量变更
-    ├── v1.0.1/
-    │   ├── 202604110001_fix_sandboxes_table.sql           # MySQL 版本
-    │   ├── 202604110001_fix_sandboxes_table_sqlite.sql    # SQLite 版本
-    │   └── ...
-    └── v1.0.2/
+├── init/                     # 初始化脚本
+│   ├── init-mysql.sql        # MySQL 初始化（过渡期保留）
+│   └── init-sqlite.sql       # SQLite 初始化（首次安装执行）
+├── history/                  # 历史归档（1.0.0 之前，仅 MySQL，不再使用）
+└── v1.0.1/                   # 版本增量变更（按版本号目录）
+    ├── mysql/                # MySQL 迁移脚本（过渡期保留）
+    │   ├── 202604110001_fix_sandboxes_table.sql
+    │   └── 202604110002_fix_skills_source_type_comment.sql
+    └── sqlite/               # SQLite 迁移脚本
+        ├── 202604110001_fix_sandboxes_table.sql
+        └── 202604110002_fix_skills_source_type_comment.sql
 ```
 
 **归档规则：**
 - 新版本发布时创建 `v{版本号}` 目录，如 `v1.0.1`
+- 目录下按数据库类型分 `mysql/` 和 `sqlite/` 子目录
 - 文件命名：`YYYYMMDDNNNN_description.sql`（日期+序号+描述）
-- **禁止使用 `DROP COLUMN IF EXISTS`**（MySQL 5.7 不支持）
+- **MySQL 禁止使用 `DROP COLUMN IF EXISTS`**（MySQL 5.7 不支持）
+- **SQLite 表结构变更需重建表**（SQLite ALTER TABLE 限制较多）
 
 **执行流程：**
-- 新环境：执行 `init.sql`
-- 版本升级：执行 `migrations/v{版本}/` 下对应 SQL
+- 新环境 SQLite：执行 `init/init-sqlite.sql`
+- 新环境 MySQL：执行 `init/init-mysql.sql`（过渡期保留）
+- 版本升级：执行 `v{版本}/{db_type}/` 下对应 SQL
 
-### 数据库迁移规范（goose）
+**过渡期策略：**
+- SQLite 和 MySQL 表结构保持一致
+- 迁移脚本需提供双版本
+- 后续移除 MySQL 后不再新增 mysql/ 目录
 
-**迁移工具**：使用 goose 进行数据库迁移管理
-
-**迁移脚本目录**：`sql-change/migrations/`
-
-**迁移脚本格式**：
-```sql
--- +goose Up
--- +goose StatementBegin
-CREATE TABLE IF NOT EXISTS example (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL
-);
--- +goose StatementEnd
-
--- +goose Down
--- +goose StatementBegin
-DROP TABLE IF EXISTS example;
--- +goose StatementEnd
-```
-
-**迁移命令（cmd/migrate）**：
-```bash
-# 状态查询
-./bin/migrate.exe status --db ./data/isdp.db --type sqlite
-
-# 执行迁移
-./bin/migrate.exe up --db ./data/isdp.db --type sqlite --backup --json
-
-# 回滚
-./bin/migrate.exe down --db ./data/isdp.db --type sqlite
-
-# 版本查询
-./bin/migrate.exe version --db ./data/isdp.db --type sqlite --json
-```
-
-**迁移执行时机**：
-- 首次安装：由服务初始化数据库
-- 版本升级：安装器自动调用 migrate.exe 执行增量迁移
-
-**数据库类型**：
+### 数据库类型
 - 默认使用 SQLite（`modernc.org/sqlite` 纯 Go 驱动，无需 CGO）
 - 过渡期保留 MySQL 支持（通过 `database.type` 配置切换）
-- 迁移脚本需提供 MySQL 和 SQLite 双版本
 
 ### 服务端口
 - 后端: 8080

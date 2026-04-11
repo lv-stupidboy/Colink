@@ -13,12 +13,14 @@ import (
 
 // MessageRepository Message数据访问
 type MessageRepository struct {
-	db *sql.DB
+	BaseRepository
 }
 
 // NewMessageRepository 创建Message Repository
-func NewMessageRepository(db *sql.DB) *MessageRepository {
-	return &MessageRepository{db: db}
+func NewMessageRepository(db *sql.DB, dbType DBType) *MessageRepository {
+	return &MessageRepository{
+		BaseRepository: NewBaseRepository(db, dbType),
+	}
 }
 
 // Create 创建消息
@@ -35,7 +37,7 @@ func (r *MessageRepository) Create(ctx context.Context, msg *model.Message) erro
 		replyTo = msg.ReplyTo.String()
 	}
 
-	_, err := r.db.ExecContext(ctx, query,
+	_, err := r.DB().ExecContext(ctx, query,
 		msg.ID.String(), msg.ThreadID.String(), msg.Role, msg.AgentID, msg.Content, msg.ContentBlocks, msg.MessageType, msg.Metadata, msg.CreatedAt,
 		serializeStrings(msg.Mentions), msg.Origin, replyTo,
 	)
@@ -48,7 +50,7 @@ func (r *MessageRepository) FindByThreadID(ctx context.Context, threadID uuid.UU
 		SELECT id, thread_id, role, agent_id, content, content_blocks, message_type, metadata, created_at, mentions, origin, reply_to
 		FROM messages WHERE thread_id = ? ORDER BY created_at ASC LIMIT ?
 	`
-	rows, err := r.db.QueryContext(ctx, query, threadID.String(), limit)
+	rows, err := r.DB().QueryContext(ctx, query, threadID.String(), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +58,7 @@ func (r *MessageRepository) FindByThreadID(ctx context.Context, threadID uuid.UU
 
 	var messages = make([]*model.Message, 0) // 初始化为空数组，避免 JSON null
 	for rows.Next() {
-		msg, err := scanMessage(rows)
+		msg, err := r.scanMessage(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -71,7 +73,7 @@ func (r *MessageRepository) GetRecent(ctx context.Context, threadID uuid.UUID, l
 		SELECT id, thread_id, role, agent_id, content, content_blocks, message_type, metadata, created_at, mentions, origin, reply_to
 		FROM messages WHERE thread_id = ? ORDER BY created_at DESC LIMIT ?
 	`
-	rows, err := r.db.QueryContext(ctx, query, threadID.String(), limit)
+	rows, err := r.DB().QueryContext(ctx, query, threadID.String(), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +81,7 @@ func (r *MessageRepository) GetRecent(ctx context.Context, threadID uuid.UUID, l
 
 	var messages = make([]*model.Message, 0) // 初始化为空数组，避免 JSON null
 	for rows.Next() {
-		msg, err := scanMessage(rows)
+		msg, err := r.scanMessage(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -100,7 +102,7 @@ func (r *MessageRepository) FindMentionsForAgent(ctx context.Context, threadID u
 		LIMIT ?
 	`
 	pattern := fmt.Sprintf("%%\"%s\"%%", catID)
-	rows, err := r.db.QueryContext(ctx, query, threadID.String(), pattern, limit)
+	rows, err := r.DB().QueryContext(ctx, query, threadID.String(), pattern, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +110,7 @@ func (r *MessageRepository) FindMentionsForAgent(ctx context.Context, threadID u
 
 	var messages = make([]*model.Message, 0)
 	for rows.Next() {
-		msg, err := scanMessage(rows)
+		msg, err := r.scanMessage(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -123,12 +125,12 @@ func (r *MessageRepository) GetByID(ctx context.Context, id uuid.UUID) (*model.M
 		SELECT id, thread_id, role, agent_id, content, content_blocks, message_type, metadata, created_at, mentions, origin, reply_to
 		FROM messages WHERE id = ?
 	`
-	row := r.db.QueryRowContext(ctx, query, id.String())
-	return scanMessageRow(row)
+	row := r.DB().QueryRowContext(ctx, query, id.String())
+	return r.scanMessageRow(row)
 }
 
 // scanMessage 扫描消息行
-func scanMessage(rows *sql.Rows) (*model.Message, error) {
+func (r *MessageRepository) scanMessage(rows *sql.Rows) (*model.Message, error) {
 	msg := &model.Message{}
 	var idStr, threadIDStr string
 	var contentBlocks []byte
@@ -136,9 +138,10 @@ func scanMessage(rows *sql.Rows) (*model.Message, error) {
 	var mentionsJSON []byte
 	var origin sql.NullString
 	var replyTo sql.NullString
+	var createdAt SQLiteTimeScanner
 
 	err := rows.Scan(
-		&idStr, &threadIDStr, &msg.Role, &msg.AgentID, &msg.Content, &contentBlocks, &msg.MessageType, &metadata, &msg.CreatedAt,
+		&idStr, &threadIDStr, &msg.Role, &msg.AgentID, &msg.Content, &contentBlocks, &msg.MessageType, &metadata, &createdAt,
 		&mentionsJSON, &origin, &replyTo,
 	)
 	if err != nil {
@@ -151,6 +154,7 @@ func scanMessage(rows *sql.Rows) (*model.Message, error) {
 	msg.Metadata = json.RawMessage(metadata)
 	msg.Mentions = deserializeStrings(mentionsJSON)
 	msg.Origin = origin.String
+	msg.CreatedAt = createdAt.Time
 	if replyTo.Valid {
 		replyToID, _ := uuid.Parse(replyTo.String)
 		msg.ReplyTo = &replyToID
@@ -160,7 +164,7 @@ func scanMessage(rows *sql.Rows) (*model.Message, error) {
 }
 
 // scanMessageRow 扫描消息行（单行）
-func scanMessageRow(row *sql.Row) (*model.Message, error) {
+func (r *MessageRepository) scanMessageRow(row *sql.Row) (*model.Message, error) {
 	msg := &model.Message{}
 	var idStr, threadIDStr string
 	var contentBlocks []byte
@@ -168,9 +172,10 @@ func scanMessageRow(row *sql.Row) (*model.Message, error) {
 	var mentionsJSON []byte
 	var origin sql.NullString
 	var replyTo sql.NullString
+	var createdAt SQLiteTimeScanner
 
 	err := row.Scan(
-		&idStr, &threadIDStr, &msg.Role, &msg.AgentID, &msg.Content, &contentBlocks, &msg.MessageType, &metadata, &msg.CreatedAt,
+		&idStr, &threadIDStr, &msg.Role, &msg.AgentID, &msg.Content, &contentBlocks, &msg.MessageType, &metadata, &createdAt,
 		&mentionsJSON, &origin, &replyTo,
 	)
 	if err != nil {
@@ -183,6 +188,7 @@ func scanMessageRow(row *sql.Row) (*model.Message, error) {
 	msg.Metadata = json.RawMessage(metadata)
 	msg.Mentions = deserializeStrings(mentionsJSON)
 	msg.Origin = origin.String
+	msg.CreatedAt = createdAt.Time
 	if replyTo.Valid {
 		replyToID, _ := uuid.Parse(replyTo.String)
 		msg.ReplyTo = &replyToID

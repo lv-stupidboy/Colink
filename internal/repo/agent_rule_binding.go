@@ -12,12 +12,14 @@ import (
 
 // AgentRuleBindingRepository Agent-Rule绑定数据访问
 type AgentRuleBindingRepository struct {
-	db *sql.DB
+	BaseRepository
 }
 
 // NewAgentRuleBindingRepository 创建AgentRuleBinding Repository
-func NewAgentRuleBindingRepository(db *sql.DB) *AgentRuleBindingRepository {
-	return &AgentRuleBindingRepository{db: db}
+func NewAgentRuleBindingRepository(db *sql.DB, dbType DBType) *AgentRuleBindingRepository {
+	return &AgentRuleBindingRepository{
+		BaseRepository: NewBaseRepository(db, dbType),
+	}
 }
 
 // Create 创建绑定
@@ -26,7 +28,7 @@ func (r *AgentRuleBindingRepository) Create(ctx context.Context, binding *model.
 		INSERT INTO agent_rule_bindings (id, agent_role_id, rule_id, created_at)
 		VALUES (?, ?, ?, ?)
 	`
-	_, err := r.db.ExecContext(ctx, query,
+	_, err := r.DB().ExecContext(ctx, query,
 		binding.ID.String(), binding.AgentRoleID.String(), binding.RuleID.String(), binding.CreatedAt,
 	)
 	return err
@@ -35,7 +37,7 @@ func (r *AgentRuleBindingRepository) Create(ctx context.Context, binding *model.
 // FindByAgentRoleID 根据AgentRole ID查找绑定的Rule ID列表
 func (r *AgentRuleBindingRepository) FindByAgentRoleID(ctx context.Context, agentRoleID uuid.UUID) ([]uuid.UUID, error) {
 	query := `SELECT rule_id FROM agent_rule_bindings WHERE agent_role_id = ?`
-	rows, err := r.db.QueryContext(ctx, query, agentRoleID.String())
+	rows, err := r.DB().QueryContext(ctx, query, agentRoleID.String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to find bindings: %w", err)
 	}
@@ -62,7 +64,7 @@ func (r *AgentRuleBindingRepository) FindRulesByAgentRoleID(ctx context.Context,
 		WHERE b.agent_role_id = ?
 		ORDER BY r.created_at DESC
 	`
-	rows, err := r.db.QueryContext(ctx, query, agentRoleID.String())
+	rows, err := r.DB().QueryContext(ctx, query, agentRoleID.String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to find rules: %w", err)
 	}
@@ -82,14 +84,14 @@ func (r *AgentRuleBindingRepository) FindRulesByAgentRoleID(ctx context.Context,
 // DeleteByAgentRoleID 删除AgentRole的所有绑定
 func (r *AgentRuleBindingRepository) DeleteByAgentRoleID(ctx context.Context, agentRoleID uuid.UUID) error {
 	query := `DELETE FROM agent_rule_bindings WHERE agent_role_id = ?`
-	_, err := r.db.ExecContext(ctx, query, agentRoleID.String())
+	_, err := r.DB().ExecContext(ctx, query, agentRoleID.String())
 	return err
 }
 
 // DeleteBinding 删除特定绑定
 func (r *AgentRuleBindingRepository) DeleteBinding(ctx context.Context, agentRoleID, ruleID uuid.UUID) error {
 	query := `DELETE FROM agent_rule_bindings WHERE agent_role_id = ? AND rule_id = ?`
-	_, err := r.db.ExecContext(ctx, query, agentRoleID.String(), ruleID.String())
+	_, err := r.DB().ExecContext(ctx, query, agentRoleID.String(), ruleID.String())
 	return err
 }
 
@@ -97,7 +99,7 @@ func (r *AgentRuleBindingRepository) DeleteBinding(ctx context.Context, agentRol
 func (r *AgentRuleBindingRepository) ExistsBinding(ctx context.Context, agentRoleID, ruleID uuid.UUID) (bool, error) {
 	query := `SELECT COUNT(*) FROM agent_rule_bindings WHERE agent_role_id = ? AND rule_id = ?`
 	var count int
-	err := r.db.QueryRowContext(ctx, query, agentRoleID.String(), ruleID.String()).Scan(&count)
+	err := r.DB().QueryRowContext(ctx, query, agentRoleID.String(), ruleID.String()).Scan(&count)
 	if err != nil {
 		return false, err
 	}
@@ -107,7 +109,7 @@ func (r *AgentRuleBindingRepository) ExistsBinding(ctx context.Context, agentRol
 // FindByRuleID 根据Rule ID查找绑定的AgentRole ID列表
 func (r *AgentRuleBindingRepository) FindByRuleID(ctx context.Context, ruleID uuid.UUID) ([]uuid.UUID, error) {
 	query := `SELECT agent_role_id FROM agent_rule_bindings WHERE rule_id = ?`
-	rows, err := r.db.QueryContext(ctx, query, ruleID.String())
+	rows, err := r.DB().QueryContext(ctx, query, ruleID.String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to find bindings: %w", err)
 	}

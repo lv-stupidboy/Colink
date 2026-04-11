@@ -14,12 +14,14 @@ import (
 
 // KnowledgeBaseRepository 知识库数据访问
 type KnowledgeBaseRepository struct {
-	db *sql.DB
+	BaseRepository
 }
 
 // NewKnowledgeBaseRepository 创建 KnowledgeBase Repository
-func NewKnowledgeBaseRepository(db *sql.DB) *KnowledgeBaseRepository {
-	return &KnowledgeBaseRepository{db: db}
+func NewKnowledgeBaseRepository(db *sql.DB, dbType DBType) *KnowledgeBaseRepository {
+	return &KnowledgeBaseRepository{
+		BaseRepository: NewBaseRepository(db, dbType),
+	}
 }
 
 // Create 创建知识库
@@ -30,7 +32,7 @@ func (r *KnowledgeBaseRepository) Create(ctx context.Context, kb *model.Knowledg
 	`
 	config, _ := json.Marshal(kb.Config)
 
-	_, err := r.db.ExecContext(ctx, query,
+	_, err := r.DB().ExecContext(ctx, query,
 		kb.ID.String(), kb.Name, kb.DisplayName, kb.Description, kb.Type, config, kb.QueryEndpoint, kb.Status, kb.QueryCount, kb.CreatedAt, kb.UpdatedAt,
 	)
 	return err
@@ -44,10 +46,11 @@ func scanKnowledgeBase(scanner interface {
 	var idStr string
 	var displayName, description, queryEndpoint sql.NullString
 	var config []byte
-	var lastQueryAt sql.NullTime
+	var lastQueryAt SQLiteTimeScanner
+	var createdAt, updatedAt SQLiteTimeScanner
 
 	err := scanner.Scan(
-		&idStr, &kb.Name, &displayName, &description, &kb.Type, &config, &queryEndpoint, &kb.Status, &lastQueryAt, &kb.QueryCount, &kb.CreatedAt, &kb.UpdatedAt,
+		&idStr, &kb.Name, &displayName, &description, &kb.Type, &config, &queryEndpoint, &kb.Status, &lastQueryAt, &kb.QueryCount, &createdAt, &updatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -67,6 +70,8 @@ func scanKnowledgeBase(scanner interface {
 		kb.LastQueryAt = &lastQueryAt.Time
 	}
 	json.Unmarshal(config, &kb.Config)
+	kb.CreatedAt = createdAt.Time
+	kb.UpdatedAt = updatedAt.Time
 
 	return kb, nil
 }
@@ -77,7 +82,7 @@ func (r *KnowledgeBaseRepository) FindByID(ctx context.Context, id uuid.UUID) (*
 		SELECT id, name, display_name, description, type, config, query_endpoint, status, last_query_at, query_count, created_at, updated_at
 		FROM knowledge_bases WHERE id = ?
 	`
-	kb, err := scanKnowledgeBase(r.db.QueryRowContext(ctx, query, id.String()))
+	kb, err := scanKnowledgeBase(r.DB().QueryRowContext(ctx, query, id.String()))
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("knowledge base not found: %w", err)
@@ -93,7 +98,7 @@ func (r *KnowledgeBaseRepository) FindByName(ctx context.Context, name string) (
 		SELECT id, name, display_name, description, type, config, query_endpoint, status, last_query_at, query_count, created_at, updated_at
 		FROM knowledge_bases WHERE name = ?
 	`
-	kb, err := scanKnowledgeBase(r.db.QueryRowContext(ctx, query, name))
+	kb, err := scanKnowledgeBase(r.DB().QueryRowContext(ctx, query, name))
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("knowledge base not found: %w", err)
@@ -131,7 +136,7 @@ func (r *KnowledgeBaseRepository) List(ctx context.Context, query *model.Knowled
 	// 计算总数
 	countQuery := "SELECT COUNT(*) FROM knowledge_bases " + whereClause
 	var total int64
-	err := r.db.QueryRowContext(ctx, countQuery, args...).Scan(&total)
+	err := r.DB().QueryRowContext(ctx, countQuery, args...).Scan(&total)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to count knowledge bases: %w", err)
 	}
@@ -157,7 +162,7 @@ func (r *KnowledgeBaseRepository) List(ctx context.Context, query *model.Knowled
 	`
 	args = append(args, pageSize, offset)
 
-	rows, err := r.db.QueryContext(ctx, listQuery, args...)
+	rows, err := r.DB().QueryContext(ctx, listQuery, args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to list knowledge bases: %w", err)
 	}
@@ -177,15 +182,17 @@ func (r *KnowledgeBaseRepository) List(ctx context.Context, query *model.Knowled
 
 // Update 更新知识库
 func (r *KnowledgeBaseRepository) Update(ctx context.Context, kb *model.KnowledgeBase) error {
+	now := time.Now()
+	kb.UpdatedAt = now
 	query := `
 		UPDATE knowledge_bases
-		SET name = ?, display_name = ?, description = ?, type = ?, config = ?, query_endpoint = ?, status = ?, updated_at = NOW()
+		SET name = ?, display_name = ?, description = ?, type = ?, config = ?, query_endpoint = ?, status = ?, updated_at = ?
 		WHERE id = ?
 	`
 	config, _ := json.Marshal(kb.Config)
 
-	_, err := r.db.ExecContext(ctx, query,
-		kb.Name, kb.DisplayName, kb.Description, kb.Type, config, kb.QueryEndpoint, kb.Status, kb.ID.String(),
+	_, err := r.DB().ExecContext(ctx, query,
+		kb.Name, kb.DisplayName, kb.Description, kb.Type, config, kb.QueryEndpoint, kb.Status, now, kb.ID.String(),
 	)
 	return err
 }
@@ -193,14 +200,14 @@ func (r *KnowledgeBaseRepository) Update(ctx context.Context, kb *model.Knowledg
 // Delete 删除知识库
 func (r *KnowledgeBaseRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	query := `DELETE FROM knowledge_bases WHERE id = ?`
-	_, err := r.db.ExecContext(ctx, query, id.String())
+	_, err := r.DB().ExecContext(ctx, query, id.String())
 	return err
 }
 
 // UpdateQueryStats 更新查询统计
 func (r *KnowledgeBaseRepository) UpdateQueryStats(ctx context.Context, id uuid.UUID) error {
 	query := `UPDATE knowledge_bases SET query_count = query_count + 1, last_query_at = ? WHERE id = ?`
-	_, err := r.db.ExecContext(ctx, query, time.Now(), id.String())
+	_, err := r.DB().ExecContext(ctx, query, time.Now(), id.String())
 	return err
 }
 
@@ -210,7 +217,7 @@ func (r *KnowledgeBaseRepository) FindByStatus(ctx context.Context, status model
 		SELECT id, name, display_name, description, type, config, query_endpoint, status, last_query_at, query_count, created_at, updated_at
 		FROM knowledge_bases WHERE status = ?
 	`
-	rows, err := r.db.QueryContext(ctx, query, status)
+	rows, err := r.DB().QueryContext(ctx, query, status)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find knowledge bases by status: %w", err)
 	}

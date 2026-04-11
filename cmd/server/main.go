@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"net/http"
 	"os"
@@ -99,19 +98,12 @@ func main() {
 	// 设置会话日志记录器
 	agent.SetSessionLogger(logger)
 
-	// 连接数据库
+	// 连接数据库（数据库表结构由安装器初始化，服务启动时不执行 schema 创建）
 	db, dialect, err := repo.NewDB(cfg.Database)
 	if err != nil {
 		logger.Fatal("Failed to connect to database", zap.Error(err))
 	}
 	defer db.Close()
-
-	// 初始化数据库表结构（仅SQLite需要，MySQL使用独立的初始化脚本）
-	if cfg.Database.Type == config.DBTypeSQLite {
-		if err := initDatabase(db); err != nil {
-			logger.Fatal("Failed to initialize database", zap.Error(err))
-		}
-	}
 	_ = dialect // 方言对象保留供后续使用
 
 	// 连接Redis（可选）
@@ -137,34 +129,35 @@ func main() {
 	defer debugThreadMgr.Stop() // 优雅关闭调试线程管理器
 
 	// 初始化Repositories
-	projectRepo := repo.NewProjectRepository(db)
-	threadRepo := repo.NewThreadRepository(db)
-	messageRepo := repo.NewMessageRepository(db)
-	agentConfigRepo := repo.NewAgentConfigRepository(db)
-	baseAgentRepo := repo.NewBaseAgentRepository(db)
-	invocationRepo := repo.NewAgentInvocationRepository(db)
-	artifactRepo := repo.NewArtifactRepository(db)
-	sandboxRepo := repo.NewSandboxRepository(db)
+	dbType := cfg.Database.Type
+	projectRepo := repo.NewProjectRepository(db, dbType)
+	threadRepo := repo.NewThreadRepository(db, dbType)
+	messageRepo := repo.NewMessageRepository(db, dbType)
+	agentConfigRepo := repo.NewAgentConfigRepository(db, dbType)
+	baseAgentRepo := repo.NewBaseAgentRepository(db, dbType)
+	invocationRepo := repo.NewAgentInvocationRepository(db, dbType)
+	artifactRepo := repo.NewArtifactRepository(db, dbType)
+	sandboxRepo := repo.NewSandboxRepository(db, dbType)
 	reviewRepo := repo.NewReviewRepository(artifactRepo)
-	workflowRepo := repo.NewWorkflowTemplateRepository(db)
-	skillRepo := repo.NewSkillRepository(db)
-	agentSkillBindingRepo := repo.NewAgentSkillBindingRepository(db)
-	registryRepo := repo.NewSkillRegistryRepository(db)
-	knowledgeRepo := repo.NewKnowledgeBaseRepository(db)
-	subagentRepo := repo.NewSubagentRepository(db)
-	agentSubagentBindingRepo := repo.NewAgentSubagentBindingRepository(db)
+	workflowRepo := repo.NewWorkflowTemplateRepository(db, dbType)
+	skillRepo := repo.NewSkillRepository(db, dbType)
+	agentSkillBindingRepo := repo.NewAgentSkillBindingRepository(db, dbType)
+	registryRepo := repo.NewSkillRegistryRepository(db, dbType)
+	knowledgeRepo := repo.NewKnowledgeBaseRepository(db, dbType)
+	subagentRepo := repo.NewSubagentRepository(db, dbType)
+	agentSubagentBindingRepo := repo.NewAgentSubagentBindingRepository(db, dbType)
 	// Command 和 Rule 相关 Repositories
-	commandRepo := repo.NewCommandRepository(db)
-	ruleRepo := repo.NewRuleRepository(db)
-	commandSkillBindingRepo := repo.NewCommandSkillBindingRepository(db)
-	agentCommandBindingRepo := repo.NewAgentCommandBindingRepository(db)
-	agentRuleBindingRepo := repo.NewAgentRuleBindingRepository(db)
-	subagentSkillBindingRepo := repo.NewSubagentSkillBindingRepository(db)
+	commandRepo := repo.NewCommandRepository(db, dbType)
+	ruleRepo := repo.NewRuleRepository(db, dbType)
+	commandSkillBindingRepo := repo.NewCommandSkillBindingRepository(db, dbType)
+	agentCommandBindingRepo := repo.NewAgentCommandBindingRepository(db, dbType)
+	agentRuleBindingRepo := repo.NewAgentRuleBindingRepository(db, dbType)
+	subagentSkillBindingRepo := repo.NewSubagentSkillBindingRepository(db, dbType)
 	// Settings 和 AssetPackage 相关 Repositories
-	settingsRepo := repo.NewSettingsRepository(db)
-	agentSettingsBindingRepo := repo.NewAgentSettingsBindingRepository(db)
+	settingsRepo := repo.NewSettingsRepository(db, dbType)
+	agentSettingsBindingRepo := repo.NewAgentSettingsBindingRepository(db, dbType)
 	// 后台执行支持：内容块持久化
-	contentBlockRepo := repo.NewContentBlockRepository(db)
+	contentBlockRepo := repo.NewContentBlockRepository(db, dbType)
 
 	// 初始化Services
 	projectService := project.NewService(projectRepo, workflowRepo)
@@ -616,278 +609,6 @@ func requestLogger(logger *zap.Logger) gin.HandlerFunc {
 	}
 }
 
-// initDatabase 初始化数据库表结构
-func initDatabase(db *sql.DB) error {
-	schema := `
--- 项目表
-CREATE TABLE IF NOT EXISTS projects (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    type TEXT NOT NULL,
-    mode TEXT NOT NULL,
-    status TEXT DEFAULT 'draft',
-    local_path TEXT NOT NULL DEFAULT '',
-    git_repo TEXT,
-    config TEXT,
-    workflow_template_id TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- 开发会话表
-CREATE TABLE IF NOT EXISTS threads (
-    id TEXT PRIMARY KEY,
-    project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
-    status TEXT DEFAULT 'idle',
-    current_phase TEXT,
-    current_agent TEXT,
-    depth INTEGER DEFAULT 0,
-    abort_token TEXT,
-    workflow_template_id TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- 消息表
-CREATE TABLE IF NOT EXISTS messages (
-    id TEXT PRIMARY KEY,
-    thread_id TEXT REFERENCES threads(id) ON DELETE CASCADE,
-    role TEXT NOT NULL,
-    agent_id TEXT,
-    content TEXT,
-    message_type TEXT DEFAULT 'text',
-    metadata TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- 基础Agent配置表
-CREATE TABLE IF NOT EXISTS base_agents (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    type TEXT NOT NULL,
-    api_url TEXT,
-    api_token TEXT,
-    default_model TEXT,
-    cli_path TEXT DEFAULT 'claude',
-    git_bash_path TEXT,
-    max_tokens INTEGER DEFAULT 4096,
-    timeout_minutes INTEGER DEFAULT 30,
-    is_active INTEGER DEFAULT 1,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Agent配置表
-CREATE TABLE IF NOT EXISTS agent_configs (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    role TEXT NOT NULL,
-    description TEXT,
-    system_prompt TEXT,
-    max_tokens INTEGER DEFAULT 4096,
-    temperature REAL DEFAULT 0.7,
-    routing_config TEXT,
-    base_agent_id TEXT REFERENCES base_agents(id),
-    is_default INTEGER DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Agent调用记录表
-CREATE TABLE IF NOT EXISTS agent_invocations (
-    id TEXT PRIMARY KEY,
-    thread_id TEXT REFERENCES threads(id) ON DELETE CASCADE,
-    agent_config_id TEXT,
-    role TEXT NOT NULL,
-    status TEXT DEFAULT 'running',
-    input TEXT,
-    output TEXT,
-    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    completed_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- 产物表
-CREATE TABLE IF NOT EXISTS artifacts (
-    id TEXT PRIMARY KEY,
-    thread_id TEXT REFERENCES threads(id) ON DELETE CASCADE,
-    type TEXT NOT NULL,
-    name TEXT,
-    path TEXT,
-    content TEXT,
-    metadata TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- 沙箱容器表
-CREATE TABLE IF NOT EXISTS sandboxes (
-    id TEXT PRIMARY KEY,
-    thread_id TEXT REFERENCES threads(id) ON DELETE CASCADE,
-    name TEXT,
-    image TEXT,
-    status TEXT DEFAULT 'created',
-    container_id TEXT,
-    port INTEGER,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    ended_at TIMESTAMP
-);
-
--- 工作流模板表
-CREATE TABLE IF NOT EXISTS workflow_templates (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    description TEXT,
-    agent_ids TEXT DEFAULT '[]',
-    checkpoints TEXT DEFAULT '[]',
-    estimated_time TEXT,
-    is_system INTEGER DEFAULT 0,
-    is_default INTEGER DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- 创建索引
-CREATE INDEX IF NOT EXISTS idx_threads_project_id ON threads(project_id);
-CREATE INDEX IF NOT EXISTS idx_messages_thread_id ON messages(thread_id);
-CREATE INDEX IF NOT EXISTS idx_agent_invocations_thread_id ON agent_invocations(thread_id);
-CREATE INDEX IF NOT EXISTS idx_artifacts_thread_id ON artifacts(thread_id);
-
--- Command 和 Rule 相关索引
-CREATE INDEX IF NOT EXISTS idx_commands_name ON commands(name);
-CREATE INDEX IF NOT EXISTS idx_rules_scope ON rules(scope);
-CREATE INDEX IF NOT EXISTS idx_agent_command_bindings_agent_role_id ON agent_command_bindings(agent_role_id);
-CREATE INDEX IF NOT EXISTS idx_agent_command_bindings_command_id ON agent_command_bindings(command_id);
-CREATE INDEX IF NOT EXISTS idx_agent_rule_bindings_agent_role_id ON agent_rule_bindings(agent_role_id);
-CREATE INDEX IF NOT EXISTS idx_agent_rule_bindings_rule_id ON agent_rule_bindings(rule_id);
-CREATE INDEX IF NOT EXISTS idx_command_skill_bindings_command_id ON command_skill_bindings(command_id);
-CREATE INDEX IF NOT EXISTS idx_command_skill_bindings_skill_id ON command_skill_bindings(skill_id);
-CREATE INDEX IF NOT EXISTS idx_subagent_skill_bindings_subagent_id ON subagent_skill_bindings(subagent_id);
-CREATE INDEX IF NOT EXISTS idx_subagent_skill_bindings_skill_id ON subagent_skill_bindings(skill_id);
-
--- 命令表
-CREATE TABLE IF NOT EXISTS commands (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE,
-    description TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- 规约表
-CREATE TABLE IF NOT EXISTS rules (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE,
-    description TEXT,
-    scope TEXT NOT NULL DEFAULT 'instance',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Agent-Command 绑定表
-CREATE TABLE IF NOT EXISTS agent_command_bindings (
-    id TEXT PRIMARY KEY,
-    agent_role_id TEXT NOT NULL,
-    command_id TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(agent_role_id, command_id)
-);
-
--- Agent-Rule 绑定表
-CREATE TABLE IF NOT EXISTS agent_rule_bindings (
-    id TEXT PRIMARY KEY,
-    agent_role_id TEXT NOT NULL,
-    rule_id TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(agent_role_id, rule_id)
-);
-
--- Command-Skill 绑定表
-CREATE TABLE IF NOT EXISTS command_skill_bindings (
-    id TEXT PRIMARY KEY,
-    command_id TEXT NOT NULL,
-    skill_id TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(command_id, skill_id)
-);
-
--- Subagent-Skill 绑定表
-CREATE TABLE IF NOT EXISTS subagent_skill_bindings (
-    id TEXT PRIMARY KEY,
-    subagent_id TEXT NOT NULL,
-    skill_id TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(subagent_id, skill_id)
-);
-`
-	_, err := db.Exec(schema)
-	if err != nil {
-		return err
-	}
-
-	// 迁移：检查并添加新列
-	migrations := []struct {
-		table  string
-		column string
-		typ    string
-	}{
-		{"agent_configs", "base_agent_id", "TEXT"},
-		{"projects", "workflow_template_id", "TEXT"},
-		{"projects", "local_path", "TEXT NOT NULL DEFAULT ''"},
-		{"threads", "workflow_template_id", "TEXT"},
-		{"workflow_templates", "is_default", "INTEGER DEFAULT 0"},
-		{"base_agents", "git_bash_path", "TEXT"},
-	}
-
-	for _, m := range migrations {
-		var count int
-		row := db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM pragma_table_info('%s') WHERE name='%s'", m.table, m.column))
-		if err := row.Scan(&count); err == nil && count == 0 {
-			_, err = db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", m.table, m.column, m.typ))
-			if err != nil {
-				fmt.Printf("Warning: could not add %s column to %s: %v\n", m.column, m.table, err)
-			}
-		}
-	}
-
-	// 迁移：移除 agent_configs 表的 model_name 字段（如果存在）
-	// SQLite 不支持直接 DROP COLUMN，需要检查是否需要迁移
-	var modelNameExists int
-	row := db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('agent_configs') WHERE name='model_name'")
-	if err := row.Scan(&modelNameExists); err == nil && modelNameExists > 0 {
-		// 需要迁移：重建表移除 model_name 字段
-		fmt.Println("Migrating agent_configs table: removing model_name column...")
-		migrateSQL := `
-		CREATE TABLE IF NOT EXISTS agent_configs_new (
-			id TEXT PRIMARY KEY,
-			name TEXT NOT NULL,
-			role TEXT NOT NULL,
-			description TEXT,
-			system_prompt TEXT,
-			max_tokens INTEGER DEFAULT 4096,
-			temperature REAL DEFAULT 0.7,
-			routing_config TEXT,
-			base_agent_id TEXT REFERENCES base_agents(id),
-			is_default INTEGER DEFAULT 0,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-		);
-		INSERT INTO agent_configs_new (id, name, role, description, system_prompt, max_tokens, temperature, routing_config, base_agent_id, is_default, created_at, updated_at)
-		SELECT id, name, role, description, system_prompt, max_tokens, temperature, routing_config, base_agent_id, is_default, created_at, updated_at
-		FROM agent_configs;
-		DROP TABLE agent_configs;
-		ALTER TABLE agent_configs_new RENAME TO agent_configs;
-		CREATE INDEX IF NOT EXISTS idx_agent_configs_base_agent_id ON agent_configs(base_agent_id);
-		`
-		_, err = db.Exec(migrateSQL)
-		if err != nil {
-			fmt.Printf("Warning: could not migrate agent_configs table: %v\n", err)
-		} else {
-			fmt.Println("Successfully migrated agent_configs table")
-		}
-	}
-
-	return nil
-}
 
 // performLogMaintenance 执行日志维护任务
 func performLogMaintenance(logger *zap.Logger, logDir string) {

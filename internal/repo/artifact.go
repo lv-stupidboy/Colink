@@ -12,12 +12,14 @@ import (
 
 // ArtifactRepository 工作产物数据访问
 type ArtifactRepository struct {
-	db *sql.DB
+	BaseRepository
 }
 
 // NewArtifactRepository 创建Artifact Repository
-func NewArtifactRepository(db *sql.DB) *ArtifactRepository {
-	return &ArtifactRepository{db: db}
+func NewArtifactRepository(db *sql.DB, dbType DBType) *ArtifactRepository {
+	return &ArtifactRepository{
+		BaseRepository: NewBaseRepository(db, dbType),
+	}
 }
 
 // Create 创建产物
@@ -27,7 +29,7 @@ func (r *ArtifactRepository) Create(ctx context.Context, artifact *model.Artifac
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	metadata, _ := json.Marshal(artifact.Metadata)
-	_, err := r.db.ExecContext(ctx, query,
+	_, err := r.DB().ExecContext(ctx, query,
 		artifact.ID.String(), artifact.ThreadID.String(), artifact.Type, artifact.Name, artifact.Path, artifact.Content, metadata, artifact.CreatedAt,
 	)
 	return err
@@ -42,8 +44,9 @@ func (r *ArtifactRepository) FindByID(ctx context.Context, id uuid.UUID) (*model
 	artifact := &model.Artifact{}
 	var idStr, threadIDStr string
 	var metadata []byte
-	err := r.db.QueryRowContext(ctx, query, id.String()).Scan(
-		&idStr, &threadIDStr, &artifact.Type, &artifact.Name, &artifact.Path, &artifact.Content, &metadata, &artifact.CreatedAt,
+	var createdAt SQLiteTimeScanner
+	err := r.DB().QueryRowContext(ctx, query, id.String()).Scan(
+		&idStr, &threadIDStr, &artifact.Type, &artifact.Name, &artifact.Path, &artifact.Content, &metadata, &createdAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find artifact: %w", err)
@@ -51,6 +54,7 @@ func (r *ArtifactRepository) FindByID(ctx context.Context, id uuid.UUID) (*model
 	artifact.ID, _ = uuid.Parse(idStr)
 	artifact.ThreadID, _ = uuid.Parse(threadIDStr)
 	json.Unmarshal(metadata, &artifact.Metadata)
+	artifact.CreatedAt = createdAt.Time
 	return artifact, nil
 }
 
@@ -60,7 +64,7 @@ func (r *ArtifactRepository) FindByThreadID(ctx context.Context, threadID uuid.U
 		SELECT id, thread_id, type, name, path, content, metadata, created_at
 		FROM artifacts WHERE thread_id = ? ORDER BY created_at DESC
 	`
-	rows, err := r.db.QueryContext(ctx, query, threadID.String())
+	rows, err := r.DB().QueryContext(ctx, query, threadID.String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to find artifacts: %w", err)
 	}
@@ -71,8 +75,9 @@ func (r *ArtifactRepository) FindByThreadID(ctx context.Context, threadID uuid.U
 		artifact := &model.Artifact{}
 		var idStr, threadIDStr string
 		var metadata []byte
+		var createdAt SQLiteTimeScanner
 		err := rows.Scan(
-			&idStr, &threadIDStr, &artifact.Type, &artifact.Name, &artifact.Path, &artifact.Content, &metadata, &artifact.CreatedAt,
+			&idStr, &threadIDStr, &artifact.Type, &artifact.Name, &artifact.Path, &artifact.Content, &metadata, &createdAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan artifact: %w", err)
@@ -80,6 +85,7 @@ func (r *ArtifactRepository) FindByThreadID(ctx context.Context, threadID uuid.U
 		artifact.ID, _ = uuid.Parse(idStr)
 		artifact.ThreadID, _ = uuid.Parse(threadIDStr)
 		json.Unmarshal(metadata, &artifact.Metadata)
+		artifact.CreatedAt = createdAt.Time
 		artifacts = append(artifacts, artifact)
 	}
 	return artifacts, nil
@@ -88,6 +94,6 @@ func (r *ArtifactRepository) FindByThreadID(ctx context.Context, threadID uuid.U
 // Delete 删除产物
 func (r *ArtifactRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	query := `DELETE FROM artifacts WHERE id = ?`
-	_, err := r.db.ExecContext(ctx, query, id.String())
+	_, err := r.DB().ExecContext(ctx, query, id.String())
 	return err
 }

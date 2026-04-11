@@ -14,12 +14,14 @@ import (
 
 // SkillRegistryRepository 联邦技能源数据访问
 type SkillRegistryRepository struct {
-	db *sql.DB
+	BaseRepository
 }
 
 // NewSkillRegistryRepository 创建 SkillRegistry Repository
-func NewSkillRegistryRepository(db *sql.DB) *SkillRegistryRepository {
-	return &SkillRegistryRepository{db: db}
+func NewSkillRegistryRepository(db *sql.DB, dbType DBType) *SkillRegistryRepository {
+	return &SkillRegistryRepository{
+		BaseRepository: NewBaseRepository(db, dbType),
+	}
 }
 
 // Create 创建注册表
@@ -35,7 +37,7 @@ func (r *SkillRegistryRepository) Create(ctx context.Context, registry *model.Sk
 		lastSyncAt = registry.LastSyncAt
 	}
 
-	_, err := r.db.ExecContext(ctx, query,
+	_, err := r.DB().ExecContext(ctx, query,
 		registry.ID.String(), registry.Name, registry.DisplayName, registry.Type, registry.URL, authConfig, registry.SyncInterval, lastSyncAt, registry.SyncStatus, registry.SkillCount, registry.Status, registry.CreatedAt,
 	)
 	return err
@@ -49,10 +51,11 @@ func scanRegistry(scanner interface {
 	var idStr string
 	var displayName sql.NullString
 	var authConfig []byte
-	var lastSyncAt sql.NullTime
+	var lastSyncAt SQLiteTimeScanner
+	var createdAt SQLiteTimeScanner
 
 	err := scanner.Scan(
-		&idStr, &registry.Name, &displayName, &registry.Type, &registry.URL, &authConfig, &registry.SyncInterval, &lastSyncAt, &registry.SyncStatus, &registry.SkillCount, &registry.Status, &registry.CreatedAt,
+		&idStr, &registry.Name, &displayName, &registry.Type, &registry.URL, &authConfig, &registry.SyncInterval, &lastSyncAt, &registry.SyncStatus, &registry.SkillCount, &registry.Status, &createdAt,
 	)
 	if err != nil {
 		return nil, err
@@ -66,6 +69,7 @@ func scanRegistry(scanner interface {
 		registry.LastSyncAt = &lastSyncAt.Time
 	}
 	json.Unmarshal(authConfig, &registry.AuthConfig)
+	registry.CreatedAt = createdAt.Time
 
 	return registry, nil
 }
@@ -76,7 +80,7 @@ func (r *SkillRegistryRepository) FindByID(ctx context.Context, id uuid.UUID) (*
 		SELECT id, name, display_name, type, url, auth_config, sync_interval, last_sync_at, sync_status, skill_count, status, created_at
 		FROM skill_registries WHERE id = ?
 	`
-	registry, err := scanRegistry(r.db.QueryRowContext(ctx, query, id.String()))
+	registry, err := scanRegistry(r.DB().QueryRowContext(ctx, query, id.String()))
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("registry not found: %w", err)
@@ -92,7 +96,7 @@ func (r *SkillRegistryRepository) FindByName(ctx context.Context, name string) (
 		SELECT id, name, display_name, type, url, auth_config, sync_interval, last_sync_at, sync_status, skill_count, status, created_at
 		FROM skill_registries WHERE name = ?
 	`
-	registry, err := scanRegistry(r.db.QueryRowContext(ctx, query, name))
+	registry, err := scanRegistry(r.DB().QueryRowContext(ctx, query, name))
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("registry not found: %w", err)
@@ -139,7 +143,7 @@ func (r *SkillRegistryRepository) List(ctx context.Context, query *RegistryListQ
 	// 计算总数
 	countQuery := "SELECT COUNT(*) FROM skill_registries " + whereClause
 	var total int64
-	err := r.db.QueryRowContext(ctx, countQuery, args...).Scan(&total)
+	err := r.DB().QueryRowContext(ctx, countQuery, args...).Scan(&total)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to count registries: %w", err)
 	}
@@ -165,7 +169,7 @@ func (r *SkillRegistryRepository) List(ctx context.Context, query *RegistryListQ
 	`
 	args = append(args, pageSize, offset)
 
-	rows, err := r.db.QueryContext(ctx, listQuery, args...)
+	rows, err := r.DB().QueryContext(ctx, listQuery, args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to list registries: %w", err)
 	}
@@ -197,7 +201,7 @@ func (r *SkillRegistryRepository) Update(ctx context.Context, registry *model.Sk
 		lastSyncAt = registry.LastSyncAt
 	}
 
-	_, err := r.db.ExecContext(ctx, query,
+	_, err := r.DB().ExecContext(ctx, query,
 		registry.Name, registry.DisplayName, registry.Type, registry.URL, authConfig, registry.SyncInterval, lastSyncAt, registry.SyncStatus, registry.SkillCount, registry.Status, registry.ID.String(),
 	)
 	return err
@@ -206,14 +210,14 @@ func (r *SkillRegistryRepository) Update(ctx context.Context, registry *model.Sk
 // Delete 删除注册表
 func (r *SkillRegistryRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	query := `DELETE FROM skill_registries WHERE id = ?`
-	_, err := r.db.ExecContext(ctx, query, id.String())
+	_, err := r.DB().ExecContext(ctx, query, id.String())
 	return err
 }
 
 // UpdateSyncStatus 更新同步状态
 func (r *SkillRegistryRepository) UpdateSyncStatus(ctx context.Context, id uuid.UUID, status model.RegistrySyncStatus, skillCount int) error {
 	query := `UPDATE skill_registries SET sync_status = ?, skill_count = ?, last_sync_at = ? WHERE id = ?`
-	_, err := r.db.ExecContext(ctx, query, status, skillCount, time.Now(), id.String())
+	_, err := r.DB().ExecContext(ctx, query, status, skillCount, time.Now(), id.String())
 	return err
 }
 
@@ -223,7 +227,7 @@ func (r *SkillRegistryRepository) FindByStatus(ctx context.Context, status model
 		SELECT id, name, display_name, type, url, auth_config, sync_interval, last_sync_at, sync_status, skill_count, status, created_at
 		FROM skill_registries WHERE status = ?
 	`
-	rows, err := r.db.QueryContext(ctx, query, status)
+	rows, err := r.DB().QueryContext(ctx, query, status)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find registries by status: %w", err)
 	}
@@ -247,7 +251,7 @@ func (r *SkillRegistryRepository) FindAll(ctx context.Context) ([]*model.SkillRe
 		SELECT id, name, display_name, type, url, auth_config, sync_interval, last_sync_at, sync_status, skill_count, status, created_at
 		FROM skill_registries ORDER BY created_at DESC
 	`
-	rows, err := r.db.QueryContext(ctx, query)
+	rows, err := r.DB().QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find all registries: %w", err)
 	}

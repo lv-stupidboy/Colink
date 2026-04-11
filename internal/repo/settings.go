@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/google/uuid"
@@ -12,12 +13,14 @@ import (
 
 // SettingsRepository Settings数据访问
 type SettingsRepository struct {
-	db *sql.DB
+	BaseRepository
 }
 
 // NewSettingsRepository 创建Settings Repository
-func NewSettingsRepository(db *sql.DB) *SettingsRepository {
-	return &SettingsRepository{db: db}
+func NewSettingsRepository(db *sql.DB, dbType DBType) *SettingsRepository {
+	return &SettingsRepository{
+		BaseRepository: NewBaseRepository(db, dbType),
+	}
 }
 
 // Create 创建Settings
@@ -26,7 +29,7 @@ func (r *SettingsRepository) Create(ctx context.Context, settings *model.Setting
 		INSERT INTO settings (id, name, description, directory_path, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?)
 	`
-	_, err := r.db.ExecContext(ctx, query,
+	_, err := r.DB().ExecContext(ctx, query,
 		settings.ID.String(), settings.Name, settings.Description, settings.DirectoryPath, settings.CreatedAt, settings.UpdatedAt,
 	)
 	return err
@@ -39,9 +42,10 @@ func scanSettings(scanner interface {
 	settings := &model.Settings{}
 	var idStr string
 	var description, directoryPath sql.NullString
+	var createdAt, updatedAt SQLiteTimeScanner
 
 	err := scanner.Scan(
-		&idStr, &settings.Name, &description, &directoryPath, &settings.CreatedAt, &settings.UpdatedAt,
+		&idStr, &settings.Name, &description, &directoryPath, &createdAt, &updatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -54,6 +58,8 @@ func scanSettings(scanner interface {
 	if directoryPath.Valid {
 		settings.DirectoryPath = directoryPath.String
 	}
+	settings.CreatedAt = createdAt.Time
+	settings.UpdatedAt = updatedAt.Time
 
 	return settings, nil
 }
@@ -64,7 +70,7 @@ func (r *SettingsRepository) FindByID(ctx context.Context, id uuid.UUID) (*model
 		SELECT id, name, description, directory_path, created_at, updated_at
 		FROM settings WHERE id = ?
 	`
-	settings, err := scanSettings(r.db.QueryRowContext(ctx, query, id.String()))
+	settings, err := scanSettings(r.DB().QueryRowContext(ctx, query, id.String()))
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("settings not found: %w", err)
@@ -80,7 +86,7 @@ func (r *SettingsRepository) FindByName(ctx context.Context, name string) (*mode
 		SELECT id, name, description, directory_path, created_at, updated_at
 		FROM settings WHERE name = ?
 	`
-	settings, err := scanSettings(r.db.QueryRowContext(ctx, query, name))
+	settings, err := scanSettings(r.DB().QueryRowContext(ctx, query, name))
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("settings not found: %w", err)
@@ -110,7 +116,7 @@ func (r *SettingsRepository) List(ctx context.Context, query *model.SettingsList
 	// 计算总数
 	countQuery := "SELECT COUNT(*) FROM settings " + whereClause
 	var total int64
-	err := r.db.QueryRowContext(ctx, countQuery, args...).Scan(&total)
+	err := r.DB().QueryRowContext(ctx, countQuery, args...).Scan(&total)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to count settings: %w", err)
 	}
@@ -136,7 +142,7 @@ func (r *SettingsRepository) List(ctx context.Context, query *model.SettingsList
 	`
 	args = append(args, pageSize, offset)
 
-	rows, err := r.db.QueryContext(ctx, listQuery, args...)
+	rows, err := r.DB().QueryContext(ctx, listQuery, args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to list settings: %w", err)
 	}
@@ -156,13 +162,15 @@ func (r *SettingsRepository) List(ctx context.Context, query *model.SettingsList
 
 // Update 更新Settings
 func (r *SettingsRepository) Update(ctx context.Context, settings *model.Settings) error {
+	now := time.Now()
+	settings.UpdatedAt = now
 	query := `
 		UPDATE settings
-		SET name = ?, description = ?, directory_path = ?, updated_at = NOW()
+		SET name = ?, description = ?, directory_path = ?, updated_at = ?
 		WHERE id = ?
 	`
-	_, err := r.db.ExecContext(ctx, query,
-		settings.Name, settings.Description, settings.DirectoryPath, settings.ID.String(),
+	_, err := r.DB().ExecContext(ctx, query,
+		settings.Name, settings.Description, settings.DirectoryPath, now, settings.ID.String(),
 	)
 	return err
 }
@@ -170,6 +178,6 @@ func (r *SettingsRepository) Update(ctx context.Context, settings *model.Setting
 // Delete 删除Settings
 func (r *SettingsRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	query := `DELETE FROM settings WHERE id = ?`
-	_, err := r.db.ExecContext(ctx, query, id.String())
+	_, err := r.DB().ExecContext(ctx, query, id.String())
 	return err
 }

@@ -13,12 +13,14 @@ import (
 
 // WorkflowTemplateRepository 工作流模板数据访问
 type WorkflowTemplateRepository struct {
-	db *sql.DB
+	BaseRepository
 }
 
 // NewWorkflowTemplateRepository 创建工作流模板Repository
-func NewWorkflowTemplateRepository(db *sql.DB) *WorkflowTemplateRepository {
-	return &WorkflowTemplateRepository{db: db}
+func NewWorkflowTemplateRepository(db *sql.DB, dbType DBType) *WorkflowTemplateRepository {
+	return &WorkflowTemplateRepository{
+		BaseRepository: NewBaseRepository(db, dbType),
+	}
 }
 
 // Create 创建工作流模板
@@ -28,7 +30,7 @@ func (r *WorkflowTemplateRepository) Create(ctx context.Context, template *model
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	now := time.Now()
-	_, err := r.db.ExecContext(ctx, query,
+	_, err := r.DB().ExecContext(ctx, query,
 		template.ID.String(),
 		template.Name,
 		template.Description,
@@ -59,7 +61,8 @@ func (r *WorkflowTemplateRepository) FindByID(ctx context.Context, id uuid.UUID)
 	var idStr string
 	var agentIDs, transitions, checkpoints []byte
 	var isSystem, isDefault int
-	err := r.db.QueryRowContext(ctx, query, id.String()).Scan(
+	var createdAt, updatedAt SQLiteTimeScanner
+	err := r.DB().QueryRowContext(ctx, query, id.String()).Scan(
 		&idStr,
 		&template.Name,
 		&template.Description,
@@ -69,8 +72,8 @@ func (r *WorkflowTemplateRepository) FindByID(ctx context.Context, id uuid.UUID)
 		&template.EstimatedTime,
 		&isSystem,
 		&isDefault,
-		&template.CreatedAt,
-		&template.UpdatedAt,
+		&createdAt,
+		&updatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find workflow template: %w", err)
@@ -81,6 +84,8 @@ func (r *WorkflowTemplateRepository) FindByID(ctx context.Context, id uuid.UUID)
 	template.Checkpoints = json.RawMessage(checkpoints)
 	template.IsSystem = isSystem == 1
 	template.IsDefault = isDefault == 1
+	template.CreatedAt = createdAt.Time
+	template.UpdatedAt = updatedAt.Time
 	return template, nil
 }
 
@@ -90,7 +95,7 @@ func (r *WorkflowTemplateRepository) FindAll(ctx context.Context) ([]*model.Work
 		SELECT id, name, description, agent_ids, transitions, checkpoints, estimated_time, is_system, is_default, created_at, updated_at
 		FROM workflow_templates ORDER BY created_at DESC
 	`
-	rows, err := r.db.QueryContext(ctx, query)
+	rows, err := r.DB().QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find workflow templates: %w", err)
 	}
@@ -102,6 +107,7 @@ func (r *WorkflowTemplateRepository) FindAll(ctx context.Context) ([]*model.Work
 		var idStr string
 		var agentIDs, transitions, checkpoints []byte
 		var isSystem, isDefault int
+		var createdAt, updatedAt SQLiteTimeScanner
 		err := rows.Scan(
 			&idStr,
 			&template.Name,
@@ -112,8 +118,8 @@ func (r *WorkflowTemplateRepository) FindAll(ctx context.Context) ([]*model.Work
 			&template.EstimatedTime,
 			&isSystem,
 			&isDefault,
-			&template.CreatedAt,
-			&template.UpdatedAt,
+			&createdAt,
+			&updatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan workflow template: %w", err)
@@ -124,6 +130,8 @@ func (r *WorkflowTemplateRepository) FindAll(ctx context.Context) ([]*model.Work
 		template.Checkpoints = json.RawMessage(checkpoints)
 		template.IsSystem = isSystem == 1
 		template.IsDefault = isDefault == 1
+		template.CreatedAt = createdAt.Time
+		template.UpdatedAt = updatedAt.Time
 		templates = append(templates, template)
 	}
 	return templates, nil
@@ -137,7 +145,7 @@ func (r *WorkflowTemplateRepository) Update(ctx context.Context, template *model
 		WHERE id = ?
 	`
 	template.UpdatedAt = time.Now()
-	_, err := r.db.ExecContext(ctx, query,
+	_, err := r.DB().ExecContext(ctx, query,
 		template.Name,
 		template.Description,
 		[]byte(template.AgentIDs),      // 转换为 []byte
@@ -156,7 +164,7 @@ func (r *WorkflowTemplateRepository) Update(ctx context.Context, template *model
 // Delete 删除工作流模板
 func (r *WorkflowTemplateRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	query := `DELETE FROM workflow_templates WHERE id = ? AND is_system = 0`
-	result, err := r.db.ExecContext(ctx, query, id.String())
+	result, err := r.DB().ExecContext(ctx, query, id.String())
 	if err != nil {
 		return fmt.Errorf("failed to delete workflow template: %w", err)
 	}
@@ -177,7 +185,8 @@ func (r *WorkflowTemplateRepository) GetDefault(ctx context.Context) (*model.Wor
 	var idStr string
 	var agentIDs, transitions, checkpoints []byte
 	var isSystem, isDefault int
-	err := r.db.QueryRowContext(ctx, query).Scan(
+	var createdAt, updatedAt SQLiteTimeScanner
+	err := r.DB().QueryRowContext(ctx, query).Scan(
 		&idStr,
 		&template.Name,
 		&template.Description,
@@ -187,8 +196,8 @@ func (r *WorkflowTemplateRepository) GetDefault(ctx context.Context) (*model.Wor
 		&template.EstimatedTime,
 		&isSystem,
 		&isDefault,
-		&template.CreatedAt,
-		&template.UpdatedAt,
+		&createdAt,
+		&updatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("no default workflow template found: %w", err)
@@ -199,12 +208,14 @@ func (r *WorkflowTemplateRepository) GetDefault(ctx context.Context) (*model.Wor
 	template.Checkpoints = json.RawMessage(checkpoints)
 	template.IsSystem = isSystem == 1
 	template.IsDefault = isDefault == 1
+	template.CreatedAt = createdAt.Time
+	template.UpdatedAt = updatedAt.Time
 	return template, nil
 }
 
 // SetDefault 设置默认工作流模板
 func (r *WorkflowTemplateRepository) SetDefault(ctx context.Context, id uuid.UUID) error {
-	tx, err := r.db.BeginTx(ctx, nil)
+	tx, err := r.DB().BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
@@ -238,7 +249,7 @@ func (r *WorkflowTemplateRepository) SetDefault(ctx context.Context, id uuid.UUI
 func (r *WorkflowTemplateRepository) CountProjectReferences(ctx context.Context, id uuid.UUID) (int, error) {
 	query := `SELECT COUNT(*) FROM projects WHERE workflow_template_id = ?`
 	var count int
-	err := r.db.QueryRowContext(ctx, query, id.String()).Scan(&count)
+	err := r.DB().QueryRowContext(ctx, query, id.String()).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("failed to count project references: %w", err)
 	}
@@ -247,12 +258,13 @@ func (r *WorkflowTemplateRepository) CountProjectReferences(ctx context.Context,
 
 // FindByAgentID 查找包含指定AgentID的工作流模板
 func (r *WorkflowTemplateRepository) FindByAgentID(ctx context.Context, agentID uuid.UUID) ([]*model.WorkflowTemplate, error) {
+	// 使用 LIKE 模糊匹配 JSON 数组（兼容 SQLite 和 MySQL）
 	query := `
 		SELECT id, name, description, agent_ids, transitions, checkpoints, estimated_time, is_system, is_default, created_at, updated_at
-		FROM workflow_templates WHERE JSON_CONTAINS(agent_ids, ?)
+		FROM workflow_templates WHERE agent_ids LIKE ?
 	`
-	agentIDJSON := fmt.Sprintf(`"%s"`, agentID.String())
-	rows, err := r.db.QueryContext(ctx, query, agentIDJSON)
+	agentIDPattern := fmt.Sprintf(`%%"%s"%%`, agentID.String())
+	rows, err := r.DB().QueryContext(ctx, query, agentIDPattern)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find workflow templates by agent id: %w", err)
 	}
@@ -264,6 +276,7 @@ func (r *WorkflowTemplateRepository) FindByAgentID(ctx context.Context, agentID 
 		var idStr string
 		var agentIDs, transitions, checkpoints []byte
 		var isSystem, isDefault int
+		var createdAt, updatedAt SQLiteTimeScanner
 		err := rows.Scan(
 			&idStr,
 			&template.Name,
@@ -274,8 +287,8 @@ func (r *WorkflowTemplateRepository) FindByAgentID(ctx context.Context, agentID 
 			&template.EstimatedTime,
 			&isSystem,
 			&isDefault,
-			&template.CreatedAt,
-			&template.UpdatedAt,
+			&createdAt,
+			&updatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan workflow template: %w", err)
@@ -286,6 +299,8 @@ func (r *WorkflowTemplateRepository) FindByAgentID(ctx context.Context, agentID 
 		template.Checkpoints = json.RawMessage(checkpoints)
 		template.IsSystem = isSystem == 1
 		template.IsDefault = isDefault == 1
+		template.CreatedAt = createdAt.Time
+		template.UpdatedAt = updatedAt.Time
 		templates = append(templates, template)
 	}
 	return templates, nil

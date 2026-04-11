@@ -13,12 +13,14 @@ import (
 
 // ProjectRepository 项目数据访问
 type ProjectRepository struct {
-	db *sql.DB
+	BaseRepository
 }
 
 // NewProjectRepository 创建项目Repository
-func NewProjectRepository(db *sql.DB) *ProjectRepository {
-	return &ProjectRepository{db: db}
+func NewProjectRepository(db *sql.DB, dbType DBType) *ProjectRepository {
+	return &ProjectRepository{
+		BaseRepository: NewBaseRepository(db, dbType),
+	}
 }
 
 // Create 创建项目
@@ -41,7 +43,7 @@ func (r *ProjectRepository) Create(ctx context.Context, project *model.Project) 
 		workflowTemplateID = project.WorkflowTemplateID.String()
 	}
 
-	_, err := r.db.ExecContext(ctx, query,
+	_, err := r.DB().ExecContext(ctx, query,
 		project.ID.String(),
 		project.Name,
 		project.Type,
@@ -73,7 +75,8 @@ func (r *ProjectRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.
 	var gitRepo sql.NullString
 	var config []byte
 	var workflowTemplateID sql.NullString
-	err := r.db.QueryRowContext(ctx, query, id.String()).Scan(
+	var createdAt, updatedAt SQLiteTimeScanner
+	err := r.DB().QueryRowContext(ctx, query, id.String()).Scan(
 		&idStr,
 		&project.Name,
 		&project.Type,
@@ -83,8 +86,8 @@ func (r *ProjectRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.
 		&gitRepo,
 		&config,
 		&workflowTemplateID,
-		&project.CreatedAt,
-		&project.UpdatedAt,
+		&createdAt,
+		&updatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find project: %w", err)
@@ -96,6 +99,8 @@ func (r *ProjectRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.
 	}
 
 	project.ID, _ = uuid.Parse(idStr)
+	project.CreatedAt = createdAt.Time
+	project.UpdatedAt = updatedAt.Time
 	if config != nil {
 		project.Config = config
 	}
@@ -112,7 +117,7 @@ func (r *ProjectRepository) FindAll(ctx context.Context, limit, offset int) ([]*
 		SELECT id, name, type, mode, status, local_path, git_repo, config, workflow_template_id, created_at, updated_at
 		FROM projects ORDER BY created_at DESC LIMIT ? OFFSET ?
 	`
-	rows, err := r.db.QueryContext(ctx, query, limit, offset)
+	rows, err := r.DB().QueryContext(ctx, query, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find projects: %w", err)
 	}
@@ -125,6 +130,7 @@ func (r *ProjectRepository) FindAll(ctx context.Context, limit, offset int) ([]*
 		var gitRepo sql.NullString
 		var config []byte
 		var workflowTemplateID sql.NullString
+		var createdAt, updatedAt SQLiteTimeScanner
 		err := rows.Scan(
 			&idStr,
 			&project.Name,
@@ -135,8 +141,8 @@ func (r *ProjectRepository) FindAll(ctx context.Context, limit, offset int) ([]*
 			&gitRepo,
 			&config,
 			&workflowTemplateID,
-			&project.CreatedAt,
-			&project.UpdatedAt,
+			&createdAt,
+			&updatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan project: %w", err)
@@ -148,6 +154,8 @@ func (r *ProjectRepository) FindAll(ctx context.Context, limit, offset int) ([]*
 			project.GitRepo = &gitRepo.String
 		}
 
+		project.CreatedAt = createdAt.Time
+		project.UpdatedAt = updatedAt.Time
 		if config != nil {
 			project.Config = config
 		}
@@ -166,7 +174,7 @@ func (r *ProjectRepository) ListAll(ctx context.Context) ([]*model.Project, erro
 		SELECT id, name, type, mode, status, local_path, git_repo, config, workflow_template_id, created_at, updated_at
 		FROM projects ORDER BY created_at DESC
 	`
-	rows, err := r.db.QueryContext(ctx, query)
+	rows, err := r.DB().QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list projects: %w", err)
 	}
@@ -179,6 +187,7 @@ func (r *ProjectRepository) ListAll(ctx context.Context) ([]*model.Project, erro
 		var gitRepo sql.NullString
 		var config []byte
 		var workflowTemplateID sql.NullString
+		var createdAt, updatedAt SQLiteTimeScanner
 		err := rows.Scan(
 			&idStr,
 			&project.Name,
@@ -189,8 +198,8 @@ func (r *ProjectRepository) ListAll(ctx context.Context) ([]*model.Project, erro
 			&gitRepo,
 			&config,
 			&workflowTemplateID,
-			&project.CreatedAt,
-			&project.UpdatedAt,
+			&createdAt,
+			&updatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan project: %w", err)
@@ -200,6 +209,8 @@ func (r *ProjectRepository) ListAll(ctx context.Context) ([]*model.Project, erro
 		if gitRepo.Valid {
 			project.GitRepo = &gitRepo.String
 		}
+		project.CreatedAt = createdAt.Time
+		project.UpdatedAt = updatedAt.Time
 		if config != nil {
 			project.Config = config
 		}
@@ -233,7 +244,7 @@ func (r *ProjectRepository) Update(ctx context.Context, project *model.Project) 
 		workflowTemplateID = project.WorkflowTemplateID.String()
 	}
 
-	_, err := r.db.ExecContext(ctx, query,
+	_, err := r.DB().ExecContext(ctx, query,
 		project.Name,
 		project.Type,
 		project.Mode,
@@ -254,7 +265,7 @@ func (r *ProjectRepository) Update(ctx context.Context, project *model.Project) 
 // Delete 删除项目
 func (r *ProjectRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	query := `DELETE FROM projects WHERE id = ?`
-	_, err := r.db.ExecContext(ctx, query, id.String())
+	_, err := r.DB().ExecContext(ctx, query, id.String())
 	if err != nil {
 		return fmt.Errorf("failed to delete project: %w", err)
 	}
@@ -274,7 +285,8 @@ func (r *ProjectRepository) GetByThreadID(ctx context.Context, threadID uuid.UUI
 	var gitRepo sql.NullString
 	var config []byte
 	var workflowTemplateID sql.NullString
-	err := r.db.QueryRowContext(ctx, query, threadID.String()).Scan(
+	var createdAt, updatedAt SQLiteTimeScanner
+	err := r.DB().QueryRowContext(ctx, query, threadID.String()).Scan(
 		&idStr,
 		&project.Name,
 		&project.Type,
@@ -284,8 +296,8 @@ func (r *ProjectRepository) GetByThreadID(ctx context.Context, threadID uuid.UUI
 		&gitRepo,
 		&config,
 		&workflowTemplateID,
-		&project.CreatedAt,
-		&project.UpdatedAt,
+		&createdAt,
+		&updatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find project by thread: %w", err)
@@ -297,6 +309,8 @@ func (r *ProjectRepository) GetByThreadID(ctx context.Context, threadID uuid.UUI
 		project.GitRepo = &gitRepo.String
 	}
 
+	project.CreatedAt = createdAt.Time
+	project.UpdatedAt = updatedAt.Time
 	project.Config = json.RawMessage(config)
 	if workflowTemplateID.Valid {
 		wid, _ := uuid.Parse(workflowTemplateID.String)

@@ -12,12 +12,14 @@ import (
 
 // CommandRepository Command数据访问
 type CommandRepository struct {
-	db *sql.DB
+	BaseRepository
 }
 
 // NewCommandRepository 创建Command Repository
-func NewCommandRepository(db *sql.DB) *CommandRepository {
-	return &CommandRepository{db: db}
+func NewCommandRepository(db *sql.DB, dbType DBType) *CommandRepository {
+	return &CommandRepository{
+		BaseRepository: NewBaseRepository(db, dbType),
+	}
 }
 
 // Create 创建Command
@@ -26,7 +28,7 @@ func (r *CommandRepository) Create(ctx context.Context, command *model.Command) 
 		INSERT INTO commands (id, name, description, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?)
 	`
-	_, err := r.db.ExecContext(ctx, query,
+	_, err := r.DB().ExecContext(ctx, query,
 		command.ID.String(), command.Name, command.Description, command.CreatedAt, command.UpdatedAt,
 	)
 	return err
@@ -39,9 +41,10 @@ func scanCommand(scanner interface {
 	command := &model.Command{}
 	var idStr string
 	var description sql.NullString
+	var createdAt, updatedAt SQLiteTimeScanner
 
 	err := scanner.Scan(
-		&idStr, &command.Name, &description, &command.CreatedAt, &command.UpdatedAt,
+		&idStr, &command.Name, &description, &createdAt, &updatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -51,6 +54,8 @@ func scanCommand(scanner interface {
 	if description.Valid {
 		command.Description = description.String
 	}
+	command.CreatedAt = createdAt.Time
+	command.UpdatedAt = updatedAt.Time
 
 	return command, nil
 }
@@ -61,7 +66,7 @@ func (r *CommandRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.
 		SELECT id, name, description, created_at, updated_at
 		FROM commands WHERE id = ?
 	`
-	command, err := scanCommand(r.db.QueryRowContext(ctx, query, id.String()))
+	command, err := scanCommand(r.DB().QueryRowContext(ctx, query, id.String()))
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("command not found: %w", err)
@@ -77,7 +82,7 @@ func (r *CommandRepository) FindByName(ctx context.Context, name string) (*model
 		SELECT id, name, description, created_at, updated_at
 		FROM commands WHERE name = ?
 	`
-	command, err := scanCommand(r.db.QueryRowContext(ctx, query, name))
+	command, err := scanCommand(r.DB().QueryRowContext(ctx, query, name))
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("command not found: %w", err)
@@ -106,7 +111,7 @@ func (r *CommandRepository) List(ctx context.Context, query *model.CommandListQu
 	// 计算总数
 	countQuery := "SELECT COUNT(*) FROM commands " + whereClause
 	var total int64
-	err := r.db.QueryRowContext(ctx, countQuery, args...).Scan(&total)
+	err := r.DB().QueryRowContext(ctx, countQuery, args...).Scan(&total)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to count commands: %w", err)
 	}
@@ -132,7 +137,7 @@ func (r *CommandRepository) List(ctx context.Context, query *model.CommandListQu
 	`
 	args = append(args, pageSize, offset)
 
-	rows, err := r.db.QueryContext(ctx, listQuery, args...)
+	rows, err := r.DB().QueryContext(ctx, listQuery, args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to list commands: %w", err)
 	}
@@ -157,7 +162,7 @@ func (r *CommandRepository) Update(ctx context.Context, command *model.Command) 
 		SET name = ?, description = ?, updated_at = ?
 		WHERE id = ?
 	`
-	_, err := r.db.ExecContext(ctx, query,
+	_, err := r.DB().ExecContext(ctx, query,
 		command.Name, command.Description, command.UpdatedAt, command.ID.String(),
 	)
 	return err
@@ -166,6 +171,6 @@ func (r *CommandRepository) Update(ctx context.Context, command *model.Command) 
 // Delete 删除Command
 func (r *CommandRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	query := `DELETE FROM commands WHERE id = ?`
-	_, err := r.db.ExecContext(ctx, query, id.String())
+	_, err := r.DB().ExecContext(ctx, query, id.String())
 	return err
 }

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/google/uuid"
@@ -12,12 +13,14 @@ import (
 
 // SubagentRepository Subagent数据访问
 type SubagentRepository struct {
-	db *sql.DB
+	BaseRepository
 }
 
 // NewSubagentRepository 创建Subagent Repository
-func NewSubagentRepository(db *sql.DB) *SubagentRepository {
-	return &SubagentRepository{db: db}
+func NewSubagentRepository(db *sql.DB, dbType DBType) *SubagentRepository {
+	return &SubagentRepository{
+		BaseRepository: NewBaseRepository(db, dbType),
+	}
 }
 
 // Create 创建Subagent（content 存储在文件系统，不写入数据库）
@@ -27,7 +30,7 @@ func (r *SubagentRepository) Create(ctx context.Context, subagent *model.Subagen
 		VALUES (?, ?, ?, ?, ?)
 	`
 
-	_, err := r.db.ExecContext(ctx, query,
+	_, err := r.DB().ExecContext(ctx, query,
 		subagent.ID.String(), subagent.Name, subagent.Description, subagent.CreatedAt, subagent.UpdatedAt,
 	)
 	return err
@@ -40,9 +43,10 @@ func scanSubagent(scanner interface {
 	subagent := &model.Subagent{}
 	var idStr string
 	var description sql.NullString
+	var createdAt, updatedAt SQLiteTimeScanner
 
 	err := scanner.Scan(
-		&idStr, &subagent.Name, &description, &subagent.CreatedAt, &subagent.UpdatedAt,
+		&idStr, &subagent.Name, &description, &createdAt, &updatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -52,6 +56,8 @@ func scanSubagent(scanner interface {
 	if description.Valid {
 		subagent.Description = description.String
 	}
+	subagent.CreatedAt = createdAt.Time
+	subagent.UpdatedAt = updatedAt.Time
 
 	return subagent, nil
 }
@@ -62,7 +68,7 @@ func (r *SubagentRepository) FindByID(ctx context.Context, id uuid.UUID) (*model
 		SELECT id, name, description, created_at, updated_at
 		FROM subagents WHERE id = ?
 	`
-	subagent, err := scanSubagent(r.db.QueryRowContext(ctx, query, id.String()))
+	subagent, err := scanSubagent(r.DB().QueryRowContext(ctx, query, id.String()))
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("subagent not found: %w", err)
@@ -78,7 +84,7 @@ func (r *SubagentRepository) FindByName(ctx context.Context, name string) (*mode
 		SELECT id, name, description, created_at, updated_at
 		FROM subagents WHERE name = ?
 	`
-	subagent, err := scanSubagent(r.db.QueryRowContext(ctx, query, name))
+	subagent, err := scanSubagent(r.DB().QueryRowContext(ctx, query, name))
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("subagent not found: %w", err)
@@ -108,7 +114,7 @@ func (r *SubagentRepository) List(ctx context.Context, query *model.SubagentList
 	// 计算总数
 	countQuery := "SELECT COUNT(*) FROM subagents " + whereClause
 	var total int64
-	err := r.db.QueryRowContext(ctx, countQuery, args...).Scan(&total)
+	err := r.DB().QueryRowContext(ctx, countQuery, args...).Scan(&total)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to count subagents: %w", err)
 	}
@@ -134,7 +140,7 @@ func (r *SubagentRepository) List(ctx context.Context, query *model.SubagentList
 	`
 	args = append(args, pageSize, offset)
 
-	rows, err := r.db.QueryContext(ctx, listQuery, args...)
+	rows, err := r.DB().QueryContext(ctx, listQuery, args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to list subagents: %w", err)
 	}
@@ -158,14 +164,16 @@ func (r *SubagentRepository) List(ctx context.Context, query *model.SubagentList
 
 // Update 更新Subagent（content 存储在文件系统，不更新数据库）
 func (r *SubagentRepository) Update(ctx context.Context, subagent *model.Subagent) error {
+	now := time.Now()
+	subagent.UpdatedAt = now
 	query := `
 		UPDATE subagents
-		SET name = ?, description = ?, updated_at = NOW()
+		SET name = ?, description = ?, updated_at = ?
 		WHERE id = ?
 	`
 
-	_, err := r.db.ExecContext(ctx, query,
-		subagent.Name, subagent.Description, subagent.ID.String(),
+	_, err := r.DB().ExecContext(ctx, query,
+		subagent.Name, subagent.Description, now, subagent.ID.String(),
 	)
 	return err
 }
@@ -173,6 +181,6 @@ func (r *SubagentRepository) Update(ctx context.Context, subagent *model.Subagen
 // Delete 删除Subagent
 func (r *SubagentRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	query := `DELETE FROM subagents WHERE id = ?`
-	_, err := r.db.ExecContext(ctx, query, id.String())
+	_, err := r.DB().ExecContext(ctx, query, id.String())
 	return err
 }

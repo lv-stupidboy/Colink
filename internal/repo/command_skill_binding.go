@@ -12,12 +12,14 @@ import (
 
 // CommandSkillBindingRepository Command-Skill绑定数据访问
 type CommandSkillBindingRepository struct {
-	db *sql.DB
+	BaseRepository
 }
 
 // NewCommandSkillBindingRepository 创建CommandSkillBinding Repository
-func NewCommandSkillBindingRepository(db *sql.DB) *CommandSkillBindingRepository {
-	return &CommandSkillBindingRepository{db: db}
+func NewCommandSkillBindingRepository(db *sql.DB, dbType DBType) *CommandSkillBindingRepository {
+	return &CommandSkillBindingRepository{
+		BaseRepository: NewBaseRepository(db, dbType),
+	}
 }
 
 // Create 创建绑定
@@ -26,7 +28,7 @@ func (r *CommandSkillBindingRepository) Create(ctx context.Context, binding *mod
 		INSERT INTO command_skill_bindings (id, command_id, skill_id, created_at)
 		VALUES (?, ?, ?, ?)
 	`
-	_, err := r.db.ExecContext(ctx, query,
+	_, err := r.DB().ExecContext(ctx, query,
 		binding.ID.String(), binding.CommandID.String(), binding.SkillID.String(), binding.CreatedAt,
 	)
 	return err
@@ -35,7 +37,7 @@ func (r *CommandSkillBindingRepository) Create(ctx context.Context, binding *mod
 // FindByCommandID 根据Command ID查找绑定的Skill ID列表
 func (r *CommandSkillBindingRepository) FindByCommandID(ctx context.Context, commandID uuid.UUID) ([]uuid.UUID, error) {
 	query := `SELECT skill_id FROM command_skill_bindings WHERE command_id = ?`
-	rows, err := r.db.QueryContext(ctx, query, commandID.String())
+	rows, err := r.DB().QueryContext(ctx, query, commandID.String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to find bindings: %w", err)
 	}
@@ -62,7 +64,7 @@ func (r *CommandSkillBindingRepository) FindSkillsByCommandID(ctx context.Contex
 		WHERE b.command_id = ?
 		ORDER BY s.created_at DESC
 	`
-	rows, err := r.db.QueryContext(ctx, query, commandID.String())
+	rows, err := r.DB().QueryContext(ctx, query, commandID.String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to find skills: %w", err)
 	}
@@ -82,14 +84,14 @@ func (r *CommandSkillBindingRepository) FindSkillsByCommandID(ctx context.Contex
 // DeleteByCommandID 删除Command的所有绑定
 func (r *CommandSkillBindingRepository) DeleteByCommandID(ctx context.Context, commandID uuid.UUID) error {
 	query := `DELETE FROM command_skill_bindings WHERE command_id = ?`
-	_, err := r.db.ExecContext(ctx, query, commandID.String())
+	_, err := r.DB().ExecContext(ctx, query, commandID.String())
 	return err
 }
 
 // DeleteBinding 删除特定绑定
 func (r *CommandSkillBindingRepository) DeleteBinding(ctx context.Context, commandID, skillID uuid.UUID) error {
 	query := `DELETE FROM command_skill_bindings WHERE command_id = ? AND skill_id = ?`
-	_, err := r.db.ExecContext(ctx, query, commandID.String(), skillID.String())
+	_, err := r.DB().ExecContext(ctx, query, commandID.String(), skillID.String())
 	return err
 }
 
@@ -97,7 +99,7 @@ func (r *CommandSkillBindingRepository) DeleteBinding(ctx context.Context, comma
 func (r *CommandSkillBindingRepository) ExistsBinding(ctx context.Context, commandID, skillID uuid.UUID) (bool, error) {
 	query := `SELECT COUNT(*) FROM command_skill_bindings WHERE command_id = ? AND skill_id = ?`
 	var count int
-	err := r.db.QueryRowContext(ctx, query, commandID.String(), skillID.String()).Scan(&count)
+	err := r.DB().QueryRowContext(ctx, query, commandID.String(), skillID.String()).Scan(&count)
 	if err != nil {
 		return false, err
 	}
@@ -107,7 +109,7 @@ func (r *CommandSkillBindingRepository) ExistsBinding(ctx context.Context, comma
 // FindBySkillID 根据Skill ID查找绑定的Command ID列表
 func (r *CommandSkillBindingRepository) FindBySkillID(ctx context.Context, skillID uuid.UUID) ([]uuid.UUID, error) {
 	query := `SELECT command_id FROM command_skill_bindings WHERE skill_id = ?`
-	rows, err := r.db.QueryContext(ctx, query, skillID.String())
+	rows, err := r.DB().QueryContext(ctx, query, skillID.String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to find bindings: %w", err)
 	}
