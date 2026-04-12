@@ -322,6 +322,21 @@ func main() {
 	}
 
 	// ========== IM Integration ==========
+	// Merge im.platforms feishu config into legacy cfg.Feishu if present
+	for _, p := range cfg.IM.Platforms {
+		if p.Type == "feishu" && p.Enabled {
+			cfg.Feishu.Enabled = true
+			cfg.Feishu.AppID = p.AppID
+			cfg.Feishu.AppSecret = p.AppSecret
+			cfg.Feishu.VerificationToken = p.VerificationToken
+			cfg.Feishu.EncryptKey = p.EncryptKey
+			cfg.Feishu.LarkCLIPath = p.LarkCLIPath
+			cfg.Feishu.DefaultProjectID = p.DefaultProjectID
+			cfg.Feishu.EventMode = p.EventMode
+			break
+		}
+	}
+
 	var imBridgeSvc *im.IMBridgeService
 	var eventListener *im.EventListener
 	if cfg.Feishu.Enabled {
@@ -331,10 +346,9 @@ func main() {
 		if err := feishuAdapter.CheckHealth(context.Background()); err != nil {
 			logger.Warn("Feishu adapter health check failed", zap.Error(err))
 		}
-		retryCfg := im.DefaultRetryConfig()
 		rateLimiter := im.NewRateLimiter(20, 60*time.Second)
 		dedupCache := im.NewDedupCache(1000)
-		feishuDelivery := im.NewDeliveryService(feishuAdapter, retryCfg, rateLimiter, dedupCache, logger)
+		feishuDelivery := im.NewDeliveryService(feishuAdapter, im.DefaultRetryConfig(), rateLimiter, dedupCache, logger)
 		imBridgeSvc = im.NewIMBridgeService(imSessionRepo, threadRepo, projectRepo, orchestrator, wsHub, nil, logger)
 		imBridgeSvc.RegisterAdapter(feishuAdapter, feishuDelivery)
 		orchestrator.GetExecutionService().AddChunkListener(imBridgeSvc.OnAgentChunk)

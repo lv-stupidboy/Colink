@@ -490,8 +490,10 @@ func validateConfig(cfg *Config) error {
 			if platform.AppSecret == "" {
 				return fmt.Errorf("配置错误: im.platforms[%d] (feishu) app_secret 未设置", i)
 			}
-			if platform.VerificationToken == "" {
-				return fmt.Errorf("配置错误: im.platforms[%d] (feishu) verification_token 未设置", i)
+			// verification_token 仅 webhook 模式需要；
+			// listener 模式通过 WebSocket 接收事件，无需 HTTP 回调验证
+			if platform.EventMode == EventModeWebhook && platform.VerificationToken == "" {
+				return fmt.Errorf("配置错误: im.platforms[%d] (feishu) verification_token 未设置（webhook 模式必需）", i)
 			}
 		}
 
