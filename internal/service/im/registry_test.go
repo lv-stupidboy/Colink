@@ -163,7 +163,7 @@ func (m *mockAdapter) ReplyText(ctx context.Context, chatID, messageID, text str
 	return SendResult{}
 }
 
-func (m *mockAdapter) CreateStreamingCard(ctx context.Context, chatID string) (cardID string, err error) {
+func (m *mockAdapter) CreateStreamingCard(ctx context.Context, chatID string, agentName string) (cardID string, err error) {
 	return "", nil
 }
 

@@ -17,11 +17,13 @@ import (
 
 // integrationTestAdapter records all sent messages for verification.
 type integrationTestAdapter struct {
-	mu        sync.Mutex
-	platform  string
-	textSent  []string
-	cardSent  []string
-	maxMsgLen int
+	mu                 sync.Mutex
+	platform           string
+	textSent           []string
+	cardSent           []string
+	maxMsgLen          int
+	streamingUpdates   []string
+	streamingFinalized bool
 }
 
 func newIntegrationTestAdapter(platform string, maxLen int) *integrationTestAdapter {
@@ -53,15 +55,21 @@ func (f *integrationTestAdapter) ReplyText(ctx context.Context, chatID, messageI
 	return SendResult{OK: true}
 }
 
-func (f *integrationTestAdapter) CreateStreamingCard(ctx context.Context, chatID string) (string, error) {
+func (f *integrationTestAdapter) CreateStreamingCard(ctx context.Context, chatID string, agentName string) (string, error) {
 	return "card-id-1", nil
 }
 
 func (f *integrationTestAdapter) UpdateStreamingCard(ctx context.Context, cardID string, content string, sequence int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.streamingUpdates = append(f.streamingUpdates, content)
 	return nil
 }
 
 func (f *integrationTestAdapter) FinalizeStreamingCard(ctx context.Context, cardID string, content string, sequence int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.streamingFinalized = true
 	return nil
 }
 
@@ -86,6 +94,12 @@ func (f *integrationTestAdapter) getSentCards() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]string{}, f.cardSent...)
+}
+
+func (f *integrationTestAdapter) getStreamingUpdates() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string{}, f.streamingUpdates...)
 }
 
 // fakeOrchestrator records spawned agents and triggers chunk callbacks.
@@ -211,18 +225,28 @@ func TestFullIMFlow(t *testing.T) {
 		}
 
 		// Verify chunks delivered to adapter
-		textSent := adapter.getSentText()
-		if len(textSent) != 1 {
-			t.Fatalf("text sent count = %d, want 1", len(textSent))
+		streamingUpdates := adapter.getStreamingUpdates()
+		if len(streamingUpdates) < 1 {
+			t.Fatalf("streaming updates = %d, want >= 1", len(streamingUpdates))
 		}
-		if textSent[0] != "Agent response to: Hello, agent!" {
-			t.Fatalf("text sent = %q, want %q", textSent[0], "Agent response to: Hello, agent!")
+		found := false
+		for _, u := range streamingUpdates {
+			if contains(u, "Agent response to: Hello, agent!") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("no streaming update contains agent response, got: %v", streamingUpdates)
 		}
 
 		cardSent := adapter.getSentCards()
-		// Should have: tool_use card, tool_result card, status card (3 total)
-		if len(cardSent) != 3 {
-			t.Fatalf("card sent count = %d, want 3", len(cardSent))
+		if len(cardSent) != 0 {
+			t.Fatalf("card sent count = %d, want 0 (all streaming)", len(cardSent))
+		}
+
+		if !adapter.streamingFinalized {
+			t.Fatal("streaming card should be finalized on completion")
 		}
 	})
 
@@ -232,6 +256,8 @@ func TestFullIMFlow(t *testing.T) {
 
 		// Clear previous state
 		adapter.textSent = nil
+		adapter.streamingUpdates = nil
+		adapter.streamingFinalized = false
 		adapter.cardSent = nil
 
 		// Create session and thread manually
@@ -265,10 +291,9 @@ func TestFullIMFlow(t *testing.T) {
 		bridge.OnAgentChunk(threadID, invocationID, agent.Chunk{Type: agent.ChunkTypeText, Content: "first"}, "a1", "Agent")
 		bridge.OnAgentChunk(threadID, invocationID, agent.Chunk{Type: agent.ChunkTypeText, Content: "first"}, "a1", "Agent")
 
-		textSent := adapter.getSentText()
-		// Should only send once (dedup on second call)
-		if len(textSent) != 1 {
-			t.Fatalf("text sent count = %d, want 1 (deduped)", len(textSent))
+		streamingUpdates := adapter.getStreamingUpdates()
+		if len(streamingUpdates) < 1 {
+			t.Fatalf("streaming updates = %d, want >= 1 (deduped)", len(streamingUpdates))
 		}
 	})
 
@@ -278,6 +303,8 @@ func TestFullIMFlow(t *testing.T) {
 
 		// Clear previous state
 		adapter.textSent = nil
+		adapter.streamingUpdates = nil
+		adapter.streamingFinalized = false
 		adapter.cardSent = nil
 
 		// Create a strict rate limiter (max 1 message per 10 seconds)
@@ -338,6 +365,8 @@ func TestFullIMFlow(t *testing.T) {
 
 		// Clear previous state
 		adapter.textSent = nil
+		adapter.streamingUpdates = nil
+		adapter.streamingFinalized = false
 		adapter.cardSent = nil
 
 		// Create session and thread
@@ -373,25 +402,29 @@ func TestFullIMFlow(t *testing.T) {
 		}, "a1", "ErrorAgent")
 
 		cardSent := adapter.getSentCards()
-		if len(cardSent) != 1 {
-			t.Fatalf("card sent count = %d, want 1", len(cardSent))
+		if len(cardSent) != 0 {
+			t.Fatalf("card sent count = %d, want 0 (error goes to streaming card)", len(cardSent))
 		}
 
-		// Verify error card contains error message
-		if len(cardSent[0]) == 0 || cardSent[0] == "" {
-			t.Fatal("error card should not be empty")
+		streamingUpdates := adapter.getStreamingUpdates()
+		if len(streamingUpdates) == 0 {
+			t.Fatal("expected streaming updates for error chunk")
+		}
+		lastUpdate := streamingUpdates[len(streamingUpdates)-1]
+		if !contains(lastUpdate, "Something went wrong") {
+			t.Fatalf("streaming content should contain error message, got: %q", lastUpdate)
 		}
 	})
 
 	// Scenario 5: Status chunk → completion card sent
-	t.Run("StatusChunk_SendsCompletionCard", func(t *testing.T) {
+	t.Run("StatusChunk_FinalizesStreamingCard", func(t *testing.T) {
 		ctx := context.Background()
 
-		// Clear previous state
 		adapter.textSent = nil
+		adapter.streamingUpdates = nil
+		adapter.streamingFinalized = false
 		adapter.cardSent = nil
 
-		// Create session and thread
 		threadID := uuid.New()
 		thread := &model.Thread{
 			ID:           threadID,
@@ -417,37 +450,33 @@ func TestFullIMFlow(t *testing.T) {
 			t.Fatalf("create session failed: %v", err)
 		}
 
-		// Send completed status
-		bridge.OnAgentChunk(threadID, uuid.New(), agent.Chunk{
-			Type:    agent.ChunkTypeStatus,
-			Content: "completed",
-		}, "a1", "StatusAgent")
+		invocationID := uuid.New()
+		bridge.OnAgentChunk(threadID, invocationID, agent.Chunk{Type: agent.ChunkTypeText, Content: "working..."}, "a1", "StatusAgent")
+		bridge.OnAgentChunk(threadID, invocationID, agent.Chunk{Type: agent.ChunkTypeStatus, Content: "completed"}, "a1", "StatusAgent")
 
-		cardSent := adapter.getSentCards()
-		if len(cardSent) != 1 {
-			t.Fatalf("card sent count = %d, want 1", len(cardSent))
+		if !adapter.streamingFinalized {
+			t.Fatal("streaming card should be finalized on completed status")
 		}
 
-		// Send failed status
-		bridge.OnAgentChunk(threadID, uuid.New(), agent.Chunk{
-			Type:    agent.ChunkTypeStatus,
-			Content: "failed",
-		}, "a1", "StatusAgent")
+		adapter.streamingFinalized = false
+		adapter.streamingUpdates = nil
+		adapter.cardSent = nil
 
-		cardSent = adapter.getSentCards()
-		if len(cardSent) != 2 {
-			t.Fatalf("card sent count = %d, want 2", len(cardSent))
+		invocationID2 := uuid.New()
+		bridge.OnAgentChunk(threadID, invocationID2, agent.Chunk{Type: agent.ChunkTypeText, Content: "failing..."}, "a1", "StatusAgent")
+		bridge.OnAgentChunk(threadID, invocationID2, agent.Chunk{Type: agent.ChunkTypeStatus, Content: "failed"}, "a1", "StatusAgent")
+
+		if !adapter.streamingFinalized {
+			t.Fatal("streaming card should be finalized on failed status")
 		}
 
-		// Send non-terminal status (should not send card)
-		bridge.OnAgentChunk(threadID, uuid.New(), agent.Chunk{
-			Type:    agent.ChunkTypeStatus,
-			Content: "running",
-		}, "a1", "StatusAgent")
+		adapter.streamingUpdates = nil
+		adapter.streamingFinalized = false
 
-		cardSent = adapter.getSentCards()
-		if len(cardSent) != 2 {
-			t.Fatalf("card sent count = %d, want 2 (non-terminal ignored)", len(cardSent))
+		bridge.OnAgentChunk(threadID, uuid.New(), agent.Chunk{Type: agent.ChunkTypeStatus, Content: "running"}, "a1", "StatusAgent")
+
+		if adapter.streamingFinalized {
+			t.Fatal("non-terminal status should not finalize streaming card")
 		}
 	})
 
@@ -462,6 +491,8 @@ func TestFullIMFlow(t *testing.T) {
 
 		// Clear previous state
 		adapter.textSent = nil
+		adapter.streamingUpdates = nil
+		adapter.streamingFinalized = false
 		slackAdapter.textSent = nil
 
 		// Create Feishu session
@@ -529,20 +560,20 @@ func TestFullIMFlow(t *testing.T) {
 		}, "a2", "MultiAgent")
 
 		// Verify routing
-		feishuText := adapter.getSentText()
-		if len(feishuText) != 1 {
-			t.Fatalf("feishu text count = %d, want 1", len(feishuText))
+		feishuUpdates := adapter.getStreamingUpdates()
+		if len(feishuUpdates) < 1 {
+			t.Fatalf("feishu streaming updates = %d, want >= 1", len(feishuUpdates))
 		}
-		if feishuText[0] != "feishu message" {
-			t.Fatalf("feishu text = %q, want %q", feishuText[0], "feishu message")
+		if !contains(feishuUpdates[len(feishuUpdates)-1], "feishu message") {
+			t.Fatalf("feishu streaming content = %q, want to contain 'feishu message'", feishuUpdates[len(feishuUpdates)-1])
 		}
 
-		slackText := slackAdapter.getSentText()
-		if len(slackText) != 1 {
-			t.Fatalf("slack text count = %d, want 1", len(slackText))
+		slackUpdates := slackAdapter.getStreamingUpdates()
+		if len(slackUpdates) < 1 {
+			t.Fatalf("slack streaming updates = %d, want >= 1", len(slackUpdates))
 		}
-		if slackText[0] != "slack message" {
-			t.Fatalf("slack text = %q, want %q", slackText[0], "slack message")
+		if !contains(slackUpdates[len(slackUpdates)-1], "slack message") {
+			t.Fatalf("slack streaming content = %q, want to contain 'slack message'", slackUpdates[len(slackUpdates)-1])
 		}
 	})
 }

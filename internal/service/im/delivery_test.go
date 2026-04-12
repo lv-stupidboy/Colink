@@ -36,7 +36,9 @@ func (f *fakeIMAdapter) ReplyText(context.Context, string, string, string) SendR
 	return SendResult{OK: true}
 }
 
-func (f *fakeIMAdapter) CreateStreamingCard(context.Context, string) (string, error) { return "", nil }
+func (f *fakeIMAdapter) CreateStreamingCard(context.Context, string, string) (string, error) {
+	return "", nil
+}
 
 func (f *fakeIMAdapter) UpdateStreamingCard(context.Context, string, string, int) error { return nil }
 

@@ -32,11 +32,15 @@ func (m *mockSpawner) SpawnAgentForUserMessage(ctx context.Context, threadID uui
 }
 
 type mockIMAdapter struct {
-	mu          sync.Mutex
-	textCalls   []string
-	cardCalls   []string
-	maxMsgLen   int
-	platformVal string
+	mu                   sync.Mutex
+	textCalls            []string
+	cardCalls            []string
+	maxMsgLen            int
+	platformVal          string
+	streamingCardCreated bool
+	streamingUpdates     []string
+	streamingFinalized   bool
+	lastStreamingCardID  string
 }
 
 func (m *mockIMAdapter) Platform() string { return m.platformVal }
@@ -55,13 +59,23 @@ func (m *mockIMAdapter) SendCard(ctx context.Context, chatID, cardJSON string) S
 func (m *mockIMAdapter) ReplyText(ctx context.Context, chatID, messageID, text string) SendResult {
 	return SendResult{OK: true}
 }
-func (m *mockIMAdapter) CreateStreamingCard(ctx context.Context, chatID string) (string, error) {
-	return "", nil
+func (m *mockIMAdapter) CreateStreamingCard(ctx context.Context, chatID string, agentName string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.streamingCardCreated = true
+	m.lastStreamingCardID = "mock-card-" + chatID
+	return m.lastStreamingCardID, nil
 }
 func (m *mockIMAdapter) UpdateStreamingCard(ctx context.Context, cardID string, content string, sequence int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.streamingUpdates = append(m.streamingUpdates, content)
 	return nil
 }
 func (m *mockIMAdapter) FinalizeStreamingCard(ctx context.Context, cardID string, content string, sequence int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.streamingFinalized = true
 	return nil
 }
 func (m *mockIMAdapter) CheckHealth(ctx context.Context) error { return nil }
@@ -170,18 +184,20 @@ func TestIMBridgeService_OnAgentChunk_RoutesTextAndCard(t *testing.T) {
 	svc.OnAgentChunk(threadID, invocationID, agent.Chunk{Type: agent.ChunkTypeText, Content: "hello from agent"}, "a1", "AgentA")
 	svc.OnAgentChunk(threadID, invocationID, agent.Chunk{Type: agent.ChunkTypeToolUse, ToolName: "bash"}, "a1", "AgentA")
 
-	if len(adapter.textCalls) != 1 {
-		t.Fatalf("text sends = %d, want 1", len(adapter.textCalls))
+	if !adapter.streamingCardCreated {
+		t.Fatal("streaming card should be created for text chunk")
 	}
-	if adapter.textCalls[0] != "hello from agent" {
-		t.Fatalf("text payload = %q, want %q", adapter.textCalls[0], "hello from agent")
+	if len(adapter.streamingUpdates) != 2 {
+		t.Fatalf("streaming updates = %d, want 2 (text + tool-use)", len(adapter.streamingUpdates))
 	}
-
-	if len(adapter.cardCalls) != 1 {
-		t.Fatalf("card sends = %d, want 1", len(adapter.cardCalls))
+	if adapter.streamingUpdates[0] != "hello from agent" {
+		t.Fatalf("first streaming content = %q, want %q", adapter.streamingUpdates[0], "hello from agent")
 	}
-	if !strings.Contains(adapter.cardCalls[0], "bash") {
-		t.Fatalf("tool-use card should contain tool name, got: %s", adapter.cardCalls[0])
+	if !strings.Contains(adapter.streamingUpdates[1], "bash") {
+		t.Fatalf("second streaming content should contain tool name, got: %s", adapter.streamingUpdates[1])
+	}
+	if len(adapter.cardCalls) != 0 {
+		t.Fatalf("card sends = %d, want 0 (all content goes through streaming card)", len(adapter.cardCalls))
 	}
 }
 
