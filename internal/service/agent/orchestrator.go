@@ -356,8 +356,10 @@ func (o *Orchestrator) SpawnDebugAgent(ctx context.Context, req *SpawnRequest) (
 	}
 
 	// 如果角色未指定基础Agent或获取失败，使用默认基础Agent
+	// 注意：直接使用 repo.FindDefault 获取完整信息（含 ApiToken）
+	// 不能使用 baseAgentSvc.GetDefault，因为它会 sanitize 清除 ApiToken
 	if baseAgent == nil {
-		baseAgent, err = o.baseAgentSvc.GetDefault(ctx)
+		baseAgent, err = o.baseAgentRepo.FindDefault(ctx)
 		if err != nil || baseAgent == nil {
 			o.debugThreadMgr.SetStatus(req.ThreadID, DebugThreadStatusIdle)
 			return nil, fmt.Errorf("未找到可用的基础Agent，请先设置一个默认的基础Agent")

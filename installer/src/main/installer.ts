@@ -499,6 +499,15 @@ export async function generateConfigPreview(params: {
     // 3. 应用页面修改的参数（强制覆盖）
     if (baseYaml?.database) {
       baseYaml.database.type = params.database.type
+
+      // SQLite 模式：强制设置默认路径（确保不会被旧配置覆盖）
+      if (params.database.type === 'sqlite') {
+        baseYaml.database.path = './data/sqlite/colink.db'
+        // 清理 MySQL 相关配置（避免干扰）
+        if (baseYaml.database.mysql) {
+          // 保留 MySQL 配置供用户手动切换回来时使用，但不影响 SQLite 运行
+        }
+      }
     }
 
     if (params.database.type === 'mysql' && baseYaml?.database?.mysql) {
