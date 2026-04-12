@@ -2523,10 +2523,17 @@ func (es *ExecutionService) formatFullPrompt(layers *ContextLayers, input string
 		}
 	}
 
-	// 用户输入
-	sb.WriteString("<user>\n")
-	sb.WriteString(input)
-	sb.WriteString("\n</user>\n")
+	// 用户输入部分：区分 A2A 输入和普通输入
+	// A2A 输入包含 "## 会话策略" 或 "## 前序分析" 特征
+	if strings.Contains(input, "## 会话策略") || strings.Contains(input, "## 前序分析") {
+		sb.WriteString("<a2a_input>\n")
+		sb.WriteString(input)
+		sb.WriteString("\n</a2a_input>\n")
+	} else {
+		sb.WriteString("<user>\n")
+		sb.WriteString(input)
+		sb.WriteString("\n</user>\n")
+	}
 
 	return sb.String()
 }
