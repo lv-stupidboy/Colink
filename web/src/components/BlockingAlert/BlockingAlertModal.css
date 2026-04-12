@@ -1,0 +1,26 @@
+/* BlockingAlertModal.css */
+
+.blocking-alert-modal .ant-modal-body {
+  padding: 16px 24px;
+}
+
+.blocking-alert-modal .ant-card-body {
+  padding: 12px;
+}
+
+.blocking-alert-modal .ant-list-item {
+  padding: 4px 0;
+}
+
+/* 深色模式适配 */
+[data-theme='dark'] .blocking-alert-modal .ant-card {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+[data-theme='dark'] .blocking-alert-modal .ant-card-head {
+  background: transparent;
+}
+
+[data-theme='dark'] .blocking-alert-modal code {
+  background: rgba(255, 255, 255, 0.08);
+}
