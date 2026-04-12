@@ -2523,3 +2523,81 @@ func (es *ExecutionService) broadcastFullPrompt(threadID, invocationID uuid.UUID
 		})
 	}
 }
+
+// filterStructuredOutput 从前序 Agent 输出中提取结构化关键信息
+// 保留：文件路径引用、关键结论标记、工具调用结果
+func (es *ExecutionService) filterStructuredOutput(output string, contentBlocks []ContentBlockData) string {
+	var result []string
+
+	// 1. 提取文件路径引用
+	filePatterns := []string{
+		`file://[^\s]+`,           // file://xxx
+		`path:\s*[^\s]+`,          // path: xxx
+		`\.\/[^\s]+`,              // ./xxx
+	}
+	for _, pattern := range filePatterns {
+		re := regexp.MustCompile(pattern)
+		matches := re.FindAllString(output, -1)
+		result = append(result, matches...)
+	}
+
+	// 2. 提取代码文件引用（排除干扰词）
+	// 匹配 xxx.go, xxx.ts, xxx.py 等文件名
+	codeFilePattern := `[a-zA-Z0-9_\-]+\.(go|ts|tsx|js|jsx|py|java|kt|rs|c|cpp|h|sql|yaml|yml|json|md)`
+	re := regexp.MustCompile(codeFilePattern)
+	matches := re.FindAllString(output, -1)
+	// 过滤掉常见干扰词
+	excludeWords := map[string]bool{
+		"true.md": true, "false.md": true, "null.json": true,
+	}
+	for _, m := range matches {
+		if !excludeWords[m] {
+			result = append(result, m)
+		}
+	}
+
+	// 3. 提取关键结论标记后的内容
+	conclusionPatterns := []string{
+		`结论[:：]\s*[^\n]+`,
+		`结果[:：]\s*[^\n]+`,
+		`关键点[:：]\s*[^\n]+`,
+		`总结[:：]\s*[^\n]+`,
+		`建议[:：]\s*[^\n]+`,
+		`要点[:：]\s*[^\n]+`,
+		`分析结果[:：]\s*[^\n]+`,
+	}
+	for _, pattern := range conclusionPatterns {
+		re := regexp.MustCompile(pattern)
+		matches := re.FindAllString(output, -1)
+		result = append(result, matches...)
+	}
+
+	// 4. 提取工具调用结果（如果有）
+	for _, block := range contentBlocks {
+		if block.Type == "tool_use" && block.Output != "" {
+			// 截取工具输出前 200 字符（避免过长）
+			outputStr := block.Output
+			if len(outputStr) > 200 {
+				outputStr = outputStr[:200] + "..."
+			}
+			result = append(result, fmt.Sprintf("[%s] %s", block.ToolName, outputStr))
+		}
+	}
+
+	// 去重并返回
+	seen := make(map[string]bool)
+	var unique []string
+	for _, item := range result {
+		item = strings.TrimSpace(item)
+		if item != "" && !seen[item] && len(item) > 3 { // 过滤过短内容
+			seen[item] = true
+			unique = append(unique, item)
+		}
+	}
+
+	if len(unique) == 0 {
+		return "(无关键结构化信息)"
+	}
+
+	return strings.Join(unique, "\n")
+}
