@@ -948,12 +948,12 @@ func (es *ExecutionService) buildContextLayers(ctx context.Context, threadID uui
 	if req != nil && (req.SessionStrategy == SessionStrategyNew || req.SessionStrategy == SessionStrategyResume) {
 		layers.Layer1 = "" // A2A 调用不传递历史
 	} else {
-		// 非 A2A 调用（用户直接触发）：保持传递历史
+		// 非 A2A 调用（用户直接触发）：使用结构化提取而非完整历史
 		messages, err := es.msgRepo.FindByThreadID(ctx, threadID, 100)
 		if err != nil {
 			return nil, err
 		}
-		layers.Layer1 = es.formatMessages(messages)
+		layers.Layer1 = es.extractStructuredHistory(messages, 50)
 	}
 
 	// Layer 2: 工作产物（使用缓存的 Thread）
@@ -2629,4 +2629,164 @@ func (es *ExecutionService) filterStructuredOutput(output string, contentBlocks 
 	}
 
 	return strings.Join(unique, "\n")
+}
+
+// extractStructuredHistory 从历史消息中提取结构化关键信息
+// 用于优化 Layer1 内容，避免完整历史导致输入过长
+func (es *ExecutionService) extractStructuredHistory(messages []*model.Message, maxMessages int) string {
+	var sb strings.Builder
+	sb.WriteString("## 会话历史摘要\n\n")
+
+	// 限制处理的消息数量
+	if len(messages) > maxMessages {
+		messages = messages[:maxMessages]
+	}
+
+	// 1. 提取用户核心请求（第一条用户消息）
+	for _, msg := range messages {
+		if msg.Role == model.MessageRoleUser {
+			sb.WriteString("**用户请求**: ")
+			content := msg.Content
+			if len(content) > 200 {
+				content = content[:200] + "..."
+			}
+			sb.WriteString(content)
+			sb.WriteString("\n\n")
+			break
+		}
+	}
+
+	// 2. 提取关键决策和结论
+	sb.WriteString("**关键结论**:\n")
+	conclusionPatterns := []string{
+		`结论[:：]\s*[^\n]+`,
+		`结果[:：]\s*[^\n]+`,
+		`关键点[:：]\s*[^\n]+`,
+		`总结[:：]\s*[^\n]+`,
+		`建议[:：]\s*[^\n]+`,
+		`要点[:：]\s*[^\n]+`,
+		`决定[:：]\s*[^\n]+`,
+		`完成[:：]\s*[^\n]+`,
+		`分析[:：]\s*[^\n]+`,
+	}
+
+	conclusionsFound := false
+	for _, msg := range messages {
+		if msg.Role == model.MessageRoleAgent {
+			for _, pattern := range conclusionPatterns {
+				re := regexp.MustCompile(pattern)
+				matches := re.FindAllString(msg.Content, -1)
+				for _, m := range matches {
+					sb.WriteString("- ")
+					sb.WriteString(m)
+					sb.WriteString("\n")
+					conclusionsFound = true
+				}
+			}
+		}
+	}
+	if !conclusionsFound {
+		sb.WriteString("- (无明确结论)\n")
+	}
+	sb.WriteString("\n")
+
+	// 3. 提取文件路径引用
+	sb.WriteString("**涉及文件**:\n")
+	filePatterns := []string{
+		`file://[^\s]+`,
+		`path:\s*[^\s]+`,
+		`\./[^\s]+`,
+		`[a-zA-Z0-9_\-]+\.(go|ts|tsx|js|jsx|py|java|kt|rs|c|cpp|h|sql|yaml|yml|json|md|html|css)`,
+	}
+	excludeWords := map[string]bool{
+		"true.md":    true,
+		"false.md":   true,
+		"null.json":  true,
+		"true.json":  true,
+		"false.json": true,
+	}
+
+	filesFound := false
+	seenFiles := make(map[string]bool)
+	for _, msg := range messages {
+		for _, pattern := range filePatterns {
+			re := regexp.MustCompile(pattern)
+			matches := re.FindAllString(msg.Content, -1)
+			for _, m := range matches {
+				m = strings.TrimSpace(m)
+				if !excludeWords[m] && !seenFiles[m] && len(m) > 5 {
+					sb.WriteString("- ")
+					sb.WriteString(m)
+					sb.WriteString("\n")
+					seenFiles[m] = true
+					filesFound = true
+				}
+			}
+		}
+	}
+	if !filesFound {
+		sb.WriteString("- (无文件引用)\n")
+	}
+	sb.WriteString("\n")
+
+	// 4. 提取工具调用摘要（从 ContentBlocks 解析）
+	sb.WriteString("**工具调用摘要**:\n")
+	toolsFound := false
+	for _, msg := range messages {
+		if msg.Role == model.MessageRoleAgent && len(msg.ContentBlocks) > 0 {
+			var blocks []ContentBlockData
+			if err := json.Unmarshal(msg.ContentBlocks, &blocks); err == nil {
+				for _, block := range blocks {
+					if block.Type == "tool_use" {
+						sb.WriteString("- [")
+						sb.WriteString(block.ToolName)
+						sb.WriteString("] ")
+						// 输入摘要（前 100 字符）
+						if block.Input != nil {
+							inputStr := fmt.Sprintf("%v", block.Input)
+							if len(inputStr) > 100 {
+								inputStr = inputStr[:100] + "..."
+							}
+							sb.WriteString(inputStr)
+						}
+						// 输出摘要（前 100 字符）
+						if block.Output != "" && !block.IsError {
+							outputStr := block.Output
+							if len(outputStr) > 100 {
+								outputStr = outputStr[:100] + "..."
+							}
+							sb.WriteString(" -> ")
+							sb.WriteString(outputStr)
+						}
+						sb.WriteString("\n")
+						toolsFound = true
+					}
+				}
+			}
+		}
+	}
+	if !toolsFound {
+		sb.WriteString("- (无工具调用)\n")
+	}
+	sb.WriteString("\n")
+
+	// 5. Agent 角色标识（最近的消息来源）
+	sb.WriteString("**对话参与者**:\n")
+	seenAgents := make(map[string]bool)
+	recentCount := 0
+	for i := len(messages) - 1; i >= 0 && recentCount < 5; i-- {
+		msg := messages[i]
+		if msg.Role == model.MessageRoleAgent && msg.AgentID != "" {
+			if !seenAgents[msg.AgentID] {
+				sb.WriteString("- ")
+				sb.WriteString(msg.AgentID)
+				sb.WriteString("\n")
+				seenAgents[msg.AgentID] = true
+				recentCount++
+			}
+		}
+	}
+	sb.WriteString("\n")
+
+	return sb.String()
 }
