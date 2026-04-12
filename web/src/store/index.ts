@@ -2,7 +2,11 @@ import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import type { Thread, Message, AgentInvocation, AgentConfig, Phase, AgentRole, Project, WorkflowTemplate, SandboxServer, MessageContentBlock } from '@/types';
 import type { TokenUsage, TaskProgress } from '@/types/status';
+import type { BlockingItem } from '@/types/blocking';
 import api from '@/api/client';
+
+// localStorage 持久化 key
+const STORAGE_KEY_BLOCKING_REMINDER = 'isdp_blocking_reminder_enabled';
 
 interface AppState {
   // 当前项目
@@ -78,6 +82,10 @@ interface AppState {
     toolOutput: 'expanded' | 'collapsed';
     thinking: 'expanded' | 'collapsed';
   };
+
+  // 阻塞提醒相关
+  blockingItems: BlockingItem[];
+  blockingReminderEnabled: boolean;
 }
 
 interface AppActions {
@@ -186,6 +194,12 @@ interface AppActions {
 
   // 可收缩面板默认状态 actions
   setCollapsibleDefaults: (type: 'toolOutput' | 'thinking', state: 'expanded' | 'collapsed') => void;
+
+  // 阻塞管理 actions
+  addBlockingItem: (item: BlockingItem) => void;
+  removeBlockingItem: (id: string) => void;
+  clearBlockingItems: () => void;
+  setBlockingReminderEnabled: (enabled: boolean) => void;
 }
 
 const initialState: AppState = {
@@ -232,6 +246,9 @@ const initialState: AppState = {
     toolOutput: 'collapsed',
     thinking: 'collapsed',
   },
+  // 阻塞提醒相关
+  blockingItems: [],
+  blockingReminderEnabled: localStorage.getItem(STORAGE_KEY_BLOCKING_REMINDER) !== 'false',
 };
 
 export const useAppStore = create<AppState & AppActions>()(
@@ -949,6 +966,37 @@ export const useAppStore = create<AppState & AppActions>()(
           [type]: state,
         },
       }));
+    },
+
+    // 阻塞管理 actions
+    addBlockingItem: (item) => {
+      set((state) => {
+        // 去重检查：相同 invocationId + type 不重复添加
+        const exists = state.blockingItems.some(
+          (b) => b.invocationId === item.invocationId && b.type === item.type
+        );
+        if (exists) {
+          return state;
+        }
+        return {
+          blockingItems: [...state.blockingItems, item],
+        };
+      });
+    },
+
+    removeBlockingItem: (id) => {
+      set((state) => ({
+        blockingItems: state.blockingItems.filter((b) => b.id !== id),
+      }));
+    },
+
+    clearBlockingItems: () => {
+      set({ blockingItems: [] });
+    },
+
+    setBlockingReminderEnabled: (enabled) => {
+      set({ blockingReminderEnabled: enabled });
+      localStorage.setItem(STORAGE_KEY_BLOCKING_REMINDER, String(enabled));
     },
   }))
 );
