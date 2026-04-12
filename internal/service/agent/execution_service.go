@@ -1279,7 +1279,8 @@ func (es *ExecutionService) checkRouting(ctx context.Context, threadID uuid.UUID
 			zap.String("sessionStrategy", string(sessionStrategy)))
 
 		// 构建 A2A 输入（原始用户消息 + 前序响应上下文 + 触发者信息）
-		a2aInput := es.buildA2AInput(ctx, threadID, currentConfig, a2aCtx, output)
+		// 简化调用 - 不传递 contentBlocks（前序输出已包含工具调用结果）
+		a2aInput := es.buildA2AInput(ctx, threadID, currentConfig, a2aCtx, output, nil, sessionStrategy)
 
 		// 使用构建的 A2A 输入
 		es.SpawnAgent(ctx, &SpawnRequest{
@@ -1328,7 +1329,15 @@ func (es *ExecutionService) parseMentions(content string) []string {
 // 参考 clowder-ai 的做法：传递原始用户消息 + 格式化的前序响应上下文
 // 而不是传递包含 @mention 的原始输出
 // 优化：新增协作规则、触发者信息、Agent 元信息
-func (es *ExecutionService) buildA2AInput(ctx context.Context, threadID uuid.UUID, fromAgent *model.AgentRoleConfig, a2aCtx *A2AContext, output string) string {
+func (es *ExecutionService) buildA2AInput(
+	ctx context.Context,
+	threadID uuid.UUID,
+	fromAgent *model.AgentRoleConfig,
+	a2aCtx *A2AContext,
+	output string,
+	contentBlocks []ContentBlockData,
+	sessionStrategy SessionStrategy,
+) string {
 	var sb strings.Builder
 
 	// 1. 协作规则（有触发者信息时注入）
@@ -1338,7 +1347,18 @@ func (es *ExecutionService) buildA2AInput(ctx context.Context, threadID uuid.UUI
 		sb.WriteString("---\n\n")
 	}
 
-	// 2. 原始请求
+	// 2. 会话策略信息（新增）
+	sb.WriteString("## 会话策略\n\n")
+	if sessionStrategy == SessionStrategyResume {
+		sb.WriteString("**类型**: Resume（恢复会话）\n")
+		sb.WriteString("**说明**: CLI 将使用 --resume 恢复之前的会话上下文\n\n")
+	} else {
+		sb.WriteString("**类型**: New（新会话）\n")
+		sb.WriteString("**说明**: CLI 将使用全新会话，不继承历史上下文\n\n")
+	}
+	sb.WriteString("---\n\n")
+
+	// 3. 原始请求
 	originalMessage := es.getLastUserMessage(ctx, threadID)
 	if originalMessage != "" {
 		sb.WriteString("## 原始请求\n\n")
@@ -1346,27 +1366,25 @@ func (es *ExecutionService) buildA2AInput(ctx context.Context, threadID uuid.UUI
 		sb.WriteString("\n\n---\n\n")
 	}
 
-	// 3. 前序分析（包含元信息）
+	// 4. 前序分析（使用结构化过滤）
 	if fromAgent != nil {
-		sb.WriteString("## 前序分析\n\n")
+		sb.WriteString("## 前序分析（结构化摘要）\n\n")
 		sb.WriteString(fmt.Sprintf("**来自**: %s\n", fromAgent.Name))
 		if fromAgent.Role != "" {
 			sb.WriteString(fmt.Sprintf("**角色**: %s\n", es.getRoleDescription(fromAgent.Role)))
 		}
-		// 擅长领域（使用 Description）
-		strengths := fromAgent.Description
-		if strengths != "" {
-			sb.WriteString(fmt.Sprintf("**擅长**: %s\n", strengths))
+		if fromAgent.Description != "" {
+			sb.WriteString(fmt.Sprintf("**擅长**: %s\n", fromAgent.Description))
 		}
 		sb.WriteString("\n")
 
-		// 前序响应内容（移除纯 @mention 行）
-		strippedOutput := es.stripPureMentionLines(output)
-		sb.WriteString(strippedOutput)
+		// 结构化过滤后的输出
+		filteredOutput := es.filterStructuredOutput(output, contentBlocks)
+		sb.WriteString(filteredOutput)
 		sb.WriteString("\n\n---\n\n")
 	}
 
-	// 4. 触发者信息
+	// 5. 触发者信息
 	if a2aCtx != nil && a2aCtx.FromAgent != nil {
 		sb.WriteString(fmt.Sprintf("**Direct message from %s; reply to %s**\n",
 			a2aCtx.FromAgent.Name,
@@ -1638,12 +1656,16 @@ func (es *ExecutionService) checkSignalRouting(ctx context.Context, threadID uui
 			zap.String("threadId", threadID.String()),
 			zap.String("sessionStrategy", string(sessionStrategy)))
 
+		// 构建 A2A 输入（结构化摘要 + 会话策略）
+		// 简化调用 - 不传递 contentBlocks（前序输出已包含工具调用结果）
+		a2aInput := es.buildA2AInput(ctx, threadID, config, a2aCtx, output, nil, sessionStrategy)
+
 		// 触发下一个 Agent
 		es.SpawnAgent(ctx, &SpawnRequest{
 			ThreadID:        threadID,
 			ConfigID:        targetConfig.ID,
 			Role:            targetConfig.Role,
-			Input:           output,
+			Input:           a2aInput,
 			ProjectPath:     projectPath,
 			SessionStrategy: sessionStrategy,
 		})
