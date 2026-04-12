@@ -1963,8 +1963,6 @@ broadcast:
 			return
 		}
 
-		es.NotifyChunkListeners(threadID, invocationID, chunk, agentID, agentName)
-
 		payload := map[string]interface{}{
 			"invocationId": invocationID.String(),
 			"chunk":        chunk.Content,

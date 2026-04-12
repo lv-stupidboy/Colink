@@ -8,7 +8,7 @@ type IMAdapter interface {
 	SendText(ctx context.Context, chatID, text string) SendResult
 	SendCard(ctx context.Context, chatID, cardJSON string) SendResult
 	ReplyText(ctx context.Context, chatID, messageID, text string) SendResult
-	CreateStreamingCard(ctx context.Context, chatID string) (cardID string, err error)
+	CreateStreamingCard(ctx context.Context, chatID string, agentName string) (cardID string, err error)
 	UpdateStreamingCard(ctx context.Context, cardID string, content string, sequence int) error
 	FinalizeStreamingCard(ctx context.Context, cardID string, content string, sequence int) error
 	CheckHealth(ctx context.Context) error

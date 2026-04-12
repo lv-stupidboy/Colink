@@ -3,6 +3,7 @@ package im
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/anthropic/isdp/internal/model"
@@ -13,15 +14,21 @@ import (
 	"go.uber.org/zap"
 )
 
-// agentSpawner defines the orchestrator capability required by IM bridge.
 type agentSpawner interface {
 	SpawnAgentForUserMessage(ctx context.Context, threadID uuid.UUID, userMessage string) error
 }
 
+// invocationCardState tracks an in-flight streaming card for a specific agent invocation.
+// Uses sync.Once to guarantee exactly one card creation attempt regardless of concurrent chunks.
+type invocationCardState struct {
+	createOnce  sync.Once  // guarantees single creation attempt
+	cardID      string     // set after successful creation
+	failed      bool       // set if creation or a critical update fails
+	fallbackMu  sync.Mutex // protects fallbackBuf
+	fallbackBuf []string   // accumulated text when streaming card fails
+}
+
 // IMBridgeService provides platform-agnostic IM inbound/outbound bridge.
-// It handles:
-// 1) inbound IM messages -> thread/session mapping -> agent spawning
-// 2) agent chunks -> platform adapter/delivery routing
 type IMBridgeService struct {
 	adapters map[string]IMAdapter
 	delivery map[string]*DeliveryService
@@ -36,9 +43,12 @@ type IMBridgeService struct {
 	logger       *zap.Logger
 
 	mu sync.RWMutex
+
+	// streamingCards maps invocationID → *streamingCardState.
+	// Uses sync.Map for atomic LoadOrStore to prevent race conditions.
+	streamingCards sync.Map
 }
 
-// NewIMBridgeService creates a platform-agnostic IM bridge service.
 func NewIMBridgeService(
 	sessionRepo *repo.IMSessionRepository,
 	threadRepo *repo.ThreadRepository,
@@ -68,7 +78,6 @@ func NewIMBridgeService(
 	}
 }
 
-// RegisterAdapter registers adapter and delivery for a platform.
 func (s *IMBridgeService) RegisterAdapter(adapter IMAdapter, delivery *DeliveryService) {
 	if adapter == nil || delivery == nil {
 		return
@@ -81,7 +90,6 @@ func (s *IMBridgeService) RegisterAdapter(adapter IMAdapter, delivery *DeliveryS
 	s.mu.Unlock()
 }
 
-// HandleInboundMessage processes an inbound IM message and triggers an agent run.
 func (s *IMBridgeService) HandleInboundMessage(
 	ctx context.Context,
 	platform, chatID, chatType, userID, userName, messageID, text string,
@@ -154,6 +162,8 @@ func (s *IMBridgeService) getOrCreateSession(ctx context.Context, platform, chat
 }
 
 // OnAgentChunk routes agent chunks back to the proper IM platform.
+// Text chunks flow into a streaming card (Cardkit v1) with typewriter effect.
+// Tool/error/status chunks are sent as separate card messages.
 func (s *IMBridgeService) OnAgentChunk(threadID, invocationID uuid.UUID, chunk agent.Chunk, agentID, agentName string) {
 	if s.sessionRepo == nil {
 		return
@@ -175,39 +185,106 @@ func (s *IMBridgeService) OnAgentChunk(threadID, invocationID uuid.UUID, chunk a
 
 	switch chunk.Type {
 	case agent.ChunkTypeText:
-		delivery.DeliverText(ctx, chatID, chunk.Content, s.makeDedupKey(platform, invocationID, chunk, "text"))
+		s.handleTextChunk(ctx, adapter, chatID, invocationID, agentName, chunk.Content)
 
 	case agent.ChunkTypeToolUse:
-		card := s.buildSimpleCard(fmt.Sprintf("🔧 [%s] Using tool: %s", agentName, chunk.ToolName), "blue")
-		delivery.DeliverCard(ctx, chatID, card, s.makeDedupKey(platform, invocationID, chunk, "tool_use"))
+		s.handleTextChunk(ctx, adapter, chatID, invocationID, agentName,
+			fmt.Sprintf("\n🔧 **[%s] Using tool: %s**\n", agentName, chunk.ToolName))
 
 	case agent.ChunkTypeToolResult:
 		statusIcon := "✅"
 		if chunk.IsError {
 			statusIcon = "❌"
 		}
-		card := s.buildSimpleCard(fmt.Sprintf("%s [%s] %s completed", statusIcon, agentName, chunk.ToolName), "green")
-		delivery.DeliverCard(ctx, chatID, card, s.makeDedupKey(platform, invocationID, chunk, "tool_result"))
+		s.handleTextChunk(ctx, adapter, chatID, invocationID, agentName,
+			fmt.Sprintf("%s **[%s] %s completed**\n", statusIcon, agentName, chunk.ToolName))
 
 	case agent.ChunkTypeError:
-		card := s.buildSimpleCard(fmt.Sprintf("⚠️ [%s] Error: %s", agentName, chunk.Content), "red")
-		delivery.DeliverCard(ctx, chatID, card, s.makeDedupKey(platform, invocationID, chunk, "error"))
+		s.handleTextChunk(ctx, adapter, chatID, invocationID, agentName,
+			fmt.Sprintf("\n⚠️ **[%s] Error: %s**\n", agentName, chunk.Content))
 
 	case agent.ChunkTypeStatus:
 		if chunk.Content == "completed" || chunk.Content == "failed" || chunk.Content == "stopped" {
-			card := s.buildSimpleCard(fmt.Sprintf("[%s] Status: %s", agentName, chunk.Content), "green")
-			delivery.DeliverCard(ctx, chatID, card, s.makeDedupKey(platform, invocationID, chunk, "status"))
+			s.handleStatusComplete(ctx, adapter, chatID, invocationID, agentName, chunk.Content, delivery, platform)
 		}
 
 	case agent.ChunkTypeThinking, agent.ChunkTypeUsage:
-		// Skip non-user-facing chunk types for IM transports.
 
 	default:
 		s.logger.Debug("unsupported chunk type for IM bridge", zap.String("type", string(chunk.Type)), zap.String("platform", platform))
 	}
 
-	_ = adapter // adapter is intentionally looked up to assert registration completeness.
 	_ = agentID
+}
+
+// handleTextChunk manages the streaming card lifecycle for text content.
+// Uses sync.Map.LoadOrStore to atomically reserve a slot per invocation,
+// and sync.Once to ensure exactly one card creation attempt.
+func (s *IMBridgeService) handleTextChunk(ctx context.Context, adapter IMAdapter, chatID string, invocationID uuid.UUID, agentName, text string) {
+	newState := &invocationCardState{}
+	actual, _ := s.streamingCards.LoadOrStore(invocationID, newState)
+	state := actual.(*invocationCardState)
+
+	state.createOnce.Do(func() {
+		cardID, err := adapter.CreateStreamingCard(ctx, chatID, agentName)
+		if err != nil {
+			s.logger.Error("failed to create streaming card, using buffered fallback",
+				zap.String("chatID", chatID), zap.Error(err))
+			state.failed = true
+			state.fallbackMu.Lock()
+			state.fallbackBuf = append(state.fallbackBuf, text)
+			state.fallbackMu.Unlock()
+			return
+		}
+		state.cardID = cardID
+	})
+
+	if state.failed {
+		state.fallbackMu.Lock()
+		state.fallbackBuf = append(state.fallbackBuf, text)
+		state.fallbackMu.Unlock()
+		return
+	}
+
+	if err := adapter.UpdateStreamingCard(ctx, state.cardID, text, 0); err != nil {
+		s.logger.Error("failed to update streaming card",
+			zap.String("cardID", state.cardID), zap.Error(err))
+	}
+}
+
+// handleStatusComplete finalizes any in-flight streaming card when the agent finishes.
+// If streaming card is active, flushes and disables streaming.
+// If fallback was active, sends all accumulated text as a single message.
+func (s *IMBridgeService) handleStatusComplete(
+	ctx context.Context, adapter IMAdapter, chatID string, invocationID uuid.UUID,
+	agentName, status string, delivery *DeliveryService, platform string,
+) {
+	val, loaded := s.streamingCards.LoadAndDelete(invocationID)
+	if !loaded {
+		return
+	}
+	state := val.(*invocationCardState)
+
+	if state.failed {
+		state.fallbackMu.Lock()
+		buf := state.fallbackBuf
+		state.fallbackBuf = nil
+		state.fallbackMu.Unlock()
+
+		if len(buf) > 0 {
+			fullText := strings.Join(buf, "")
+			if err := adapter.SendText(ctx, chatID, fullText).Error; err != "" {
+				s.logger.Error("failed to send fallback text",
+					zap.String("chatID", chatID), zap.String("error", err))
+			}
+		}
+		return
+	}
+
+	if err := adapter.FinalizeStreamingCard(ctx, state.cardID, "", 0); err != nil {
+		s.logger.Error("failed to finalize streaming card",
+			zap.String("cardID", state.cardID), zap.Error(err))
+	}
 }
 
 func (s *IMBridgeService) getPlatformDelivery(platform string) (IMAdapter, *DeliveryService, bool) {
@@ -235,5 +312,4 @@ func (s *IMBridgeService) buildSimpleCard(content, color string) string {
 	}`, content, color)
 }
 
-// Compile-time signature check for ChunkListener compatibility.
 var _ agent.ChunkListener = (*IMBridgeService)(nil).OnAgentChunk
