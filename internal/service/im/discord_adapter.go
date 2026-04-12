@@ -42,7 +42,7 @@ func (a *DiscordAdapter) ReplyText(ctx context.Context, chatID, messageID, text 
 }
 
 // CreateStreamingCard creates a streaming card message.
-func (a *DiscordAdapter) CreateStreamingCard(ctx context.Context, chatID string) (cardID string, err error) {
+func (a *DiscordAdapter) CreateStreamingCard(ctx context.Context, chatID string, agentName string) (cardID string, err error) {
 	return "", ErrNotImplemented
 }
 

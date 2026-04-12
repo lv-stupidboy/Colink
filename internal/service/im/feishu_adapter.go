@@ -9,41 +9,41 @@ import (
 	"go.uber.org/zap"
 )
 
-// LarkClient defines the interface for Lark CLI operations.
+const (
+	streamingElementID = "content_1"
+	streamingThrottle  = 200 * time.Millisecond
+)
+
 type LarkClient interface {
 	SendTextMessage(ctx context.Context, chatID, text string) error
 	SendCardMessage(ctx context.Context, chatID, cardJSON string) error
 	ReplyMessage(ctx context.Context, chatID, messageID, text string) error
 	CheckHealth(ctx context.Context) error
-	// Streaming card methods
-	CreateCard(ctx context.Context, chatID string) (cardID, messageID string, err error)
-	UpdateCardContent(ctx context.Context, cardID, content string, sequence int) error
-	SetStreamingMode(ctx context.Context, cardID string, enabled bool, sequence int) error
+	CreateStreamingCardEntity(ctx context.Context, title, elementID string) (cardID string, err error)
+	SendCardEntityMessage(ctx context.Context, chatID, cardID string) (messageID string, err error)
+	UpdateStreamingElement(ctx context.Context, cardID, elementID, content string, sequence int) error
+	SetCardStreamingMode(ctx context.Context, cardID string, enabled bool, sequence int) error
 }
 
-const (
-	streamingThrottleDelay = 200 * time.Millisecond
-)
-
-type cardState struct {
-	mu            sync.Mutex
-	cardID        string
-	messageID     string
-	sequence      int
-	startTime     time.Time
-	pendingText   string
-	lastUpdateAt  time.Time
-	throttleTimer *time.Timer
+type streamingCardState struct {
+	mu          sync.Mutex
+	cardID      string
+	messageID   string
+	sequence    int
+	startTime   time.Time
+	accumulated string
+	lastSent    string
+	lastSentAt  time.Time
+	done        chan struct{}
+	dirty       chan struct{}
 }
 
-// FeishuAdapter implements IMAdapter for Feishu (Lark) platform.
 type FeishuAdapter struct {
 	client     LarkClient
 	logger     *zap.Logger
 	cardStates sync.Map
 }
 
-// NewFeishuAdapter creates a new Feishu adapter.
 func NewFeishuAdapter(client LarkClient, logger *zap.Logger) *FeishuAdapter {
 	return &FeishuAdapter{
 		client:     client,
@@ -52,221 +52,198 @@ func NewFeishuAdapter(client LarkClient, logger *zap.Logger) *FeishuAdapter {
 	}
 }
 
-// Platform returns the platform identifier.
-func (a *FeishuAdapter) Platform() string {
-	return "feishu"
-}
+func (a *FeishuAdapter) Platform() string { return "feishu" }
 
-// SendText sends a text message to the chat.
 func (a *FeishuAdapter) SendText(ctx context.Context, chatID, text string) SendResult {
-	err := a.client.SendTextMessage(ctx, chatID, text)
-	if err != nil {
-		a.logger.Error("failed to send text message",
-			zap.String("chatID", chatID),
-			zap.Error(err))
-		return SendResult{
-			OK:    false,
-			Error: err.Error(),
-		}
+	if err := a.client.SendTextMessage(ctx, chatID, text); err != nil {
+		a.logger.Error("failed to send text", zap.String("chatID", chatID), zap.Error(err))
+		return SendResult{OK: false, Error: err.Error()}
 	}
 	return SendResult{OK: true}
 }
 
-// SendCard sends a card message to the chat.
 func (a *FeishuAdapter) SendCard(ctx context.Context, chatID, cardJSON string) SendResult {
-	err := a.client.SendCardMessage(ctx, chatID, cardJSON)
-	if err != nil {
-		a.logger.Error("failed to send card message",
-			zap.String("chatID", chatID),
-			zap.Error(err))
-		return SendResult{
-			OK:    false,
-			Error: err.Error(),
-		}
+	if err := a.client.SendCardMessage(ctx, chatID, cardJSON); err != nil {
+		a.logger.Error("failed to send card", zap.String("chatID", chatID), zap.Error(err))
+		return SendResult{OK: false, Error: err.Error()}
 	}
 	return SendResult{OK: true}
 }
 
-// ReplyText sends a reply message to a specific message.
 func (a *FeishuAdapter) ReplyText(ctx context.Context, chatID, messageID, text string) SendResult {
-	err := a.client.ReplyMessage(ctx, chatID, messageID, text)
-	if err != nil {
-		a.logger.Error("failed to reply message",
-			zap.String("chatID", chatID),
-			zap.String("messageID", messageID),
-			zap.Error(err))
-		return SendResult{
-			OK:    false,
-			Error: err.Error(),
-		}
+	if err := a.client.ReplyMessage(ctx, chatID, messageID, text); err != nil {
+		a.logger.Error("failed to reply", zap.String("chatID", chatID), zap.String("messageID", messageID), zap.Error(err))
+		return SendResult{OK: false, Error: err.Error()}
 	}
 	return SendResult{OK: true}
 }
 
-// CreateStreamingCard creates a streaming card and returns the card ID.
-func (a *FeishuAdapter) CreateStreamingCard(ctx context.Context, chatID string) (string, error) {
-	cardID, messageID, err := a.client.CreateCard(ctx, chatID)
+func (a *FeishuAdapter) CreateStreamingCard(ctx context.Context, chatID string, agentName string) (string, error) {
+	title := agentName
+	if title == "" {
+		title = "Agent"
+	}
+	cardID, err := a.client.CreateStreamingCardEntity(ctx, title, streamingElementID)
 	if err != nil {
-		a.logger.Error("failed to create streaming card",
-			zap.String("chatID", chatID),
-			zap.Error(err))
-		return "", fmt.Errorf("failed to create streaming card: %w", err)
+		return "", fmt.Errorf("create card entity: %w", err)
 	}
 
-	state := &cardState{
-		cardID:       cardID,
-		messageID:    messageID,
-		sequence:     0,
-		startTime:    time.Now(),
-		lastUpdateAt: time.Now(),
+	messageID, err := a.client.SendCardEntityMessage(ctx, chatID, cardID)
+	if err != nil {
+		return "", fmt.Errorf("send card message: %w", err)
+	}
+
+	state := &streamingCardState{
+		cardID:     cardID,
+		messageID:  messageID,
+		sequence:   1,
+		startTime:  time.Now(),
+		lastSentAt: time.Now(),
+		done:       make(chan struct{}),
+		dirty:      make(chan struct{}, 1),
 	}
 	a.cardStates.Store(cardID, state)
 
-	if err := a.client.SetStreamingMode(ctx, cardID, true, 0); err != nil {
-		a.logger.Warn("failed to enable streaming mode",
-			zap.String("cardID", cardID),
-			zap.Error(err))
+	if err := a.client.SetCardStreamingMode(ctx, cardID, true, state.sequence); err != nil {
+		a.logger.Warn("failed to enable streaming mode via settings", zap.String("cardID", cardID), zap.Error(err))
 	}
+	state.sequence++
 
-	a.logger.Debug("created streaming card",
-		zap.String("cardID", cardID),
-		zap.String("messageID", messageID))
+	go a.flushLoop(state)
 
 	return cardID, nil
 }
 
-// UpdateStreamingCard updates a streaming card with throttling.
-func (a *FeishuAdapter) UpdateStreamingCard(ctx context.Context, cardID string, content string, sequence int) error {
+func (a *FeishuAdapter) UpdateStreamingCard(ctx context.Context, cardID, content string, _ int) error {
 	val, ok := a.cardStates.Load(cardID)
 	if !ok {
-		return fmt.Errorf("card state not found for cardID: %s", cardID)
+		return fmt.Errorf("card state not found: %s", cardID)
 	}
 
-	state := val.(*cardState)
+	state := val.(*streamingCardState)
 	state.mu.Lock()
-	defer state.mu.Unlock()
+	state.accumulated += content
+	state.mu.Unlock()
 
-	state.pendingText = content
-	state.sequence = sequence
-
-	elapsed := time.Since(state.lastUpdateAt)
-
-	if elapsed >= streamingThrottleDelay {
-		return a.flushCardUpdate(ctx, state)
+	select {
+	case state.dirty <- struct{}{}:
+	default:
 	}
-
-	if state.throttleTimer != nil {
-		state.throttleTimer.Stop()
-	}
-
-	state.throttleTimer = time.AfterFunc(streamingThrottleDelay, func() {
-		state.mu.Lock()
-		defer state.mu.Unlock()
-
-		if err := a.flushCardUpdate(context.Background(), state); err != nil {
-			a.logger.Error("failed to flush throttled card update",
-				zap.String("cardID", state.cardID),
-				zap.Error(err))
-		}
-	})
 
 	return nil
 }
 
-// FinalizeStreamingCard finalizes a streaming card with completion footer.
-func (a *FeishuAdapter) FinalizeStreamingCard(ctx context.Context, cardID string, content string, sequence int) error {
+func (a *FeishuAdapter) flushLoop(state *streamingCardState) {
+	for {
+		select {
+		case <-state.done:
+			return
+		case <-state.dirty:
+		}
+
+		state.mu.Lock()
+		elapsed := time.Since(state.lastSentAt)
+		state.mu.Unlock()
+
+		if elapsed < streamingThrottle {
+			select {
+			case <-time.After(streamingThrottle - elapsed):
+			case <-state.done:
+				return
+			}
+		}
+
+		state.mu.Lock()
+		text := state.accumulated
+		lastSent := state.lastSent
+		seq := state.sequence
+		state.mu.Unlock()
+
+		if text == "" || text == lastSent {
+			continue
+		}
+
+		if err := a.client.UpdateStreamingElement(context.Background(), state.cardID, streamingElementID, text, seq); err != nil {
+			a.logger.Error("failed to update streaming element",
+				zap.String("cardID", state.cardID),
+				zap.Int("sequence", seq),
+				zap.Int("textLen", len(text)),
+				zap.Error(err))
+			continue
+		}
+
+		preview := text
+		if len(preview) > 100 {
+			preview = preview[:100] + "..."
+		}
+		a.logger.Info("streaming update sent",
+			zap.String("cardID", state.cardID),
+			zap.Int("sequence", seq),
+			zap.Int("textLen", len(text)),
+			zap.String("preview", preview))
+
+		state.mu.Lock()
+		state.sequence++
+		state.lastSent = text
+		state.lastSentAt = time.Now()
+		state.mu.Unlock()
+	}
+}
+
+func (a *FeishuAdapter) FinalizeStreamingCard(ctx context.Context, cardID, content string, _ int) error {
 	val, ok := a.cardStates.Load(cardID)
 	if !ok {
-		return fmt.Errorf("card state not found for cardID: %s", cardID)
+		return fmt.Errorf("card state not found: %s", cardID)
 	}
 
-	state := val.(*cardState)
+	state := val.(*streamingCardState)
+	close(state.done)
+
 	state.mu.Lock()
 	defer state.mu.Unlock()
 
-	if state.throttleTimer != nil {
-		state.throttleTimer.Stop()
-		state.throttleTimer = nil
-	}
+	state.accumulated += content
 
 	duration := time.Since(state.startTime)
+	finalContent := state.accumulated + fmt.Sprintf("\n\n---\n✅ 完成 | 用时: %s", duration.Round(time.Millisecond))
 
-	finalContent := a.buildFinalCardContent(content, duration)
-
-	if err := a.client.UpdateCardContent(ctx, cardID, finalContent, sequence); err != nil {
-		a.logger.Error("failed to finalize card content",
-			zap.String("cardID", cardID),
-			zap.Error(err))
-		return fmt.Errorf("failed to finalize card content: %w", err)
+	if err := a.client.UpdateStreamingElement(ctx, state.cardID, streamingElementID, finalContent, state.sequence); err != nil {
+		a.logger.Error("failed to finalize card content", zap.String("cardID", cardID), zap.Error(err))
+		return fmt.Errorf("finalize card content: %w", err)
 	}
+	state.sequence++
 
-	if err := a.client.SetStreamingMode(ctx, cardID, false, sequence+1); err != nil {
-		a.logger.Warn("failed to disable streaming mode",
-			zap.String("cardID", cardID),
-			zap.Error(err))
+	if err := a.client.SetCardStreamingMode(ctx, state.cardID, false, state.sequence); err != nil {
+		a.logger.Warn("failed to disable streaming mode", zap.String("cardID", cardID), zap.Error(err))
 	}
+	state.sequence++
 
 	a.cardStates.Delete(cardID)
 
-	a.logger.Debug("finalized streaming card",
+	a.logger.Info("finalized streaming card",
 		zap.String("cardID", cardID),
-		zap.Int("sequence", sequence),
+		zap.Int("sequence", state.sequence),
 		zap.Duration("duration", duration))
 
 	return nil
 }
 
-func (a *FeishuAdapter) flushCardUpdate(ctx context.Context, state *cardState) error {
-	if state.pendingText == "" {
-		return nil
-	}
-
-	if err := a.client.UpdateCardContent(ctx, state.cardID, state.pendingText, state.sequence); err != nil {
-		a.logger.Error("failed to update card content",
-			zap.String("cardID", state.cardID),
-			zap.Int("sequence", state.sequence),
-			zap.Error(err))
-		return fmt.Errorf("failed to update card content: %w", err)
-	}
-
-	state.lastUpdateAt = time.Now()
-	state.pendingText = ""
-
-	return nil
-}
-
-func (a *FeishuAdapter) buildFinalCardContent(content string, duration time.Duration) string {
-	footer := fmt.Sprintf("\n\n---\n✅ 完成 | 用时: %s", duration.Round(time.Millisecond))
-	return content + footer
-}
-
-// CheckHealth checks if the Feishu adapter is healthy.
 func (a *FeishuAdapter) CheckHealth(ctx context.Context) error {
 	return a.client.CheckHealth(ctx)
 }
 
-// MaxMessageLength returns the maximum message length for Feishu.
-func (a *FeishuAdapter) MaxMessageLength() int {
-	return 4000
-}
+func (a *FeishuAdapter) MaxMessageLength() int { return 4000 }
 
-// buildSimpleCard builds a simple Feishu card message.
 func (a *FeishuAdapter) buildSimpleCard(content, color string) string {
 	return fmt.Sprintf(`{
-		"config": {
-			"wide_screen_mode": true
-		},
+		"config": {"wide_screen_mode": true},
 		"header": {
-			"title": {
-				"tag": "plain_text",
-				"content": "%s"
-			},
-			"template": "%s"
+			"title": {"tag": "plain_text", "content": %q},
+			"template": %q
 		}
 	}`, content, color)
 }
 
-// buildCompletionCard builds a completion summary card.
 func (a *FeishuAdapter) buildCompletionCard(status string) string {
 	headerColor := "green"
 	if status == "failed" || status == "stopped" {
@@ -281,27 +258,15 @@ func (a *FeishuAdapter) buildCompletionCard(status string) string {
 	}
 
 	return fmt.Sprintf(`{
-		"config": {
-			"wide_screen_mode": true
-		},
+		"config": {"wide_screen_mode": true},
 		"header": {
-			"title": {
-				"tag": "plain_text",
-				"content": "%s"
-			},
+			"title": {"tag": "plain_text", "content": "%s"},
 			"template": "%s"
 		},
 		"elements": [
-			{
-				"tag": "div",
-				"text": {
-					"tag": "plain_text",
-					"content": "状态: %s"
-				}
-			}
+			{"tag": "div", "text": {"tag": "plain_text", "content": "状态: %s"}}
 		]
 	}`, title, headerColor, status)
 }
 
-// Compile-time check that FeishuAdapter implements IMAdapter.
 var _ IMAdapter = (*FeishuAdapter)(nil)

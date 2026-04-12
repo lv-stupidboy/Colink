@@ -45,7 +45,7 @@ func (a *SlackAdapter) ReplyText(ctx context.Context, chatID, messageID, text st
 }
 
 // CreateStreamingCard creates a streaming card message.
-func (a *SlackAdapter) CreateStreamingCard(ctx context.Context, chatID string) (cardID string, err error) {
+func (a *SlackAdapter) CreateStreamingCard(ctx context.Context, chatID string, agentName string) (cardID string, err error) {
 	return "", ErrNotImplemented
 }
 
