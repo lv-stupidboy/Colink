@@ -336,7 +336,7 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 
 	// 构建上下文
 	contextStart := time.Now()
-	contextLayers, err := es.buildContextLayers(ctx, req.ThreadID, config)
+	contextLayers, err := es.buildContextLayers(ctx, req.ThreadID, config, req)
 	if err != nil {
 		logError("buildContextLayers failed", zap.Error(err))
 		es.handleAgentError(ctx, invocation, fmt.Errorf("failed to build context layers: %w", err))
@@ -929,7 +929,7 @@ func (es *ExecutionService) ClearThreadContext(threadID uuid.UUID) {
 }
 
 // buildContextLayers 构建上下文层
-func (es *ExecutionService) buildContextLayers(ctx context.Context, threadID uuid.UUID, config *model.AgentRoleConfig) (*ContextLayers, error) {
+func (es *ExecutionService) buildContextLayers(ctx context.Context, threadID uuid.UUID, config *model.AgentRoleConfig, req *SpawnRequest) (*ContextLayers, error) {
 	layers := &ContextLayers{}
 
 	// 预加载上下文（一次性获取所有数据）
@@ -941,12 +941,20 @@ func (es *ExecutionService) buildContextLayers(ctx context.Context, threadID uui
 	// Layer 0: 系统提示（使用缓存的上下文）
 	layers.Layer0 = es.buildDynamicSystemPromptFromContext(tc, config)
 
-	// Layer 1: Thread历史
-	messages, err := es.msgRepo.FindByThreadID(ctx, threadID, 100)
-	if err != nil {
-		return nil, err
+	// Layer 1: Thread历史 - 根据会话策略决定是否传递
+	// A2A 机制下，无论是跨角色还是同角色，都不需要传递历史消息：
+	// - 跨角色（SessionStrategyNew）：CLI 使用新会话，历史不相关
+	// - 同角色（SessionStrategyResume）：CLI --resume 自动恢复历史，无需重复传递
+	if req != nil && (req.SessionStrategy == SessionStrategyNew || req.SessionStrategy == SessionStrategyResume) {
+		layers.Layer1 = "" // A2A 调用不传递历史
+	} else {
+		// 非 A2A 调用（用户直接触发）：保持传递历史
+		messages, err := es.msgRepo.FindByThreadID(ctx, threadID, 100)
+		if err != nil {
+			return nil, err
+		}
+		layers.Layer1 = es.formatMessages(messages)
 	}
-	layers.Layer1 = es.formatMessages(messages)
 
 	// Layer 2: 工作产物（使用缓存的 Thread）
 	layers.Layer2 = es.getArtifacts(tc.Thread)
