@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, Form, Switch, Select, Typography, Space, Button, message } from 'antd';
 import {
   SettingOutlined,
@@ -6,12 +6,33 @@ import {
   BellOutlined,
   UserOutlined,
   SaveOutlined,
+  AlertOutlined,
 } from '@ant-design/icons';
+import { useAppStore } from '@/store';
 
 const { Title, Text } = Typography;
 
 const GeneralSettings: React.FC = () => {
   const [form] = Form.useForm();
+
+  // 阻塞提醒开关状态
+  const [reminderEnabled, setReminderEnabled] = useState(true);
+
+  // 从 Store 获取阻塞提醒相关 actions
+  const setBlockingReminderEnabled = useAppStore((state) => state.setBlockingReminderEnabled);
+
+  // 初始化时从 localStorage 读取阻塞提醒开关状态
+  useEffect(() => {
+    const stored = localStorage.getItem('isdp_blocking_reminder_enabled');
+    setReminderEnabled(stored !== 'false');  // 默认 true
+  }, []);
+
+  // 实时保存阻塞提醒开关状态
+  const handleReminderChange = (checked: boolean) => {
+    setReminderEnabled(checked);
+    setBlockingReminderEnabled(checked);
+    message.success(checked ? '已开启阻塞提醒' : '已关闭阻塞提醒');
+  };
 
   const handleSave = async (values: any) => {
     console.log('Settings saved:', values);
@@ -81,6 +102,41 @@ const GeneralSettings: React.FC = () => {
             <Button type="primary" htmlType="submit" icon={<SaveOutlined />}>
               保存配置
             </Button>
+          </Form.Item>
+        </Form>
+      </Card>
+
+      {/* 阻塞提醒设置卡片 */}
+      <Card
+        title={
+          <Space>
+            <AlertOutlined />
+            阻塞提醒设置
+          </Space>
+        }
+        style={{ marginBottom: 16 }}
+      >
+        <Form layout="vertical">
+          <Form.Item
+            label="阻塞提醒弹框"
+            tooltip="当 Agent 需要用户回答、工具需要确认、或任务阻塞时，弹框提醒用户处理"
+          >
+            <Space direction="vertical">
+              <Space>
+                <Switch
+                  checked={reminderEnabled}
+                  onChange={handleReminderChange}
+                  checkedChildren="开启"
+                  unCheckedChildren="关闭"
+                />
+                <Text type="secondary">
+                  {reminderEnabled ? '阻塞时将弹框提醒' : '已关闭，阻塞项仅在消息区显示'}
+                </Text>
+              </Space>
+              <Text type="secondary" style={{ fontSize: 12, marginTop: 8 }}>
+                提醒场景包括：Agent 主动提问、敏感工具执行前确认、任务遇到阻塞
+              </Text>
+            </Space>
           </Form.Item>
         </Form>
       </Card>
