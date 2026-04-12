@@ -175,21 +175,23 @@ func (l *EventListener) processStream(ctx context.Context, reader io.Reader) {
 	}
 }
 
-// larkCLIEvent represents a simplified event from `lark-cli event +subscribe --compact`.
+// larkCLICompactEvent represents a simplified event from `lark-cli event +subscribe --compact`.
 // With --compact, lark-cli outputs flat key-value NDJSON. We map known fields here.
+// Actual compact output example:
+//
+//	{"chat_id":"oc_xxx","chat_type":"p2p","content":"？","message_id":"om_xxx",
+//	 "message_type":"text","sender_id":"ou_xxx","type":"im.message.receive_v1"}
 type larkCLICompactEvent struct {
-	EventType string `json:"event_type"`
-	EventID   string `json:"event_id"`
+	EventType string `json:"type"` // "im.message.receive_v1" etc.
+	EventID   string `json:"id"`   // event ID (same as message_id for IM events)
 
 	// im.message.receive_v1 fields (compact mode)
 	ChatID      string `json:"chat_id"`
 	ChatType    string `json:"chat_type"`
 	MessageID   string `json:"message_id"`
 	MessageType string `json:"message_type"`
-	Content     string `json:"content"` // e.g. {"text":"hello"}
-	OpenID      string `json:"open_id"`
-	UserID      string `json:"user_id"`
-	Text        string `json:"text"` // compact mode may extract text directly
+	Content     string `json:"content"`   // compact mode: plain text directly (not JSON-encoded)
+	SenderID    string `json:"sender_id"` // sender open_id
 }
 
 // handleLine parses a single NDJSON line and dispatches to the bridge service.
@@ -218,21 +220,13 @@ func (l *EventListener) handleMessageEvent(ctx context.Context, evt *larkCLIComp
 		return
 	}
 
-	// Extract text: compact mode may provide "text" directly,
-	// otherwise parse from "content" JSON like webhook does
-	text := evt.Text
-	if text == "" && evt.Content != "" {
-		text = parseTextFromContent(evt.Content)
-	}
-
+	// In compact mode, "content" is already plain text (not JSON-encoded)
+	text := evt.Content
 	if text == "" {
 		return
 	}
 
-	userID := evt.OpenID
-	if userID == "" {
-		userID = evt.UserID
-	}
+	userID := evt.SenderID
 
 	chatType := evt.ChatType
 	if chatType == "" {
@@ -260,18 +254,6 @@ func (l *EventListener) handleMessageEvent(ctx context.Context, evt *larkCLIComp
 			zap.String("message_id", evt.MessageID),
 			zap.Error(err))
 	}
-}
-
-// parseTextFromContent extracts text from Feishu message content JSON.
-// Content format: {"text":"hello world"}
-func parseTextFromContent(content string) string {
-	var obj struct {
-		Text string `json:"text"`
-	}
-	if err := json.Unmarshal([]byte(content), &obj); err != nil {
-		return ""
-	}
-	return obj.Text
 }
 
 // drainStderr reads and logs stderr output from the subprocess.
