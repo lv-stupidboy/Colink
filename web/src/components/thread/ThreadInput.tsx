@@ -19,6 +19,8 @@ interface ThreadInputProps {
   agentOptions: AgentOption[];
   onSend: (content: string) => void;
   disabled?: boolean;
+  prefilledMention?: string;       // 预填入的 @mention 名称
+  onPrefillConsumed?: () => void;  // 预填入被使用后的回调
 }
 
 /**
@@ -31,6 +33,8 @@ export const ThreadInput: React.FC<ThreadInputProps> = memo(({
   agentOptions,
   onSend,
   disabled = false,
+  prefilledMention,          // 新增
+  onPrefillConsumed,         // 新增
 }) => {
   const inputRef = useRef<any>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -38,6 +42,7 @@ export const ThreadInput: React.FC<ThreadInputProps> = memo(({
   const [mentionListVisible, setMentionListVisible] = useState(false);
   const [mentionFilter, setMentionFilter] = useState('');
   const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const [showPrefillHint, setShowPrefillHint] = useState(false);  // 新增
 
   // 发送消息
   const handleSend = useCallback(() => {
@@ -101,6 +106,31 @@ export const ThreadInput: React.FC<ThreadInputProps> = memo(({
     }
   }, [highlightedIndex, mentionListVisible]);
 
+  // 自动填入 @mention（阻塞确认后触发）
+  useEffect(() => {
+    if (prefilledMention && inputRef.current) {
+      // 检查是否在 agentOptions 中
+      const agentExists = agentOptions.some(
+        opt => opt.name === prefilledMention || opt.label.includes(prefilledMention)
+      );
+
+      if (agentExists) {
+        // 自动填入 @mention
+        setInputValue(`@${prefilledMention} `);
+        inputRef.current.focus();
+        setShowPrefillHint(true);
+
+        // 3秒后隐藏提示
+        setTimeout(() => setShowPrefillHint(false), 3000);
+
+        // 通知父组件预填入已使用
+        if (onPrefillConsumed) {
+          onPrefillConsumed();
+        }
+      }
+    }
+  }, [prefilledMention, agentOptions, onPrefillConsumed]);
+
   // 键盘导航 - 上下键选择、Enter 确认、Escape 关闭
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (mentionListVisible && filteredAgents.length > 0) {
@@ -143,6 +173,49 @@ export const ThreadInput: React.FC<ThreadInputProps> = memo(({
   return (
     <div className="thread-input" style={{ display: 'flex', gap: '12px', padding: '12px 16px' }}>
       <div style={{ position: 'relative', flex: 1 }}>
+        {/* 预填入提示 */}
+        {showPrefillHint && (
+          <div
+            className="prefill-hint"
+            style={{
+              position: 'absolute',
+              top: -28,
+              left: 0,
+              padding: '4px 8px',
+              background: 'var(--color-primary-opacity-10, rgba(24, 144, 255, 0.1))',
+              borderRadius: 4,
+              fontSize: 12,
+              color: 'var(--color-primary, #1890ff)',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            已自动填入 @{prefilledMention}，可切换其他 Agent
+          </div>
+        )}
+
+        {/* 切换按钮 - 当已有 @mention 时显示 */}
+        {inputValue.startsWith('@') && !mentionListVisible && (
+          <Button
+            size="small"
+            type="text"
+            className="mention-switch-btn"
+            onClick={() => {
+              setMentionListVisible(true);
+              setMentionFilter('');
+              setHighlightedIndex(0);
+            }}
+            style={{
+              position: 'absolute',
+              right: 8,
+              top: 8,
+              zIndex: 10,
+              color: 'var(--text-secondary)',
+            }}
+          >
+            切换
+          </Button>
+        )}
+
         <TextArea
           ref={inputRef}
           value={inputValue}
