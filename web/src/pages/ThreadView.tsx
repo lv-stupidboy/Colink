@@ -38,9 +38,12 @@ import { useAppStore } from '@/store';
 import { useDebugThreadStore } from '@/store/debugThread';
 import type { Message, Artifact, ReviewIssue, MergeCheckResult, AgentConfig, ToolEvent, MessageContentBlock } from '@/types';
 import type { FileChange } from '@/types/content';
+import type { BlockingItem } from '@/types/blocking';
 import { AgentRoleLabels, ArtifactTypeLabels } from '@/types';
 import { ReviewReport } from '@/components/ReviewReport';
 import { RightPanel, TaskList, ThreadInput } from '@/components/thread';
+import { BlockingAlertModal } from '@/components/BlockingAlert';
+import { BlockingDetector } from '@/utils/blockingDetector';
 import { ChatMessageList } from '@/components/thread/ChatMessageList';
 import { StatusPanel } from '@/components/thread/StatusPanel';
 import FileTree from '@/components/FileTree';
@@ -121,6 +124,12 @@ const ThreadView: React.FC = () => {
   const appendContentBlock = useAppStore((s) => s.appendContentBlock);
   const updateContentBlock = useAppStore((s) => s.updateContentBlock);
 
+  // 阻塞提醒相关
+  const blockingItems = useAppStore((s) => s.blockingItems);
+  const blockingReminderEnabled = useAppStore((s) => s.blockingReminderEnabled);
+  const addBlockingItem = useAppStore((s) => s.addBlockingItem);
+  const removeBlockingItem = useAppStore((s) => s.removeBlockingItem);
+
   // 调试模式的独立 store
   const {
     threadId: debugThreadId,
@@ -158,6 +167,11 @@ const ThreadView: React.FC = () => {
 
   // 任务抽屉状态（默认收起）
   const [taskDrawerOpen, setTaskDrawerOpen] = useState(false);
+
+  // 阻塞提醒弹框状态
+  const [blockingModalVisible, setBlockingModalVisible] = useState(false);
+  const [currentBlockingItem, setCurrentBlockingItem] = useState<BlockingItem | null>(null);
+  const [prefilledMention, setPrefilledMention] = useState<string | null>(null);
 
   // 根据模式选择使用哪个状态
   const messages = isDebugMode ? debugMessages : workflowMessages;
@@ -559,6 +573,39 @@ const ThreadView: React.FC = () => {
       case 'agent_output_chunk': {
         const chunkType = data.payload.chunkType as string || 'text';
         const invocId = data.payload.invocationId as string;
+        const agentId = data.payload.agentId as string || '';
+        const agentName = data.payload.agentName as string || '';
+        const content = data.payload.chunk as string;
+
+        // === 阻塞识别（新增）===
+        // 文本块：检测 Agent 提问和任务阻塞
+        if (chunkType === 'text' && content) {
+          const question = BlockingDetector.detectAgentQuestion(content, invocId, agentId, agentName);
+          if (question) addBlockingItem(question);
+
+          const blocked = BlockingDetector.detectTaskBlocked(content, invocId, agentId, agentName);
+          if (blocked) addBlockingItem(blocked);
+        }
+
+        // tool_use 块：检测工具确认需求
+        if (chunkType === 'tool_use') {
+          const toolName = data.payload.toolName as string;
+          const toolInput = data.payload.toolInput as Record<string, unknown>;
+          const toolId = data.payload.toolId as string;
+          const toolBlock: MessageContentBlock = {
+            id: toolId || '',
+            type: 'tool_use',
+            toolName: toolName,
+            toolId: toolId,
+            input: toolInput,
+            status: 'streaming',
+            timestamp: Date.now(),
+            startedAt: Date.now(),
+          };
+          const confirm = BlockingDetector.detectToolConfirm(toolBlock, invocId, agentId, agentName);
+          if (confirm) addBlockingItem(confirm);
+        }
+        // === 阻塞识别结束 ===
 
         if (chunkType === 'thinking') {
           // 思考块 - Store 会智能累积
@@ -1339,6 +1386,44 @@ const ThreadView: React.FC = () => {
     label: `${agent.name} (${AgentRoleLabels[agent.role as keyof typeof AgentRoleLabels] || agent.role})`,
   }));
 
+  // 阻塞弹框触发控制：仅在所有 Agent 完成后显示
+  useEffect(() => {
+    const noActiveAgents = activeAgents.length === 0;
+    const shouldShow = blockingReminderEnabled &&
+                       blockingItems.length > 0 &&
+                       noActiveAgents;
+
+    if (shouldShow && !blockingModalVisible) {
+      // 按优先级排序，取最高优先级的阻塞项
+      const sorted = [...blockingItems].sort((a, b) => b.priority - a.priority);
+      setCurrentBlockingItem(sorted[0]);
+      setBlockingModalVisible(true);
+    }
+  }, [blockingItems, blockingReminderEnabled, activeAgents.length, blockingModalVisible]);
+
+  // 处理阻塞确认：清除阻塞项，自动填入 @mention
+  const handleBlockingConfirm = useCallback((item: BlockingItem) => {
+    removeBlockingItem(item.id);
+    setBlockingModalVisible(false);
+    setPrefilledMention(item.sourceAgentName);
+  }, [removeBlockingItem]);
+
+  // 处理阻塞拒绝：清除阻塞项
+  const handleBlockingReject = useCallback((item: BlockingItem) => {
+    removeBlockingItem(item.id);
+    setBlockingModalVisible(false);
+  }, [removeBlockingItem]);
+
+  // 处理阻塞跳过：关闭弹框但不清除阻塞项
+  const handleBlockingSkip = useCallback(() => {
+    setBlockingModalVisible(false);
+  }, []);
+
+  // 预填入被使用后清除
+  const handlePrefillConsumed = useCallback(() => {
+    setPrefilledMention(null);
+  }, []);
+
   /**
    * 处理发送消息
    * 调试模式：直接发送给当前 Agent
@@ -1553,6 +1638,8 @@ const ThreadView: React.FC = () => {
               loadingContext={loadingProjectContext}
               agentOptions={agentOptions}
               onSend={handleSend}
+              prefilledMention={prefilledMention || undefined}
+              onPrefillConsumed={handlePrefillConsumed}
             />
             </div>
           </div>
@@ -1658,6 +1745,17 @@ const ThreadView: React.FC = () => {
               loadingContext={loadingProjectContext}
               agentOptions={agentOptions}
               onSend={handleSend}
+              prefilledMention={prefilledMention || undefined}
+              onPrefillConsumed={handlePrefillConsumed}
+            />
+
+            {/* 阻塞提醒弹框 */}
+            <BlockingAlertModal
+              visible={blockingModalVisible}
+              blockingItem={currentBlockingItem}
+              onConfirm={handleBlockingConfirm}
+              onReject={handleBlockingReject}
+              onSkip={handleBlockingSkip}
             />
 
             {/* 检查点确认弹窗 */}
