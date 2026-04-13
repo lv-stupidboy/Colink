@@ -287,6 +287,7 @@ func (es *ExecutionService) SpawnAgent(ctx context.Context, req *SpawnRequest) (
 
 	// 创建调用记录
 	invocationCreateStart := time.Now()
+	now := time.Now()
 	invocation := &model.AgentInvocation{
 		ID:            uuid.New(),
 		ThreadID:      req.ThreadID,
@@ -295,7 +296,8 @@ func (es *ExecutionService) SpawnAgent(ctx context.Context, req *SpawnRequest) (
 		AgentName:     config.Name, // 存储 Agent 名称，用于历史显示
 		Status:        model.InvocationStatusPending,
 		Input:         req.Input,
-		CreatedAt:     time.Now(),
+		CreatedAt:     now,
+		StartedAt:     &now, // 设置开始时间，用于历史显示耗时
 	}
 
 	if err := es.invocationRepo.Create(ctx, invocation); err != nil {
