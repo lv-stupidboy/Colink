@@ -53,6 +53,11 @@ const formatStartTime = (isoString?: string): string => {
   return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 };
 
+// 获取开始时间（优先使用 startedAt，如果没有则使用 createdAt）
+const getStartTime = (agent: AgentInvocation): string | undefined => {
+  return agent.startedAt || agent.createdAt;
+};
+
 export const AgentHistoryCard: React.FC<Props> = ({ completedAgents, agentUsage }) => {
   const [expanded, setExpanded] = useState(true);
 
@@ -93,13 +98,13 @@ export const AgentHistoryCard: React.FC<Props> = ({ completedAgents, agentUsage 
                     <CheckCircleOutlined style={{ color: '#22c55e', fontSize: 14 }} />
                     <span className="history-name">{agent.agentName || agent.role || agent.id.slice(0, 8)}</span>
                     <DurationDisplay
-                      startedAt={agent.startedAt}
+                      startedAt={getStartTime(agent)}
                       completedAt={agent.completedAt}
                       compact
                     />
                   </div>
                   <div className="history-time">
-                    <span>开始: {formatStartTime(agent.startedAt)}</span>
+                    <span>开始: {formatStartTime(getStartTime(agent))}</span>
                   </div>
                   {(() => {
                     // 优先使用 invocation 自带的 usage 数据，其次使用 agentUsage
@@ -125,13 +130,13 @@ export const AgentHistoryCard: React.FC<Props> = ({ completedAgents, agentUsage 
                     <CloseCircleOutlined style={{ color: '#ef4444', fontSize: 14 }} />
                     <span className="history-name">{agent.agentName || agent.role || agent.id.slice(0, 8)}</span>
                     <DurationDisplay
-                      startedAt={agent.startedAt}
+                      startedAt={getStartTime(agent)}
                       completedAt={agent.completedAt}
                       compact
                     />
                   </div>
                   <div className="history-time">
-                    <span>开始: {formatStartTime(agent.startedAt)}</span>
+                    <span>开始: {formatStartTime(getStartTime(agent))}</span>
                   </div>
                 </div>
               ))}
