@@ -259,6 +259,18 @@ func (es *ExecutionService) SpawnAgent(ctx context.Context, req *SpawnRequest) (
 	}
 	logInfo("[PERF] resolveConfigAndBaseAgent", zap.Duration("duration", time.Since(resolveStart)))
 
+	// 如果 SessionStrategy 未设置，自动判断是否应该使用 resume
+	// 场景：用户通过前端直接 Spawn（如 @mention），需要自动判断会话策略
+	if req.SessionStrategy == "" {
+		req.SessionStrategy = es.shouldAutoResume(ctx, req.ThreadID, config.ID)
+		if req.SessionStrategy == SessionStrategyResume {
+			logInfo("SpawnAgent: 自动判断使用 resume 会话策略",
+				zap.String("agentName", config.Name),
+				zap.String("agentID", config.ID.String()),
+				zap.String("threadID", req.ThreadID.String()))
+		}
+	}
+
 	// 创建调用记录
 	invocationCreateStart := time.Now()
 	invocation := &model.AgentInvocation{
