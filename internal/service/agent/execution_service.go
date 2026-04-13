@@ -244,7 +244,7 @@ func (es *ExecutionService) markInvocationFailed(invocationID uuid.UUID, reason 
 		logError("Failed to update invocation status on timeout", zap.Error(err))
 	}
 
-	es.broadcastStatus(invocation.ThreadID, invocation.ID, "failed", invocation.Role, "", "")
+	es.broadcastStatus(invocation.ThreadID, invocation.ID, "failed", invocation.Role, "", invocation.AgentConfigID.String(), "")
 }
 
 // SpawnAgent 启动Agent（统一执行入口）
@@ -297,7 +297,7 @@ func (es *ExecutionService) SpawnAgent(ctx context.Context, req *SpawnRequest) (
 	es.mu.Unlock()
 
 	// 广播状态更新
-	es.broadcastStatus(req.ThreadID, invocation.ID, "started", config.Role, config.Name, req.Input)
+	es.broadcastStatus(req.ThreadID, invocation.ID, "started", config.Role, config.Name, config.ID.String(), req.Input)
 
 	// 异步执行Agent
 	go es.executeAgent(agentCtx, invocation, config, baseAgent, req)
@@ -332,7 +332,7 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 	if err := es.invocationRepo.Update(ctx, invocation); err != nil {
 		logError("Failed to update invocation status to running", zap.Error(err))
 	}
-	es.broadcastStatus(req.ThreadID, invocation.ID, "running", config.Role, config.Name, "")
+	es.broadcastStatus(req.ThreadID, invocation.ID, "running", config.Role, config.Name, config.ID.String(), "")
 
 	// 构建上下文
 	contextStart := time.Now()
@@ -458,8 +458,10 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 		es.csMu.Lock()
 		es.cliSessions[sessionKey] = result.SessionID
 		es.csMu.Unlock()
-		logInfo("Session ID saved for future resume", zap.String("sessionKey", sessionKey), zap.String("sessionId", result.SessionID))
-	}
+			// 同时保存到 invocation 对象（持久化到数据库用于问题定位）
+			invocation.SessionID = result.SessionID
+			logInfo("Session ID saved for future resume and persistence", zap.String("sessionKey", sessionKey), zap.String("sessionId", result.SessionID))
+		}
 
 	output := outputBuilder.String()
 	logInfo("Execution completed", zap.Int("outputLength", len(output)))
@@ -492,7 +494,7 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 	}
 
 	// 广播完成状态
-	es.broadcastStatus(req.ThreadID, invocation.ID, "completed", config.Role, config.Name, "")
+	es.broadcastStatus(req.ThreadID, invocation.ID, "completed", config.Role, config.Name, config.ID.String(), "")
 
 	// 检查是否需要路由到下一个Agent
 	es.checkRouting(ctx, req.ThreadID, config, output)
@@ -677,7 +679,7 @@ func (es *ExecutionService) handleAgentError(ctx context.Context, invocation *mo
 		logError("Failed to update invocation on error", zap.Error(updateErr))
 	}
 
-	es.broadcastStatus(invocation.ThreadID, invocation.ID, "failed", invocation.Role, "", "")
+	es.broadcastStatus(invocation.ThreadID, invocation.ID, "failed", invocation.Role, "", invocation.AgentConfigID.String(), "")
 }
 
 // handleAgentErrorWithContext 处理 Agent 错误（带执行请求上下文，用于详细诊断）
@@ -692,7 +694,7 @@ func (es *ExecutionService) handleAgentErrorWithContext(ctx context.Context, inv
 		logError("Failed to update invocation on error", zap.Error(updateErr))
 	}
 
-	es.broadcastStatus(invocation.ThreadID, invocation.ID, "failed", invocation.Role, "", "")
+	es.broadcastStatus(invocation.ThreadID, invocation.ID, "failed", invocation.Role, "", invocation.AgentConfigID.String(), "")
 }
 
 // isResumeFallbackError 判断是否为可降级的 resume 错误
@@ -1755,13 +1757,13 @@ func (es *ExecutionService) CancelAgent(ctx context.Context, invocationID uuid.U
 	}
 
 	// 5. 广播取消状态
-	es.broadcastStatus(invocation.ThreadID, invocation.ID, "cancelled", invocation.Role, "", "")
+	es.broadcastStatus(invocation.ThreadID, invocation.ID, "cancelled", invocation.Role, "", invocation.AgentConfigID.String(), "")
 
 	return nil
 }
 
 // broadcastStatus 广播状态
-func (es *ExecutionService) broadcastStatus(threadID, invocationID uuid.UUID, status string, role model.AgentRole, agentName string, input string) {
+func (es *ExecutionService) broadcastStatus(threadID, invocationID uuid.UUID, status string, role model.AgentRole, agentName string, agentID string, input string) {
 	logInfo("broadcastStatus called", zap.String("threadId", threadID.String()), zap.String("invocationId", invocationID.String()), zap.String("status", status))
 	if es.wsHub != nil {
 		payload := map[string]interface{}{
@@ -1769,6 +1771,7 @@ func (es *ExecutionService) broadcastStatus(threadID, invocationID uuid.UUID, st
 			"status":       status,
 			"role":         string(role),
 			"agentName":    agentName,
+			"agentId":      agentID,
 		}
 		// 仅在 started 状态时包含 input
 		if status == "started" && input != "" {
@@ -2364,6 +2367,14 @@ func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, thread
 						zap.String("agentName", config.Name),
 						zap.String("agentID", config.ID.String()))
 				}
+			} else {
+				// 没有 @mention，检查是否应该自动 resume
+				sessionStrategy = es.shouldAutoResume(ctx, threadID, config.ID)
+				if sessionStrategy == SessionStrategyResume {
+					logInfo("SpawnAgentForUserMessage: 自动判断使用 resume 会话策略（无@mention）",
+						zap.String("agentName", config.Name),
+						zap.String("agentID", config.ID.String()))
+				}
 			}
 
 			// 使用工作流模板中指定的Agent
@@ -2400,6 +2411,14 @@ func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, thread
 		sessionStrategy = es.shouldUseResumeStrategy(ctx, threadID, config.ID, mentionedAgentIDs)
 		if sessionStrategy == SessionStrategyResume {
 			logInfo("SpawnAgentForUserMessage: 用户@同一Agent（回退），使用 resume 会话策略",
+				zap.String("agentName", config.Name),
+				zap.String("agentID", config.ID.String()))
+		}
+	} else {
+		// 没有 @mention，检查是否应该自动 resume
+		sessionStrategy = es.shouldAutoResume(ctx, threadID, config.ID)
+		if sessionStrategy == SessionStrategyResume {
+			logInfo("SpawnAgentForUserMessage: 自动判断使用 resume 会话策略（回退，无@mention）",
 				zap.String("agentName", config.Name),
 				zap.String("agentID", config.ID.String()))
 		}
@@ -2467,6 +2486,41 @@ func (es *ExecutionService) shouldUseResumeStrategy(ctx context.Context, threadI
 	}
 	if string(config.Role) == string(lastInvocation.Role) {
 		logInfo("shouldUseResumeStrategy: 目标 Agent 与最后一个完成的 Agent 同角色，使用 resume",
+			zap.String("targetRole", string(config.Role)),
+			zap.String("lastCompletedRole", string(lastInvocation.Role)))
+		return SessionStrategyResume
+	}
+
+	return ""
+}
+
+// shouldAutoResume 判断是否应该自动使用 resume 会话策略
+// 当目标 Agent 与最后一个完成的 Agent 相同时自动使用 resume（无需显式 @mention）
+func (es *ExecutionService) shouldAutoResume(ctx context.Context, threadID uuid.UUID, targetConfigID uuid.UUID) SessionStrategy {
+	// 获取该线程最后一个完成的 invocation
+	lastCompleted, err := es.invocationRepo.FindRecentlyCompletedByThread(ctx, threadID, 5) // 最近5分钟
+	if err != nil || len(lastCompleted) == 0 {
+		logInfo("shouldAutoResume: 没有找到最近完成的 invocation", zap.Error(err))
+		return ""
+	}
+
+	// 检查最后一个完成的 Agent 是否与目标 Agent 相同
+	lastInvocation := lastCompleted[0] // 第一个是最近的
+	if lastInvocation.AgentConfigID == targetConfigID {
+		logInfo("shouldAutoResume: 目标 Agent 与最后一个完成的 Agent 相同，自动使用 resume",
+			zap.String("targetConfigID", targetConfigID.String()),
+			zap.String("lastCompletedConfigID", lastInvocation.AgentConfigID.String()),
+			zap.String("lastCompletedRole", string(lastInvocation.Role)))
+		return SessionStrategyResume
+	}
+
+	// 检查是否同角色（不同实例）
+	config, err := es.configSvc.GetByID(ctx, targetConfigID)
+	if err != nil || config == nil {
+		return ""
+	}
+	if string(config.Role) == string(lastInvocation.Role) {
+		logInfo("shouldAutoResume: 目标 Agent 与最后一个完成的 Agent 同角色，自动使用 resume",
 			zap.String("targetRole", string(config.Role)),
 			zap.String("lastCompletedRole", string(lastInvocation.Role)))
 		return SessionStrategyResume

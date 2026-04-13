@@ -25,11 +25,11 @@ func NewAgentInvocationRepository(db *sql.DB, dbType DBType) *AgentInvocationRep
 // Create 创建调用记录
 func (r *AgentInvocationRepository) Create(ctx context.Context, invocation *model.AgentInvocation) error {
 	query := `
-		INSERT INTO agent_invocations (id, thread_id, agent_config_id, role, agent_name, status, input, output, started_at, completed_at, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO agent_invocations (id, thread_id, agent_config_id, role, agent_name, status, input, output, started_at, completed_at, created_at, session_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	_, err := r.DB().ExecContext(ctx, query,
-		invocation.ID.String(), invocation.ThreadID.String(), invocation.AgentConfigID.String(), invocation.Role, invocation.AgentName, invocation.Status, invocation.Input, invocation.Output, invocation.StartedAt, invocation.CompletedAt, invocation.CreatedAt,
+		invocation.ID.String(), invocation.ThreadID.String(), invocation.AgentConfigID.String(), invocation.Role, invocation.AgentName, invocation.Status, invocation.Input, invocation.Output, invocation.StartedAt, invocation.CompletedAt, invocation.CreatedAt, invocation.SessionID,
 	)
 	return err
 }
@@ -37,15 +37,15 @@ func (r *AgentInvocationRepository) Create(ctx context.Context, invocation *mode
 // FindByID 根据ID查找
 func (r *AgentInvocationRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.AgentInvocation, error) {
 	query := `
-		SELECT id, thread_id, agent_config_id, role, agent_name, status, input, output, started_at, completed_at, created_at
+		SELECT id, thread_id, agent_config_id, role, agent_name, status, input, output, started_at, completed_at, created_at, session_id
 		FROM agent_invocations WHERE id = ?
 	`
 	invocation := &model.AgentInvocation{}
 	var idStr, threadIDStr, agentConfigIDStr string
-	var agentName sql.NullString
+	var agentName, sessionID sql.NullString
 	var startedAt, completedAt, createdAt SQLiteTimeScanner
 	err := r.DB().QueryRowContext(ctx, query, id.String()).Scan(
-		&idStr, &threadIDStr, &agentConfigIDStr, &invocation.Role, &agentName, &invocation.Status, &invocation.Input, &invocation.Output, &startedAt, &completedAt, &createdAt,
+		&idStr, &threadIDStr, &agentConfigIDStr, &invocation.Role, &agentName, &invocation.Status, &invocation.Input, &invocation.Output, &startedAt, &completedAt, &createdAt, &sessionID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find invocation: %w", err)
@@ -55,6 +55,9 @@ func (r *AgentInvocationRepository) FindByID(ctx context.Context, id uuid.UUID) 
 	invocation.AgentConfigID, _ = uuid.Parse(agentConfigIDStr)
 	if agentName.Valid {
 		invocation.AgentName = agentName.String
+	}
+	if sessionID.Valid {
+		invocation.SessionID = sessionID.String
 	}
 	invocation.CreatedAt = createdAt.Time
 	if startedAt.Valid {
@@ -69,7 +72,7 @@ func (r *AgentInvocationRepository) FindByID(ctx context.Context, id uuid.UUID) 
 // FindByThreadID 根据ThreadID查找
 func (r *AgentInvocationRepository) FindByThreadID(ctx context.Context, threadID uuid.UUID) ([]*model.AgentInvocation, error) {
 	query := `
-		SELECT id, thread_id, agent_config_id, role, agent_name, status, input, output, started_at, completed_at, created_at
+		SELECT id, thread_id, agent_config_id, role, agent_name, status, input, output, started_at, completed_at, created_at, session_id
 		FROM agent_invocations WHERE thread_id = ? ORDER BY created_at DESC
 	`
 	rows, err := r.DB().QueryContext(ctx, query, threadID.String())
@@ -82,10 +85,10 @@ func (r *AgentInvocationRepository) FindByThreadID(ctx context.Context, threadID
 	for rows.Next() {
 		invocation := &model.AgentInvocation{}
 		var idStr, threadIDStr, agentConfigIDStr string
-		var agentName sql.NullString
+		var agentName, sessionID sql.NullString
 		var startedAt, completedAt, createdAt SQLiteTimeScanner
 		err := rows.Scan(
-			&idStr, &threadIDStr, &agentConfigIDStr, &invocation.Role, &agentName, &invocation.Status, &invocation.Input, &invocation.Output, &startedAt, &completedAt, &createdAt,
+			&idStr, &threadIDStr, &agentConfigIDStr, &invocation.Role, &agentName, &invocation.Status, &invocation.Input, &invocation.Output, &startedAt, &completedAt, &createdAt, &sessionID,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan invocation: %w", err)
@@ -95,6 +98,9 @@ func (r *AgentInvocationRepository) FindByThreadID(ctx context.Context, threadID
 		invocation.AgentConfigID, _ = uuid.Parse(agentConfigIDStr)
 		if agentName.Valid {
 			invocation.AgentName = agentName.String
+		}
+		if sessionID.Valid {
+			invocation.SessionID = sessionID.String
 		}
 		invocation.CreatedAt = createdAt.Time
 		if startedAt.Valid {
@@ -112,11 +118,11 @@ func (r *AgentInvocationRepository) FindByThreadID(ctx context.Context, threadID
 func (r *AgentInvocationRepository) Update(ctx context.Context, invocation *model.AgentInvocation) error {
 	query := `
 		UPDATE agent_invocations
-		SET status = ?, output = ?, started_at = ?, completed_at = ?
+		SET status = ?, output = ?, started_at = ?, completed_at = ?, session_id = ?
 		WHERE id = ?
 	`
 	_, err := r.DB().ExecContext(ctx, query,
-		invocation.Status, invocation.Output, invocation.StartedAt, invocation.CompletedAt, invocation.ID.String(),
+		invocation.Status, invocation.Output, invocation.StartedAt, invocation.CompletedAt, invocation.SessionID, invocation.ID.String(),
 	)
 	return err
 }
@@ -131,7 +137,7 @@ func (r *AgentInvocationRepository) Delete(ctx context.Context, id uuid.UUID) er
 // FindByStatus 根据状态查找调用记录（用于启动恢复）
 func (r *AgentInvocationRepository) FindByStatus(ctx context.Context, status model.InvocationStatus) ([]*model.AgentInvocation, error) {
 	query := `
-		SELECT id, thread_id, agent_config_id, role, agent_name, status, input, output, started_at, completed_at, created_at, process_id
+		SELECT id, thread_id, agent_config_id, role, agent_name, status, input, output, started_at, completed_at, created_at, process_id, session_id
 		FROM agent_invocations WHERE status = ? ORDER BY created_at DESC
 	`
 	rows, err := r.DB().QueryContext(ctx, query, string(status))
@@ -144,10 +150,10 @@ func (r *AgentInvocationRepository) FindByStatus(ctx context.Context, status mod
 	for rows.Next() {
 		invocation := &model.AgentInvocation{}
 		var idStr, threadIDStr, agentConfigIDStr string
-		var agentName, processID sql.NullString
+		var agentName, processID, sessionID sql.NullString
 		var startedAt, completedAt, createdAt SQLiteTimeScanner
 		err := rows.Scan(
-			&idStr, &threadIDStr, &agentConfigIDStr, &invocation.Role, &agentName, &invocation.Status, &invocation.Input, &invocation.Output, &startedAt, &completedAt, &createdAt, &processID,
+			&idStr, &threadIDStr, &agentConfigIDStr, &invocation.Role, &agentName, &invocation.Status, &invocation.Input, &invocation.Output, &startedAt, &completedAt, &createdAt, &processID, &sessionID,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan invocation: %w", err)
@@ -160,6 +166,9 @@ func (r *AgentInvocationRepository) FindByStatus(ctx context.Context, status mod
 		}
 		if processID.Valid {
 			invocation.ProcessID = &processID.String
+		}
+		if sessionID.Valid {
+			invocation.SessionID = sessionID.String
 		}
 		invocation.CreatedAt = createdAt.Time
 		if startedAt.Valid {
@@ -178,7 +187,7 @@ func (r *AgentInvocationRepository) FindRecentlyCompletedByThread(ctx context.Co
 	// 使用 Go 计算截止时间，避免数据库特定函数
 	cutoffTime := time.Now().Add(-time.Duration(sinceMinutes) * time.Minute)
 	query := `
-		SELECT id, thread_id, agent_config_id, role, agent_name, status, input, output, started_at, completed_at, created_at
+		SELECT id, thread_id, agent_config_id, role, agent_name, status, input, output, started_at, completed_at, created_at, session_id
 		FROM agent_invocations
 		WHERE thread_id = ?
 			AND status IN ('completed', 'failed', 'interrupted')
@@ -195,10 +204,10 @@ func (r *AgentInvocationRepository) FindRecentlyCompletedByThread(ctx context.Co
 	for rows.Next() {
 		invocation := &model.AgentInvocation{}
 		var idStr, threadIDStr, agentConfigIDStr string
-		var agentName sql.NullString
+		var agentName, sessionID sql.NullString
 		var startedAt, completedAt, createdAt SQLiteTimeScanner
 		err := rows.Scan(
-			&idStr, &threadIDStr, &agentConfigIDStr, &invocation.Role, &agentName, &invocation.Status, &invocation.Input, &invocation.Output, &startedAt, &completedAt, &createdAt,
+			&idStr, &threadIDStr, &agentConfigIDStr, &invocation.Role, &agentName, &invocation.Status, &invocation.Input, &invocation.Output, &startedAt, &completedAt, &createdAt, &sessionID,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan invocation: %w", err)
@@ -208,6 +217,9 @@ func (r *AgentInvocationRepository) FindRecentlyCompletedByThread(ctx context.Co
 		invocation.AgentConfigID, _ = uuid.Parse(agentConfigIDStr)
 		if agentName.Valid {
 			invocation.AgentName = agentName.String
+		}
+		if sessionID.Valid {
+			invocation.SessionID = sessionID.String
 		}
 		invocation.CreatedAt = createdAt.Time
 		if startedAt.Valid {

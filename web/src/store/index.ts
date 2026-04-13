@@ -346,8 +346,13 @@ export const useAppStore = create<AppState & AppActions>()(
     },
 
     sendMessage: async (content, skipAgentTrigger = false) => {
-      const { currentThread } = get();
+      const { currentThread, blockingItems } = get();
       if (!currentThread) return;
+
+      // 用户发送新消息时，清除之前的阻塞项（开始新的交互）
+      if (blockingItems.length > 0) {
+        set({ blockingItems: [] });
+      }
 
       // 先创建本地消息（乐观更新）
       const userMessage: Message = {
@@ -372,8 +377,13 @@ export const useAppStore = create<AppState & AppActions>()(
     },
 
     spawnAgent: async (role, input, configId) => {
-      const { currentThread } = get();
+      const { currentThread, blockingItems } = get();
       if (!currentThread) return;
+
+      // 新 Agent 启动时，清除之前的阻塞项（因为用户已经开始新的任务了）
+      if (blockingItems.length > 0) {
+        set({ blockingItems: [] });
+      }
 
       try {
         await api.invocations.spawn(currentThread.id, role, input, configId);
