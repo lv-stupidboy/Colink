@@ -162,6 +162,15 @@ export interface AgentInvocation {
   completedAt?: string;
   createdAt: string;
   agentName?: string;
+  // Token 使用统计
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
+  costUsd?: number;
+  // 耗时统计
+  durationMs?: number;
+  durationApiMs?: number;
 }
 
 // 工作产物

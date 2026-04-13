@@ -68,15 +68,22 @@ export const AgentHistoryCard: React.FC<Props> = ({ completedAgents, agentUsage 
                   <div className="history-time">
                     <span>开始: {formatStartTime(agent.startedAt)}</span>
                   </div>
-                  {agentUsage[agent.id] && (
-                    <div className="history-usage">
-                      <span>{formatTokens(agentUsage[agent.id].inputTokens || 0)}↓</span>
-                      <span>{formatTokens(agentUsage[agent.id].outputTokens || 0)}↑</span>
-                      {agentUsage[agent.id].costUsd !== undefined && agentUsage[agent.id].costUsd! > 0 && (
-                        <span>${agentUsage[agent.id].costUsd!.toFixed(4)}</span>
-                      )}
-                    </div>
-                  )}
+                  {(() => {
+                    // 优先使用 invocation 自带的 usage 数据，其次使用 agentUsage
+                    const usage = agent.inputTokens !== undefined || agent.outputTokens !== undefined
+                      ? agent
+                      : agentUsage[agent.id];
+                    if (!usage) return null;
+                    return (
+                      <div className="history-usage">
+                        <span>{formatTokens(usage.inputTokens || 0)}↓</span>
+                        <span>{formatTokens(usage.outputTokens || 0)}↑</span>
+                        {usage.costUsd !== undefined && usage.costUsd > 0 && (
+                          <span>${usage.costUsd.toFixed(4)}</span>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               ))}
               {failed.map(agent => (
@@ -84,7 +91,11 @@ export const AgentHistoryCard: React.FC<Props> = ({ completedAgents, agentUsage 
                   <div className="history-header">
                     <CloseCircleOutlined style={{ color: '#ef4444', fontSize: 14 }} />
                     <span className="history-name">{agent.agentName || agent.role || agent.id.slice(0, 8)}</span>
-                    <span className="agent-status-badge failed">失败</span>
+                    <DurationDisplay
+                      startedAt={agent.startedAt}
+                      completedAt={agent.completedAt}
+                      compact
+                    />
                   </div>
                   <div className="history-time">
                     <span>开始: {formatStartTime(agent.startedAt)}</span>
