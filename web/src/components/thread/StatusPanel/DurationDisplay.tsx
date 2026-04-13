@@ -1,5 +1,32 @@
 import React, { useState, useEffect } from 'react';
 
+// 解析带纳秒的 ISO 时间格式（如 2026-04-13T15:44:34.3872777+08:00）
+// JavaScript Date 只支持毫秒精度，需要截断纳秒
+const parseISOTime = (isoString?: string): Date | null => {
+  if (!isoString) return null;
+
+  try {
+    // 处理带纳秒的格式：截断为毫秒精度
+    let normalized = isoString;
+
+    // 如果有小数点（纳秒），截断为毫秒（3位）
+    const match = isoString.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})\.(\d+)(.*)$/);
+    if (match) {
+      const [, base, fractional, suffix] = match;
+      const ms = (fractional.slice(0, 3) || '000').padEnd(3, '0');
+      normalized = `${base}.${ms}${suffix}`;
+    }
+
+    const date = new Date(normalized);
+    if (isNaN(date.getTime())) {
+      return null;
+    }
+    return date;
+  } catch {
+    return null;
+  }
+};
+
 interface DurationDisplayProps {
   startedAt?: string;
   completedAt?: string;
@@ -18,12 +45,15 @@ export const DurationDisplay: React.FC<DurationDisplayProps> = ({
   useEffect(() => {
     if (!startedAt) return;
 
-    const startTime = new Date(startedAt).getTime();
+    const startTime = parseISOTime(startedAt);
+    if (!startTime) return;
 
     if (completedAt) {
       // 已完成：显示总时长
-      const endTime = new Date(completedAt).getTime();
-      setElapsed(endTime - startTime);
+      const endTime = parseISOTime(completedAt);
+      if (endTime) {
+        setElapsed(endTime.getTime() - startTime.getTime());
+      }
       return;
     }
 
@@ -31,7 +61,7 @@ export const DurationDisplay: React.FC<DurationDisplayProps> = ({
 
     // 运行中：实时计时
     const updateElapsed = () => {
-      setElapsed(Date.now() - startTime);
+      setElapsed(Date.now() - startTime.getTime());
     };
 
     updateElapsed();

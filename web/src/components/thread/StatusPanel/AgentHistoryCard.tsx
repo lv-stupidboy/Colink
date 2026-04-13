@@ -15,10 +15,41 @@ const formatTokens = (n: number): string => {
   return String(n);
 };
 
+// 解析带纳秒的 ISO 时间格式（如 2026-04-13T15:44:34.3872777+08:00）
+// JavaScript Date 只支持毫秒精度，需要截断纳秒
+const parseISOTime = (isoString?: string): Date | null => {
+  if (!isoString) return null;
+
+  try {
+    // 处理带纳秒的格式：截断为毫秒精度
+    // 格式: 2026-04-13T15:44:34.3872777+08:00 或 2026-04-13T15:44:34.387Z
+    let normalized = isoString;
+
+    // 如果有小数点（纳秒），截断为毫秒（3位）
+    const match = isoString.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})\.(\d+)(.*)$/);
+    if (match) {
+      const [, base, fractional, suffix] = match;
+      // 截断为毫秒精度（取前3位），不足则补零
+      const ms = (fractional.slice(0, 3) || '000').padEnd(3, '0');
+      normalized = `${base}.${ms}${suffix}`;
+    }
+
+    const date = new Date(normalized);
+    if (isNaN(date.getTime())) {
+      console.warn('Failed to parse time:', isoString);
+      return null;
+    }
+    return date;
+  } catch (e) {
+    console.warn('Error parsing time:', isoString, e);
+    return null;
+  }
+};
+
 // 格式化时间显示（只显示时分秒）
 const formatStartTime = (isoString?: string): string => {
-  if (!isoString) return '—';
-  const date = new Date(isoString);
+  const date = parseISOTime(isoString);
+  if (!date) return '—';
   return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 };
 
@@ -27,8 +58,10 @@ export const AgentHistoryCard: React.FC<Props> = ({ completedAgents, agentUsage 
 
   // 按时间倒序排列（最近的在上面）
   const sortedAgents = [...completedAgents].sort((a, b) => {
-    const timeA = a.completedAt ? new Date(a.completedAt).getTime() : 0;
-    const timeB = b.completedAt ? new Date(b.completedAt).getTime() : 0;
+    const dateA = parseISOTime(a.completedAt);
+    const dateB = parseISOTime(b.completedAt);
+    const timeA = dateA ? dateA.getTime() : 0;
+    const timeB = dateB ? dateB.getTime() : 0;
     return timeB - timeA;
   });
 
