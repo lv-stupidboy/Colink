@@ -58,10 +58,28 @@ const getStartTime = (agent: AgentInvocation): string | undefined => {
   return agent.startedAt || agent.createdAt;
 };
 
+// 获取显示名称（带完整 fallback）
+const getDisplayName = (agent: AgentInvocation): string => {
+  // 优先使用 agentName
+  if (agent.agentName && agent.agentName.trim()) {
+    return agent.agentName.trim();
+  }
+  // 如果 role 是 custom，显示 'Agent'
+  if (agent.role === 'custom') {
+    return 'Agent';
+  }
+  // 否则显示 role（如 developer, architect 等）
+  if (agent.role) {
+    return agent.role;
+  }
+  // 最后使用 ID 前8位
+  return agent.id.slice(0, 8);
+};
+
 export const AgentHistoryCard: React.FC<Props> = ({ completedAgents, agentUsage }) => {
   const [expanded, setExpanded] = useState(true);
 
-  // 按时间倒序排列（最近的在上面）
+  // 按完成时间倒序排列（最近的在上面）
   const sortedAgents = [...completedAgents].sort((a, b) => {
     const dateA = parseISOTime(a.completedAt);
     const dateB = parseISOTime(b.completedAt);
@@ -70,8 +88,8 @@ export const AgentHistoryCard: React.FC<Props> = ({ completedAgents, agentUsage 
     return timeB - timeA;
   });
 
-  const completed = sortedAgents.filter(a => a.status === 'completed');
-  const failed = sortedAgents.filter(a => a.status === 'failed');
+  // 实际显示的总数
+  const displayCount = sortedAgents.length;
 
   return (
     <div className="status-section">
@@ -83,20 +101,20 @@ export const AgentHistoryCard: React.FC<Props> = ({ completedAgents, agentUsage 
           <RightOutlined />
         </span>
         <span>历史参与</span>
-        <span className="section-collapse-count">{completedAgents.length}</span>
+        <span className="section-collapse-count">{displayCount}</span>
       </div>
 
       {expanded && (
         <div className="history-list" style={{ marginTop: 8, maxHeight: 200, overflowY: 'auto' }}>
-          {completedAgents.length === 0 ? (
+          {sortedAgents.length === 0 ? (
             <div className="idle-status">暂无历史调用</div>
           ) : (
             <>
-              {completed.map(agent => (
+              {sortedAgents.filter(a => a.status === 'completed').map(agent => (
                 <div key={agent.id} className="history-item completed">
                   <div className="history-header">
                     <CheckCircleOutlined style={{ color: '#22c55e', fontSize: 14 }} />
-                    <span className="history-name">{agent.agentName || agent.role || agent.id.slice(0, 8)}</span>
+                    <span className="history-name">{getDisplayName(agent)}</span>
                     <DurationDisplay
                       startedAt={getStartTime(agent)}
                       completedAt={agent.completedAt}
@@ -124,11 +142,27 @@ export const AgentHistoryCard: React.FC<Props> = ({ completedAgents, agentUsage 
                   })()}
                 </div>
               ))}
-              {failed.map(agent => (
+              {sortedAgents.filter(a => a.status === 'failed').map(agent => (
                 <div key={agent.id} className="history-item failed">
                   <div className="history-header">
                     <CloseCircleOutlined style={{ color: '#ef4444', fontSize: 14 }} />
-                    <span className="history-name">{agent.agentName || agent.role || agent.id.slice(0, 8)}</span>
+                    <span className="history-name">{getDisplayName(agent)}</span>
+                    <DurationDisplay
+                      startedAt={getStartTime(agent)}
+                      completedAt={agent.completedAt}
+                      compact
+                    />
+                  </div>
+                  <div className="history-time">
+                    <span>开始: {formatStartTime(getStartTime(agent))}</span>
+                  </div>
+                </div>
+              ))}
+              {sortedAgents.filter(a => a.status === 'interrupted' || a.status === 'cancelled').map(agent => (
+                <div key={agent.id} className="history-item other-ended">
+                  <div className="history-header">
+                    <span className={`agent-status-badge ${agent.status}`}>{agent.status === 'interrupted' ? '中断' : '取消'}</span>
+                    <span className="history-name">{getDisplayName(agent)}</span>
                     <DurationDisplay
                       startedAt={getStartTime(agent)}
                       completedAt={agent.completedAt}
