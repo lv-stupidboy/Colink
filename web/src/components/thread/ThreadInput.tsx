@@ -193,29 +193,6 @@ export const ThreadInput: React.FC<ThreadInputProps> = memo(({
           </div>
         )}
 
-        {/* 切换按钮 - 当已有 @mention 时显示 */}
-        {inputValue.startsWith('@') && !mentionListVisible && (
-          <Button
-            size="small"
-            type="text"
-            className="mention-switch-btn"
-            onClick={() => {
-              setMentionListVisible(true);
-              setMentionFilter('');
-              setHighlightedIndex(0);
-            }}
-            style={{
-              position: 'absolute',
-              right: 8,
-              top: 8,
-              zIndex: 10,
-              color: 'var(--text-secondary)',
-            }}
-          >
-            切换
-          </Button>
-        )}
-
         <TextArea
           ref={inputRef}
           value={inputValue}

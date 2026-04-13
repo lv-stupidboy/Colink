@@ -91,6 +91,20 @@ type ThreadContext struct {
 	LoadedAt           time.Time
 }
 
+// SessionRecorder 会话记录器接口（用于解耦 a2a 包，避免循环导入）
+type SessionRecorder interface {
+	RecordFailedSession(threadID, configID, sessionID string)
+	RecordSuccessfulSession(threadID, configID, sessionID string)
+}
+
+// 全局 SessionRecorder 实例（通过 SetSessionRecorder 设置）
+var globalSessionRecorder SessionRecorder
+
+// SetSessionRecorder 设置全局 SessionRecorder（在程序启动时由 a2a 包调用）
+func SetSessionRecorder(recorder SessionRecorder) {
+	globalSessionRecorder = recorder
+}
+
 // ExecutionService 统一执行服务，整合Orchestrator和InteractiveSession的功能
 type ExecutionService struct {
 	invocationRepo   *repo.AgentInvocationRepository
@@ -461,6 +475,18 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 
 	if err != nil {
 		logError("Adapter.ExecuteWithStream failed", zap.Error(err))
+		// 执行失败时也保存 sessionId 用于问题定位
+		if result != nil && result.SessionID != "" {
+			// 保存 sessionId 到 invocation（入库用于问题定位）
+			invocation.SessionID = result.SessionID
+			if updateErr := es.invocationRepo.Update(ctx, invocation); updateErr != nil {
+				logError("Failed to save sessionId on failure", zap.Error(updateErr))
+			}
+			// 记录失败会话（通过 sessionRecorder）
+			if globalSessionRecorder != nil {
+				globalSessionRecorder.RecordFailedSession(req.ThreadID.String(), config.ID.String(), result.SessionID)
+			}
+		}
 		es.handleAgentErrorWithContext(ctx, invocation, fmt.Errorf("adapter execution failed: %w", err), execReq)
 		return
 	}
@@ -470,10 +496,14 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 		es.csMu.Lock()
 		es.cliSessions[sessionKey] = result.SessionID
 		es.csMu.Unlock()
-			// 同时保存到 invocation 对象（持久化到数据库用于问题定位）
-			invocation.SessionID = result.SessionID
-			logInfo("Session ID saved for future resume and persistence", zap.String("sessionKey", sessionKey), zap.String("sessionId", result.SessionID))
+		// 同时保存到 invocation 对象（持久化到数据库用于问题定位）
+		invocation.SessionID = result.SessionID
+		// 记录成功会话（通过 sessionRecorder）
+		if globalSessionRecorder != nil {
+			globalSessionRecorder.RecordSuccessfulSession(req.ThreadID.String(), config.ID.String(), result.SessionID)
 		}
+		logInfo("Session ID saved for future resume and persistence", zap.String("sessionKey", sessionKey), zap.String("sessionId", result.SessionID))
+	}
 
 	output := outputBuilder.String()
 	logInfo("Execution completed", zap.Int("outputLength", len(output)))
@@ -2947,3 +2977,4 @@ func (es *ExecutionService) extractStructuredHistory(messages []*model.Message, 
 
 	return sb.String()
 }
+

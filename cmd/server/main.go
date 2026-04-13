@@ -98,6 +98,9 @@ func main() {
 	// 设置会话日志记录器
 	agent.SetSessionLogger(logger)
 
+	// 设置 SessionRecorder（用于记录 A2A 失败/成功会话）
+	agent.SetSessionRecorder(a2a.NewSessionRecorderImpl())
+
 	// 连接数据库（数据库表结构由安装器初始化，服务启动时不执行 schema 创建）
 	db, dialect, err := repo.NewDB(cfg.Database)
 	if err != nil {
