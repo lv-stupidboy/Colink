@@ -28,6 +28,7 @@ interface FileTreeProps {
   projectId: string;
   projectPath?: string; // 调试模式下使用
   onFileSelect?: (path: string, isDir: boolean) => void;
+  onFileOpen?: (path: string) => void; // 新增：点击文件打开预览
   style?: React.CSSProperties;
 }
 
@@ -37,7 +38,7 @@ interface FileTreeProps {
  * - 团队模式：projectId 为实际项目ID，使用项目API加载文件
  * - 调试模式：projectId 为 'debug'，需要传入 projectPath，使用路径API加载文件
  */
-const FileTree: React.FC<FileTreeProps> = ({ projectId, projectPath, onFileSelect, style }) => {
+const FileTree: React.FC<FileTreeProps> = ({ projectId, projectPath, onFileSelect, onFileOpen, style }) => {
   const [loading, setLoading] = useState(false);
   const [treeData, setTreeData] = useState<DataNode[]>([]);
   const [expandedKeys, setExpandedKeys] = useState<React.Key[]>([]);
@@ -187,6 +188,13 @@ const FileTree: React.FC<FileTreeProps> = ({ projectId, projectPath, onFileSelec
       const path = selectedKeys[0] as string;
       const node = info.node;
       const isDir = !node.isLeaf;
+
+      // 文件：触发打开预览
+      if (!isDir && onFileOpen) {
+        onFileOpen(path);
+      }
+
+      // 目录或原有回调
       onFileSelect?.(path, isDir);
     }
   };
