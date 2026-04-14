@@ -1,14 +1,21 @@
-package agent
+// internal/service/agent/plugins/open_code/adapter.go
+// OpenCode ACP Adapter - renamed from OpenCodeACPAdapter
+package open_code
 
 import (
 	"github.com/anthropic/isdp/internal/model"
+	"github.com/anthropic/isdp/internal/service/agent"
 )
 
-type OpenCodeACPAdapter struct {
+// OpenCodeAdapter implements AgentAdapter using ACP protocol.
+// Renamed from OpenCodeACPAdapter (ACP suffix removed).
+type OpenCodeAdapter struct {
 	*BaseACPAdapter
 }
 
-func NewOpenCodeACPAdapter(baseAgent *model.BaseAgent) *OpenCodeACPAdapter {
+// NewOpenCodeAdapter creates a new OpenCode adapter.
+// Renamed from NewOpenCodeACPAdapter.
+func NewOpenCodeAdapter(baseAgent *model.BaseAgent) agent.AgentAdapter {
 	cliPath := baseAgent.CliPath
 	if cliPath == "" {
 		cliPath = "opencode"
@@ -17,10 +24,10 @@ func NewOpenCodeACPAdapter(baseAgent *model.BaseAgent) *OpenCodeACPAdapter {
 	base := &BaseACPAdapter{
 		config: acpAdapterConfig{
 			cliPath: cliPath,
-			buildArgs: func(req *ExecutionRequest) []string {
+			buildArgs: func(req *agent.ExecutionRequest) []string {
 				return []string{"acp"}
 			},
-			buildEnv: func(req *ExecutionRequest) []string {
+			buildEnv: func(req *agent.ExecutionRequest) []string {
 				env := make([]string, 0, 4)
 
 				if baseAgent.ApiURL != "" {
@@ -46,7 +53,7 @@ func NewOpenCodeACPAdapter(baseAgent *model.BaseAgent) *OpenCodeACPAdapter {
 		sessions:  make(map[string]*acpSession),
 	}
 
-	return &OpenCodeACPAdapter{
+	return &OpenCodeAdapter{
 		BaseACPAdapter: base,
 	}
 }

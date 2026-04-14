@@ -2177,9 +2177,9 @@ func (es *ExecutionService) SubmitQuestionAnswer(threadID uuid.UUID, toolCallID 
 
 			// 通过 Adapter 发送答案给 CLI
 			if agent.Adapter != nil {
-				// 尝试通过 ACP adapter 发送响应
-				if acpAdapter, ok := agent.Adapter.(*BaseACPAdapter); ok {
-					err := acpAdapter.SendToolResult(invocationID, toolCallID, answer)
+				// 尝试通过 ToolResultSender 接口发送响应
+				if sender, ok := agent.Adapter.(ToolResultSender); ok {
+					err := sender.SendToolResult(invocationID, toolCallID, answer)
 					if err != nil {
 						logError("发送工具结果失败", zap.Error(err))
 						return err

@@ -1,9 +1,9 @@
-package agent
+// Package claude_code implements the Claude CLI adapter as a plugin.
+package claude_code
 
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/anthropic/isdp/internal/model"
+	"github.com/anthropic/isdp/internal/service/agent"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
@@ -30,7 +31,7 @@ type ClaudeAdapter struct {
 	sessions map[string]*claudeSession
 	mu       sync.RWMutex
 
-	// CLI 进程管理（用于取消执行）
+	// CLI 进程管理（用于取消）
 	currentCmd   *exec.Cmd
 	currentCmdMu sync.RWMutex
 }
@@ -41,11 +42,11 @@ type claudeSession struct {
 	cmd    *exec.Cmd
 	ctx    context.Context
 	cancel context.CancelFunc
-	status SessionStatus
+	status agent.SessionStatus
 }
 
 // NewClaudeAdapter 创建Claude适配器
-func NewClaudeAdapter(baseAgent *model.BaseAgent) *ClaudeAdapter {
+func NewClaudeAdapter(baseAgent *model.BaseAgent) agent.AgentAdapter {
 	cliPath := baseAgent.CliPath
 	if cliPath == "" {
 		cliPath = "claude"
@@ -69,7 +70,7 @@ func NewClaudeAdapter(baseAgent *model.BaseAgent) *ClaudeAdapter {
 }
 
 // Execute 执行单次任务（无会话上下文）
-func (a *ClaudeAdapter) Execute(ctx context.Context, req *ExecutionRequest) (*ExecutionResult, error) {
+func (a *ClaudeAdapter) Execute(ctx context.Context, req *agent.ExecutionRequest) (*agent.ExecutionResult, error) {
 	result, err := a.ExecuteWithStream(ctx, req, nil)
 	if err != nil {
 		return nil, err
@@ -85,7 +86,7 @@ func (a *ClaudeAdapter) GetCurrentProcess() *exec.Cmd {
 }
 
 // ExecuteWithStream 流式执行
-func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionRequest, onChunk func(Chunk)) (*ExecutionResult, error) {
+func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *agent.ExecutionRequest, onChunk func(agent.Chunk)) (*agent.ExecutionResult, error) {
 	prompt := a.buildPromptFromRequest(req)
 
 	// 确定会话ID：复用已有或创建新的
@@ -243,9 +244,9 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionReq
 			}
 			// 调试：打印每行原始输出
 			if lineCount <= 5 {
-				logInfo("ExecuteWithStream: received line", zap.Int("lineNum", lineCount), zap.String("line", line[:min(200, len(line))]))
+				logInfo("ExecuteWithStream: received line", zap.Int("lineNum", lineCount), zap.String("line", line[:minLen(200, len(line))]))
 			}
-			chunks := a.parseStreamJSONLine(line, onChunk != nil)
+			chunks := parseStreamJSONLine(line, onChunk != nil)
 			for _, chunk := range chunks {
 				if onChunk != nil {
 					chunkCount++
@@ -277,29 +278,29 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionReq
 		)
 		// 执行失败时也返回 sessionId（用于入库追踪和问题定位）
 		if stderrOutput.Len() > 0 {
-			return &ExecutionResult{SessionID: sessionID}, fmt.Errorf("CLI error: %s", stderrOutput.String())
+			return &agent.ExecutionResult{SessionID: sessionID}, fmt.Errorf("CLI error: %s", stderrOutput.String())
 		}
-		return &ExecutionResult{SessionID: sessionID}, fmt.Errorf("CLI execution failed: %w", err)
+		return &agent.ExecutionResult{SessionID: sessionID}, fmt.Errorf("CLI execution failed: %w", err)
 	}
 
 	logInfo("[PERF] CLI total execution", zap.Duration("duration", time.Since(cliStartTime)))
-	return &ExecutionResult{SessionID: sessionID}, nil
+	return &agent.ExecutionResult{SessionID: sessionID}, nil
 }
 
 // StartSession 启动交互式会话
-func (a *ClaudeAdapter) StartSession(ctx context.Context, sessionID string, req *ExecutionRequest) error {
+func (a *ClaudeAdapter) StartSession(ctx context.Context, sessionID string, req *agent.ExecutionRequest) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
 	session := &claudeSession{
 		id:     sessionID,
-		status: SessionStatusRunning,
+		status: agent.SessionStatusRunning,
 	}
 
 	// 首次启动使用 ExecuteWithStream
 	_, err := a.ExecuteWithStream(ctx, req, nil)
 	if err != nil {
-		session.status = SessionStatusFailed
+		session.status = agent.SessionStatusFailed
 		return err
 	}
 
@@ -309,7 +310,7 @@ func (a *ClaudeAdapter) StartSession(ctx context.Context, sessionID string, req 
 }
 
 // ResumeSession 恢复会话
-func (a *ClaudeAdapter) ResumeSession(ctx context.Context, sessionID string, input string, onChunk func(Chunk)) error {
+func (a *ClaudeAdapter) ResumeSession(ctx context.Context, sessionID string, input string, onChunk func(agent.Chunk)) error {
 	a.mu.RLock()
 	_, exists := a.sessions[sessionID]
 	a.mu.RUnlock()
@@ -318,7 +319,7 @@ func (a *ClaudeAdapter) ResumeSession(ctx context.Context, sessionID string, inp
 		return fmt.Errorf("session not found: %s", sessionID)
 	}
 
-	req := &ExecutionRequest{
+	req := &agent.ExecutionRequest{
 		Input:     input,
 		BaseAgent: a.baseAgent,
 	}
@@ -337,7 +338,7 @@ func (a *ClaudeAdapter) StopSession(sessionID string) error {
 		return nil
 	}
 
-	session.status = SessionStatusStopped
+	session.status = agent.SessionStatusStopped
 	if session.cancel != nil {
 		session.cancel()
 	}
@@ -350,19 +351,19 @@ func (a *ClaudeAdapter) StopSession(sessionID string) error {
 }
 
 // GetSessionStatus 获取会话状态
-func (a *ClaudeAdapter) GetSessionStatus(sessionID string) SessionStatus {
+func (a *ClaudeAdapter) GetSessionStatus(sessionID string) agent.SessionStatus {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 
 	session, exists := a.sessions[sessionID]
 	if !exists {
-		return SessionStatusStopped
+		return agent.SessionStatusStopped
 	}
 	return session.status
 }
 
 // buildPromptFromRequest 从ExecutionRequest构建提示词
-func (a *ClaudeAdapter) buildPromptFromRequest(req *ExecutionRequest) string {
+func (a *ClaudeAdapter) buildPromptFromRequest(req *agent.ExecutionRequest) string {
 	var sb strings.Builder
 
 	if req.Context != nil {
@@ -403,250 +404,9 @@ func (a *ClaudeAdapter) buildPromptFromRequest(req *ExecutionRequest) string {
 	return sb.String()
 }
 
-// parseToolResultContent 解析 tool_result 的 content 字段
-// content 可能是两种格式：
-// 1. 字符串格式: "content": "result text"
-// 2. 数组格式: "content": [{"type": "text", "text": "result text"}, ...]
-func parseToolResultContent(contentRaw json.RawMessage) string {
-	if len(contentRaw) == 0 {
-		return ""
-	}
-
-	// 尝试解析为字符串
-	var strContent string
-	if err := json.Unmarshal(contentRaw, &strContent); err == nil {
-		return strContent
-	}
-
-	// 尝试解析为 content_block 数组
-	var blockContents []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	}
-	if err := json.Unmarshal(contentRaw, &blockContents); err == nil {
-		var result strings.Builder
-		for i, block := range blockContents {
-			if block.Type == "text" && block.Text != "" {
-				if i > 0 {
-					result.WriteString("\n")
-				}
-				result.WriteString(block.Text)
-			}
-		}
-		return result.String()
-	}
-
-	// 如果两种格式都无法解析，返回原始 JSON 字符串（作为 fallback）
-	return string(contentRaw)
-}
-
-// parseStreamJSONLine 解析 stream-json 格式的单行输出，返回 Chunk 数组
-// isStreaming: 是否为增量模式，增量模式下忽略完整消息避免重复
-func (a *ClaudeAdapter) parseStreamJSONLine(line string, isStreaming bool) []Chunk {
-	var chunks []Chunk
-
-	var msg struct {
-		Type    string `json:"type"`
-		Subtype string `json:"subtype"`
-		Event   struct {
-			Type  string `json:"type"`
-			Index int    `json:"index"`
-			Delta struct {
-				Type        string `json:"type"`
-				Text        string `json:"text"`
-				Thinking    string `json:"thinking"`
-				PartialJSON string `json:"partial_json"`
-			} `json:"delta"`
-			ContentBlock struct {
-				Type  string                 `json:"type"`
-				Name  string                 `json:"name"`
-				ID    string                 `json:"id"`
-				Input map[string]interface{} `json:"input"`
-			} `json:"content_block"`
-		} `json:"event"`
-		Message struct {
-			Content []struct {
-				Type       string                 `json:"type"`
-				Text       string                 `json:"text"`
-				Name       string                 `json:"name"`
-				ID         string                 `json:"id"`
-				Input      map[string]interface{} `json:"input"`
-				ToolUseID  string                 `json:"tool_use_id"` // tool_result 的关联ID
-				ContentRaw json.RawMessage        `json:"content"`     // tool_result 的内容（可能是 string 或 []content_block）
-				IsError    bool                   `json:"is_error"`    // tool_result 是否出错
-			} `json:"content"`
-			Usage *struct {
-				InputTokens              int64 `json:"input_tokens"`
-				OutputTokens             int64 `json:"output_tokens"`
-				CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
-				CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
-			} `json:"usage"`
-		} `json:"message"`
-		Usage struct {
-			InputTokens              int64 `json:"input_tokens"`
-			OutputTokens             int64 `json:"output_tokens"`
-			CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
-			CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
-		} `json:"usage"`
-		Delta struct {
-			Usage struct {
-				OutputTokens int64 `json:"output_tokens"`
-			} `json:"usage"`
-		} `json:"delta"`
-		Result        string  `json:"result"`
-		CostUsd       float64 `json:"cost_usd"`
-		DurationMs    int64   `json:"duration_ms"`
-		DurationApiMs int64   `json:"duration_api_ms"`
-		NumTurns      int     `json:"num_turns"`
-	}
-
-	if err := json.Unmarshal([]byte(line), &msg); err != nil {
-		logInfo("parseStreamJSONLine: JSON parse error", zap.Error(err), zap.String("line", line[:min(100, len(line))]))
-		return nil
-	}
-
-	switch msg.Type {
-	case "stream_event":
-		switch msg.Event.Type {
-		case "content_block_start":
-			// 内容块开始
-			switch msg.Event.ContentBlock.Type {
-			case "thinking":
-				// 思考块开始，发送空内容让前端初始化
-				chunks = append(chunks, Chunk{
-					Type:    ChunkTypeThinking,
-					Content: "",
-				})
-			case "tool_use":
-				chunks = append(chunks, Chunk{
-					Type:      ChunkTypeToolUse,
-					ToolName:  msg.Event.ContentBlock.Name,
-					ToolID:    msg.Event.ContentBlock.ID,
-					ToolInput: msg.Event.ContentBlock.Input,
-				})
-			}
-		case "content_block_delta":
-			switch msg.Event.Delta.Type {
-			case "text_delta":
-				if msg.Event.Delta.Text != "" {
-					chunks = append(chunks, Chunk{
-						Type:    ChunkTypeText,
-						Content: msg.Event.Delta.Text,
-					})
-				}
-			case "thinking_delta":
-				// 思考过程增量 - 发送实际的思考内容
-				if msg.Event.Delta.Thinking != "" {
-					chunks = append(chunks, Chunk{
-						Type:    ChunkTypeThinking,
-						Content: msg.Event.Delta.Thinking,
-					})
-				}
-			}
-		case "content_block_stop":
-			// 内容块结束 - 用于标记 thinking 完成
-			// 发送一个带 Done 标记的空 thinking 块
-			chunks = append(chunks, Chunk{
-				Type:    ChunkTypeThinking,
-				Content: "",
-				Done:    true,
-			})
-		}
-	case "message_start":
-		// 解析 message.usage 字段（input tokens）
-		if msg.Message.Usage != nil {
-			chunks = append(chunks, Chunk{
-				Type: ChunkTypeUsage,
-				Usage: &TokenUsage{
-					InputTokens:         msg.Message.Usage.InputTokens,
-					CacheReadTokens:     msg.Message.Usage.CacheReadInputTokens,
-					CacheCreationTokens: msg.Message.Usage.CacheCreationInputTokens,
-				},
-			})
-		}
-	case "message_delta":
-		// 解析 usage 字段（output tokens 通常在这里）
-		if msg.Delta.Usage.OutputTokens > 0 {
-			chunks = append(chunks, Chunk{
-				Type: ChunkTypeUsage,
-				Usage: &TokenUsage{
-					OutputTokens: msg.Delta.Usage.OutputTokens,
-				},
-			})
-		}
-	case "assistant":
-		// 完整消息（非增量模式下的输出）
-		// 在增量模式下忽略，避免重复（内容已通过 stream_event.content_block_delta 发送）
-		if !isStreaming {
-			for _, content := range msg.Message.Content {
-				if content.Type == "text" && content.Text != "" {
-					chunks = append(chunks, Chunk{
-						Type:    ChunkTypeText,
-						Content: content.Text,
-					})
-				} else if content.Type == "tool_use" {
-					chunks = append(chunks, Chunk{
-						Type:      ChunkTypeToolUse,
-						ToolName:  content.Name,
-						ToolID:    content.ID,
-						ToolInput: content.Input,
-					})
-				}
-			}
-		}
-	case "user":
-		// 用户消息（包含工具执行结果）
-		// 解析 tool_result 内容块
-		for _, content := range msg.Message.Content {
-			if content.Type == "tool_result" {
-				// 提取结果内容（适配字符串和数组两种格式）
-				resultContent := parseToolResultContent(content.ContentRaw)
-				if resultContent == "" && content.Text != "" {
-					resultContent = content.Text
-				}
-
-				chunks = append(chunks, Chunk{
-					Type:    ChunkTypeToolResult,
-					ToolID:  content.ToolUseID,
-					Content: resultContent,
-					IsError: content.IsError,
-				})
-			}
-		}
-	case "result":
-		// 最终结果（非增量模式下使用）
-		// 在增量模式下忽略，避免重复
-		if !isStreaming && msg.Result != "" {
-			chunks = append(chunks, Chunk{
-				Type:    ChunkTypeText,
-				Content: msg.Result,
-			})
-		}
-		// 解析完整 usage: input_tokens, output_tokens, cache_read_input_tokens
-		// 解析 total_cost_usd, duration_ms, duration_api_ms, num_turns
-		if msg.Usage.InputTokens > 0 || msg.Usage.OutputTokens > 0 || msg.CostUsd > 0 {
-			chunks = append(chunks, Chunk{
-				Type: ChunkTypeUsage,
-				Usage: &TokenUsage{
-					InputTokens:         msg.Usage.InputTokens,
-					OutputTokens:        msg.Usage.OutputTokens,
-					CacheReadTokens:     msg.Usage.CacheReadInputTokens,
-					CacheCreationTokens: msg.Usage.CacheCreationInputTokens,
-					CostUsd:             msg.CostUsd,
-					DurationMs:          msg.DurationMs,
-					DurationApiMs:       msg.DurationApiMs,
-					NumTurns:            msg.NumTurns,
-				},
-			})
-		}
-	}
-
-	return chunks
-}
-
 // buildEnv 构建环境变量
 // 使用 map 去重，BaseAgent 配置的值会覆盖系统环境变量
-func (a *ClaudeAdapter) buildEnv(req *ExecutionRequest) []string {
+func (a *ClaudeAdapter) buildEnv(req *agent.ExecutionRequest) []string {
 	// 用 map 存储环境变量，后面的值会覆盖前面的
 	envMap := make(map[string]string)
 
@@ -718,7 +478,7 @@ func (a *ClaudeAdapter) CheckHealth(ctx context.Context) error {
 	cmd := exec.CommandContext(ctx, a.cliPath, args...)
 
 	// 构建与正常执行相同的环境变量（使用空的 ExecutionRequest，但包含基本配置）
-	execReq := &ExecutionRequest{
+	execReq := &agent.ExecutionRequest{
 		BaseAgent: a.baseAgent,
 	}
 	env := a.buildEnv(execReq)
@@ -790,4 +550,46 @@ func (a *ClaudeAdapter) CheckHealth(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// minLen returns the minimum of two integers
+func minLen(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// maskToken 对敏感token进行掩码处理，只显示前4位和后4位
+// 例如: "sk-ant-api03-xxxxx" -> "sk-a****xxxx"
+func maskToken(token string) string {
+	if token == "" {
+		return "<empty>"
+	}
+	if len(token) <= 8 {
+		return "****"
+	}
+	// 显示前4位和后4位，中间用****替代
+	return token[:4] + "****" + token[len(token)-4:]
+}
+
+// logInfo 记录信息级别日志
+func logInfo(msg string, fields ...zap.Field) {
+	if logger := zap.L(); logger != nil {
+		logger.Info(msg, fields...)
+	}
+}
+
+// logError 记录错误级别日志
+func logError(msg string, fields ...zap.Field) {
+	if logger := zap.L(); logger != nil {
+		logger.Error(msg, fields...)
+	}
+}
+
+// logDebug 记录调试级别日志
+func logDebug(msg string, fields ...zap.Field) {
+	if logger := zap.L(); logger != nil {
+		logger.Debug(msg, fields...)
+	}
 }
