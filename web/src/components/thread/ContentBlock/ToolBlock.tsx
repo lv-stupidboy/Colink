@@ -1,5 +1,5 @@
 import React, { useState, useEffect, memo } from 'react';
-import type { ToolUseBlock as ToolUseBlockType } from '@/types';
+import type { ToolUseBlock as ToolUseBlockType, ContentBlockStatus } from '@/types';
 import './ContentBlock.css';
 
 /**
@@ -18,7 +18,7 @@ function formatDuration(ms?: number): string {
 }
 
 /** 状态图标 */
-function StatusIcon({ status, color }: { status: 'streaming' | 'success' | 'failed'; color?: string }) {
+function StatusIcon({ status, color }: { status: ContentBlockStatus; color?: string }) {
   if (status === 'streaming') {
     return (
       <svg
@@ -33,6 +33,25 @@ function StatusIcon({ status, color }: { status: 'streaming' | 'success' | 'fail
         style={{ animation: 'spin 1s linear infinite' }}
       >
         <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+      </svg>
+    );
+  }
+  if (status === 'waiting_user_input') {
+    // 等待用户输入：使用问号图标
+    return (
+      <svg
+        width="12"
+        height="12"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke={color || '#faad14'}
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <circle cx="12" cy="12" r="10" />
+        <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+        <line x1="12" y1="17" x2="12.01" y2="17" />
       </svg>
     );
   }
@@ -115,7 +134,7 @@ interface ToolCallRowProps {
   toolName: string;
   input?: Record<string, unknown>;
   output?: string;
-  status: 'streaming' | 'success' | 'failed';
+  status: ContentBlockStatus;
   duration?: number;
   startedAt?: number;
   defaultExpanded?: boolean;

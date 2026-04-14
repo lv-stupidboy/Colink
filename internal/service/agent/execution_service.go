@@ -1954,6 +1954,22 @@ func (es *ExecutionService) broadcastChunk(threadID, invocationID uuid.UUID, chu
 					break
 				}
 			}
+		case ChunkTypeQuestion:
+			// AskUserQuestion 工具调用：需要用户输入
+			// 添加到内容块，等待用户响应
+			agent.AccumulatedContentBlocks = append(agent.AccumulatedContentBlocks, ContentBlockData{
+				ID:        fmt.Sprintf("question-%s", chunk.ToolID),
+				Type:      "question",
+				Timestamp: now,
+				Status:    "waiting_user_input",
+				ToolName:  chunk.ToolName,
+				ToolID:    chunk.ToolID,
+				Input:     chunk.ToolInput,
+				StartedAt: now,
+			})
+			// 标记为等待用户输入状态
+			agent.WaitingForUserInput = true
+			agent.PendingQuestionID = chunk.ToolID
 		}
 		agent.ContentBlocksMu.Unlock()
 
@@ -2069,6 +2085,16 @@ broadcast:
 			payload["isError"] = chunk.IsError
 		}
 
+		// AskUserQuestion 工具调用：包含问题列表
+		if chunk.Type == ChunkTypeQuestion {
+			payload["toolName"] = chunk.ToolName
+			payload["toolId"] = chunk.ToolID
+			payload["questions"] = chunk.Questions
+			if chunk.ToolInput != nil {
+				payload["toolInput"] = chunk.ToolInput
+			}
+		}
+
 		es.wsHub.BroadcastToThread(threadID.String(), ws.WSMessage{
 			Type:      "agent_output_chunk",
 			ThreadID:  threadID.String(),
@@ -2110,6 +2136,70 @@ func (es *ExecutionService) toolHeartbeat(ctx context.Context, invocationID uuid
 			es.mu.Unlock()
 		}
 	}
+}
+
+// SubmitQuestionAnswer 提交 AskUserQuestion 的用户答案
+// 找到运行中的 Agent，并通过 stdin 发送答案给 CLI
+func (es *ExecutionService) SubmitQuestionAnswer(threadID uuid.UUID, toolCallID string, answer string) error {
+	es.mu.Lock()
+	defer es.mu.Unlock()
+
+	// 查找该 thread 中等待用户输入的 Agent
+	for invocationID, agent := range es.runningAgents {
+		if agent.ThreadID == threadID && agent.WaitingForUserInput && agent.PendingQuestionID == toolCallID {
+			logInfo("收到 AskUserQuestion 答案",
+				zap.String("threadID", threadID.String()),
+				zap.String("invocationID", invocationID.String()),
+				zap.String("toolCallID", toolCallID),
+				zap.String("answer", answer))
+
+			// 清除等待状态
+			agent.WaitingForUserInput = false
+			agent.PendingQuestionID = ""
+
+			// 更新内容块状态
+			agent.ContentBlocksMu.Lock()
+			for i := len(agent.AccumulatedContentBlocks) - 1; i >= 0; i-- {
+				if agent.AccumulatedContentBlocks[i].Type == "question" && agent.AccumulatedContentBlocks[i].ToolID == toolCallID {
+					agent.AccumulatedContentBlocks[i].Status = "success"
+					agent.AccumulatedContentBlocks[i].Output = answer
+					agent.AccumulatedContentBlocks[i].CompletedAt = time.Now().UnixMilli()
+					break
+				}
+			}
+			agent.ContentBlocksMu.Unlock()
+
+			// 通过 Adapter 发送答案给 CLI
+			if agent.Adapter != nil {
+				// 尝试通过 ACP adapter 发送响应
+				if acpAdapter, ok := agent.Adapter.(*BaseACPAdapter); ok {
+					err := acpAdapter.SendToolResult(invocationID, toolCallID, answer)
+					if err != nil {
+						logError("发送工具结果失败", zap.Error(err))
+						return err
+					}
+				}
+			}
+
+			// 广播更新
+			if es.wsHub != nil {
+				es.wsHub.BroadcastToThread(threadID.String(), ws.WSMessage{
+					Type:      "question_answered",
+					ThreadID:  threadID.String(),
+					Timestamp: time.Now().UnixMilli(),
+					Payload: map[string]interface{}{
+						"invocationId": invocationID.String(),
+						"toolId":       toolCallID,
+						"answer":       answer,
+					},
+				})
+			}
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("未找到等待输入的 Agent 或 toolCallID 不匹配")
 }
 
 // GetInvocationsByThread 获取 Thread 的所有 Agent 调用

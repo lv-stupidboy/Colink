@@ -37,7 +37,7 @@ import {
 } from '@ant-design/icons';
 import { useAppStore } from '@/store';
 import { useDebugThreadStore } from '@/store/debugThread';
-import type { Message, Artifact, ReviewIssue, MergeCheckResult, AgentConfig, ToolEvent, MessageContentBlock } from '@/types';
+import type { Message, Artifact, ReviewIssue, MergeCheckResult, AgentConfig, ToolEvent, MessageContentBlock, QuestionItem } from '@/types';
 import type { FileChange } from '@/types/content';
 import { AgentRoleLabels, ArtifactTypeLabels } from '@/types';
 import { ReviewReport } from '@/components/ReviewReport';
@@ -47,6 +47,7 @@ import { BlockingDetector } from '@/utils/blockingDetector';
 import { sendAgentCompletionNotification, requestNotificationPermission, isNotificationGranted, clearPendingNotifications } from '@/utils/systemNotification';
 import { ChatMessageList } from '@/components/thread/ChatMessageList';
 import { StatusPanel } from '@/components/thread/StatusPanel';
+import QuestionModal from '@/components/thread/QuestionModal';
 import FileTree from '@/components/FileTree';
 import api from '@/api/client';
 import type { Thread } from '@/types';
@@ -198,6 +199,13 @@ const ThreadView: React.FC = () => {
 
   // 右侧面板状态（代码/沙箱统一管理）
   const [rightPanelVisible, setRightPanelVisible] = useState(false);
+
+  // AskUserQuestion 状态
+  const [pendingQuestion, setPendingQuestion] = useState<{
+    invocationId: string;
+    toolId: string;
+    questions: QuestionItem[];
+  } | null>(null);
   const [rightPanelActiveTab, setRightPanelActiveTab] = useState<'code' | 'sandbox'>('code');
   const [rightPanelWidth, setRightPanelWidth] = useState(520);
   const [isResizing, setIsResizing] = useState(false);
@@ -636,6 +644,32 @@ const ThreadView: React.FC = () => {
             );
           }
           updateProgress(invocId, 'generating');
+        } else if (chunkType === 'question') {
+          // AskUserQuestion 工具调用 - 需要用户输入
+          const toolId = data.payload.toolId as string;
+          const toolName = data.payload.toolName as string;
+          const questions = data.payload.questions as QuestionItem[];
+          const toolInput = data.payload.toolInput as Record<string, unknown>;
+
+          // 追加问题块
+          appendContentBlock(invocId, {
+            id: `question-${toolId}`,
+            type: 'question',
+            toolName: toolName || 'AskUserQuestion',
+            toolId: toolId || '',
+            questions: questions || [],
+            input: toolInput,
+            timestamp: Date.now(),
+            status: 'waiting_user_input',
+            startedAt: Date.now(),
+          });
+
+          // 显示问题弹窗
+          setPendingQuestion({
+            invocationId: invocId,
+            toolId: toolId,
+            questions: questions || [],
+          });
         }
         break;
       }
@@ -1429,6 +1463,45 @@ const ThreadView: React.FC = () => {
   }, [blockingItems, blockingReminderEnabled, activeAgents.length, removeBlockingItem]);
 
   /**
+   * 处理 AskUserQuestion 用户答案提交
+   */
+  const handleSubmitQuestionAnswer = useCallback(async (answers: Record<number, string | string[]>) => {
+    if (!pendingQuestion || !threadId) return;
+
+    try {
+      // 将答案转换为字符串格式
+      // 对于多选，将多个答案合并为一个字符串
+      const answerStrings: string[] = [];
+      Object.entries(answers).forEach(([index, value]) => {
+        if (Array.isArray(value)) {
+          answerStrings.push(`问题${parseInt(index) + 1}: ${value.join(', ')}`);
+        } else {
+          answerStrings.push(`问题${parseInt(index) + 1}: ${value}`);
+        }
+      });
+      const answer = answerStrings.join('\n');
+
+      // 调用 API 提交答案
+      await api.agentQuestion.submitAnswer(threadId, pendingQuestion.toolId, answer);
+
+      // 更新内容块状态
+      updateContentBlock(pendingQuestion.invocationId, `question-${pendingQuestion.toolId}`, {
+        status: 'success',
+        output: answer,
+        completedAt: Date.now(),
+      });
+
+      // 关闭弹窗
+      setPendingQuestion(null);
+
+      message.success('答案已提交');
+    } catch (error) {
+      console.error('提交答案失败:', error);
+      message.error('提交答案失败，请重试');
+    }
+  }, [pendingQuestion, threadId, updateContentBlock]);
+
+  /**
    * 处理发送消息
    * 调试模式：直接发送给当前 Agent
    * 团队模式：支持 @mention 触发特定 Agent
@@ -1853,6 +1926,14 @@ const ThreadView: React.FC = () => {
           )}
         </>
       )}
+
+      {/* AskUserQuestion 弹窗 */}
+      <QuestionModal
+        visible={pendingQuestion !== null}
+        questions={pendingQuestion?.questions || []}
+        onSubmit={handleSubmitQuestionAnswer}
+        onCancel={() => setPendingQuestion(null)}
+      />
     </div>
   );
 };

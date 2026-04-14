@@ -433,6 +433,31 @@ func (h *AgentHandler) ContinueDebug(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "sent"})
 }
 
+// SubmitQuestionAnswer 提交 AskUserQuestion 的用户答案
+func (h *AgentHandler) SubmitQuestionAnswer(c *gin.Context) {
+	threadID, err := uuid.Parse(c.Param("threadId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid thread id"})
+		return
+	}
+
+	var req struct {
+		ToolCallID string `json:"toolCallId" binding:"required"`
+		Answer     string `json:"answer" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if err := h.orchestrator.SubmitQuestionAnswer(threadID, req.ToolCallID, req.Answer); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "success"})
+}
+
 // RegisterRoutes 注册路由
 func (h *AgentHandler) RegisterRoutes(r *gin.RouterGroup) {
 	agents := r.Group("/agents")
@@ -443,6 +468,7 @@ func (h *AgentHandler) RegisterRoutes(r *gin.RouterGroup) {
 		agents.GET("/role/:role", h.GetByRole)
 		agents.POST("/debug/thread", h.CreateDebugThread) // 预创建调试Thread
 		agents.POST("/debug/:threadId/continue", h.ContinueDebug)
+		agents.POST("/question/:threadId/answer", h.SubmitQuestionAnswer) // AskUserQuestion 答案提交
 		agents.GET("/:id", h.Get)
 		agents.PUT("/:id", h.Update)
 		agents.DELETE("/:id", h.Delete)

@@ -557,7 +557,7 @@ export const useAppStore = create<AppState & AppActions>()(
       });
     },
 
-    updateInvocationStatus: (invocationId, status, _agentId?: string, agentName?: string) => {
+    updateInvocationStatus: (invocationId, status, _agentId?: string, _agentName?: string) => {
       set((state) => {
         // 找到完成的 agent
         const completedAgent = state.activeAgents.find((a) => a.id === invocationId);

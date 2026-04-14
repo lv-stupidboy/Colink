@@ -18,6 +18,7 @@ const (
 	ChunkTypeToolUse    ChunkType = "tool_use"    // 工具调用开始
 	ChunkTypeToolResult ChunkType = "tool_result" // 工具调用结果
 	ChunkTypeUsage      ChunkType = "usage"       // Token 使用更新
+	ChunkTypeQuestion   ChunkType = "question"    // AskUserQuestion 工具调用（需要用户输入）
 )
 
 // SessionStrategy 会话策略类型
@@ -50,6 +51,23 @@ type Chunk struct {
 	IsError   bool                   // 是否错误（仅 tool_result 类型）
 	Usage     *TokenUsage            // Token使用（仅 usage 类型）
 	Done      bool                   // 是否结束（thinking 完成标记）
+	// AskUserQuestion 相关字段（仅 question 类型）
+	Questions []QuestionItem         // 问题列表（仅 question 类型）
+}
+
+// QuestionItem AskUserQuestion 工具的问题项
+type QuestionItem struct {
+	Header     string            `json:"header"`     // 问题标题（最多 12 字符）
+	Question   string            `json:"question"`   // 问题内容
+	MultiSelect bool             `json:"multiSelect"` // 是否允许多选
+	Options    []QuestionOption `json:"options"`    // 选项列表
+}
+
+// QuestionOption AskUserQuestion 工具的选项
+type QuestionOption struct {
+	Label       string `json:"label"`       // 选项标签
+	Description string `json:"description"` // 选项描述
+	Preview     string `json:"preview"`     // 预览内容（可选）
 }
 
 // ChunkListener 外部 chunk 监听器回调函数类型

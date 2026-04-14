@@ -657,6 +657,12 @@ class APIClient {
     },
   };
 
+  // Agent Question API (AskUserQuestion)
+  agentQuestion = {
+    submitAnswer: (threadId: string, toolCallId: string, answer: string): Promise<{ status: string }> =>
+      this.request(`/agents/question/${threadId}/answer`, 'POST', { toolCallId, answer }),
+  };
+
   // Settings API
   settings = {
     list: (query?: SettingsListQuery): Promise<SettingsListResponse> => {
