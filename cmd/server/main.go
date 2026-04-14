@@ -40,6 +40,9 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/natefinch/lumberjack.v2"
+
+	// 导入所有插件包（触发 init() 自动注册）
+	_ "github.com/anthropic/isdp/internal/service/agent/plugins/all"
 )
 
 // 版本信息（构建时通过 -ldflags 注入）
