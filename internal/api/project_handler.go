@@ -169,6 +169,28 @@ func (h *ProjectHandler) CreateFolder(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
+// GetFileContent 获取文件内容
+func (h *ProjectHandler) GetFileContent(c *gin.Context) {
+	basePath := c.Query("basePath")
+	if basePath == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "basePath is required"})
+		return
+	}
+
+	filePath := c.Query("path")
+	if filePath == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "path is required"})
+		return
+	}
+
+	result, err := h.service.GetFileContent(c.Request.Context(), basePath, filePath)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
 // RegisterRoutes 注册路由
 func (h *ProjectHandler) RegisterRoutes(r *gin.RouterGroup) {
 	projects := r.Group("/projects")
@@ -186,6 +208,7 @@ func (h *ProjectHandler) RegisterRoutes(r *gin.RouterGroup) {
 	{
 		files.GET("/browse", h.BrowsePath)
 		files.GET("/validate", h.ValidatePath)
+		files.GET("/content", h.GetFileContent)
 		files.POST("/folder", h.CreateFolder)
 	}
 }

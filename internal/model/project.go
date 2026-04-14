@@ -145,3 +145,12 @@ type ValidatePathResponse struct {
 	Error     string `json:"error,omitempty"`
 	CanCreate bool   `json:"canCreate"` // 是否可以在此路径创建项目
 }
+
+// FileContentResponse 文件内容响应
+type FileContentResponse struct {
+	Content   string `json:"content"`   // 文件内容
+	Size      int64  `json:"size"`      // 文件大小（字节）
+	Truncated bool   `json:"truncated"` // 是否截断（超过1MB）
+	Path      string `json:"path"`      // 文件路径
+	IsBinary  bool   `json:"isBinary"`  // 是否二进制文件
+}

@@ -458,3 +458,127 @@ func (s *Service) ListFilesByPath(ctx context.Context, basePath string, subPath 
 		HasMore: false,
 	}, nil
 }
+
+// maxFileSize 文件最大读取大小（1MB）
+const maxFileSize = 1 * 1024 * 1024
+
+// binaryExtensions 常见二进制文件扩展名
+var binaryExtensions = map[string]bool{
+	".exe":   true,
+	".dll":   true,
+	".so":    true,
+	".dylib": true,
+	".bin":   true,
+	".dat":   true,
+	".png":   true,
+	".jpg":   true,
+	".jpeg":  true,
+	".gif":   true,
+	".bmp":   true,
+	".ico":   true,
+	".svg":   true, // SVG 虽然是文本，但通常是图片资源
+	".webp":  true,
+	".pdf":   true,
+	".zip":   true,
+	".tar":   true,
+	".gz":    true,
+	".rar":   true,
+	".7z":    true,
+	".mp3":   true,
+	".mp4":   true,
+	".avi":   true,
+	".mov":   true,
+	".wav":   true,
+	".flv":   true,
+	".mkv":   true,
+	".woff":  true,
+	".woff2": true,
+	".ttf":   true,
+	".otf":   true,
+	".eot":   true,
+	".class": true,
+	".jar":   true,
+	".war":   true,
+	".pyc":   true,
+	".pyd":   true,
+	".node":  true,
+	".db":    true,
+	".sqlite": true,
+	".sqlite3": true,
+}
+
+// isBinaryFile 判断是否为二进制文件
+func isBinaryFile(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	return binaryExtensions[ext]
+}
+
+// GetFileContent 获取文件内容
+func (s *Service) GetFileContent(ctx context.Context, basePath string, filePath string) (*model.FileContentResponse, error) {
+	if basePath == "" {
+		return nil, errors.New("基础路径不能为空")
+	}
+
+	// 安全检查：防止路径遍历攻击
+	filePath = filepath.Clean(filePath)
+	fullPath := filepath.Join(basePath, filePath)
+
+	// 确保完整路径在基础路径内
+	if !strings.HasPrefix(fullPath, basePath) {
+		return nil, errors.New("无效的路径")
+	}
+
+	// 检查文件是否存在
+	info, err := os.Stat(fullPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, errors.New("文件不存在")
+		}
+		return nil, err
+	}
+
+	// 检查是否为目录
+	if info.IsDir() {
+		return nil, errors.New("路径是目录，不是文件")
+	}
+
+	// 判断是否为二进制文件
+	isBinary := isBinaryFile(fullPath)
+
+	resp := &model.FileContentResponse{
+		Path:    filePath,
+		Size:    info.Size(),
+		IsBinary: isBinary,
+	}
+
+	// 如果是二进制文件，不读取内容
+	if isBinary {
+		resp.Content = ""
+		resp.Truncated = false
+		return resp, nil
+	}
+
+	// 读取文件内容
+	// 限制读取大小，防止大文件占用过多内存
+	readSize := info.Size()
+	if readSize > maxFileSize {
+		readSize = maxFileSize
+		resp.Truncated = true
+	} else {
+		resp.Truncated = false
+	}
+
+	data, err := os.ReadFile(fullPath)
+	if err != nil {
+		return nil, errors.New("读取文件失败: " + err.Error())
+	}
+
+	// 截断内容（如果超过最大大小）
+	if len(data) > int(readSize) {
+		data = data[:int(readSize)]
+	}
+
+	resp.Content = string(data)
+
+	return resp, nil
+}
