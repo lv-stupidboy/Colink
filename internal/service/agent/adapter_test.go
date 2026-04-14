@@ -7,8 +7,8 @@ import (
 	"github.com/google/uuid"
 )
 
-func TestNewAdapter_NilBaseAgent(t *testing.T) {
-	adapter := NewAdapter(nil)
+func TestGetAdapter_NilBaseAgent(t *testing.T) {
+	adapter := GetAdapter(nil)
 	if adapter != nil {
 		t.Error("Expected nil adapter for nil base agent")
 	}

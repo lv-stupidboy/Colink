@@ -4,7 +4,6 @@ import (
 	"context"
 	"os/exec"
 
-	"github.com/anthropic/isdp/internal/model"
 	"github.com/google/uuid"
 )
 
@@ -53,11 +52,6 @@ const (
 	SessionStatusFailed    SessionStatus = "failed"
 	SessionStatusStopped   SessionStatus = "stopped"
 )
-
-// NewAdapter 根据基础Agent类型创建适配器（使用插件注册表）
-func NewAdapter(baseAgent *model.BaseAgent) AgentAdapter {
-	return GetAdapter(baseAgent)
-}
 
 func min(a, b int) int {
 	if a < b {
