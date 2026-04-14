@@ -135,9 +135,7 @@ const FileTree: React.FC<FileTreeProps> = ({ projectId, projectPath, onFileSelec
       const files = await loadFiles('');
       const nodes = files.map(convertToDataNode);
       setTreeData(nodes);
-      // Auto-expand all directories by default
-      const dirKeys = files.filter(f => f.isDir).map(f => f.path);
-      setExpandedKeys(dirKeys);
+      // 默认收起，不自动展开任何目录
     } finally {
       setLoading(false);
     }

@@ -5,6 +5,8 @@
   background: var(--bg-container, #1e1e24);
   display: flex;
   flex-direction: column;
+  height: 100vh;
+  width: 100vw;
   animation: fade-in 0.2s ease;
 }
 
@@ -49,7 +51,18 @@
 .focus-shell-content {
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  display: flex;
+  overflow: hidden;
+  height: 100%;
+}
+
+/* Monaco Editor 需要明确的高度 */
+.focus-shell-content > div,
+.focus-shell-content > .monaco-editor {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
 }
 
 /* 深色模式 */

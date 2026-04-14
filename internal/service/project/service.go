@@ -526,8 +526,16 @@ func (s *Service) GetFileContent(ctx context.Context, basePath string, filePath 
 		basePath += string(filepath.Separator)
 	}
 
-	// 安全检查：防止路径遍历攻击
+	// 规范化 filePath，去掉前导分隔符（防止被当作绝对路径）
 	filePath = filepath.Clean(filePath)
+	// 去掉前导的路径分隔符（Windows: \ 或 /，Unix: /）
+	for strings.HasPrefix(filePath, string(filepath.Separator)) {
+		filePath = strings.TrimPrefix(filePath, string(filepath.Separator))
+	}
+	for strings.HasPrefix(filePath, "/") {
+		filePath = strings.TrimPrefix(filePath, "/")
+	}
+
 	fullPath := filepath.Join(basePath, filePath)
 
 	// 确保完整路径在基础路径内

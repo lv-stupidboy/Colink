@@ -238,7 +238,6 @@ func (o *Orchestrator) CancelAgent(ctx context.Context, invocationID uuid.UUID) 
 func (o *Orchestrator) broadcastStatus(threadID, invocationID uuid.UUID, status string, role model.AgentRole, agentID string) {
 	// 委托给 ExecutionService 的实现（包含 input 支持）
 	o.executionService.broadcastStatus(threadID, invocationID, status, role, "", agentID, "")
-	o.executionService.broadcastStatus(threadID, invocationID, status, role, "", "")
 
 	// 通知外部 chunk 监听器（status 事件）
 	o.executionService.NotifyChunkListeners(threadID, invocationID, Chunk{
