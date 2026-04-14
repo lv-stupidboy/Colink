@@ -91,6 +91,20 @@ type ThreadContext struct {
 	LoadedAt         time.Time
 }
 
+// SessionRecorder 会话记录器接口（用于解耦 a2a 包，避免循环导入）
+type SessionRecorder interface {
+	RecordFailedSession(threadID, configID, sessionID string)
+	RecordSuccessfulSession(threadID, configID, sessionID string)
+}
+
+// 全局 SessionRecorder 实例（通过 SetSessionRecorder 设置）
+var globalSessionRecorder SessionRecorder
+
+// SetSessionRecorder 设置全局 SessionRecorder（在程序启动时由 a2a 包调用）
+func SetSessionRecorder(recorder SessionRecorder) {
+	globalSessionRecorder = recorder
+}
+
 // ExecutionService 统一执行服务，整合Orchestrator和InteractiveSession的功能
 type ExecutionService struct {
 	invocationRepo *repo.AgentInvocationRepository
@@ -274,7 +288,7 @@ func (es *ExecutionService) markInvocationFailed(invocationID uuid.UUID, reason 
 		logError("Failed to update invocation status on timeout", zap.Error(err))
 	}
 
-	es.broadcastStatus(invocation.ThreadID, invocation.ID, "failed", invocation.Role, "", "")
+	es.broadcastStatus(invocation.ThreadID, invocation.ID, "failed", invocation.Role, "", invocation.AgentConfigID.String(), "")
 }
 
 // SpawnAgent 启动Agent（统一执行入口）
@@ -289,8 +303,21 @@ func (es *ExecutionService) SpawnAgent(ctx context.Context, req *SpawnRequest) (
 	}
 	logInfo("[PERF] resolveConfigAndBaseAgent", zap.Duration("duration", time.Since(resolveStart)))
 
+	// 如果 SessionStrategy 未设置，自动判断是否应该使用 resume
+	// 场景：用户通过前端直接 Spawn（如 @mention），需要自动判断会话策略
+	if req.SessionStrategy == "" {
+		req.SessionStrategy = es.shouldAutoResume(ctx, req.ThreadID, config.ID)
+		if req.SessionStrategy == SessionStrategyResume {
+			logInfo("SpawnAgent: 自动判断使用 resume 会话策略",
+				zap.String("agentName", config.Name),
+				zap.String("agentID", config.ID.String()),
+				zap.String("threadID", req.ThreadID.String()))
+		}
+	}
+
 	// 创建调用记录
 	invocationCreateStart := time.Now()
+	now := time.Now()
 	invocation := &model.AgentInvocation{
 		ID:            uuid.New(),
 		ThreadID:      req.ThreadID,
@@ -299,7 +326,8 @@ func (es *ExecutionService) SpawnAgent(ctx context.Context, req *SpawnRequest) (
 		AgentName:     config.Name, // 存储 Agent 名称，用于历史显示
 		Status:        model.InvocationStatusPending,
 		Input:         req.Input,
-		CreatedAt:     time.Now(),
+		CreatedAt:     now,
+		StartedAt:     &now, // 设置开始时间，用于历史显示耗时
 	}
 
 	if err := es.invocationRepo.Create(ctx, invocation); err != nil {
@@ -327,7 +355,7 @@ func (es *ExecutionService) SpawnAgent(ctx context.Context, req *SpawnRequest) (
 	es.mu.Unlock()
 
 	// 广播状态更新
-	es.broadcastStatus(req.ThreadID, invocation.ID, "started", config.Role, config.Name, req.Input)
+	es.broadcastStatus(req.ThreadID, invocation.ID, "started", config.Role, config.Name, config.ID.String(), req.Input)
 
 	// 异步执行Agent
 	go es.executeAgent(agentCtx, invocation, config, baseAgent, req)
@@ -362,11 +390,11 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 	if err := es.invocationRepo.Update(ctx, invocation); err != nil {
 		logError("Failed to update invocation status to running", zap.Error(err))
 	}
-	es.broadcastStatus(req.ThreadID, invocation.ID, "running", config.Role, config.Name, "")
+	es.broadcastStatus(req.ThreadID, invocation.ID, "running", config.Role, config.Name, config.ID.String(), "")
 
 	// 构建上下文
 	contextStart := time.Now()
-	contextLayers, err := es.buildContextLayers(ctx, req.ThreadID, config)
+	contextLayers, err := es.buildContextLayers(ctx, req.ThreadID, config, req)
 	if err != nil {
 		logError("buildContextLayers failed", zap.Error(err))
 		es.handleAgentError(ctx, invocation, fmt.Errorf("failed to build context layers: %w", err))
@@ -479,6 +507,18 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 
 	if err != nil {
 		logError("Adapter.ExecuteWithStream failed", zap.Error(err))
+		// 执行失败时也保存 sessionId 用于问题定位
+		if result != nil && result.SessionID != "" {
+			// 保存 sessionId 到 invocation（入库用于问题定位）
+			invocation.SessionID = result.SessionID
+			if updateErr := es.invocationRepo.Update(ctx, invocation); updateErr != nil {
+				logError("Failed to save sessionId on failure", zap.Error(updateErr))
+			}
+			// 记录失败会话（通过 sessionRecorder）
+			if globalSessionRecorder != nil {
+				globalSessionRecorder.RecordFailedSession(req.ThreadID.String(), config.ID.String(), result.SessionID)
+			}
+		}
 		es.handleAgentErrorWithContext(ctx, invocation, fmt.Errorf("adapter execution failed: %w", err), execReq)
 		return
 	}
@@ -488,7 +528,13 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 		es.csMu.Lock()
 		es.cliSessions[sessionKey] = result.SessionID
 		es.csMu.Unlock()
-		logInfo("Session ID saved for future resume", zap.String("sessionKey", sessionKey), zap.String("sessionId", result.SessionID))
+		// 同时保存到 invocation 对象（持久化到数据库用于问题定位）
+		invocation.SessionID = result.SessionID
+		// 记录成功会话（通过 sessionRecorder）
+		if globalSessionRecorder != nil {
+			globalSessionRecorder.RecordSuccessfulSession(req.ThreadID.String(), config.ID.String(), result.SessionID)
+		}
+		logInfo("Session ID saved for future resume and persistence", zap.String("sessionKey", sessionKey), zap.String("sessionId", result.SessionID))
 	}
 
 	output := outputBuilder.String()
@@ -522,7 +568,7 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 	}
 
 	// 广播完成状态
-	es.broadcastStatus(req.ThreadID, invocation.ID, "completed", config.Role, config.Name, "")
+	es.broadcastStatus(req.ThreadID, invocation.ID, "completed", config.Role, config.Name, config.ID.String(), "")
 
 	// 检查是否需要路由到下一个Agent
 	es.checkRouting(ctx, req.ThreadID, config, output)
@@ -707,7 +753,7 @@ func (es *ExecutionService) handleAgentError(ctx context.Context, invocation *mo
 		logError("Failed to update invocation on error", zap.Error(updateErr))
 	}
 
-	es.broadcastStatus(invocation.ThreadID, invocation.ID, "failed", invocation.Role, "", "")
+	es.broadcastStatus(invocation.ThreadID, invocation.ID, "failed", invocation.Role, "", invocation.AgentConfigID.String(), "")
 }
 
 // handleAgentErrorWithContext 处理 Agent 错误（带执行请求上下文，用于详细诊断）
@@ -722,7 +768,7 @@ func (es *ExecutionService) handleAgentErrorWithContext(ctx context.Context, inv
 		logError("Failed to update invocation on error", zap.Error(updateErr))
 	}
 
-	es.broadcastStatus(invocation.ThreadID, invocation.ID, "failed", invocation.Role, "", "")
+	es.broadcastStatus(invocation.ThreadID, invocation.ID, "failed", invocation.Role, "", invocation.AgentConfigID.String(), "")
 }
 
 // isResumeFallbackError 判断是否为可降级的 resume 错误
@@ -959,7 +1005,7 @@ func (es *ExecutionService) ClearThreadContext(threadID uuid.UUID) {
 }
 
 // buildContextLayers 构建上下文层
-func (es *ExecutionService) buildContextLayers(ctx context.Context, threadID uuid.UUID, config *model.AgentRoleConfig) (*ContextLayers, error) {
+func (es *ExecutionService) buildContextLayers(ctx context.Context, threadID uuid.UUID, config *model.AgentRoleConfig, req *SpawnRequest) (*ContextLayers, error) {
 	layers := &ContextLayers{}
 
 	// 预加载上下文（一次性获取所有数据）
@@ -971,12 +1017,20 @@ func (es *ExecutionService) buildContextLayers(ctx context.Context, threadID uui
 	// Layer 0: 系统提示（使用缓存的上下文）
 	layers.Layer0 = es.buildDynamicSystemPromptFromContext(tc, config)
 
-	// Layer 1: Thread历史
-	messages, err := es.msgRepo.FindByThreadID(ctx, threadID, 100)
-	if err != nil {
-		return nil, err
+	// Layer 1: Thread历史 - 根据会话策略决定是否传递
+	// A2A 机制下，无论是跨角色还是同角色，都不需要传递历史消息：
+	// - 跨角色（SessionStrategyNew）：CLI 使用新会话，历史不相关
+	// - 同角色（SessionStrategyResume）：CLI --resume 自动恢复历史，无需重复传递
+	if req != nil && (req.SessionStrategy == SessionStrategyNew || req.SessionStrategy == SessionStrategyResume) {
+		layers.Layer1 = "" // A2A 调用不传递历史
+	} else {
+		// 非 A2A 调用（用户直接触发）：使用结构化提取而非完整历史
+		messages, err := es.msgRepo.FindByThreadID(ctx, threadID, 100)
+		if err != nil {
+			return nil, err
+		}
+		layers.Layer1 = es.extractStructuredHistory(messages, 50)
 	}
-	layers.Layer1 = es.formatMessages(messages)
 
 	// Layer 2: 工作产物（使用缓存的 Thread）
 	layers.Layer2 = es.getArtifacts(tc.Thread)
@@ -1301,7 +1355,8 @@ func (es *ExecutionService) checkRouting(ctx context.Context, threadID uuid.UUID
 			zap.String("sessionStrategy", string(sessionStrategy)))
 
 		// 构建 A2A 输入（原始用户消息 + 前序响应上下文 + 触发者信息）
-		a2aInput := es.buildA2AInput(ctx, threadID, currentConfig, a2aCtx, output)
+		// 简化调用 - 不传递 contentBlocks（前序输出已包含工具调用结果）
+		a2aInput := es.buildA2AInput(ctx, threadID, currentConfig, a2aCtx, output, nil, sessionStrategy)
 
 		// 使用构建的 A2A 输入
 		es.SpawnAgent(ctx, &SpawnRequest{
@@ -1351,7 +1406,15 @@ func (es *ExecutionService) parseMentions(content string) []string {
 // 参考 clowder-ai 的做法：传递原始用户消息 + 格式化的前序响应上下文
 // 而不是传递包含 @mention 的原始输出
 // 优化：新增协作规则、触发者信息、Agent 元信息
-func (es *ExecutionService) buildA2AInput(ctx context.Context, threadID uuid.UUID, fromAgent *model.AgentRoleConfig, a2aCtx *A2AContext, output string) string {
+func (es *ExecutionService) buildA2AInput(
+	ctx context.Context,
+	threadID uuid.UUID,
+	fromAgent *model.AgentRoleConfig,
+	a2aCtx *A2AContext,
+	output string,
+	contentBlocks []ContentBlockData,
+	sessionStrategy SessionStrategy,
+) string {
 	var sb strings.Builder
 
 	// 1. 协作规则（有触发者信息时注入）
@@ -1361,7 +1424,18 @@ func (es *ExecutionService) buildA2AInput(ctx context.Context, threadID uuid.UUI
 		sb.WriteString("---\n\n")
 	}
 
-	// 2. 原始请求
+	// 2. 会话策略信息（新增）
+	sb.WriteString("## 会话策略\n\n")
+	if sessionStrategy == SessionStrategyResume {
+		sb.WriteString("**类型**: Resume（恢复会话）\n")
+		sb.WriteString("**说明**: CLI 将使用 --resume 恢复之前的会话上下文\n\n")
+	} else {
+		sb.WriteString("**类型**: New（新会话）\n")
+		sb.WriteString("**说明**: CLI 将使用全新会话，不继承历史上下文\n\n")
+	}
+	sb.WriteString("---\n\n")
+
+	// 3. 原始请求
 	originalMessage := es.getLastUserMessage(ctx, threadID)
 	if originalMessage != "" {
 		sb.WriteString("## 原始请求\n\n")
@@ -1369,27 +1443,25 @@ func (es *ExecutionService) buildA2AInput(ctx context.Context, threadID uuid.UUI
 		sb.WriteString("\n\n---\n\n")
 	}
 
-	// 3. 前序分析（包含元信息）
+	// 4. 前序分析（使用结构化过滤）
 	if fromAgent != nil {
-		sb.WriteString("## 前序分析\n\n")
+		sb.WriteString("## 前序分析（结构化摘要）\n\n")
 		sb.WriteString(fmt.Sprintf("**来自**: %s\n", fromAgent.Name))
 		if fromAgent.Role != "" {
 			sb.WriteString(fmt.Sprintf("**角色**: %s\n", es.getRoleDescription(fromAgent.Role)))
 		}
-		// 擅长领域（使用 Description）
-		strengths := fromAgent.Description
-		if strengths != "" {
-			sb.WriteString(fmt.Sprintf("**擅长**: %s\n", strengths))
+		if fromAgent.Description != "" {
+			sb.WriteString(fmt.Sprintf("**擅长**: %s\n", fromAgent.Description))
 		}
 		sb.WriteString("\n")
 
-		// 前序响应内容（移除纯 @mention 行）
-		strippedOutput := es.stripPureMentionLines(output)
-		sb.WriteString(strippedOutput)
+		// 结构化过滤后的输出
+		filteredOutput := es.filterStructuredOutput(output, contentBlocks)
+		sb.WriteString(filteredOutput)
 		sb.WriteString("\n\n---\n\n")
 	}
 
-	// 4. 触发者信息
+	// 5. 触发者信息
 	if a2aCtx != nil && a2aCtx.FromAgent != nil {
 		sb.WriteString(fmt.Sprintf("**Direct message from %s; reply to %s**\n",
 			a2aCtx.FromAgent.Name,
@@ -1661,12 +1733,16 @@ func (es *ExecutionService) checkSignalRouting(ctx context.Context, threadID uui
 			zap.String("threadId", threadID.String()),
 			zap.String("sessionStrategy", string(sessionStrategy)))
 
+		// 构建 A2A 输入（结构化摘要 + 会话策略）
+		// 简化调用 - 不传递 contentBlocks（前序输出已包含工具调用结果）
+		a2aInput := es.buildA2AInput(ctx, threadID, config, a2aCtx, output, nil, sessionStrategy)
+
 		// 触发下一个 Agent
 		es.SpawnAgent(ctx, &SpawnRequest{
 			ThreadID:        threadID,
 			ConfigID:        targetConfig.ID,
 			Role:            targetConfig.Role,
-			Input:           output,
+			Input:           a2aInput,
 			ProjectPath:     projectPath,
 			SessionStrategy: sessionStrategy,
 		})
@@ -1756,13 +1832,13 @@ func (es *ExecutionService) CancelAgent(ctx context.Context, invocationID uuid.U
 	}
 
 	// 5. 广播取消状态
-	es.broadcastStatus(invocation.ThreadID, invocation.ID, "cancelled", invocation.Role, "", "")
+	es.broadcastStatus(invocation.ThreadID, invocation.ID, "cancelled", invocation.Role, "", invocation.AgentConfigID.String(), "")
 
 	return nil
 }
 
 // broadcastStatus 广播状态
-func (es *ExecutionService) broadcastStatus(threadID, invocationID uuid.UUID, status string, role model.AgentRole, agentName string, input string) {
+func (es *ExecutionService) broadcastStatus(threadID, invocationID uuid.UUID, status string, role model.AgentRole, agentName string, agentID string, input string) {
 	logInfo("broadcastStatus called", zap.String("threadId", threadID.String()), zap.String("invocationId", invocationID.String()), zap.String("status", status))
 	if es.wsHub != nil {
 		payload := map[string]interface{}{
@@ -1770,6 +1846,7 @@ func (es *ExecutionService) broadcastStatus(threadID, invocationID uuid.UUID, st
 			"status":       status,
 			"role":         string(role),
 			"agentName":    agentName,
+			"agentId":      agentID,
 		}
 		// 仅在 started 状态时包含 input
 		if status == "started" && input != "" {
@@ -2175,8 +2252,21 @@ func (es *ExecutionService) GetInvocationStatus(ctx context.Context, invocationI
 // SpawnAgentForUserMessage 为用户消息触发Agent响应
 // 实现message.AgentSpawner接口
 // 使用工作流模板中指定的Agent，而不是根据Phase硬编码选择
+// 如果用户@的是同一个Agent，使用 resume 方式触发对话
 func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, threadID uuid.UUID, userMessage string) error {
 	logInfo("SpawnAgentForUserMessage 被调用", zap.String("threadID", threadID.String()), zap.String("userMessage", userMessage))
+
+	// 解析用户消息中的 @mentions
+	var mentionedAgentIDs []string
+	if es.mentionParser != nil {
+		mentionedIDs, err := es.mentionParser.Parse(ctx, userMessage, "")
+		if err != nil {
+			logError("SpawnAgentForUserMessage: 解析 @mentions 失败", zap.Error(err))
+		} else {
+			mentionedAgentIDs = mentionedIDs
+			logInfo("SpawnAgentForUserMessage: 解析到 @mentions", zap.Strings("agentIDs", mentionedAgentIDs))
+		}
+	}
 
 	// 检查是否已有Agent在运行
 	es.mu.RLock()
@@ -2347,13 +2437,34 @@ func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, thread
 			// 继续使用回退逻辑
 		} else {
 			logInfo("SpawnAgentForUserMessage: 使用入口 Agent", zap.String("name", config.Name), zap.String("id", config.ID.String()))
+
+			// 判断会话策略：如果用户@的是同一个Agent，使用 resume
+			var sessionStrategy SessionStrategy
+			if len(mentionedAgentIDs) > 0 {
+				sessionStrategy = es.shouldUseResumeStrategy(ctx, threadID, config.ID, mentionedAgentIDs)
+				if sessionStrategy == SessionStrategyResume {
+					logInfo("SpawnAgentForUserMessage: 用户@同一Agent，使用 resume 会话策略",
+						zap.String("agentName", config.Name),
+						zap.String("agentID", config.ID.String()))
+				}
+			} else {
+				// 没有 @mention，检查是否应该自动 resume
+				sessionStrategy = es.shouldAutoResume(ctx, threadID, config.ID)
+				if sessionStrategy == SessionStrategyResume {
+					logInfo("SpawnAgentForUserMessage: 自动判断使用 resume 会话策略（无@mention）",
+						zap.String("agentName", config.Name),
+						zap.String("agentID", config.ID.String()))
+				}
+			}
+
 			// 使用工作流模板中指定的Agent
 			_, err = es.SpawnAgent(ctx, &SpawnRequest{
-				ThreadID:    threadID,
-				Role:        config.Role,
-				ConfigID:    config.ID,
-				Input:       userMessage,
-				ProjectPath: projectPath,
+				ThreadID:        threadID,
+				Role:            config.Role,
+				ConfigID:        config.ID,
+				Input:           userMessage,
+				ProjectPath:     projectPath,
+				SessionStrategy: sessionStrategy,
 			})
 			return err
 		}
@@ -2374,13 +2485,33 @@ func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, thread
 		}
 	}
 
+	// 判断会话策略：如果用户@的是同一个Agent，使用 resume
+	var sessionStrategy SessionStrategy
+	if len(mentionedAgentIDs) > 0 {
+		sessionStrategy = es.shouldUseResumeStrategy(ctx, threadID, config.ID, mentionedAgentIDs)
+		if sessionStrategy == SessionStrategyResume {
+			logInfo("SpawnAgentForUserMessage: 用户@同一Agent（回退），使用 resume 会话策略",
+				zap.String("agentName", config.Name),
+				zap.String("agentID", config.ID.String()))
+		}
+	} else {
+		// 没有 @mention，检查是否应该自动 resume
+		sessionStrategy = es.shouldAutoResume(ctx, threadID, config.ID)
+		if sessionStrategy == SessionStrategyResume {
+			logInfo("SpawnAgentForUserMessage: 自动判断使用 resume 会话策略（回退，无@mention）",
+				zap.String("agentName", config.Name),
+				zap.String("agentID", config.ID.String()))
+		}
+	}
+
 	// 触发Agent
 	_, err = es.SpawnAgent(ctx, &SpawnRequest{
-		ThreadID:    threadID,
-		Role:        config.Role,
-		ConfigID:    config.ID,
-		Input:       userMessage,
-		ProjectPath: projectPath,
+		ThreadID:        threadID,
+		Role:            config.Role,
+		ConfigID:        config.ID,
+		Input:           userMessage,
+		ProjectPath:     projectPath,
+		SessionStrategy: sessionStrategy,
 	})
 	return err
 }
@@ -2388,6 +2519,94 @@ func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, thread
 // timePtr 返回时间的指针
 func timePtr(t time.Time) *time.Time {
 	return &t
+}
+
+// shouldUseResumeStrategy 判断是否应该使用 resume 会话策略
+// 当用户@的是同一个Agent（与最后一个完成的Agent相同）时使用 resume
+func (es *ExecutionService) shouldUseResumeStrategy(ctx context.Context, threadID uuid.UUID, targetConfigID uuid.UUID, mentionedAgentIDs []string) SessionStrategy {
+	// 如果没有 @mentions，不使用 resume
+	if len(mentionedAgentIDs) == 0 {
+		return ""
+	}
+
+	// 检查目标 Agent 是否在被 @ 的列表中
+	targetIDStr := targetConfigID.String()
+	isMentioned := false
+	for _, mentionedID := range mentionedAgentIDs {
+		if mentionedID == targetIDStr {
+			isMentioned = true
+			break
+		}
+	}
+	if !isMentioned {
+		return ""
+	}
+
+	// 获取该线程最后一个完成的 invocation
+	lastCompleted, err := es.invocationRepo.FindRecentlyCompletedByThread(ctx, threadID, 5) // 最近5分钟
+	if err != nil || len(lastCompleted) == 0 {
+		logInfo("shouldUseResumeStrategy: 没有找到最近完成的 invocation", zap.Error(err))
+		return ""
+	}
+
+	// 检查最后一个完成的 Agent 是否与目标 Agent 相同
+	lastInvocation := lastCompleted[0] // 第一个是最近的
+	if lastInvocation.AgentConfigID == targetConfigID {
+		logInfo("shouldUseResumeStrategy: 目标 Agent 与最后一个完成的 Agent 相同，使用 resume",
+			zap.String("targetConfigID", targetConfigID.String()),
+			zap.String("lastCompletedConfigID", lastInvocation.AgentConfigID.String()),
+			zap.String("lastCompletedRole", string(lastInvocation.Role)))
+		return SessionStrategyResume
+	}
+
+	// 检查是否同角色（不同实例）
+	config, err := es.configSvc.GetByID(ctx, targetConfigID)
+	if err != nil || config == nil {
+		return ""
+	}
+	if string(config.Role) == string(lastInvocation.Role) {
+		logInfo("shouldUseResumeStrategy: 目标 Agent 与最后一个完成的 Agent 同角色，使用 resume",
+			zap.String("targetRole", string(config.Role)),
+			zap.String("lastCompletedRole", string(lastInvocation.Role)))
+		return SessionStrategyResume
+	}
+
+	return ""
+}
+
+// shouldAutoResume 判断是否应该自动使用 resume 会话策略
+// 当目标 Agent 与最后一个完成的 Agent 相同时自动使用 resume（无需显式 @mention）
+func (es *ExecutionService) shouldAutoResume(ctx context.Context, threadID uuid.UUID, targetConfigID uuid.UUID) SessionStrategy {
+	// 获取该线程最后一个完成的 invocation
+	lastCompleted, err := es.invocationRepo.FindRecentlyCompletedByThread(ctx, threadID, 5) // 最近5分钟
+	if err != nil || len(lastCompleted) == 0 {
+		logInfo("shouldAutoResume: 没有找到最近完成的 invocation", zap.Error(err))
+		return ""
+	}
+
+	// 检查最后一个完成的 Agent 是否与目标 Agent 相同
+	lastInvocation := lastCompleted[0] // 第一个是最近的
+	if lastInvocation.AgentConfigID == targetConfigID {
+		logInfo("shouldAutoResume: 目标 Agent 与最后一个完成的 Agent 相同，自动使用 resume",
+			zap.String("targetConfigID", targetConfigID.String()),
+			zap.String("lastCompletedConfigID", lastInvocation.AgentConfigID.String()),
+			zap.String("lastCompletedRole", string(lastInvocation.Role)))
+		return SessionStrategyResume
+	}
+
+	// 检查是否同角色（不同实例）
+	config, err := es.configSvc.GetByID(ctx, targetConfigID)
+	if err != nil || config == nil {
+		return ""
+	}
+	if string(config.Role) == string(lastInvocation.Role) {
+		logInfo("shouldAutoResume: 目标 Agent 与最后一个完成的 Agent 同角色，自动使用 resume",
+			zap.String("targetRole", string(config.Role)),
+			zap.String("lastCompletedRole", string(lastInvocation.Role)))
+		return SessionStrategyResume
+	}
+
+	return ""
 }
 
 // matchCondition 匹配条件表达式
@@ -2529,10 +2748,17 @@ func (es *ExecutionService) formatFullPrompt(layers *ContextLayers, input string
 		}
 	}
 
-	// 用户输入
-	sb.WriteString("<user>\n")
-	sb.WriteString(input)
-	sb.WriteString("\n</user>\n")
+	// 用户输入部分：区分 A2A 输入和普通输入
+	// A2A 输入包含 "## 会话策略" 或 "## 前序分析" 特征
+	if strings.Contains(input, "## 会话策略") || strings.Contains(input, "## 前序分析") {
+		sb.WriteString("<a2a_input>\n")
+		sb.WriteString(input)
+		sb.WriteString("\n</a2a_input>\n")
+	} else {
+		sb.WriteString("<user>\n")
+		sb.WriteString(input)
+		sb.WriteString("\n</user>\n")
+	}
 
 	return sb.String()
 }
@@ -2551,3 +2777,242 @@ func (es *ExecutionService) broadcastFullPrompt(threadID, invocationID uuid.UUID
 		})
 	}
 }
+
+// filterStructuredOutput 从前序 Agent 输出中提取结构化关键信息
+// 保留：文件路径引用、关键结论标记、工具调用结果
+func (es *ExecutionService) filterStructuredOutput(output string, contentBlocks []ContentBlockData) string {
+	var result []string
+
+	// 1. 提取文件路径引用
+	filePatterns := []string{
+		`file://[^\s]+`,           // file://xxx
+		`path:\s*[^\s]+`,          // path: xxx
+		`\.\/[^\s]+`,              // ./xxx
+	}
+	for _, pattern := range filePatterns {
+		re := regexp.MustCompile(pattern)
+		matches := re.FindAllString(output, -1)
+		result = append(result, matches...)
+	}
+
+	// 2. 提取代码文件引用（排除干扰词）
+	// 匹配 xxx.go, xxx.ts, xxx.py 等文件名
+	codeFilePattern := `[a-zA-Z0-9_\-]+\.(go|ts|tsx|js|jsx|py|java|kt|rs|c|cpp|h|sql|yaml|yml|json|md)`
+	re := regexp.MustCompile(codeFilePattern)
+	matches := re.FindAllString(output, -1)
+	// 过滤掉常见干扰词
+	excludeWords := map[string]bool{
+		"true.md": true, "false.md": true, "null.json": true,
+	}
+	for _, m := range matches {
+		if !excludeWords[m] {
+			result = append(result, m)
+		}
+	}
+
+	// 3. 提取关键结论标记后的内容
+	conclusionPatterns := []string{
+		`结论[:：]\s*[^\n]+`,
+		`结果[:：]\s*[^\n]+`,
+		`关键点[:：]\s*[^\n]+`,
+		`总结[:：]\s*[^\n]+`,
+		`建议[:：]\s*[^\n]+`,
+		`要点[:：]\s*[^\n]+`,
+		`分析结果[:：]\s*[^\n]+`,
+	}
+	for _, pattern := range conclusionPatterns {
+		re := regexp.MustCompile(pattern)
+		matches := re.FindAllString(output, -1)
+		result = append(result, matches...)
+	}
+
+	// 4. 提取工具调用结果（如果有）
+	for _, block := range contentBlocks {
+		if block.Type == "tool_use" && block.Output != "" {
+			// 截取工具输出前 200 字符（避免过长）
+			outputStr := block.Output
+			if len(outputStr) > 200 {
+				outputStr = outputStr[:200] + "..."
+			}
+			result = append(result, fmt.Sprintf("[%s] %s", block.ToolName, outputStr))
+		}
+	}
+
+	// 去重并返回
+	seen := make(map[string]bool)
+	var unique []string
+	for _, item := range result {
+		item = strings.TrimSpace(item)
+		if item != "" && !seen[item] && len(item) > 3 { // 过滤过短内容
+			seen[item] = true
+			unique = append(unique, item)
+		}
+	}
+
+	if len(unique) == 0 {
+		return "(无关键结构化信息)"
+	}
+
+	return strings.Join(unique, "\n")
+}
+
+// extractStructuredHistory 从历史消息中提取结构化关键信息
+// 用于优化 Layer1 内容，避免完整历史导致输入过长
+func (es *ExecutionService) extractStructuredHistory(messages []*model.Message, maxMessages int) string {
+	var sb strings.Builder
+	sb.WriteString("## 会话历史摘要\n\n")
+
+	// 限制处理的消息数量
+	if len(messages) > maxMessages {
+		messages = messages[:maxMessages]
+	}
+
+	// 1. 提取用户核心请求（第一条用户消息）
+	for _, msg := range messages {
+		if msg.Role == model.MessageRoleUser {
+			sb.WriteString("**用户请求**: ")
+			content := msg.Content
+			if len(content) > 200 {
+				content = content[:200] + "..."
+			}
+			sb.WriteString(content)
+			sb.WriteString("\n\n")
+			break
+		}
+	}
+
+	// 2. 提取关键决策和结论
+	sb.WriteString("**关键结论**:\n")
+	conclusionPatterns := []string{
+		`结论[:：]\s*[^\n]+`,
+		`结果[:：]\s*[^\n]+`,
+		`关键点[:：]\s*[^\n]+`,
+		`总结[:：]\s*[^\n]+`,
+		`建议[:：]\s*[^\n]+`,
+		`要点[:：]\s*[^\n]+`,
+		`决定[:：]\s*[^\n]+`,
+		`完成[:：]\s*[^\n]+`,
+		`分析[:：]\s*[^\n]+`,
+	}
+
+	conclusionsFound := false
+	for _, msg := range messages {
+		if msg.Role == model.MessageRoleAgent {
+			for _, pattern := range conclusionPatterns {
+				re := regexp.MustCompile(pattern)
+				matches := re.FindAllString(msg.Content, -1)
+				for _, m := range matches {
+					sb.WriteString("- ")
+					sb.WriteString(m)
+					sb.WriteString("\n")
+					conclusionsFound = true
+				}
+			}
+		}
+	}
+	if !conclusionsFound {
+		sb.WriteString("- (无明确结论)\n")
+	}
+	sb.WriteString("\n")
+
+	// 3. 提取文件路径引用
+	sb.WriteString("**涉及文件**:\n")
+	filePatterns := []string{
+		`file://[^\s]+`,
+		`path:\s*[^\s]+`,
+		`\./[^\s]+`,
+		`[a-zA-Z0-9_\-]+\.(go|ts|tsx|js|jsx|py|java|kt|rs|c|cpp|h|sql|yaml|yml|json|md|html|css)`,
+	}
+	excludeWords := map[string]bool{
+		"true.md":    true,
+		"false.md":   true,
+		"null.json":  true,
+		"true.json":  true,
+		"false.json": true,
+	}
+
+	filesFound := false
+	seenFiles := make(map[string]bool)
+	for _, msg := range messages {
+		for _, pattern := range filePatterns {
+			re := regexp.MustCompile(pattern)
+			matches := re.FindAllString(msg.Content, -1)
+			for _, m := range matches {
+				m = strings.TrimSpace(m)
+				if !excludeWords[m] && !seenFiles[m] && len(m) > 5 {
+					sb.WriteString("- ")
+					sb.WriteString(m)
+					sb.WriteString("\n")
+					seenFiles[m] = true
+					filesFound = true
+				}
+			}
+		}
+	}
+	if !filesFound {
+		sb.WriteString("- (无文件引用)\n")
+	}
+	sb.WriteString("\n")
+
+	// 4. 提取工具调用摘要（从 ContentBlocks 解析）
+	sb.WriteString("**工具调用摘要**:\n")
+	toolsFound := false
+	for _, msg := range messages {
+		if msg.Role == model.MessageRoleAgent && len(msg.ContentBlocks) > 0 {
+			var blocks []ContentBlockData
+			if err := json.Unmarshal(msg.ContentBlocks, &blocks); err == nil {
+				for _, block := range blocks {
+					if block.Type == "tool_use" {
+						sb.WriteString("- [")
+						sb.WriteString(block.ToolName)
+						sb.WriteString("] ")
+						// 输入摘要（前 100 字符）
+						if block.Input != nil {
+							inputStr := fmt.Sprintf("%v", block.Input)
+							if len(inputStr) > 100 {
+								inputStr = inputStr[:100] + "..."
+							}
+							sb.WriteString(inputStr)
+						}
+						// 输出摘要（前 100 字符）
+						if block.Output != "" && !block.IsError {
+							outputStr := block.Output
+							if len(outputStr) > 100 {
+								outputStr = outputStr[:100] + "..."
+							}
+							sb.WriteString(" -> ")
+							sb.WriteString(outputStr)
+						}
+						sb.WriteString("\n")
+						toolsFound = true
+					}
+				}
+			}
+		}
+	}
+	if !toolsFound {
+		sb.WriteString("- (无工具调用)\n")
+	}
+	sb.WriteString("\n")
+
+	// 5. Agent 角色标识（最近的消息来源）
+	sb.WriteString("**对话参与者**:\n")
+	seenAgents := make(map[string]bool)
+	recentCount := 0
+	for i := len(messages) - 1; i >= 0 && recentCount < 5; i-- {
+		msg := messages[i]
+		if msg.Role == model.MessageRoleAgent && msg.AgentID != "" {
+			if !seenAgents[msg.AgentID] {
+				sb.WriteString("- ")
+				sb.WriteString(msg.AgentID)
+				sb.WriteString("\n")
+				seenAgents[msg.AgentID] = true
+				recentCount++
+			}
+		}
+	}
+	sb.WriteString("\n")
+
+	return sb.String()
+}
+

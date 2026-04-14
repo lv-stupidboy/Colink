@@ -37,6 +37,9 @@ type AgentInvocation struct {
 	// 后台执行支持：进程追踪
 	ProcessID *string `json:"processId,omitempty"` // Agent 进程 ID（用于启动恢复）
 
+	// CLI 会话追踪
+	SessionID string `json:"sessionId,omitempty"` // CLI 会话 ID（用于问题定位和 resume）
+
 	// Token 使用统计
 	InputTokens         int64   `json:"inputTokens,omitempty"`
 	OutputTokens        int64   `json:"outputTokens,omitempty"`

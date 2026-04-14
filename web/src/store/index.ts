@@ -2,7 +2,11 @@ import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 import type { Thread, Message, AgentInvocation, AgentConfig, Phase, AgentRole, Project, WorkflowTemplate, SandboxServer, MessageContentBlock } from '@/types';
 import type { TokenUsage, TaskProgress } from '@/types/status';
+import type { BlockingItem } from '@/types/blocking';
 import api from '@/api/client';
+
+// localStorage 持久化 key
+const STORAGE_KEY_BLOCKING_REMINDER = 'isdp_blocking_reminder_enabled';
 
 interface AppState {
   // 当前项目
@@ -78,6 +82,10 @@ interface AppState {
     toolOutput: 'expanded' | 'collapsed';
     thinking: 'expanded' | 'collapsed';
   };
+
+  // 阻塞提醒相关
+  blockingItems: BlockingItem[];
+  blockingReminderEnabled: boolean;
 }
 
 interface AppActions {
@@ -186,6 +194,12 @@ interface AppActions {
 
   // 可收缩面板默认状态 actions
   setCollapsibleDefaults: (type: 'toolOutput' | 'thinking', state: 'expanded' | 'collapsed') => void;
+
+  // 阻塞管理 actions
+  addBlockingItem: (item: BlockingItem) => void;
+  removeBlockingItem: (id: string) => void;
+  clearBlockingItems: () => void;
+  setBlockingReminderEnabled: (enabled: boolean) => void;
 }
 
 const initialState: AppState = {
@@ -232,6 +246,9 @@ const initialState: AppState = {
     toolOutput: 'collapsed',
     thinking: 'collapsed',
   },
+  // 阻塞提醒相关
+  blockingItems: [],
+  blockingReminderEnabled: localStorage.getItem(STORAGE_KEY_BLOCKING_REMINDER) !== 'false',
 };
 
 export const useAppStore = create<AppState & AppActions>()(
@@ -310,7 +327,12 @@ export const useAppStore = create<AppState & AppActions>()(
           activeAgents: (invocations || []).filter((i: AgentInvocation) => i.status === 'running'),
           // 恢复已完成的 Agent 历史
           completedAgents: (invocations || [])
-            .filter((i: AgentInvocation) => i.status === 'completed' || i.status === 'failed' || i.status === 'interrupted')
+            .filter((i: AgentInvocation) =>
+              i.status === 'completed' ||
+              i.status === 'failed' ||
+              i.status === 'interrupted' ||
+              i.status === 'cancelled'
+            )
             .map((i: AgentInvocation) => ({
               ...i,
               // 确保 agentName 存在，如果没有则使用 role
@@ -329,8 +351,13 @@ export const useAppStore = create<AppState & AppActions>()(
     },
 
     sendMessage: async (content, skipAgentTrigger = false) => {
-      const { currentThread } = get();
+      const { currentThread, blockingItems } = get();
       if (!currentThread) return;
+
+      // 用户发送新消息时，清除之前的阻塞项（开始新的交互）
+      if (blockingItems.length > 0) {
+        set({ blockingItems: [] });
+      }
 
       // 先创建本地消息（乐观更新）
       const userMessage: Message = {
@@ -355,8 +382,13 @@ export const useAppStore = create<AppState & AppActions>()(
     },
 
     spawnAgent: async (role, input, configId) => {
-      const { currentThread } = get();
+      const { currentThread, blockingItems } = get();
       if (!currentThread) return;
+
+      // 新 Agent 启动时，清除之前的阻塞项（因为用户已经开始新的任务了）
+      if (blockingItems.length > 0) {
+        set({ blockingItems: [] });
+      }
 
       try {
         await api.invocations.spawn(currentThread.id, role, input, configId);
@@ -533,35 +565,30 @@ export const useAppStore = create<AppState & AppActions>()(
         // 如果是当前正在流式输出的 invocation，停止流式输出
         const isCurrentStreaming = state.streamingInvocationId === invocationId;
 
-        // 将完成的 agent 移到 completedAgents
-        const newCompletedAgents = completedAgent
-          ? [
-              ...state.completedAgents.filter((a) => a.id !== invocationId),
-              {
-                ...completedAgent,
-                status: status as 'completed' | 'failed' | 'interrupted',
-                completedAt: new Date().toISOString(),
-              },
-            ]
-          : state.completedAgents;
+        // 如果 activeAgents 中没有这个 agent，说明页面可能刚刷新或数据已从 API 加载
+        // 不应该用假数据覆盖，直接忽略即可
+        if (!completedAgent) {
+          return {
+            isStreaming: isCurrentStreaming ? false : state.isStreaming,
+            streamingInvocationId: isCurrentStreaming ? null : state.streamingInvocationId,
+            streamingAgentId: isCurrentStreaming ? null : state.streamingAgentId,
+            streamingAgentName: isCurrentStreaming ? null : state.streamingAgentName,
+          };
+        }
 
-        // 如果 activeAgents 中没有这个 agent，创建一个新的 completedAgent
-        const finalCompletedAgents = !completedAgent && status
-          ? [
-              ...state.completedAgents.filter((a) => a.id !== invocationId),
-              {
-                id: invocationId,
-                status: status as 'completed' | 'failed' | 'interrupted',
-                agentName: agentName,
-                startedAt: new Date().toISOString(),
-                completedAt: new Date().toISOString(),
-              } as AgentInvocation,
-            ]
-          : newCompletedAgents;
+        // 将完成的 agent 移到 completedAgents（保留原始数据）
+        const newCompletedAgents = [
+          ...state.completedAgents.filter((a) => a.id !== invocationId),
+          {
+            ...completedAgent,
+            status: status as 'completed' | 'failed' | 'interrupted' | 'cancelled',
+            completedAt: new Date().toISOString(),
+          },
+        ];
 
         return {
           activeAgents: state.activeAgents.filter((a) => a.id !== invocationId),
-          completedAgents: finalCompletedAgents,
+          completedAgents: newCompletedAgents,
           isStreaming: isCurrentStreaming ? false : state.isStreaming,
           streamingInvocationId: isCurrentStreaming ? null : state.streamingInvocationId,
           streamingAgentId: isCurrentStreaming ? null : state.streamingAgentId,
@@ -949,6 +976,37 @@ export const useAppStore = create<AppState & AppActions>()(
           [type]: state,
         },
       }));
+    },
+
+    // 阻塞管理 actions
+    addBlockingItem: (item) => {
+      set((state) => {
+        // 去重检查：相同 invocationId + type 不重复添加
+        const exists = state.blockingItems.some(
+          (b) => b.invocationId === item.invocationId && b.type === item.type
+        );
+        if (exists) {
+          return state;
+        }
+        return {
+          blockingItems: [...state.blockingItems, item],
+        };
+      });
+    },
+
+    removeBlockingItem: (id) => {
+      set((state) => ({
+        blockingItems: state.blockingItems.filter((b) => b.id !== id),
+      }));
+    },
+
+    clearBlockingItems: () => {
+      set({ blockingItems: [] });
+    },
+
+    setBlockingReminderEnabled: (enabled) => {
+      set({ blockingReminderEnabled: enabled });
+      localStorage.setItem(STORAGE_KEY_BLOCKING_REMINDER, String(enabled));
     },
   }))
 );

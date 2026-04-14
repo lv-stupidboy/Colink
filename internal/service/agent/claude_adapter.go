@@ -273,11 +273,13 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionReq
 			zap.String("configDir", req.ConfigDir),
 			zap.String("stderr", stderrOutput.String()),
 			zap.String("model", modelName),
+			zap.String("sessionId", sessionID), // 记录 sessionId 用于问题定位
 		)
+		// 执行失败时也返回 sessionId（用于入库追踪和问题定位）
 		if stderrOutput.Len() > 0 {
-			return nil, fmt.Errorf("CLI error: %s", stderrOutput.String())
+			return &ExecutionResult{SessionID: sessionID}, fmt.Errorf("CLI error: %s", stderrOutput.String())
 		}
-		return nil, fmt.Errorf("CLI execution failed: %w", err)
+		return &ExecutionResult{SessionID: sessionID}, fmt.Errorf("CLI execution failed: %w", err)
 	}
 
 	logInfo("[PERF] CLI total execution", zap.Duration("duration", time.Since(cliStartTime)))
@@ -401,6 +403,43 @@ func (a *ClaudeAdapter) buildPromptFromRequest(req *ExecutionRequest) string {
 	return sb.String()
 }
 
+// parseToolResultContent 解析 tool_result 的 content 字段
+// content 可能是两种格式：
+// 1. 字符串格式: "content": "result text"
+// 2. 数组格式: "content": [{"type": "text", "text": "result text"}, ...]
+func parseToolResultContent(contentRaw json.RawMessage) string {
+	if len(contentRaw) == 0 {
+		return ""
+	}
+
+	// 尝试解析为字符串
+	var strContent string
+	if err := json.Unmarshal(contentRaw, &strContent); err == nil {
+		return strContent
+	}
+
+	// 尝试解析为 content_block 数组
+	var blockContents []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(contentRaw, &blockContents); err == nil {
+		var result strings.Builder
+		for i, block := range blockContents {
+			if block.Type == "text" && block.Text != "" {
+				if i > 0 {
+					result.WriteString("\n")
+				}
+				result.WriteString(block.Text)
+			}
+		}
+		return result.String()
+	}
+
+	// 如果两种格式都无法解析，返回原始 JSON 字符串（作为 fallback）
+	return string(contentRaw)
+}
+
 // parseStreamJSONLine 解析 stream-json 格式的单行输出，返回 Chunk 数组
 // isStreaming: 是否为增量模式，增量模式下忽略完整消息避免重复
 func (a *ClaudeAdapter) parseStreamJSONLine(line string, isStreaming bool) []Chunk {
@@ -433,7 +472,7 @@ func (a *ClaudeAdapter) parseStreamJSONLine(line string, isStreaming bool) []Chu
 				ID         string                 `json:"id"`
 				Input      map[string]interface{} `json:"input"`
 				ToolUseID  string                 `json:"tool_use_id"` // tool_result 的关联ID
-				ContentStr string                 `json:"content"`     // tool_result 的内容（可能是 string 或 array）
+				ContentRaw json.RawMessage        `json:"content"`     // tool_result 的内容（可能是 string 或 []content_block）
 				IsError    bool                   `json:"is_error"`    // tool_result 是否出错
 			} `json:"content"`
 			Usage *struct {
@@ -560,8 +599,8 @@ func (a *ClaudeAdapter) parseStreamJSONLine(line string, isStreaming bool) []Chu
 		// 解析 tool_result 内容块
 		for _, content := range msg.Message.Content {
 			if content.Type == "tool_result" {
-				// 提取结果内容
-				resultContent := content.ContentStr
+				// 提取结果内容（适配字符串和数组两种格式）
+				resultContent := parseToolResultContent(content.ContentRaw)
 				if resultContent == "" && content.Text != "" {
 					resultContent = content.Text
 				}

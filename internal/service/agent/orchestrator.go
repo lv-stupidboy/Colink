@@ -176,7 +176,7 @@ func (o *Orchestrator) handleAgentError(ctx context.Context, invocation *model.A
 	invocation.CompletedAt = timePtr(time.Now())
 	o.invocationRepo.Update(ctx, invocation)
 
-	o.broadcastStatus(invocation.ThreadID, invocation.ID, "failed", invocation.Role)
+	o.broadcastStatus(invocation.ThreadID, invocation.ID, "failed", invocation.Role, invocation.AgentConfigID.String())
 }
 
 // mergeConfig 合并 AgentRoleConfig 和 BaseAgent 的配置
@@ -235,8 +235,9 @@ func (o *Orchestrator) CancelAgent(ctx context.Context, invocationID uuid.UUID) 
 }
 
 // broadcastStatus 广播状态
-func (o *Orchestrator) broadcastStatus(threadID, invocationID uuid.UUID, status string, role model.AgentRole) {
+func (o *Orchestrator) broadcastStatus(threadID, invocationID uuid.UUID, status string, role model.AgentRole, agentID string) {
 	// 委托给 ExecutionService 的实现（包含 input 支持）
+	o.executionService.broadcastStatus(threadID, invocationID, status, role, "", agentID, "")
 	o.executionService.broadcastStatus(threadID, invocationID, status, role, "", "")
 
 	// 通知外部 chunk 监听器（status 事件）

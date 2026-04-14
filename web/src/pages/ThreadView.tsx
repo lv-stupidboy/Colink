@@ -16,6 +16,7 @@ import {
   Divider,
   Badge,
   Empty,
+  notification,
 } from 'antd';
 import {
   RobotOutlined,
@@ -41,6 +42,8 @@ import type { FileChange } from '@/types/content';
 import { AgentRoleLabels, ArtifactTypeLabels } from '@/types';
 import { ReviewReport } from '@/components/ReviewReport';
 import { RightPanel, TaskList, ThreadInput } from '@/components/thread';
+import { BlockingDetector } from '@/utils/blockingDetector';
+import { sendAgentCompletionNotification, requestNotificationPermission, isNotificationGranted, clearPendingNotifications } from '@/utils/systemNotification';
 import { ChatMessageList } from '@/components/thread/ChatMessageList';
 import { StatusPanel } from '@/components/thread/StatusPanel';
 import FileTree from '@/components/FileTree';
@@ -120,6 +123,11 @@ const ThreadView: React.FC = () => {
   const updateInvocationFullPrompt = useAppStore((s) => s.updateInvocationFullPrompt);
   const appendContentBlock = useAppStore((s) => s.appendContentBlock);
   const updateContentBlock = useAppStore((s) => s.updateContentBlock);
+
+  // 阻塞提醒相关 - 使用 notification 自动显示
+  const blockingItems = useAppStore((s) => s.blockingItems);
+  const blockingReminderEnabled = useAppStore((s) => s.blockingReminderEnabled);
+  const removeBlockingItem = useAppStore((s) => s.removeBlockingItem);
 
   // 调试模式的独立 store
   const {
@@ -700,7 +708,9 @@ const ThreadView: React.FC = () => {
         const status = data.payload.status as string;
         const invocId = data.payload.invocationId as string;
         const agentName = data.payload.agentName as string;
+        const agentId = data.payload.agentId as string || '';
         const input = data.payload.input as string | undefined;
+        console.log('[agent_status] Received:', { status, invocId, agentName, agentId });
         updateAgentStatus(invocId, status, agentName, input);
         // Agent 完成时，如果有流式消息缓存，转为正式消息
         if (status === 'completed' || status === 'failed') {
@@ -711,6 +721,31 @@ const ThreadView: React.FC = () => {
           }
           // 延迟清理工具事件
           clearToolEvents(invocId);
+
+          // 检测调度结束阻塞：Agent 完成且没有调用下一个 agent
+          // 延迟 2 秒检测，等待可能的新 Agent 启动
+          setTimeout(() => {
+            const currentState = useAppStore.getState();
+            console.log('[blockingCheck] After 2s delay:', {
+              activeAgentsCount: currentState.activeAgents.length,
+              blockingReminderEnabled: currentState.blockingReminderEnabled,
+              invocId,
+              agentId,
+              agentName
+            });
+            // 如果没有活跃 Agent 且阻塞提醒已开启，添加调度结束阻塞
+            if (currentState.activeAgents.length === 0 && currentState.blockingReminderEnabled) {
+              const scheduleEnd = BlockingDetector.detectScheduleEnd(invocId, agentId, agentName);
+              console.log('[blockingCheck] Creating blocking item:', scheduleEnd);
+              if (scheduleEnd) {
+                // 使用 currentState 的 addBlockingItem 避免闭包问题
+                currentState.addBlockingItem(scheduleEnd);
+                console.log('[blockingCheck] Blocking item added successfully');
+              }
+            } else {
+              console.log('[blockingCheck] Skipped: activeAgents > 0 or reminder disabled');
+            }
+          }, 2000);
         }
         break;
       }
@@ -889,6 +924,12 @@ const ThreadView: React.FC = () => {
     if (!debugAgentConfig) {
       message.error('Agent 配置未加载');
       return;
+    }
+
+    // 用户发送新消息时，清除之前的阻塞项（开始新的交互）
+    const state = useAppStore.getState();
+    if (state.blockingItems.length > 0) {
+      state.blockingItems.forEach(b => removeBlockingItem(b.id));
     }
 
     // 判断是否需要创建新会话
@@ -1339,6 +1380,42 @@ const ThreadView: React.FC = () => {
     label: `${agent.name} (${AgentRoleLabels[agent.role as keyof typeof AgentRoleLabels] || agent.role})`,
   }));
 
+  // 阻塞通知触发：仅在所有 Agent 完成后显示（使用系统通知）
+  useEffect(() => {
+    const noActiveAgents = activeAgents.length === 0;
+    const shouldShow = blockingReminderEnabled &&
+                       blockingItems.length > 0 &&
+                       noActiveAgents;
+
+    console.log('[blockingEffect] Check:', {
+      blockingItemsCount: blockingItems.length,
+      blockingReminderEnabled,
+      activeAgentsCount: activeAgents.length,
+      shouldShow,
+      notificationGranted: isNotificationGranted()
+    });
+
+    if (shouldShow) {
+      // 取第一个阻塞项（只有 schedule_end 类型）
+      const item = blockingItems[0];
+      console.log('[blockingEffect] Showing system notification for:', item);
+
+      // 发送系统级通知（即使切换到其他应用也能收到）
+      sendAgentCompletionNotification(item.sourceAgentName, item.summary);
+
+      // 同时显示页面内的通知（作为备份，当用户在页面内时）
+      notification.success({
+        message: 'Agent 执行完成',
+        description: `${item.sourceAgentName} 已完成执行`,
+        duration: 3,
+        placement: 'topRight',
+      });
+
+      // 自动清除阻塞项
+      removeBlockingItem(item.id);
+    }
+  }, [blockingItems, blockingReminderEnabled, activeAgents.length, removeBlockingItem]);
+
   /**
    * 处理发送消息
    * 调试模式：直接发送给当前 Agent
@@ -1346,6 +1423,14 @@ const ThreadView: React.FC = () => {
    */
   const handleSend = useCallback(async (content: string) => {
     if (!content.trim()) return;
+
+    // 清除累积的通知计数（开始新一轮任务）
+    clearPendingNotifications();
+
+    // 在触发 Agent 时请求系统通知权限（首次）
+    if (!isNotificationGranted()) {
+      requestNotificationPermission();
+    }
 
     // Solo 模式 - 使用特殊的发送逻辑（处理新任务创建）
     if (soloMode) {

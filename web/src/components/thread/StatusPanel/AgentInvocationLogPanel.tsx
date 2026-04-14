@@ -5,6 +5,15 @@ import { selectAgentLogList } from '@/store/selectors/agentInvocations';
 import { AgentStatusBadge, TimeDisplay } from './shared';
 import { DurationDisplay } from './DurationDisplay';
 
+// A2A 输入解析结果
+interface A2AInputInfo {
+  isA2A: boolean;
+  triggerInfo: string;      // 触发者信息
+  sessionStrategy: string;  // 会话策略类型
+  originalRequest: string;  // 原始用户请求
+  filteredOutput: string;   // 过滤后的前序输出
+}
+
 /**
  * Agent 调用日志面板
  * 两层结构：
@@ -44,6 +53,38 @@ export const AgentInvocationLogPanel: React.FC = () => {
         (a) => a.agentConfigId === selectedAgentId || a.agentName === selectedAgentId
       )
     : null;
+
+  // 解析 A2A 输入信息（Task 6 将使用此函数）
+  const parseA2AInput = (fullPrompt: string): A2AInputInfo | null => {
+    // 检查是否包含 <a2a_input> 标签
+    const a2aMatch = fullPrompt.match(/<a2a_input>([\s\S]*?)<\/a2a_input>/);
+    if (!a2aMatch) return null;
+
+    const a2aContent = a2aMatch[1];
+
+    // 解析触发者信息
+    const triggerMatch = a2aContent.match(/\*\*来自\*\*:\s*(.+)/);
+
+    // 解析会话策略
+    const strategyMatch = a2aContent.match(/\*\*类型\*\*:\s*(.+)/);
+
+    // 解析原始请求
+    const requestMatch = a2aContent.match(/## 原始请求\s+([\s\S]*?)---/);
+
+    // 解析前序输出摘要（在 "## 前序分析" 和下一个 "---" 之间）
+    const outputMatch = a2aContent.match(/## 前序分析[\s\S]*?\n\n([\s\S]*?)---/);
+
+    return {
+      isA2A: true,
+      triggerInfo: triggerMatch?.[1]?.trim() || '',
+      sessionStrategy: strategyMatch?.[1]?.trim() || '',
+      originalRequest: requestMatch?.[1]?.trim() || '',
+      filteredOutput: outputMatch?.[1]?.trim() || '',
+    };
+  };
+
+  // 临时使用声明（Task 6 将正式使用）
+  void parseA2AInput;
 
   // 未展开时显示入口按钮
   if (!expanded) {
