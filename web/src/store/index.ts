@@ -327,7 +327,12 @@ export const useAppStore = create<AppState & AppActions>()(
           activeAgents: (invocations || []).filter((i: AgentInvocation) => i.status === 'running'),
           // 恢复已完成的 Agent 历史
           completedAgents: (invocations || [])
-            .filter((i: AgentInvocation) => i.status === 'completed' || i.status === 'failed' || i.status === 'interrupted')
+            .filter((i: AgentInvocation) =>
+              i.status === 'completed' ||
+              i.status === 'failed' ||
+              i.status === 'interrupted' ||
+              i.status === 'cancelled'
+            )
             .map((i: AgentInvocation) => ({
               ...i,
               // 确保 agentName 存在，如果没有则使用 role
@@ -560,35 +565,30 @@ export const useAppStore = create<AppState & AppActions>()(
         // 如果是当前正在流式输出的 invocation，停止流式输出
         const isCurrentStreaming = state.streamingInvocationId === invocationId;
 
-        // 将完成的 agent 移到 completedAgents
-        const newCompletedAgents = completedAgent
-          ? [
-              ...state.completedAgents.filter((a) => a.id !== invocationId),
-              {
-                ...completedAgent,
-                status: status as 'completed' | 'failed' | 'interrupted',
-                completedAt: new Date().toISOString(),
-              },
-            ]
-          : state.completedAgents;
+        // 如果 activeAgents 中没有这个 agent，说明页面可能刚刷新或数据已从 API 加载
+        // 不应该用假数据覆盖，直接忽略即可
+        if (!completedAgent) {
+          return {
+            isStreaming: isCurrentStreaming ? false : state.isStreaming,
+            streamingInvocationId: isCurrentStreaming ? null : state.streamingInvocationId,
+            streamingAgentId: isCurrentStreaming ? null : state.streamingAgentId,
+            streamingAgentName: isCurrentStreaming ? null : state.streamingAgentName,
+          };
+        }
 
-        // 如果 activeAgents 中没有这个 agent，创建一个新的 completedAgent
-        const finalCompletedAgents = !completedAgent && status
-          ? [
-              ...state.completedAgents.filter((a) => a.id !== invocationId),
-              {
-                id: invocationId,
-                status: status as 'completed' | 'failed' | 'interrupted',
-                agentName: agentName,
-                startedAt: new Date().toISOString(),
-                completedAt: new Date().toISOString(),
-              } as AgentInvocation,
-            ]
-          : newCompletedAgents;
+        // 将完成的 agent 移到 completedAgents（保留原始数据）
+        const newCompletedAgents = [
+          ...state.completedAgents.filter((a) => a.id !== invocationId),
+          {
+            ...completedAgent,
+            status: status as 'completed' | 'failed' | 'interrupted' | 'cancelled',
+            completedAt: new Date().toISOString(),
+          },
+        ];
 
         return {
           activeAgents: state.activeAgents.filter((a) => a.id !== invocationId),
-          completedAgents: finalCompletedAgents,
+          completedAgents: newCompletedAgents,
           isStreaming: isCurrentStreaming ? false : state.isStreaming,
           streamingInvocationId: isCurrentStreaming ? null : state.streamingInvocationId,
           streamingAgentId: isCurrentStreaming ? null : state.streamingAgentId,
