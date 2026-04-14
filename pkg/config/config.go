@@ -10,22 +10,24 @@ import (
 
 // Config 应用配置
 type Config struct {
-	Server       ServerConfig      `mapstructure:"server"`
-	Data         DataConfig        `mapstructure:"data"`
-	Database     DatabaseConfig    `mapstructure:"database"`
-	Redis        RedisConfig       `mapstructure:"redis"`
-	Claude       ClaudeConfig      `mapstructure:"claude"`
-	Sandbox      SandboxConfig     `mapstructure:"sandbox"`
-	Agent        AgentConfig       `mapstructure:"agent"`
-	Logging      LoggingConfig     `mapstructure:"logging"`
-	MCP          MCPConfig         `mapstructure:"mcp"`
-	Auth         AuthConfig        `mapstructure:"auth"`
-	AgentAssets  AgentAssetsConfig `mapstructure:"agent_assets"`
-	Skill        SkillConfig       `mapstructure:"skill"`
-	Subagent     SubagentConfig    `mapstructure:"subagent"`
-	AgentConfig  AgentConfigConfig `mapstructure:"agent_config"`
-	Command      CommandConfig     `mapstructure:"command"`
-	Rule         RuleConfig        `mapstructure:"rule"`
+	Server      ServerConfig      `mapstructure:"server"`
+	Data        DataConfig        `mapstructure:"data"`
+	Database    DatabaseConfig    `mapstructure:"database"`
+	Redis       RedisConfig       `mapstructure:"redis"`
+	Claude      ClaudeConfig      `mapstructure:"claude"`
+	Sandbox     SandboxConfig     `mapstructure:"sandbox"`
+	Agent       AgentConfig       `mapstructure:"agent"`
+	Logging     LoggingConfig     `mapstructure:"logging"`
+	MCP         MCPConfig         `mapstructure:"mcp"`
+	Auth        AuthConfig        `mapstructure:"auth"`
+	AgentAssets AgentAssetsConfig `mapstructure:"agent_assets"`
+	Skill       SkillConfig       `mapstructure:"skill"`
+	Subagent    SubagentConfig    `mapstructure:"subagent"`
+	AgentConfig AgentConfigConfig `mapstructure:"agent_config"`
+	Command     CommandConfig     `mapstructure:"command"`
+	Rule        RuleConfig        `mapstructure:"rule"`
+	Feishu      FeishuConfig      `mapstructure:"feishu"`
+	IM          IMConfig          `mapstructure:"im"`
 }
 
 // DataConfig 数据目录配置
@@ -240,6 +242,90 @@ type RuleConfig struct {
 	UploadMaxSize int `mapstructure:"upload_max_size"`
 }
 
+const (
+	EventModeWebhook  = "webhook"
+	EventModeListener = "listener"
+)
+
+// FeishuConfig 飞书集成配置 (deprecated: use IM.Platforms instead)
+type FeishuConfig struct {
+	Enabled           bool   `mapstructure:"enabled"`
+	AppID             string `mapstructure:"app_id"`
+	AppSecret         string `mapstructure:"app_secret"`
+	VerificationToken string `mapstructure:"verification_token"`
+	EncryptKey        string `mapstructure:"encrypt_key"`
+	LarkCLIPath       string `mapstructure:"lark_cli_path"`
+	DefaultProjectID  string `mapstructure:"default_project_id"`
+	EventMode         string `mapstructure:"event_mode"`
+}
+
+// ApplyDefaults 设置飞书配置默认值
+func (c *FeishuConfig) ApplyDefaults() {
+	if c.LarkCLIPath == "" {
+		c.LarkCLIPath = "lark-cli"
+	}
+	if c.EventMode == "" {
+		c.EventMode = EventModeListener
+	}
+}
+
+// IMConfig 多平台IM集成配置
+type IMConfig struct {
+	Platforms []IMPlatformConfig `mapstructure:"platforms"`
+}
+
+// IMPlatformConfig IM平台配置
+type IMPlatformConfig struct {
+	// 平台类型: "feishu", "slack", "discord"
+	Type string `mapstructure:"type"`
+	// 是否启用
+	Enabled bool `mapstructure:"enabled"`
+
+	// 通用配置
+	RateLimitMax    int           `mapstructure:"rate_limit_max"`    // 速率限制最大请求数，默认: 20
+	RateLimitWindow time.Duration `mapstructure:"rate_limit_window"` // 速率限制时间窗口，默认: 60s
+	MaxRetries      int           `mapstructure:"max_retries"`       // 最大重试次数，默认: 3
+
+	// Feishu-specific 配置
+	AppID             string `mapstructure:"app_id"`
+	AppSecret         string `mapstructure:"app_secret"`
+	VerificationToken string `mapstructure:"verification_token"`
+	EncryptKey        string `mapstructure:"encrypt_key"`
+	LarkCLIPath       string `mapstructure:"lark_cli_path"`
+	DefaultProjectID  string `mapstructure:"default_project_id"`
+	EventMode         string `mapstructure:"event_mode"`
+
+	// TODO: Slack-specific 配置
+	// BotToken string `mapstructure:"bot_token"`
+	// SigningSecret string `mapstructure:"signing_secret"`
+
+	// TODO: Discord-specific 配置
+	// BotToken string `mapstructure:"bot_token"`
+	// ApplicationID string `mapstructure:"application_id"`
+}
+
+// ApplyDefaults 设置IM平台配置默认值
+func (c *IMPlatformConfig) ApplyDefaults() {
+	// 通用默认值
+	if c.RateLimitMax == 0 {
+		c.RateLimitMax = 20
+	}
+	if c.RateLimitWindow == 0 {
+		c.RateLimitWindow = 60 * time.Second
+	}
+	if c.MaxRetries == 0 {
+		c.MaxRetries = 3
+	}
+
+	// Feishu 平台默认值
+	if c.Type == "feishu" && c.LarkCLIPath == "" {
+		c.LarkCLIPath = "lark-cli"
+	}
+	if c.Type == "feishu" && c.EventMode == "" {
+		c.EventMode = EventModeListener
+	}
+}
+
 // GetUseCountUpdateInterval 获取技能使用次数更新间隔
 func (c *SkillConfig) GetUseCountUpdateInterval() time.Duration {
 	if c.UseCountUpdateInterval == "" {
@@ -331,6 +417,12 @@ func Load(configPath string) (*Config, error) {
 
 	// 应用默认值（确保零值字段有合理的默认值）
 	cfg.Database.ApplyDefaults()
+	cfg.Feishu.ApplyDefaults()
+
+	// 应用IM平台默认值
+	for i := range cfg.IM.Platforms {
+		cfg.IM.Platforms[i].ApplyDefaults()
+	}
 
 	// 验证必须的路径配置
 	if err := validateConfig(&cfg); err != nil {
@@ -380,6 +472,34 @@ func validateConfig(cfg *Config) error {
 		return fmt.Errorf("配置错误: sandbox.repos_dir 未设置")
 	}
 
+	// 验证启用的IM平台配置
+	for i, platform := range cfg.IM.Platforms {
+		if !platform.Enabled {
+			continue
+		}
+
+		if platform.Type == "" {
+			return fmt.Errorf("配置错误: im.platforms[%d].type 未设置", i)
+		}
+
+		// Feishu 平台必需配置验证
+		if platform.Type == "feishu" {
+			if platform.AppID == "" {
+				return fmt.Errorf("配置错误: im.platforms[%d] (feishu) app_id 未设置", i)
+			}
+			if platform.AppSecret == "" {
+				return fmt.Errorf("配置错误: im.platforms[%d] (feishu) app_secret 未设置", i)
+			}
+			// verification_token 仅 webhook 模式需要；
+			// listener 模式通过 WebSocket 接收事件，无需 HTTP 回调验证
+			if platform.EventMode == EventModeWebhook && platform.VerificationToken == "" {
+				return fmt.Errorf("配置错误: im.platforms[%d] (feishu) verification_token 未设置（webhook 模式必需）", i)
+			}
+		}
+
+		// TODO: 添加 Slack/Discord 验证
+	}
+
 	return nil
 }
 
@@ -408,4 +528,10 @@ func setDefaults() {
 	viper.SetDefault("subagent.upload_max_size", 2)
 	viper.SetDefault("command.upload_max_size", 2)
 	viper.SetDefault("rule.upload_max_size", 2)
+	viper.SetDefault("feishu.enabled", false)
+	viper.SetDefault("feishu.lark_cli_path", "lark-cli")
+	viper.SetDefault("feishu.event_mode", EventModeListener)
+
+	// IM 平台默认值（可选配置，默认为空数组）
+	// 具体平台配置通过 ApplyDefaults() 动态设置
 }

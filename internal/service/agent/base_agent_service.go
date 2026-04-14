@@ -81,7 +81,7 @@ func (s *BaseAgentService) Create(ctx context.Context, req *model.CreateBaseAgen
 	if cliPath == "" {
 		if req.Type == model.BaseAgentTypeClaudeCode {
 			cliPath = "claude"
-		} else if req.Type == model.BaseAgentTypeOpenCode {
+		} else if req.Type == model.BaseAgentTypeOpenCode || req.Type == model.BaseAgentTypeOpenCodeACP {
 			cliPath = "opencode"
 		}
 	}
@@ -216,6 +216,11 @@ func (s *BaseAgentService) GetTypes() []model.BaseAgentTypeInfo {
 			Type:        model.BaseAgentTypeOpenCode,
 			Name:        "OpenCode",
 			Description: "OpenCode CLI - 开源AI编程助手",
+		},
+		{
+			Type:        model.BaseAgentTypeOpenCodeACP,
+			Name:        "OpenCode (ACP)",
+			Description: "OpenCode CLI via ACP - 结构化输出(工具面板、思考过程、用量统计)",
 		},
 	}
 }

@@ -12,10 +12,10 @@ import (
 
 // InviteMiddleware 邀请码中间件
 type InviteMiddleware struct {
-	inviteCode     string
-	sessionSecret  string
-	validSessions  map[string]time.Time // sessionID -> expiry
-	sessionExpiry  time.Duration
+	inviteCode    string
+	sessionSecret string
+	validSessions map[string]time.Time // sessionID -> expiry
+	sessionExpiry time.Duration
 }
 
 // NewInviteMiddleware 创建邀请码中间件
@@ -40,6 +40,7 @@ func (m *InviteMiddleware) isPublicPath(path string) bool {
 	publicPaths := []string{
 		"/api/v1/auth/invite",
 		"/api/v1/health",
+		"/api/v1/feishu/webhook",
 	}
 	for _, p := range publicPaths {
 		if strings.HasPrefix(path, p) {
@@ -106,7 +107,7 @@ func (m *InviteMiddleware) Handler() gin.HandlerFunc {
 		// API请求返回401
 		if strings.HasPrefix(c.Request.URL.Path, "/api/") {
 			c.JSON(http.StatusUnauthorized, gin.H{
-				"error": "invite_required",
+				"error":   "invite_required",
 				"message": "请先输入邀请码",
 			})
 			c.Abort()

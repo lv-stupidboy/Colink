@@ -48,8 +48,9 @@ func (h *ConfigGenHandler) SyncConfig(c *gin.Context) {
 	}
 
 	// 验证 baseAgentType
-	if req.BaseAgentType != "claude_code" && req.BaseAgentType != "open_code" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "baseAgentType 必须是 claude_code 或 open_code"})
+	validTypes := map[string]bool{"claude_code": true, "open_code": true, "open_code_acp": true}
+	if !validTypes[req.BaseAgentType] {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "baseAgentType 必须是 claude_code、open_code 或 open_code_acp"})
 		return
 	}
 
@@ -97,8 +98,9 @@ func (h *ConfigGenHandler) GenerateAgentConfig(c *gin.Context) {
 	}
 
 	// 验证 baseAgentType
-	if req.BaseAgentType != "claude_code" && req.BaseAgentType != "open_code" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "baseAgentType 必须是 claude_code 或 open_code"})
+	validTypes := map[string]bool{"claude_code": true, "open_code": true, "open_code_acp": true}
+	if !validTypes[req.BaseAgentType] {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "baseAgentType 必须是 claude_code、open_code 或 open_code_acp"})
 		return
 	}
 

@@ -58,6 +58,8 @@ func NewAdapter(baseAgent *model.BaseAgent) AgentAdapter {
 		return NewClaudeAdapter(baseAgent)
 	case model.BaseAgentTypeOpenCode:
 		return NewOpenCodeAdapter(baseAgent)
+	case model.BaseAgentTypeOpenCodeACP:
+		return NewOpenCodeACPAdapter(baseAgent)
 	default:
 		return nil
 	}
