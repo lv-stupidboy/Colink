@@ -306,7 +306,7 @@ func (es *ExecutionService) SpawnAgent(ctx context.Context, req *SpawnRequest) (
 	// 如果 SessionStrategy 未设置，自动判断是否应该使用 resume
 	// 场景：用户通过前端直接 Spawn（如 @mention），需要自动判断会话策略
 	if req.SessionStrategy == "" {
-		req.SessionStrategy = es.shouldAutoResume(ctx, req.ThreadID, config.ID)
+		req.SessionStrategy, req.SessionID = es.shouldAutoResume(ctx, req.ThreadID, config.ID)
 		if req.SessionStrategy == SessionStrategyResume {
 			logInfo("SpawnAgent: 自动判断使用 resume 会话策略",
 				zap.String("agentName", config.Name),
@@ -442,6 +442,12 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 		es.csMu.RLock()
 		sessionID = es.cliSessions[sessionKey]
 		es.csMu.RUnlock()
+		if sessionID == "" && req.SessionID != "" {
+			sessionID = req.SessionID
+			logInfo("使用请求中的 SessionID（从数据库获取）",
+				zap.String("sessionKey", sessionKey),
+				zap.String("sessionId", sessionID))
+		}
 		logInfo("A2A 会话策略: resume，尝试复用会话",
 			zap.String("sessionKey", sessionKey),
 			zap.String("sessionId", sessionID),
@@ -2530,8 +2536,9 @@ func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, thread
 
 			// 判断会话策略：如果用户@的是同一个Agent，使用 resume
 			var sessionStrategy SessionStrategy
+			var sessionIdFromDB string
 			if len(mentionedAgentIDs) > 0 {
-				sessionStrategy = es.shouldUseResumeStrategy(ctx, threadID, config.ID, mentionedAgentIDs)
+				sessionStrategy, sessionIdFromDB = es.shouldUseResumeStrategy(ctx, threadID, config.ID, mentionedAgentIDs)
 				if sessionStrategy == SessionStrategyResume {
 					logInfo("SpawnAgentForUserMessage: 用户@同一Agent，使用 resume 会话策略",
 						zap.String("agentName", config.Name),
@@ -2539,7 +2546,7 @@ func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, thread
 				}
 			} else {
 				// 没有 @mention，检查是否应该自动 resume
-				sessionStrategy = es.shouldAutoResume(ctx, threadID, config.ID)
+				sessionStrategy, sessionIdFromDB = es.shouldAutoResume(ctx, threadID, config.ID)
 				if sessionStrategy == SessionStrategyResume {
 					logInfo("SpawnAgentForUserMessage: 自动判断使用 resume 会话策略（无@mention）",
 						zap.String("agentName", config.Name),
@@ -2555,6 +2562,7 @@ func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, thread
 				Input:           userMessage,
 				ProjectPath:     projectPath,
 				SessionStrategy: sessionStrategy,
+				SessionID:       sessionIdFromDB,
 			})
 			return err
 		}
@@ -2577,8 +2585,9 @@ func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, thread
 
 	// 判断会话策略：如果用户@的是同一个Agent，使用 resume
 	var sessionStrategy SessionStrategy
+	var sessionIdFromDB string
 	if len(mentionedAgentIDs) > 0 {
-		sessionStrategy = es.shouldUseResumeStrategy(ctx, threadID, config.ID, mentionedAgentIDs)
+		sessionStrategy, sessionIdFromDB = es.shouldUseResumeStrategy(ctx, threadID, config.ID, mentionedAgentIDs)
 		if sessionStrategy == SessionStrategyResume {
 			logInfo("SpawnAgentForUserMessage: 用户@同一Agent（回退），使用 resume 会话策略",
 				zap.String("agentName", config.Name),
@@ -2586,7 +2595,7 @@ func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, thread
 		}
 	} else {
 		// 没有 @mention，检查是否应该自动 resume
-		sessionStrategy = es.shouldAutoResume(ctx, threadID, config.ID)
+		sessionStrategy, sessionIdFromDB = es.shouldAutoResume(ctx, threadID, config.ID)
 		if sessionStrategy == SessionStrategyResume {
 			logInfo("SpawnAgentForUserMessage: 自动判断使用 resume 会话策略（回退，无@mention）",
 				zap.String("agentName", config.Name),
@@ -2602,6 +2611,7 @@ func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, thread
 		Input:           userMessage,
 		ProjectPath:     projectPath,
 		SessionStrategy: sessionStrategy,
+		SessionID:       sessionIdFromDB,
 	})
 	return err
 }
@@ -2613,10 +2623,10 @@ func timePtr(t time.Time) *time.Time {
 
 // shouldUseResumeStrategy 判断是否应该使用 resume 会话策略
 // 当用户@的是同一个Agent（与最后一个完成的Agent相同）时使用 resume
-func (es *ExecutionService) shouldUseResumeStrategy(ctx context.Context, threadID uuid.UUID, targetConfigID uuid.UUID, mentionedAgentIDs []string) SessionStrategy {
+func (es *ExecutionService) shouldUseResumeStrategy(ctx context.Context, threadID uuid.UUID, targetConfigID uuid.UUID, mentionedAgentIDs []string) (SessionStrategy, string) {
 	// 如果没有 @mentions，不使用 resume
 	if len(mentionedAgentIDs) == 0 {
-		return ""
+		return "", ""
 	}
 
 	// 检查目标 Agent 是否在被 @ 的列表中
@@ -2629,14 +2639,14 @@ func (es *ExecutionService) shouldUseResumeStrategy(ctx context.Context, threadI
 		}
 	}
 	if !isMentioned {
-		return ""
+		return "", ""
 	}
 
 	// 获取该线程最后一个完成的 invocation
 	lastCompleted, err := es.invocationRepo.FindRecentlyCompletedByThread(ctx, threadID, 5) // 最近5分钟
 	if err != nil || len(lastCompleted) == 0 {
 		logInfo("shouldUseResumeStrategy: 没有找到最近完成的 invocation", zap.Error(err))
-		return ""
+		return "", ""
 	}
 
 	// 检查最后一个完成的 Agent 是否与目标 Agent 相同
@@ -2646,32 +2656,32 @@ func (es *ExecutionService) shouldUseResumeStrategy(ctx context.Context, threadI
 			zap.String("targetConfigID", targetConfigID.String()),
 			zap.String("lastCompletedConfigID", lastInvocation.AgentConfigID.String()),
 			zap.String("lastCompletedRole", string(lastInvocation.Role)))
-		return SessionStrategyResume
+		return SessionStrategyResume, lastInvocation.SessionID
 	}
 
 	// 检查是否同角色（不同实例）
 	config, err := es.configSvc.GetByID(ctx, targetConfigID)
 	if err != nil || config == nil {
-		return ""
+		return "", ""
 	}
 	if string(config.Role) == string(lastInvocation.Role) {
 		logInfo("shouldUseResumeStrategy: 目标 Agent 与最后一个完成的 Agent 同角色，使用 resume",
 			zap.String("targetRole", string(config.Role)),
 			zap.String("lastCompletedRole", string(lastInvocation.Role)))
-		return SessionStrategyResume
+		return SessionStrategyResume, lastInvocation.SessionID
 	}
 
-	return ""
+	return "", ""
 }
 
 // shouldAutoResume 判断是否应该自动使用 resume 会话策略
 // 当目标 Agent 与最后一个完成的 Agent 相同时自动使用 resume（无需显式 @mention）
-func (es *ExecutionService) shouldAutoResume(ctx context.Context, threadID uuid.UUID, targetConfigID uuid.UUID) SessionStrategy {
+func (es *ExecutionService) shouldAutoResume(ctx context.Context, threadID uuid.UUID, targetConfigID uuid.UUID) (SessionStrategy, string) {
 	// 获取该线程最后一个完成的 invocation
 	lastCompleted, err := es.invocationRepo.FindRecentlyCompletedByThread(ctx, threadID, 5) // 最近5分钟
 	if err != nil || len(lastCompleted) == 0 {
 		logInfo("shouldAutoResume: 没有找到最近完成的 invocation", zap.Error(err))
-		return ""
+		return "", ""
 	}
 
 	// 检查最后一个完成的 Agent 是否与目标 Agent 相同
@@ -2681,22 +2691,22 @@ func (es *ExecutionService) shouldAutoResume(ctx context.Context, threadID uuid.
 			zap.String("targetConfigID", targetConfigID.String()),
 			zap.String("lastCompletedConfigID", lastInvocation.AgentConfigID.String()),
 			zap.String("lastCompletedRole", string(lastInvocation.Role)))
-		return SessionStrategyResume
+		return SessionStrategyResume, lastInvocation.SessionID
 	}
 
 	// 检查是否同角色（不同实例）
 	config, err := es.configSvc.GetByID(ctx, targetConfigID)
 	if err != nil || config == nil {
-		return ""
+		return "", ""
 	}
 	if string(config.Role) == string(lastInvocation.Role) {
 		logInfo("shouldAutoResume: 目标 Agent 与最后一个完成的 Agent 同角色，自动使用 resume",
 			zap.String("targetRole", string(config.Role)),
 			zap.String("lastCompletedRole", string(lastInvocation.Role)))
-		return SessionStrategyResume
+		return SessionStrategyResume, lastInvocation.SessionID
 	}
 
-	return ""
+	return "", ""
 }
 
 // matchCondition 匹配条件表达式
