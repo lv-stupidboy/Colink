@@ -8,7 +8,6 @@ import {
   InboxOutlined,
   SettingOutlined,
   ApartmentOutlined,
-  ExperimentOutlined,
   RobotOutlined,
   BookOutlined,
   CloudServerOutlined,
@@ -25,7 +24,6 @@ import {
 import type { MenuProps } from 'antd';
 import ThemeSwitcher from '@/components/ThemeSwitcher';
 import Logo from '@/components/Logo';
-import { BETA_LABEL } from '@/config/version';
 import { api } from '@/api/client';
 import { useAppStore } from '@/store';
 
@@ -303,9 +301,6 @@ const MainLayout: React.FC = () => {
             Colink - 多智能体协作平台
           </Title>
           <Space size="small">
-            <Tag color="orange" style={{ margin: 0 }}>
-              <ExperimentOutlined /> {BETA_LABEL}
-            </Tag>
             <Tag color="blue" style={{ margin: 0 }}>{version || '加载中...'}</Tag>
             <ThemeSwitcher />
           </Space>
