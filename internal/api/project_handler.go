@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"path/filepath"
 	"strings"
 
 	"github.com/anthropic/isdp/internal/model"
@@ -200,6 +201,34 @@ func (h *ProjectHandler) GetFileContent(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
+// GetFileImage 获取图片文件（直接返回文件内容用于预览）
+func (h *ProjectHandler) GetFileImage(c *gin.Context) {
+	basePath := c.Query("basePath")
+	if basePath == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "basePath is required"})
+		return
+	}
+
+	filePath := c.Query("path")
+	if filePath == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "path is required"})
+		return
+	}
+
+	// 拼接完整路径
+	fullPath := filepath.Join(basePath, filePath)
+
+	// 安全检查：防止路径穿越
+	basePathClean := filepath.Clean(basePath)
+	if !strings.HasPrefix(fullPath, basePathClean) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path"})
+		return
+	}
+
+	// 直接返回文件
+	c.File(fullPath)
+}
+
 // RegisterRoutes 注册路由
 func (h *ProjectHandler) RegisterRoutes(r *gin.RouterGroup) {
 	projects := r.Group("/projects")
@@ -218,6 +247,7 @@ func (h *ProjectHandler) RegisterRoutes(r *gin.RouterGroup) {
 		files.GET("/browse", h.BrowsePath)
 		files.GET("/validate", h.ValidatePath)
 		files.GET("/content", h.GetFileContent)
+		files.GET("/image", h.GetFileImage)
 		files.POST("/folder", h.CreateFolder)
 	}
 }
