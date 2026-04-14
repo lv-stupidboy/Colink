@@ -706,6 +706,18 @@ class APIClient {
     unbindFromAgent: (agentId: string, settingsId: string): Promise<void> =>
       this.request(`/agent-roles/${agentId}/settings/${settingsId}`, 'DELETE'),
   };
+
+  // System API
+  system = {
+    // 获取版本信息（动态获取，避免浏览器缓存问题）
+    getVersion: async (): Promise<{
+      version: string;
+      baseVersion: string;
+    }> => {
+      const response = await this.client.get('/system/version');
+      return response.data;
+    },
+  };
 }
 
 export const api = new APIClient();

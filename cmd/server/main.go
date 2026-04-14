@@ -49,6 +49,26 @@ var (
 	BuildTime = "unknown"
 )
 
+// extractBaseVersion 从完整版本号中提取基础版本号
+// 例如: "v1.1.0-20260411-191622" -> "1.1.0"
+// 例如: "dev" -> "dev"
+func extractBaseVersion(fullVersion string) string {
+	if fullVersion == "dev" {
+		return "dev"
+	}
+	// 去掉 v 前缀
+	if len(fullVersion) > 0 && fullVersion[0] == 'v' {
+		fullVersion = fullVersion[1:]
+	}
+	// 找到第一个 - 的位置
+	for i, c := range fullVersion {
+		if c == '-' {
+			return fullVersion[:i]
+		}
+	}
+	return fullVersion
+}
+
 // findConfigPath 查找配置文件路径，按优先级查找
 func findConfigPath() string {
 	// 1. 命令行参数 -config
@@ -405,6 +425,14 @@ func main() {
 			"gitCommit": GitCommit,
 			"buildTime": BuildTime,
 			"time":      time.Now().Format(time.RFC3339),
+		})
+	})
+
+	// 版本信息 API（供前端动态获取，避免浏览器缓存问题）
+	router.GET("/api/v1/system/version", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"version":      Version,
+			"baseVersion":  extractBaseVersion(Version),
 		})
 	})
 

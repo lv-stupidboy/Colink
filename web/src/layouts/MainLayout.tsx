@@ -25,7 +25,8 @@ import {
 import type { MenuProps } from 'antd';
 import ThemeSwitcher from '@/components/ThemeSwitcher';
 import Logo from '@/components/Logo';
-import { VERSION, BETA_LABEL } from '@/config/version';
+import { BETA_LABEL } from '@/config/version';
+import { api } from '@/api/client';
 import { useAppStore } from '@/store';
 
 const { Header, Sider, Content } = Layout;
@@ -39,6 +40,20 @@ const MainLayout: React.FC = () => {
 
   // 从 store 读取 soloMode 状态
   const soloMode = useAppStore((state) => state.soloMode);
+
+  // 从 API 动态获取版本号（避免浏览器缓存问题）
+  const [version, setVersion] = useState<string>('');
+
+  useEffect(() => {
+    api.system.getVersion()
+      .then((data) => {
+        setVersion(data.version);
+      })
+      .catch((err) => {
+        console.warn('Failed to get version from API:', err);
+        // 如果 API 失败，保持空字符串，后续显示时处理
+      });
+  }, []);
 
   // 根据路由自动收起/展开导航栏（进入对话页面时收起，退出后展开）
   useEffect(() => {
@@ -291,7 +306,7 @@ const MainLayout: React.FC = () => {
             <Tag color="orange" style={{ margin: 0 }}>
               <ExperimentOutlined /> {BETA_LABEL}
             </Tag>
-            <Tag color="blue" style={{ margin: 0 }}>{VERSION}</Tag>
+            <Tag color="blue" style={{ margin: 0 }}>{version || '加载中...'}</Tag>
             <ThemeSwitcher />
           </Space>
         </Header>
