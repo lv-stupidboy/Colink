@@ -3,6 +3,7 @@ package project
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -519,12 +520,18 @@ func (s *Service) GetFileContent(ctx context.Context, basePath string, filePath 
 		return nil, errors.New("基础路径不能为空")
 	}
 
+	// 规范化 basePath，确保有尾部分隔符
+	basePath = filepath.Clean(basePath)
+	if !strings.HasSuffix(basePath, string(filepath.Separator)) {
+		basePath += string(filepath.Separator)
+	}
+
 	// 安全检查：防止路径遍历攻击
 	filePath = filepath.Clean(filePath)
 	fullPath := filepath.Join(basePath, filePath)
 
 	// 确保完整路径在基础路径内
-	if !strings.HasPrefix(fullPath, basePath) {
+	if !strings.HasPrefix(fullPath+string(filepath.Separator), basePath) {
 		return nil, errors.New("无效的路径")
 	}
 
@@ -542,12 +549,28 @@ func (s *Service) GetFileContent(ctx context.Context, basePath string, filePath 
 		return nil, errors.New("路径是目录，不是文件")
 	}
 
+	// 解析 symlink，防止 symlink bypass 攻击
+	evaluatedPath, err := filepath.EvalSymlinks(fullPath)
+	if err != nil {
+		return nil, errors.New("无法解析路径: " + err.Error())
+	}
+	// 再次检查 resolved path 是否仍在 basePath 内
+	// 去掉 basePath 的尾部分隔符进行 EvalSymlinks
+	evaluatedBase, err := filepath.EvalSymlinks(basePath[:len(basePath)-1])
+	if err != nil {
+		return nil, errors.New("无法解析基础路径: " + err.Error())
+	}
+	// 确保解析后的路径仍在解析后的基础路径内
+	if !strings.HasPrefix(evaluatedPath+string(filepath.Separator), evaluatedBase+string(filepath.Separator)) {
+		return nil, errors.New("无效的路径（symlink指向外部目录）")
+	}
+
 	// 判断是否为二进制文件
 	isBinary := isBinaryFile(fullPath)
 
 	resp := &model.FileContentResponse{
-		Path:    filePath,
-		Size:    info.Size(),
+		Path:     filePath,
+		Size:     info.Size(),
 		IsBinary: isBinary,
 	}
 
@@ -558,26 +581,26 @@ func (s *Service) GetFileContent(ctx context.Context, basePath string, filePath 
 		return resp, nil
 	}
 
-	// 读取文件内容
-	// 限制读取大小，防止大文件占用过多内存
-	readSize := info.Size()
-	if readSize > maxFileSize {
-		readSize = maxFileSize
-		resp.Truncated = true
-	} else {
-		resp.Truncated = false
+	// 使用 LimitReader 限制读取大小，防止大文件占用过多内存
+	file, err := os.Open(fullPath)
+	if err != nil {
+		return nil, errors.New("打开文件失败: " + err.Error())
 	}
+	defer file.Close()
 
-	data, err := os.ReadFile(fullPath)
+	// +1 用于检测是否超过限制
+	limitedReader := io.LimitReader(file, maxFileSize+1)
+	data, err := io.ReadAll(limitedReader)
 	if err != nil {
 		return nil, errors.New("读取文件失败: " + err.Error())
 	}
 
-	// 截断内容（如果超过最大大小）
-	if len(data) > int(readSize) {
-		data = data[:int(readSize)]
+	// 检查是否超过最大大小
+	truncated := len(data) > maxFileSize
+	if truncated {
+		data = data[:maxFileSize]
 	}
-
+	resp.Truncated = truncated
 	resp.Content = string(data)
 
 	return resp, nil

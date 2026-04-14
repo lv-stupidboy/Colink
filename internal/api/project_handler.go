@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/service/project"
@@ -185,7 +186,15 @@ func (h *ProjectHandler) GetFileContent(c *gin.Context) {
 
 	result, err := h.service.GetFileContent(c.Request.Context(), basePath, filePath)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		// 根据错误类型返回不同的 HTTP 状态码
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "不存在") {
+			c.JSON(http.StatusNotFound, gin.H{"error": errMsg})
+		} else if strings.Contains(errMsg, "无效") || strings.Contains(errMsg, "目录") || strings.Contains(errMsg, "不能为空") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": errMsg})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": errMsg})
+		}
 		return
 	}
 	c.JSON(http.StatusOK, result)
