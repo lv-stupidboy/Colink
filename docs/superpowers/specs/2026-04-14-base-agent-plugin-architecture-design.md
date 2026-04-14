@@ -201,6 +201,25 @@ tools/
 | `execution_service.go` | 使用 Registry.GetAdapter() |
 | `configgen/service.go` | 使用 Registry.GetMeta().ConfigDir |
 | `main.go` | 导入 plugins/all 包 |
+| `web/src/types/index.ts` | 移除 `open_code_acp` 类型定义 |
+| `web/src/pages/Settings/BaseAgentSettings.tsx` | 更新 getTypeColor 颜色映射 |
+
+## 数据迁移
+
+**现有 `open_code_acp` 类型记录处理：**
+
+数据库中已存在的基础 Agent 实例如果使用 `open_code_acp` 类型，合并后需要迁移：
+
+```sql
+-- sql-change/v1.3.0/sqlite/00001_merge_open_code_types.sql
+UPDATE base_agents SET type = 'open_code' WHERE type = 'open_code_acp';
+```
+
+迁移时机：启动时自动执行，或在 migrate 工具中处理。
+
+**前端兼容：**
+- API 返回的 `open_code` 类型可兼容原有 `open_code_acp` 数据
+- 前端 TypeScript 类型需同步更新，移除 `open_code_acp`
 
 ## ACP 协议
 
@@ -258,5 +277,6 @@ make build
 2. 编译后 API 自动返回新类型
 3. 前端页面自动显示新选项
 4. 内网部署无需修改 Colink 核心代码
-5. "Claude Code" 改为 "ClaudeCode"（无空格）
-6. OpenCode(ACP) 改为 OpenCode（单一类型）
+5. 显示名称统一无空格：`"ClaudeCode"` 替代 `"Claude Code"`
+6. OpenCode(ACP) 类型合并为 OpenCode（单一类型）
+7. 数据迁移自动处理现有 `open_code_acp` 记录
