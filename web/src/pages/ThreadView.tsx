@@ -206,6 +206,9 @@ const ThreadView: React.FC = () => {
     toolId: string;
     questions: QuestionItem[];
   } | null>(null);
+
+  // Agent 完成后预填入状态
+  const [prefilledMention, setPrefilledMention] = useState<string | undefined>(undefined);
   const [rightPanelActiveTab, setRightPanelActiveTab] = useState<'code' | 'sandbox'>('code');
   const [rightPanelWidth, setRightPanelWidth] = useState(520);
   const [isResizing, setIsResizing] = useState(false);
@@ -760,6 +763,12 @@ const ThreadView: React.FC = () => {
           }
           // 延迟清理工具事件
           clearToolEvents(invocId);
+
+          // Agent 完成后预填入：设置上一个对话的 Agent 名称
+          // 只在 completed 状态且非调试模式下预填入
+          if (status === 'completed' && !isDebugMode && agentName) {
+            setPrefilledMention(agentName);
+          }
 
           // 检测调度结束阻塞：Agent 完成且没有调用下一个 agent
           // 延迟 2 秒检测，等待可能的新 Agent 启动
@@ -1464,42 +1473,47 @@ const ThreadView: React.FC = () => {
 
   /**
    * 处理 AskUserQuestion 用户答案提交
+   * 采用 --resume 方案：用户响应发送自然语言消息，触发新的 SpawnAgent 恢复会话
    */
   const handleSubmitQuestionAnswer = useCallback(async (answers: Record<number, string | string[]>) => {
     if (!pendingQuestion || !threadId) return;
 
     try {
-      // 将答案转换为字符串格式
+      // 将答案转换为自然语言消息格式
       // 对于多选，将多个答案合并为一个字符串
       const answerStrings: string[] = [];
-      Object.entries(answers).forEach(([index, value]) => {
+      Object.entries(answers).forEach(([_index, value]) => {
         if (Array.isArray(value)) {
-          answerStrings.push(`问题${parseInt(index) + 1}: ${value.join(', ')}`);
+          answerStrings.push(`${(value as string[]).join('、')}`);
         } else {
-          answerStrings.push(`问题${parseInt(index) + 1}: ${value}`);
+          answerStrings.push(value as string);
         }
       });
-      const answer = answerStrings.join('\n');
 
-      // 调用 API 提交答案
-      await api.agentQuestion.submitAnswer(threadId, pendingQuestion.toolId, answer);
+      // 生成自然语言消息（而非技术性 tool_result）
+      // 这样 Agent 可以通过 --resume 恢复会话并继续执行
+      const userResponseMessage = answerStrings.join('\n');
 
-      // 更新内容块状态
+      // 更新内容块状态为 success（用户已响应，Agent 正在处理）
       updateContentBlock(pendingQuestion.invocationId, `question-${pendingQuestion.toolId}`, {
         status: 'success',
-        output: answer,
+        output: userResponseMessage,
         completedAt: Date.now(),
       });
 
       // 关闭弹窗
       setPendingQuestion(null);
 
-      message.success('答案已提交');
+      // 发送用户消息（通过 WebSocket），这会触发 SpawnAgentForUserMessage
+      // 后端会检查最近的 completed invocation，使用其 SessionID 进行 --resume
+      await sendMessage(userResponseMessage);
+
+      message.success('答案已提交，Agent 正在处理...');
     } catch (error) {
       console.error('提交答案失败:', error);
       message.error('提交答案失败，请重试');
     }
-  }, [pendingQuestion, threadId, updateContentBlock]);
+  }, [pendingQuestion, threadId, updateContentBlock, sendMessage]);
 
   /**
    * 处理发送消息
@@ -1727,6 +1741,8 @@ const ThreadView: React.FC = () => {
               loadingContext={loadingProjectContext}
               agentOptions={agentOptions}
               onSend={handleSend}
+              prefilledMention={prefilledMention}
+              onPrefillConsumed={() => setPrefilledMention(undefined)}
             />
             </div>
           </div>
@@ -1837,6 +1853,8 @@ const ThreadView: React.FC = () => {
               loadingContext={loadingProjectContext}
               agentOptions={agentOptions}
               onSend={handleSend}
+              prefilledMention={prefilledMention}
+              onPrefillConsumed={() => setPrefilledMention(undefined)}
             />
 
             {/* 检查点确认弹窗 */}
