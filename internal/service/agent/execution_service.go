@@ -82,13 +82,13 @@ type A2AContext struct {
 
 // ThreadContext 预加载的 Thread 上下文，避免重复数据库查询
 type ThreadContext struct {
-	Thread             *model.Thread
-	Project            *model.Project
-	WorkflowTemplate   *model.WorkflowTemplate
-	WorkflowAgentIDs   []string
-	Transitions        []model.Transition
-	AllowedAgents      []*model.AgentRoleConfig
-	LoadedAt           time.Time
+	Thread           *model.Thread
+	Project          *model.Project
+	WorkflowTemplate *model.WorkflowTemplate
+	WorkflowAgentIDs []string
+	Transitions      []model.Transition
+	AllowedAgents    []*model.AgentRoleConfig
+	LoadedAt         time.Time
 }
 
 // SessionRecorder 会话记录器接口（用于解耦 a2a 包，避免循环导入）
@@ -107,18 +107,18 @@ func SetSessionRecorder(recorder SessionRecorder) {
 
 // ExecutionService 统一执行服务，整合Orchestrator和InteractiveSession的功能
 type ExecutionService struct {
-	invocationRepo   *repo.AgentInvocationRepository
-	threadRepo       *repo.ThreadRepository
-	msgRepo          *repo.MessageRepository
-	configSvc        *ConfigService
-	baseAgentSvc     *BaseAgentService
-	baseAgentRepo    *repo.BaseAgentRepository // 直接访问repo获取完整BaseAgent（含ApiToken）
-	tracker          *InvocationTracker
-	workflow         *WorkflowEngine
-	workflowRepo     *repo.WorkflowTemplateRepository
-	projectRepo      *repo.ProjectRepository
-	wsHub            *ws.Hub
-	defaultAdapter   AgentAdapter
+	invocationRepo *repo.AgentInvocationRepository
+	threadRepo     *repo.ThreadRepository
+	msgRepo        *repo.MessageRepository
+	configSvc      *ConfigService
+	baseAgentSvc   *BaseAgentService
+	baseAgentRepo  *repo.BaseAgentRepository // 直接访问repo获取完整BaseAgent（含ApiToken）
+	tracker        *InvocationTracker
+	workflow       *WorkflowEngine
+	workflowRepo   *repo.WorkflowTemplateRepository
+	projectRepo    *repo.ProjectRepository
+	wsHub          *ws.Hub
+	defaultAdapter AgentAdapter
 
 	// Mention 解析器（支持动态 patterns）
 	mentionParser *mention.Parser
@@ -129,12 +129,12 @@ type ExecutionService struct {
 	lastFlush           time.Time                      // 上次刷新时间
 	contentBlockFlushMu sync.Mutex                     // 保护缓冲区
 
-	runningAgents  map[uuid.UUID]*RunningAgent
-	mu             sync.RWMutex
+	runningAgents map[uuid.UUID]*RunningAgent
+	mu            sync.RWMutex
 
 	// A2A 上下文追踪
-	a2aContexts    map[uuid.UUID]*A2AContext // threadID -> A2AContext
-	a2aMu          sync.RWMutex
+	a2aContexts map[uuid.UUID]*A2AContext // threadID -> A2AContext
+	a2aMu       sync.RWMutex
 
 	// Thread 上下文缓存（避免重复查询）
 	threadContexts map[uuid.UUID]*ThreadContext
@@ -144,6 +144,10 @@ type ExecutionService struct {
 	// key: "threadID:agentID" -> value: sessionID
 	cliSessions map[string]string
 	csMu        sync.RWMutex
+
+	// ChunkListeners 外部 chunk 监听器（如飞书 IM 转发）
+	chunkListeners   []ChunkListener
+	chunkListenersMu sync.RWMutex
 }
 
 // NewExecutionService 创建统一执行服务
@@ -184,12 +188,38 @@ func NewExecutionService(
 		a2aContexts:        make(map[uuid.UUID]*A2AContext),
 		threadContexts:     make(map[uuid.UUID]*ThreadContext),
 		cliSessions:        make(map[string]string),
+		chunkListeners:     make([]ChunkListener, 0),
 	}
 
 	// 启动后台清理 goroutine，定期清理超时的 Agent
 	go es.cleanupStaleAgents()
 
 	return es
+}
+
+// AddChunkListener 注册外部 chunk 监听器
+func (es *ExecutionService) AddChunkListener(listener ChunkListener) {
+	es.chunkListenersMu.Lock()
+	defer es.chunkListenersMu.Unlock()
+	es.chunkListeners = append(es.chunkListeners, listener)
+}
+
+// NotifyChunkListeners 通知所有外部 chunk 监听器
+func (es *ExecutionService) NotifyChunkListeners(threadID, invocationID uuid.UUID, chunk Chunk, agentID, agentName string) {
+	es.chunkListenersMu.RLock()
+	listeners := make([]ChunkListener, len(es.chunkListeners))
+	copy(listeners, es.chunkListeners)
+	es.chunkListenersMu.RUnlock()
+	for _, listener := range listeners {
+		go func(l ChunkListener) {
+			defer func() {
+				if r := recover(); r != nil {
+					logError("chunk listener panic recovered", zap.Any("panic", r))
+				}
+			}()
+			l(threadID, invocationID, chunk, agentID, agentName)
+		}(listener)
+	}
 }
 
 // cleanupStaleAgents 定期清理超时的 Agent entry
@@ -227,7 +257,7 @@ func (es *ExecutionService) cleanupStaleAgents() {
 				agent.HeartbeatMu.Lock()
 				if agent.HeartbeatCancel != nil {
 					agent.HeartbeatCancel()
-			}
+				}
 				agent.HeartbeatMu.Unlock()
 
 				// 取消 goroutine
@@ -320,7 +350,7 @@ func (es *ExecutionService) SpawnAgent(ctx context.Context, req *SpawnRequest) (
 		StartedAt:       time.Now(),
 		LastActiveAt:    time.Now(), // 初始化活动时间
 		CancelFunc:      cancel,
-		ActiveToolCount: 0,          // 初始化工具计数
+		ActiveToolCount: 0, // 初始化工具计数
 	}
 	es.mu.Unlock()
 
@@ -614,14 +644,14 @@ func (es *ExecutionService) saveAgentMessage(ctx context.Context, threadID uuid.
 	}
 
 	msg := &model.Message{
-		ThreadID:     threadID,
-		Role:         model.MessageRoleAgent,
-		AgentID:      config.ID.String(),
-		Content:      output,
+		ThreadID:      threadID,
+		Role:          model.MessageRoleAgent,
+		AgentID:       config.ID.String(),
+		Content:       output,
 		ContentBlocks: contentBlocksJSON,
-		MessageType:  model.MessageTypeText,
-		Metadata:     metadata,
-		CreatedAt:    time.Now(),
+		MessageType:   model.MessageTypeText,
+		Metadata:      metadata,
+		CreatedAt:     time.Now(),
 	}
 	if err := es.msgRepo.Create(ctx, msg); err != nil {
 		logError("Failed to save agent message", zap.Error(err))
@@ -642,14 +672,14 @@ func (es *ExecutionService) saveAgentMessageWithReturn(ctx context.Context, thre
 	}
 
 	msg := &model.Message{
-		ThreadID:     threadID,
-		Role:         model.MessageRoleAgent,
-		AgentID:      config.ID.String(),
-		Content:      output,
+		ThreadID:      threadID,
+		Role:          model.MessageRoleAgent,
+		AgentID:       config.ID.String(),
+		Content:       output,
 		ContentBlocks: contentBlocksJSON,
-		MessageType:  model.MessageTypeText,
-		Metadata:     metadata,
-		CreatedAt:    time.Now(),
+		MessageType:   model.MessageTypeText,
+		Metadata:      metadata,
+		CreatedAt:     time.Now(),
 	}
 	if err := es.msgRepo.Create(ctx, msg); err != nil {
 		logError("Failed to save agent message", zap.Error(err))
@@ -910,7 +940,7 @@ func (es *ExecutionService) loadThreadContext(ctx context.Context, threadID uuid
 				var agentIDs []string
 				if err := json.Unmarshal(workflow.AgentIDs, &agentIDs); err == nil {
 					tc.WorkflowAgentIDs = agentIDs
-			}
+				}
 			}
 
 			// 解析 Transitions
@@ -918,7 +948,7 @@ func (es *ExecutionService) loadThreadContext(ctx context.Context, threadID uuid
 				var transitions []model.Transition
 				if err := json.Unmarshal(workflow.Transitions, &transitions); err == nil {
 					tc.Transitions = transitions
-			}
+				}
 			}
 		}
 	}
@@ -1014,18 +1044,18 @@ func (es *ExecutionService) buildContextLayers(ctx context.Context, threadID uui
 // roleTriggerHints 根据角色自动生成的触发提示
 // key 对应数据库中 agent_configs.role 字段的值
 var roleTriggerHints = map[string]string{
-	"requirement_analyst":  "@需求分析师 当需要需求分析时",
-	"architect":            "@架构师 当需要架构设计时",
-	"frontend_developer":   "@前端开发工程师 当需要前端实现时",
-	"backend_developer":    "@后端开发工程师 当需要后端实现时",
-	"code_reviewer":        "@代码审查工程师 当需要代码审查时",
-	"test_engineer":        "@测试工程师 当需要测试时",
-	"sre_engineer":         "@运维工程师 当需要部署运维时",
-	"project_manager":      "@项目经理 当需要项目协调时",
-	"ui_designer":          "@UI设计师 当需要界面设计时",
-	"database_designer":    "@数据库设计师 当需要数据库设计时",
-	"security_engineer":    "@安全工程师 当需要安全审计时",
-	"tech_writer":          "@技术文档工程师 当需要文档编写时",
+	"requirement_analyst": "@需求分析师 当需要需求分析时",
+	"architect":           "@架构师 当需要架构设计时",
+	"frontend_developer":  "@前端开发工程师 当需要前端实现时",
+	"backend_developer":   "@后端开发工程师 当需要后端实现时",
+	"code_reviewer":       "@代码审查工程师 当需要代码审查时",
+	"test_engineer":       "@测试工程师 当需要测试时",
+	"sre_engineer":        "@运维工程师 当需要部署运维时",
+	"project_manager":     "@项目经理 当需要项目协调时",
+	"ui_designer":         "@UI设计师 当需要界面设计时",
+	"database_designer":   "@数据库设计师 当需要数据库设计时",
+	"security_engineer":   "@安全工程师 当需要安全审计时",
+	"tech_writer":         "@技术文档工程师 当需要文档编写时",
 }
 
 // generateTriggerHint 根据目标 Agent 生成触发提示
@@ -1270,7 +1300,7 @@ func (es *ExecutionService) checkRouting(ctx context.Context, threadID uuid.UUID
 	}
 
 	// 批量触发 Agent
-		for _, targetConfig := range agentsToTrigger {
+	for _, targetConfig := range agentsToTrigger {
 		// 更新 A2A 上下文
 		es.a2aMu.Lock()
 		if a2aCtx.Depth >= MaxA2ADepth {
@@ -1281,9 +1311,9 @@ func (es *ExecutionService) checkRouting(ctx context.Context, threadID uuid.UUID
 		a2aCtx.InvokedAgents[targetConfig.ID] = true
 		// 设置触发者信息（A2A 优化）
 		a2aCtx.FromAgent = &AgentInfo{
-			ID:        currentConfig.ID,
-			Name:      currentConfig.Name,
-			Role:      string(currentConfig.Role),
+			ID:   currentConfig.ID,
+			Name: currentConfig.Name,
+			Role: string(currentConfig.Role),
 		}
 		es.a2aMu.Unlock()
 
@@ -1340,6 +1370,7 @@ func (es *ExecutionService) checkRouting(ctx context.Context, threadID uuid.UUID
 	}
 
 }
+
 // parseMentions 解析@mention（仅匹配行首）
 // 返回匹配的 Agent ID 列表
 // 只在行首（可带空白缩进）的 @mention 才会触发 A2A 路由
@@ -1497,7 +1528,7 @@ func (es *ExecutionService) stripPureMentionLines(output string) string {
 				if r == ' ' || r == '\t' {
 					mentionEnd = i + 1
 					break
-			}
+				}
 			}
 
 			// 如果 @mention 后面只有空白，则跳过这一行
@@ -1657,12 +1688,12 @@ func (es *ExecutionService) checkSignalRouting(ctx context.Context, threadID uui
 		}
 		a2aCtx.Depth++
 		a2aCtx.InvokedAgents[targetConfig.ID] = true
-			// 设置触发者信息（A2A 优化）
-			a2aCtx.FromAgent = &AgentInfo{
-			ID:        config.ID,
-			Name:      config.Name,
-			Role:      string(config.Role),
-			}
+		// 设置触发者信息（A2A 优化）
+		a2aCtx.FromAgent = &AgentInfo{
+			ID:   config.ID,
+			Name: config.Name,
+			Role: string(config.Role),
+		}
 		es.a2aMu.Unlock()
 
 		// 决定会话策略：跨角色使用新会话，同角色使用 resume
@@ -1865,22 +1896,22 @@ func (es *ExecutionService) broadcastChunk(threadID, invocationID uuid.UUID, chu
 					agent.ContentBlocksMu.Unlock()
 					es.mu.Unlock()
 					goto broadcast
-			}
+				}
 			}
 			// 只有在有内容或不是 Done 标记时才创建新块
 			if chunk.Content != "" || !chunk.Done {
 				status := "streaming"
 				if chunk.Done {
 					status = "success"
-			}
+				}
 				agent.AccumulatedContentBlocks = append(agent.AccumulatedContentBlocks, ContentBlockData{
-				ID:        fmt.Sprintf("thinking-%d-%d", invocationID.ID(), now),
+					ID:        fmt.Sprintf("thinking-%d-%d", invocationID.ID(), now),
 					Type:      "thinking",
 					Content:   chunk.Content,
 					Timestamp: now,
 					Status:    status,
 					Done:      chunk.Done,
-			})
+				})
 			}
 		case ChunkTypeText:
 			// 文本块：智能累积
@@ -1891,7 +1922,7 @@ func (es *ExecutionService) broadcastChunk(threadID, invocationID uuid.UUID, chu
 					agent.ContentBlocksMu.Unlock()
 					es.mu.Unlock()
 					goto broadcast
-			}
+				}
 			}
 			// 创建新的文本块
 			agent.AccumulatedContentBlocks = append(agent.AccumulatedContentBlocks, ContentBlockData{
@@ -1921,7 +1952,7 @@ func (es *ExecutionService) broadcastChunk(threadID, invocationID uuid.UUID, chu
 					agent.AccumulatedContentBlocks[i].Status = "success"
 					agent.AccumulatedContentBlocks[i].CompletedAt = now
 					break
-			}
+				}
 			}
 		}
 		agent.ContentBlocksMu.Unlock()
@@ -1931,19 +1962,19 @@ func (es *ExecutionService) broadcastChunk(threadID, invocationID uuid.UUID, chu
 			lastBlock := agent.AccumulatedContentBlocks[len(agent.AccumulatedContentBlocks)-1]
 			// 转换为持久化模型
 			persistBlock := model.InvocationContentBlock{
-				ID:          lastBlock.ID,
+				ID:           lastBlock.ID,
 				InvocationID: invocationID.String(),
-				Type:        lastBlock.Type,
-				Content:     lastBlock.Content,
-				Timestamp:   lastBlock.Timestamp,
-				Status:      lastBlock.Status,
-				ToolName:    lastBlock.ToolName,
-				ToolID:      lastBlock.ToolID,
-				Input:       lastBlock.Input,
-				Output:      lastBlock.Output,
-				IsError:     lastBlock.IsError,
-				StartedAt:   lastBlock.StartedAt,
-				CompletedAt: lastBlock.CompletedAt,
+				Type:         lastBlock.Type,
+				Content:      lastBlock.Content,
+				Timestamp:    lastBlock.Timestamp,
+				Status:       lastBlock.Status,
+				ToolName:     lastBlock.ToolName,
+				ToolID:       lastBlock.ToolID,
+				Input:        lastBlock.Input,
+				Output:       lastBlock.Output,
+				IsError:      lastBlock.IsError,
+				StartedAt:    lastBlock.StartedAt,
+				CompletedAt:  lastBlock.CompletedAt,
 			}
 			es.addToContentBlockBuffer(persistBlock, invocationID)
 		}
@@ -2002,8 +2033,10 @@ broadcast:
 						"durationApiMs":       chunk.Usage.DurationApiMs,
 						"numTurns":            chunk.Usage.NumTurns,
 					},
-			},
+				},
 			})
+			// 通知外部 chunk 监听器（包括 usage chunks）
+			es.NotifyChunkListeners(threadID, invocationID, chunk, agentID, agentName)
 			return
 		}
 
@@ -2042,6 +2075,9 @@ broadcast:
 			Timestamp: time.Now().UnixMilli(),
 			Payload:   payload,
 		})
+
+		// 通知外部 chunk 监听器
+		es.NotifyChunkListeners(threadID, invocationID, chunk, agentID, agentName)
 	} else {
 		logInfo("broadcastChunk: wsHub is nil!")
 	}
@@ -2160,7 +2196,7 @@ func (es *ExecutionService) GetRunningInvocationsWithContentBlocks(ctx context.C
 							CompletedAt: b.CompletedAt,
 						})
 					}
-			}
+				}
 			}
 
 			result = append(result, ws.InvocationRecoveryData{
@@ -2273,7 +2309,7 @@ func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, thread
 				agent.HeartbeatMu.Lock()
 				if agent.HeartbeatCancel != nil {
 					agent.HeartbeatCancel()
-			}
+				}
 				agent.HeartbeatMu.Unlock()
 				delete(es.runningAgents, id)
 				logInfo("SpawnAgentForUserMessage: 检测到无活动 Agent，自动清理",
@@ -2343,17 +2379,17 @@ func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, thread
 			if len(workflow.AgentIDs) > 0 {
 				if err := json.Unmarshal(workflow.AgentIDs, &agentIDs); err != nil {
 					logError("Failed to parse agent_ids", zap.Error(err))
-			} else {
+				} else {
 					logInfo("SpawnAgentForUserMessage: 解析的 Agent IDs", zap.Strings("agentIDs", agentIDs))
-			}
+				}
 			}
 			// 解析 transitions JSON
 			if len(workflow.Transitions) > 0 {
 				if err := json.Unmarshal(workflow.Transitions, &transitions); err != nil {
 					logError("Failed to parse transitions", zap.Error(err))
-			} else {
+				} else {
 					logInfo("SpawnAgentForUserMessage: 解析的 Transitions", zap.Int("count", len(transitions)))
-			}
+				}
 			}
 		}
 	} else if workflowTemplateID == nil {
@@ -2376,7 +2412,7 @@ func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, thread
 					entryAgentID = id
 					logInfo("SpawnAgentForUserMessage: 找到入口 Agent", zap.String("entryAgentID", entryAgentID))
 					break
-			}
+				}
 			}
 
 			// 如果没找到入口 Agent，使用 agent_ids[0]

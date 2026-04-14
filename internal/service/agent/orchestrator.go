@@ -30,8 +30,8 @@ type Orchestrator struct {
 	workflowRepo     *repo.WorkflowTemplateRepository // 新增：工作流模板仓库
 	projectRepo      *repo.ProjectRepository          // 新增：项目仓库，用于获取项目路径
 	wsHub            *ws.Hub
-	defaultAdapter   AgentAdapter     // 默认适配器，用于向后兼容
-	executionService *ExecutionService // 统一执行服务
+	defaultAdapter   AgentAdapter        // 默认适配器，用于向后兼容
+	executionService *ExecutionService   // 统一执行服务
 	debugThreadMgr   *DebugThreadManager // 调试线程管理器
 
 	// Mention 解析器（支持动态 patterns）
@@ -40,27 +40,27 @@ type Orchestrator struct {
 	// 后台执行支持：内容块持久化
 	contentBlockRepo *repo.ContentBlockRepository
 
-	runningAgents      map[uuid.UUID]*RunningAgent
-	mu                 sync.RWMutex
+	runningAgents map[uuid.UUID]*RunningAgent
+	mu            sync.RWMutex
 }
 
 // RunningAgent 运行中的Agent
 type RunningAgent struct {
-	InvocationID  uuid.UUID
-	ThreadID      uuid.UUID
-	AgentConfig   *model.AgentRoleConfig
-	BaseAgent     *model.BaseAgent // 关联的基础Agent配置
-	StartedAt     time.Time
-	LastActiveAt  time.Time // 最后一次输出活动时间
-	CancelFunc    context.CancelFunc
+	InvocationID uuid.UUID
+	ThreadID     uuid.UUID
+	AgentConfig  *model.AgentRoleConfig
+	BaseAgent    *model.BaseAgent // 关联的基础Agent配置
+	StartedAt    time.Time
+	LastActiveAt time.Time // 最后一次输出活动时间
+	CancelFunc   context.CancelFunc
 
 	// 工具执行状态跟踪（区分"无输出"和"真正卡死"）
-	ActiveToolCount  int       // 当前活跃的工具调用数量
-	HeartbeatCancel  context.CancelFunc // 心跳取消函数（工具执行期间定期更新 LastActiveAt）
-	HeartbeatMu      sync.Mutex // 保护心跳相关字段
+	ActiveToolCount int                // 当前活跃的工具调用数量
+	HeartbeatCancel context.CancelFunc // 心跳取消函数（工具执行期间定期更新 LastActiveAt）
+	HeartbeatMu     sync.Mutex         // 保护心跳相关字段
 
 	// 流式输出累积（用于 WebSocket 重连恢复）
-	AccumulatedOutput string // 累积的输出内容
+	AccumulatedOutput string     // 累积的输出内容
 	OutputMu          sync.Mutex // 保护输出累积字段
 
 	// 结构化内容块累积（用于持久化）
@@ -75,18 +75,18 @@ type RunningAgent struct {
 
 // ContentBlockData 结构化内容块数据（用于序列化）
 type ContentBlockData struct {
-	ID        string                 `json:"id"`
-	Type      string                 `json:"type"`
-	Content   string                 `json:"content,omitempty"`
-	Timestamp int64                  `json:"timestamp"`
-	Status    string                 `json:"status,omitempty"`
-	Done      bool                   `json:"done,omitempty"`
+	ID        string `json:"id"`
+	Type      string `json:"type"`
+	Content   string `json:"content,omitempty"`
+	Timestamp int64  `json:"timestamp"`
+	Status    string `json:"status,omitempty"`
+	Done      bool   `json:"done,omitempty"`
 	// 工具调用相关（字段名与前端 ToolUseBlock 对齐）
-	ToolName  string                 `json:"toolName,omitempty"`
-	ToolID    string                 `json:"toolId,omitempty"`
-	Input     map[string]interface{} `json:"input,omitempty"`
-	Output    string                 `json:"output,omitempty"`
-	IsError   bool                   `json:"isError,omitempty"`
+	ToolName string                 `json:"toolName,omitempty"`
+	ToolID   string                 `json:"toolId,omitempty"`
+	Input    map[string]interface{} `json:"input,omitempty"`
+	Output   string                 `json:"output,omitempty"`
+	IsError  bool                   `json:"isError,omitempty"`
 	// 时间追踪
 	StartedAt   int64 `json:"startedAt,omitempty"`
 	CompletedAt int64 `json:"completedAt,omitempty"`
@@ -229,7 +229,6 @@ func (o *Orchestrator) getEnvironmentInfo(thread *model.Thread) string {
 		thread.ID, thread.CurrentPhase, thread.Status)
 }
 
-
 // CancelAgent 取消Agent
 func (o *Orchestrator) CancelAgent(ctx context.Context, invocationID uuid.UUID) error {
 	return o.executionService.CancelAgent(ctx, invocationID)
@@ -239,6 +238,13 @@ func (o *Orchestrator) CancelAgent(ctx context.Context, invocationID uuid.UUID) 
 func (o *Orchestrator) broadcastStatus(threadID, invocationID uuid.UUID, status string, role model.AgentRole, agentID string) {
 	// 委托给 ExecutionService 的实现（包含 input 支持）
 	o.executionService.broadcastStatus(threadID, invocationID, status, role, "", agentID, "")
+	o.executionService.broadcastStatus(threadID, invocationID, status, role, "", "")
+
+	// 通知外部 chunk 监听器（status 事件）
+	o.executionService.NotifyChunkListeners(threadID, invocationID, Chunk{
+		Type:    ChunkTypeStatus,
+		Content: status,
+	}, string(role), string(role))
 }
 
 // broadcastOutputChunk 广播输出块（实时流式输出）
@@ -266,11 +272,11 @@ func (o *Orchestrator) broadcastAgentMessage(threadID uuid.UUID, msg *model.Mess
 			ThreadID:  threadID.String(),
 			Timestamp: msg.CreatedAt.UnixMilli(),
 			Payload: map[string]interface{}{
-				"messageId":   msg.ID.String(),
-				"agentId":     msg.AgentID,
-				"content":     msg.Content,
-				"agentName":   agentName,
-				"agentRole":   agentRole,
+				"messageId": msg.ID.String(),
+				"agentId":   msg.AgentID,
+				"content":   msg.Content,
+				"agentName": agentName,
+				"agentRole": agentRole,
 			},
 		})
 	}
@@ -308,6 +314,7 @@ type ContextLayers struct {
 var (
 	ErrAgentNotFound = errors.New("agent not found")
 )
+
 // SpawnAgentForUserMessage 为用户消息触发Agent响应
 // 实现message.AgentSpawner接口
 // 使用工作流模板中指定的Agent，而不是根据Phase硬编码选择
@@ -319,6 +326,11 @@ func (o *Orchestrator) SpawnAgentForUserMessage(ctx context.Context, threadID uu
 // SetDebugThreadManager 设置调试线程管理器
 func (o *Orchestrator) SetDebugThreadManager(mgr *DebugThreadManager) {
 	o.debugThreadMgr = mgr
+}
+
+// GetExecutionService 获取执行服务实例（供外部注册 ChunkListener）
+func (o *Orchestrator) GetExecutionService() *ExecutionService {
+	return o.executionService
 }
 
 // SpawnDebugAgent 调试模式启动Agent

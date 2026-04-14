@@ -1,0 +1,58 @@
+services:
+  isdp-dev:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+    volumes:
+      - ..:/workspaces/isdp
+      - isdp-go-mod:/home/vscode/go/pkg/mod
+      - isdp-go-build:/home/vscode/.cache/go-build
+      - isdp-npm-cache:/home/vscode/.npm
+      - isdp-data:/workspaces/isdp/data
+    # Uncomment for Docker-in-Docker sandbox support:
+    # - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      - ISDP_CONFIG=/workspaces/isdp/configs/config.yaml
+      - GOMODCACHE=/home/vscode/go/pkg/mod
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    command: sleep infinity
+
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: isdp_dev_root
+      MYSQL_DATABASE: isdp_dev
+      MYSQL_USER: isdp
+      MYSQL_PASSWORD: isdp_dev_pass
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+
+volumes:
+  isdp-go-mod:
+  isdp-go-build:
+  isdp-npm-cache:
+  isdp-data:
+  mysql-data:
+  redis-data:
