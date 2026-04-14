@@ -9,6 +9,7 @@ import (
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
+	"github.com/anthropic/isdp/internal/service/agent"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
@@ -503,14 +504,7 @@ func (s *Service) getConfigDir(projectPath, baseAgentType string) string {
 
 // getConfigDirName 获取配置目录名称
 func (s *Service) getConfigDirName(baseAgentType string) string {
-	switch baseAgentType {
-	case "claude_code":
-		return ".claude"
-	case "open_code":
-		return ".opencode"
-	default:
-		return ".claude"
-	}
+	return agent.GetConfigDir(model.BaseAgentType(baseAgentType))
 }
 
 // copyCommandFile 复制Command文件到目标目录
