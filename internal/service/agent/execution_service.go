@@ -721,9 +721,9 @@ func (es *ExecutionService) broadcastAgentMessage(threadID uuid.UUID, msg *model
 
 // getAdapter 获取适配器
 func (es *ExecutionService) getAdapter(ctx context.Context, config *model.AgentRoleConfig, baseAgent *model.BaseAgent) (AgentAdapter, error) {
-	// 如果有 BaseAgent，使用它创建适配器
+	// 如果有 BaseAgent，使用 Registry 获取适配器
 	if baseAgent != nil {
-		adapter := NewAdapter(baseAgent)
+		adapter := GetAdapter(baseAgent)
 		if adapter == nil {
 			return nil, fmt.Errorf("不支持的基础Agent类型: %s", baseAgent.Type)
 		}
@@ -734,7 +734,7 @@ func (es *ExecutionService) getAdapter(ctx context.Context, config *model.AgentR
 	if config.BaseAgentID != uuid.Nil && es.baseAgentRepo != nil {
 		ba, err := es.baseAgentRepo.FindByID(ctx, config.BaseAgentID)
 		if err == nil {
-			adapter := NewAdapter(ba)
+			adapter := GetAdapter(ba)
 			if adapter != nil {
 				return adapter, nil
 			}
