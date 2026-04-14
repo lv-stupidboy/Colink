@@ -9,7 +9,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func parseACPSessionUpdate(raw json.RawMessage) ([]Chunk, error) {
+func parseACPSessionUpdate(raw json.RawMessage, session *acpSession) ([]Chunk, error) {
 	var header acpSessionUpdateHeader
 	if err := json.Unmarshal(raw, &header); err != nil {
 		logError("ACP: failed to parse session update header", zap.Error(err))
@@ -22,7 +22,7 @@ func parseACPSessionUpdate(raw json.RawMessage) ([]Chunk, error) {
 	case "agent_thought_chunk":
 		return parseACPAgentThoughtChunk(raw)
 	case "tool_call":
-		return parseACPToolCall(raw)
+		return parseACPToolCall(raw, session)
 	case "tool_call_update":
 		return parseACPToolCallUpdate(raw)
 	case "usage_update":
@@ -63,16 +63,75 @@ func parseACPAgentThoughtChunk(raw json.RawMessage) ([]Chunk, error) {
 	}}, nil
 }
 
-func parseACPToolCall(raw json.RawMessage) ([]Chunk, error) {
+func parseACPToolCall(raw json.RawMessage, session *acpSession) ([]Chunk, error) {
 	var tc acpToolCall
 	if err := json.Unmarshal(raw, &tc); err != nil {
 		logError("ACP: failed to parse tool_call", zap.Error(err))
 		return nil, fmt.Errorf("ACP: parse tool_call: %w", err)
 	}
 
+	// 详细日志：输出完整的工具调用信息
+	logInfo("ACP: received tool_call",
+		zap.String("toolCallId", tc.ToolCallID),
+		zap.String("title", tc.Title),
+		zap.String("kind", tc.Kind),
+		zap.String("status", tc.Status),
+		zap.Any("rawInput", tc.RawInput))
+
 	var toolInput map[string]interface{}
 	if m, ok := tc.RawInput.(map[string]interface{}); ok {
 		toolInput = m
+	}
+
+	// 检测 AskUserQuestion 工具（更精确的匹配）
+	// 工具名可能是 "AskUserQuestion" 或 "ask_user_question" 或类似的
+	isAskUserQuestion := false
+
+	// 方法1：检查 title 是否包含关键关键词（大小写不敏感）
+	titleLower := strings.ToLower(tc.Title)
+	if strings.Contains(titleLower, "askuserquestion") ||
+		strings.Contains(titleLower, "ask user") ||
+		strings.Contains(titleLower, "user question") {
+		isAskUserQuestion = true
+	}
+
+	// 方法2：检查 kind 字段（如果存在）
+	if tc.Kind == "ask_user" || tc.Kind == "user_input" || tc.Kind == "question" {
+		isAskUserQuestion = true
+	}
+
+	// 方法3：检查 rawInput 是否包含 questions 数组（特征识别）
+	if toolInput != nil {
+		if _, hasQuestions := toolInput["questions"]; hasQuestions {
+			// 如果输入包含 questions 数组，很可能是 AskUserQuestion 工具
+			isAskUserQuestion = true
+		}
+	}
+
+	if isAskUserQuestion {
+		logInfo("ACP: detected AskUserQuestion tool",
+			zap.String("toolCallId", tc.ToolCallID),
+			zap.String("title", tc.Title),
+			zap.String("kind", tc.Kind),
+			zap.Any("input", toolInput))
+
+		// 解析问题列表
+		questions := parseQuestionsFromInput(toolInput)
+
+		chunk := Chunk{
+			Type:      ChunkTypeQuestion,
+			ToolName:  tc.Title,
+			ToolID:    tc.ToolCallID,
+			ToolInput: toolInput,
+			Questions: questions,
+		}
+
+		// 存储到 session 以便等待用户响应
+		if session != nil {
+			session.pendingQuestion = &chunk
+		}
+
+		return []Chunk{chunk}, nil
 	}
 
 	return []Chunk{{
@@ -151,4 +210,76 @@ func parseACPPlanUpdate(raw json.RawMessage) ([]Chunk, error) {
 		Type:    ChunkTypeStatus,
 		Content: strings.Join(lines, "\n"),
 	}}, nil
+}
+
+// parseQuestionsFromInput 从工具输入中解析问题列表
+func parseQuestionsFromInput(input map[string]interface{}) []QuestionItem {
+	if input == nil {
+		return nil
+	}
+
+	questions := make([]QuestionItem, 0)
+
+	// 尝试解析 questions 数组
+	if questionsArray, ok := input["questions"].([]interface{}); ok {
+		for _, q := range questionsArray {
+			if qMap, ok := q.(map[string]interface{}); ok {
+				question := QuestionItem{
+					Header:     getStringFromMap(qMap, "header"),
+					Question:   getStringFromMap(qMap, "question"),
+					MultiSelect: getBoolFromMap(qMap, "multiSelect"),
+				}
+
+				// 解析选项
+				if optionsArray, ok := qMap["options"].([]interface{}); ok {
+					for _, o := range optionsArray {
+						if oMap, ok := o.(map[string]interface{}); ok {
+							question.Options = append(question.Options, QuestionOption{
+								Label:       getStringFromMap(oMap, "label"),
+								Description: getStringFromMap(oMap, "description"),
+								Preview:     getStringFromMap(oMap, "preview"),
+							})
+						}
+					}
+				}
+
+				questions = append(questions, question)
+			}
+		}
+	}
+
+	return questions
+}
+
+// parseACPUserInputRequest 解析用户输入请求通知
+func parseACPUserInputRequest(req acpUserInputRequest) Chunk {
+	questions := parseQuestionsFromInput(req.Input)
+
+	return Chunk{
+		Type:      ChunkTypeQuestion,
+		ToolName:  req.ToolName,
+		ToolID:    req.ToolCallID,
+		ToolInput: req.Input,
+		Questions: questions,
+	}
+}
+
+// getStringFromMap 安全地从 map 中获取字符串
+func getStringFromMap(m map[string]interface{}, key string) string {
+	if v, ok := m[key]; ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
+}
+
+// getBoolFromMap 安全地从 map 中获取布尔值
+func getBoolFromMap(m map[string]interface{}, key string) bool {
+	if v, ok := m[key]; ok {
+		if b, ok := v.(bool); ok {
+			return b
+		}
+	}
+	return false
 }

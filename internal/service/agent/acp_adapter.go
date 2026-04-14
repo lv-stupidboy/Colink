@@ -23,15 +23,16 @@ type acpAdapterConfig struct {
 }
 
 type acpSession struct {
-	id        string
-	isdpID    string
-	transport *acpTransport
-	cmd       *exec.Cmd
-	ctx       context.Context
-	cancel    context.CancelFunc
-	status    SessionStatus
-	output    strings.Builder
-	mu        sync.Mutex
+	id              string
+	isdpID          string
+	transport       *acpTransport
+	cmd             *exec.Cmd
+	ctx             context.Context
+	cancel          context.CancelFunc
+	status          SessionStatus
+	output          strings.Builder
+	pendingQuestion *Chunk // 待处理的 AskUserQuestion（等待用户响应）
+	mu              sync.Mutex
 }
 
 // BaseACPAdapter implements AgentAdapter using ACP (Agent Client Protocol) over stdio.
@@ -390,6 +391,11 @@ func (a *BaseACPAdapter) CheckHealth(ctx context.Context) error {
 }
 
 func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, params json.RawMessage, onChunk func(Chunk)) {
+	// 记录所有收到的通知（调试用）
+	logInfo("ACP: received notification",
+		zap.String("method", method),
+		zap.String("paramsPreview", string(params)[:min(200, len(string(params)))]))
+
 	switch method {
 	case "session/update":
 		if onChunk == nil {
@@ -401,7 +407,12 @@ func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, 
 			return
 		}
 
-		chunks, err := parseACPSessionUpdate(updateParams.Update)
+		// 记录 session/update 详情
+		logInfo("ACP: session/update received",
+			zap.String("sessionId", updateParams.SessionID),
+			zap.String("updatePreview", string(updateParams.Update)[:min(200, len(string(updateParams.Update)))]))
+
+		chunks, err := parseACPSessionUpdate(updateParams.Update, session)
 		if err != nil {
 			logError("ACP: failed to parse session update", zap.Error(err))
 			return
@@ -412,6 +423,10 @@ func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, 
 		for _, chunk := range chunks {
 			if chunk.Type == ChunkTypeText {
 				session.output.WriteString(chunk.Content)
+			}
+			// 对于 question 类型，存储到 session 以便等待用户响应
+			if chunk.Type == ChunkTypeQuestion {
+				session.pendingQuestion = &chunk
 			}
 			onChunk(chunk)
 		}
@@ -424,8 +439,38 @@ func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, 
 			logDebug("ACP: permission auto-approved", zap.String("sessionId", session.id))
 		}
 
+	case "session/request_user_input":
+		// 处理 AskUserQuestion 工具的用户输入请求
+		if onChunk == nil {
+			return
+		}
+		var inputRequest acpUserInputRequest
+		if err := json.Unmarshal(params, &inputRequest); err != nil {
+			logError("ACP: failed to parse session/request_user_input params", zap.Error(err))
+			return
+		}
+		logInfo("ACP: received user input request",
+			zap.String("sessionId", inputRequest.SessionID),
+			zap.String("toolCallId", inputRequest.ToolCallID),
+			zap.String("toolName", inputRequest.ToolName),
+			zap.Any("input", inputRequest.Input))
+
+		// 解析问题并创建 question chunk
+		chunk := parseACPUserInputRequest(inputRequest)
+		session.mu.Lock()
+		session.pendingQuestion = &chunk
+		session.mu.Unlock()
+		onChunk(chunk)
+
+	case "session/tool_call_update":
+		// 可能的工具状态更新通知
+		logInfo("ACP: received tool_call_update notification", zap.String("params", string(params)))
+		// TODO: 如果需要，解析并处理
+
 	default:
-		logDebug("ACP: unknown notification method", zap.String("method", method))
+		logInfo("ACP: unknown notification method",
+			zap.String("method", method),
+			zap.String("params", string(params)))
 	}
 }
 
@@ -550,4 +595,54 @@ func (a *BaseACPAdapter) cleanup(session *acpSession) {
 			logWarn("ACP: process killed after 5s timeout")
 		}
 	}
+}
+
+// SendToolResult 发送工具结果给 CLI（用于 AskUserQuestion 等需要用户输入的工具）
+// ACP 协议说明：
+// - 使用 session/resolve_tool_call 请求方法（而非通知）
+// - 参数包含 toolCallId 和 response
+func (a *BaseACPAdapter) SendToolResult(invocationID uuid.UUID, toolCallID string, result string) error {
+	a.mu.RLock()
+	session, exists := a.sessions[invocationID.String()]
+	a.mu.RUnlock()
+
+	if !exists {
+		return fmt.Errorf("ACP: session not found for invocation %s", invocationID.String())
+	}
+
+	if session.transport == nil {
+		return fmt.Errorf("ACP: session transport not available")
+	}
+
+	// 使用请求方法 session/resolve_tool_call（而非通知）
+	// 这确保 CLI 正确处理响应并继续执行
+	resolveParams := map[string]interface{}{
+		"toolCallId": toolCallID,
+		"response":   result,
+	}
+
+	logInfo("ACP: sending tool result via session/resolve_tool_call",
+		zap.String("invocationID", invocationID.String()),
+		zap.String("toolCallId", toolCallID),
+		zap.String("response", result))
+
+	// 发送请求而非通知，等待 CLI 确认
+	_, err := session.transport.SendRequest("session/resolve_tool_call", resolveParams)
+	if err != nil {
+		// 如果请求方法失败，尝试使用通知方法作为备选
+		logWarn("ACP: session/resolve_tool_call request failed, trying notification",
+			zap.Error(err))
+
+		err = session.transport.SendNotification("session/resolve_user_input", &acpUserInputResponse{
+			ToolCallID: toolCallID,
+			Response:   result,
+		})
+		if err != nil {
+			return fmt.Errorf("ACP: failed to send user input response: %w", err)
+		}
+	}
+
+	logInfo("ACP: tool result sent successfully",
+		zap.String("toolCallId", toolCallID))
+	return nil
 }

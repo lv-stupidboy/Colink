@@ -225,6 +225,17 @@ class APIClient {
     createFolder: (parentPath: string, name: string): Promise<{ success: boolean }> => {
       return this.request('/files/folder', 'POST', { path: parentPath, name });
     },
+    // 获取文件内容（用于文件预览）
+    getContent: (basePath: string, path: string): Promise<{
+      content: string;
+      size: number;
+      truncated: boolean;
+      path: string;
+      isBinary: boolean;
+    }> => {
+      const url = `/files/content?basePath=${encodeURIComponent(basePath)}&path=${encodeURIComponent(path)}`;
+      return this.request(url, 'GET');
+    },
   };
 
   // Thread API
@@ -644,6 +655,12 @@ class APIClient {
       });
       return response.data;
     },
+  };
+
+  // Agent Question API (AskUserQuestion)
+  agentQuestion = {
+    submitAnswer: (threadId: string, toolCallId: string, answer: string): Promise<{ status: string }> =>
+      this.request(`/agents/question/${threadId}/answer`, 'POST', { toolCallId, answer }),
   };
 
   // Settings API

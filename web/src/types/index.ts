@@ -340,10 +340,10 @@ export interface ToolEvent {
 // ========== 消息内容块类型（按返回顺序穿插显示） ==========
 
 // 内容块类型（扩展支持富内容）
-export type MessageContentBlockType = 'thinking' | 'tool_use' | 'text' | 'rich';
+export type MessageContentBlockType = 'thinking' | 'tool_use' | 'text' | 'question' | 'rich';
 
 // 内容块状态
-export type ContentBlockStatus = 'streaming' | 'success' | 'failed';
+export type ContentBlockStatus = 'streaming' | 'waiting_user_input' | 'success' | 'failed';
 
 // 基础内容块接口
 export interface MessageContentBlockBase {
@@ -372,6 +372,34 @@ export interface ToolUseBlock extends MessageContentBlockBase {
   startedAt: number;
   completedAt?: number;
   isError?: boolean;
+}
+
+// AskUserQuestion 选项
+export interface QuestionOption {
+  label: string;
+  description?: string;
+  preview?: string;
+}
+
+// AskUserQuestion 问题项
+export interface QuestionItem {
+  header: string;
+  question: string;
+  multiSelect: boolean;
+  options: QuestionOption[];
+}
+
+// AskUserQuestion 问题块
+export interface QuestionBlock extends MessageContentBlockBase {
+  type: 'question';
+  toolName: string;
+  toolId: string;
+  input?: Record<string, unknown>;
+  questions: QuestionItem[];
+  output?: string;         // 用户选择的答案
+  status: ContentBlockStatus;
+  startedAt: number;
+  completedAt?: number;
 }
 
 // 文本块
@@ -527,6 +555,7 @@ export type RichBlock =
 export type MessageContentBlock =
   | ThinkingBlock
   | ToolUseBlock
+  | QuestionBlock
   | TextBlock
   | RichBlock;
 

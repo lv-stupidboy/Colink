@@ -67,6 +67,10 @@ type RunningAgent struct {
 	AccumulatedContentBlocks []ContentBlockData // 累积的内容块
 	ContentBlocksMu          sync.Mutex         // 保护内容块累积字段
 
+	// AskUserQuestion 相关状态
+	WaitingForUserInput bool   // 是否正在等待用户输入（AskUserQuestion）
+	PendingQuestionID   string // 待处理的 AskUserQuestion 工具ID
+
 	// CLI 进程管理（用于取消执行）
 	Adapter AgentAdapter // Adapter 引用（用于获取当前进程）
 	Cmd     *exec.Cmd    // CLI 进程引用（由 adapter 在执行时设置）
@@ -167,6 +171,12 @@ func (o *Orchestrator) GetRunningInvocationsWithContentBlocks(ctx context.Contex
 // GetRecentlyCompletedInvocations 获取最近完成的 invocation（实现 ws.InvocationRecoverer）
 func (o *Orchestrator) GetRecentlyCompletedInvocations(ctx context.Context, threadID uuid.UUID, sinceMinutes int) []ws.InvocationRecoveryData {
 	return o.executionService.GetRecentlyCompletedInvocations(ctx, threadID, sinceMinutes)
+}
+
+// SubmitQuestionAnswer 提交 AskUserQuestion 的用户答案
+// 找到运行中的 Agent，并通过 stdin 发送答案给 CLI
+func (o *Orchestrator) SubmitQuestionAnswer(threadID uuid.UUID, toolCallID string, answer string) error {
+	return o.executionService.SubmitQuestionAnswer(threadID, toolCallID, answer)
 }
 
 // handleAgentError 处理Agent错误

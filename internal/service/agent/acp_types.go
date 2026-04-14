@@ -189,3 +189,17 @@ type acpPlanEntry struct {
 	Status   string `json:"status"`
 	Priority int    `json:"priority,omitempty"`
 }
+
+// acpUserInputRequest AskUserQuestion 工具的用户输入请求
+type acpUserInputRequest struct {
+	SessionID  string                 `json:"sessionId"`
+	ToolCallID string                 `json:"toolCallId"`
+	ToolName   string                 `json:"toolName"`
+	Input      map[string]interface{} `json:"input"`
+}
+
+// acpUserInputResponse 用户输入响应
+type acpUserInputResponse struct {
+	ToolCallID string `json:"toolCallId"`
+	Response   string `json:"response"` // 用户选择的答案
+}

@@ -51,7 +51,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({
       key: 'code',
       label: (
         <span>
-          <CodeOutlined /> 代码预览
+          <CodeOutlined /> 代码变更
         </span>
       ),
       children: (

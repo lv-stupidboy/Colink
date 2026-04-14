@@ -37,15 +37,17 @@ import {
 } from '@ant-design/icons';
 import { useAppStore } from '@/store';
 import { useDebugThreadStore } from '@/store/debugThread';
-import type { Message, Artifact, ReviewIssue, MergeCheckResult, AgentConfig, ToolEvent, MessageContentBlock } from '@/types';
+import type { Message, Artifact, ReviewIssue, MergeCheckResult, AgentConfig, ToolEvent, MessageContentBlock, QuestionItem } from '@/types';
 import type { FileChange } from '@/types/content';
 import { AgentRoleLabels, ArtifactTypeLabels } from '@/types';
 import { ReviewReport } from '@/components/ReviewReport';
 import { RightPanel, TaskList, ThreadInput } from '@/components/thread';
+import { FilePreviewPanel } from '@/components/thread/FilePreviewPanel';
 import { BlockingDetector } from '@/utils/blockingDetector';
 import { sendAgentCompletionNotification, requestNotificationPermission, isNotificationGranted, clearPendingNotifications } from '@/utils/systemNotification';
 import { ChatMessageList } from '@/components/thread/ChatMessageList';
 import { StatusPanel } from '@/components/thread/StatusPanel';
+import QuestionModal from '@/components/thread/QuestionModal';
 import FileTree from '@/components/FileTree';
 import api from '@/api/client';
 import type { Thread } from '@/types';
@@ -191,8 +193,19 @@ const ThreadView: React.FC = () => {
   const [fileSidebarVisible, setFileSidebarVisible] = useState(false);
   const [artifactsSidebarVisible, setArtifactsSidebarVisible] = useState(false);
 
+  // 文件预览状态
+  const [filePreviewVisible, setFilePreviewVisible] = useState(false);
+  const [filePreviewPath, setFilePreviewPath] = useState<string | null>(null);
+
   // 右侧面板状态（代码/沙箱统一管理）
   const [rightPanelVisible, setRightPanelVisible] = useState(false);
+
+  // AskUserQuestion 状态
+  const [pendingQuestion, setPendingQuestion] = useState<{
+    invocationId: string;
+    toolId: string;
+    questions: QuestionItem[];
+  } | null>(null);
   const [rightPanelActiveTab, setRightPanelActiveTab] = useState<'code' | 'sandbox'>('code');
   const [rightPanelWidth, setRightPanelWidth] = useState(520);
   const [isResizing, setIsResizing] = useState(false);
@@ -631,6 +644,32 @@ const ThreadView: React.FC = () => {
             );
           }
           updateProgress(invocId, 'generating');
+        } else if (chunkType === 'question') {
+          // AskUserQuestion 工具调用 - 需要用户输入
+          const toolId = data.payload.toolId as string;
+          const toolName = data.payload.toolName as string;
+          const questions = data.payload.questions as QuestionItem[];
+          const toolInput = data.payload.toolInput as Record<string, unknown>;
+
+          // 追加问题块
+          appendContentBlock(invocId, {
+            id: `question-${toolId}`,
+            type: 'question',
+            toolName: toolName || 'AskUserQuestion',
+            toolId: toolId || '',
+            questions: questions || [],
+            input: toolInput,
+            timestamp: Date.now(),
+            status: 'waiting_user_input',
+            startedAt: Date.now(),
+          });
+
+          // 显示问题弹窗
+          setPendingQuestion({
+            invocationId: invocId,
+            toolId: toolId,
+            questions: questions || [],
+          });
         }
         break;
       }
@@ -1365,6 +1404,13 @@ const ThreadView: React.FC = () => {
     }
   };
 
+  // 处理文件打开（触发预览）
+  const handleFileOpen = (filePath: string) => {
+    setFilePreviewPath(filePath);
+    setFilePreviewVisible(true);
+    setRightPanelVisible(false);  // 关闭 RightPanel，互斥
+  };
+
   // Get agents available for @mention
   // 调试模式：只显示当前调试的 Agent
   // 团队模式：从Agent团队获取
@@ -1415,6 +1461,45 @@ const ThreadView: React.FC = () => {
       removeBlockingItem(item.id);
     }
   }, [blockingItems, blockingReminderEnabled, activeAgents.length, removeBlockingItem]);
+
+  /**
+   * 处理 AskUserQuestion 用户答案提交
+   */
+  const handleSubmitQuestionAnswer = useCallback(async (answers: Record<number, string | string[]>) => {
+    if (!pendingQuestion || !threadId) return;
+
+    try {
+      // 将答案转换为字符串格式
+      // 对于多选，将多个答案合并为一个字符串
+      const answerStrings: string[] = [];
+      Object.entries(answers).forEach(([index, value]) => {
+        if (Array.isArray(value)) {
+          answerStrings.push(`问题${parseInt(index) + 1}: ${value.join(', ')}`);
+        } else {
+          answerStrings.push(`问题${parseInt(index) + 1}: ${value}`);
+        }
+      });
+      const answer = answerStrings.join('\n');
+
+      // 调用 API 提交答案
+      await api.agentQuestion.submitAnswer(threadId, pendingQuestion.toolId, answer);
+
+      // 更新内容块状态
+      updateContentBlock(pendingQuestion.invocationId, `question-${pendingQuestion.toolId}`, {
+        status: 'success',
+        output: answer,
+        completedAt: Date.now(),
+      });
+
+      // 关闭弹窗
+      setPendingQuestion(null);
+
+      message.success('答案已提交');
+    } catch (error) {
+      console.error('提交答案失败:', error);
+      message.error('提交答案失败，请重试');
+    }
+  }, [pendingQuestion, threadId, updateContentBlock]);
 
   /**
    * 处理发送消息
@@ -1535,7 +1620,10 @@ const ThreadView: React.FC = () => {
           <Button
             className={`solo-mode-action-btn ${rightPanelVisible ? 'primary' : ''}`}
             icon={<DesktopOutlined />}
-            onClick={() => setRightPanelVisible(!rightPanelVisible)}
+            onClick={() => {
+              setRightPanelVisible(!rightPanelVisible);
+              setFilePreviewVisible(false);  // 关闭文件预览，互斥
+            }}
           >
             面板
           </Button>
@@ -1568,6 +1656,7 @@ const ThreadView: React.FC = () => {
                 projectId={projectId || 'debug'}
                 projectPath={displayProjectPath}
                 onFileSelect={handleFileSelect}
+                onFileOpen={handleFileOpen}
               />
             ) : (
               <div style={{ padding: 20, color: '#999', textAlign: 'center' }}>
@@ -1705,7 +1794,12 @@ const ThreadView: React.FC = () => {
                   <Tooltip title={rightPanelVisible ? '隐藏面板' : '打开代码/沙箱面板'}>
                     <Button
                       icon={<DesktopOutlined />}
-                      onClick={() => { setRightPanelVisible(!rightPanelVisible); setArtifactsSidebarVisible(false); setFileSidebarVisible(false); }}
+                      onClick={() => {
+                        setRightPanelVisible(!rightPanelVisible);
+                        setFilePreviewVisible(false);  // 关闭文件预览，互斥
+                        setArtifactsSidebarVisible(false);
+                        setFileSidebarVisible(false);
+                      }}
                       size="small"
                       type={rightPanelVisible || currentSandboxServer ? 'primary' : 'default'}
                     >面板</Button>
@@ -1793,7 +1887,19 @@ const ThreadView: React.FC = () => {
           {/* 右侧面板（代码/沙箱） */}
           {/* StatusPanel - 状态栏 */}
           <StatusPanel width={320} threadId={threadId || debugThreadId || undefined} />
-          {rightPanelVisible && (
+          {/* 文件预览面板 */}
+          {filePreviewVisible && filePreviewPath && (
+            <FilePreviewPanel
+              basePath={displayProjectPath}
+              filePath={filePreviewPath}
+              onClose={() => {
+                setFilePreviewVisible(false);
+                setFilePreviewPath(null);
+              }}
+              width={rightPanelWidth}
+            />
+          )}
+          {rightPanelVisible && !filePreviewVisible && (
             <>
               <div className={`resize-handle ${isResizing ? 'resizing' : ''}`} onMouseDown={handleResizeStart} style={{ width: isResizing ? 3 : 6 }} />
               <div style={{ position: 'relative', display: 'flex' }}>
@@ -1820,6 +1926,14 @@ const ThreadView: React.FC = () => {
           )}
         </>
       )}
+
+      {/* AskUserQuestion 弹窗 */}
+      <QuestionModal
+        visible={pendingQuestion !== null}
+        questions={pendingQuestion?.questions || []}
+        onSubmit={handleSubmitQuestionAnswer}
+        onCancel={() => setPendingQuestion(null)}
+      />
     </div>
   );
 };

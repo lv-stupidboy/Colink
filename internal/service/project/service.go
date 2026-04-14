@@ -3,6 +3,7 @@ package project
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -457,4 +458,158 @@ func (s *Service) ListFilesByPath(ctx context.Context, basePath string, subPath 
 		Files:   files,
 		HasMore: false,
 	}, nil
+}
+
+// maxFileSize 文件最大读取大小（1MB）
+const maxFileSize = 1 * 1024 * 1024
+
+// binaryExtensions 常见二进制文件扩展名
+var binaryExtensions = map[string]bool{
+	".exe":   true,
+	".dll":   true,
+	".so":    true,
+	".dylib": true,
+	".bin":   true,
+	".dat":   true,
+	".png":   true,
+	".jpg":   true,
+	".jpeg":  true,
+	".gif":   true,
+	".bmp":   true,
+	".ico":   true,
+	".svg":   true, // SVG 虽然是文本，但通常是图片资源
+	".webp":  true,
+	".pdf":   true,
+	".zip":   true,
+	".tar":   true,
+	".gz":    true,
+	".rar":   true,
+	".7z":    true,
+	".mp3":   true,
+	".mp4":   true,
+	".avi":   true,
+	".mov":   true,
+	".wav":   true,
+	".flv":   true,
+	".mkv":   true,
+	".woff":  true,
+	".woff2": true,
+	".ttf":   true,
+	".otf":   true,
+	".eot":   true,
+	".class": true,
+	".jar":   true,
+	".war":   true,
+	".pyc":   true,
+	".pyd":   true,
+	".node":  true,
+	".db":    true,
+	".sqlite": true,
+	".sqlite3": true,
+}
+
+// isBinaryFile 判断是否为二进制文件
+func isBinaryFile(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	return binaryExtensions[ext]
+}
+
+// GetFileContent 获取文件内容
+func (s *Service) GetFileContent(ctx context.Context, basePath string, filePath string) (*model.FileContentResponse, error) {
+	if basePath == "" {
+		return nil, errors.New("基础路径不能为空")
+	}
+
+	// 规范化 basePath，确保有尾部分隔符
+	basePath = filepath.Clean(basePath)
+	if !strings.HasSuffix(basePath, string(filepath.Separator)) {
+		basePath += string(filepath.Separator)
+	}
+
+	// 规范化 filePath，去掉前导分隔符（防止被当作绝对路径）
+	filePath = filepath.Clean(filePath)
+	// 去掉前导的路径分隔符（Windows: \ 或 /，Unix: /）
+	for strings.HasPrefix(filePath, string(filepath.Separator)) {
+		filePath = strings.TrimPrefix(filePath, string(filepath.Separator))
+	}
+	for strings.HasPrefix(filePath, "/") {
+		filePath = strings.TrimPrefix(filePath, "/")
+	}
+
+	fullPath := filepath.Join(basePath, filePath)
+
+	// 确保完整路径在基础路径内
+	if !strings.HasPrefix(fullPath+string(filepath.Separator), basePath) {
+		return nil, errors.New("无效的路径")
+	}
+
+	// 检查文件是否存在
+	info, err := os.Stat(fullPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, errors.New("文件不存在")
+		}
+		return nil, err
+	}
+
+	// 检查是否为目录
+	if info.IsDir() {
+		return nil, errors.New("路径是目录，不是文件")
+	}
+
+	// 解析 symlink，防止 symlink bypass 攻击
+	evaluatedPath, err := filepath.EvalSymlinks(fullPath)
+	if err != nil {
+		return nil, errors.New("无法解析路径: " + err.Error())
+	}
+	// 再次检查 resolved path 是否仍在 basePath 内
+	// 去掉 basePath 的尾部分隔符进行 EvalSymlinks
+	evaluatedBase, err := filepath.EvalSymlinks(basePath[:len(basePath)-1])
+	if err != nil {
+		return nil, errors.New("无法解析基础路径: " + err.Error())
+	}
+	// 确保解析后的路径仍在解析后的基础路径内
+	if !strings.HasPrefix(evaluatedPath+string(filepath.Separator), evaluatedBase+string(filepath.Separator)) {
+		return nil, errors.New("无效的路径（symlink指向外部目录）")
+	}
+
+	// 判断是否为二进制文件
+	isBinary := isBinaryFile(fullPath)
+
+	resp := &model.FileContentResponse{
+		Path:     filePath,
+		Size:     info.Size(),
+		IsBinary: isBinary,
+	}
+
+	// 如果是二进制文件，不读取内容
+	if isBinary {
+		resp.Content = ""
+		resp.Truncated = false
+		return resp, nil
+	}
+
+	// 使用 LimitReader 限制读取大小，防止大文件占用过多内存
+	file, err := os.Open(fullPath)
+	if err != nil {
+		return nil, errors.New("打开文件失败: " + err.Error())
+	}
+	defer file.Close()
+
+	// +1 用于检测是否超过限制
+	limitedReader := io.LimitReader(file, maxFileSize+1)
+	data, err := io.ReadAll(limitedReader)
+	if err != nil {
+		return nil, errors.New("读取文件失败: " + err.Error())
+	}
+
+	// 检查是否超过最大大小
+	truncated := len(data) > maxFileSize
+	if truncated {
+		data = data[:maxFileSize]
+	}
+	resp.Truncated = truncated
+	resp.Content = string(data)
+
+	return resp, nil
 }
