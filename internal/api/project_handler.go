@@ -2,6 +2,8 @@ package api
 
 import (
 	"net/http"
+	"path/filepath"
+	"strings"
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/service/project"
@@ -169,6 +171,64 @@ func (h *ProjectHandler) CreateFolder(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
+// GetFileContent 获取文件内容
+func (h *ProjectHandler) GetFileContent(c *gin.Context) {
+	basePath := c.Query("basePath")
+	if basePath == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "basePath is required"})
+		return
+	}
+
+	filePath := c.Query("path")
+	if filePath == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "path is required"})
+		return
+	}
+
+	result, err := h.service.GetFileContent(c.Request.Context(), basePath, filePath)
+	if err != nil {
+		// 根据错误类型返回不同的 HTTP 状态码
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "不存在") {
+			c.JSON(http.StatusNotFound, gin.H{"error": errMsg})
+		} else if strings.Contains(errMsg, "无效") || strings.Contains(errMsg, "目录") || strings.Contains(errMsg, "不能为空") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": errMsg})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": errMsg})
+		}
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+// GetFileImage 获取图片文件（直接返回文件内容用于预览）
+func (h *ProjectHandler) GetFileImage(c *gin.Context) {
+	basePath := c.Query("basePath")
+	if basePath == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "basePath is required"})
+		return
+	}
+
+	filePath := c.Query("path")
+	if filePath == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "path is required"})
+		return
+	}
+
+	// 拼接完整路径
+	fullPath := filepath.Join(basePath, filePath)
+
+	// 安全检查：防止路径穿越
+	basePathClean := filepath.Clean(basePath)
+	if !strings.HasPrefix(fullPath, basePathClean) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path"})
+		return
+	}
+
+	// 直接返回文件
+	c.File(fullPath)
+}
+
 // RegisterRoutes 注册路由
 func (h *ProjectHandler) RegisterRoutes(r *gin.RouterGroup) {
 	projects := r.Group("/projects")
@@ -186,6 +246,8 @@ func (h *ProjectHandler) RegisterRoutes(r *gin.RouterGroup) {
 	{
 		files.GET("/browse", h.BrowsePath)
 		files.GET("/validate", h.ValidatePath)
+		files.GET("/content", h.GetFileContent)
+		files.GET("/image", h.GetFileImage)
 		files.POST("/folder", h.CreateFolder)
 	}
 }

@@ -1,0 +1,101 @@
+.file-preview-panel {
+  height: 100%;
+  background: var(--bg-container, #1e1e24);
+  border-left: 1px solid var(--border-color, #2a2a32);
+  display: flex;
+  flex-direction: column;
+}
+
+.file-preview-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--bg-elevated, #252530);
+  border-bottom: 1px solid var(--border-color, #2a2a32);
+}
+
+.file-preview-filename {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary, #fff);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
+.file-preview-meta {
+  padding: 4px 12px;
+  font-size: 11px;
+  color: var(--text-secondary, #9ca3af);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  border-bottom: 1px solid var(--border-color, #2a2a32);
+}
+
+.file-preview-truncated {
+  color: #f59e0b;
+  margin-left: 8px;
+}
+
+.file-preview-content {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.file-preview-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 100%;
+  color: var(--text-secondary);
+}
+
+.file-preview-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+
+.file-preview-binary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+
+.file-preview-image {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  background: var(--bg-base, #0a0a0f);
+  padding: 16px;
+}
+
+/* 深色模式 */
+[data-theme='dark'] .file-preview-panel {
+  background: var(--bg-container);
+  border-left-color: var(--border-color);
+}
+
+[data-theme='dark'] .file-preview-toolbar {
+  background: var(--bg-elevated);
+  border-bottom-color: var(--border-color);
+}
+
+[data-theme='dark'] .file-preview-filename {
+  color: var(--text-primary);
+}
+
+[data-theme='dark'] .file-preview-meta {
+  color: var(--text-secondary);
+  border-bottom-color: var(--border-color);
+}
