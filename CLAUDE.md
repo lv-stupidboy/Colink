@@ -32,6 +32,27 @@ Web前端 (React + Ant Design + Zustand)
 Agent 实例 (Claude CLI / OpenCode)
 ```
 
+### 基础Agent插件化架构
+
+支持多种CLI工具（Claude Code、OpenCode等），通过插件机制扩展：
+
+```
+internal/service/agent/plugins/
+├── all/all.go              # 自动导入所有插件（genplugins生成）
+├── claude_code/            # Claude CLI 适配器
+│   ├── plugin.go           # init()注册插件
+│   └── adapter.go          # 实现AgentAdapter接口
+└── open_code/              # OpenCode CLI 适配器
+    ├── plugin.go
+    └── adapter.go
+```
+
+**新增插件步骤：**
+1. 在 `plugins/` 下创建新目录
+2. 实现 `AgentAdapter` 接口（Execute、ParseOutput等）
+3. 在 `plugin.go` 中调用 `RegisterPlugin()` 注册
+4. 运行 `make genplugins` 更新 `all/all.go`
+
 ## 关键约束
 
 ### API 字段命名
@@ -65,22 +86,21 @@ color: #333333;
 
 ```
 sql-change/
-├── history/              # 历史归档（不再使用）
-├── v1.0.0/               # 版本目录
-│   └── mysql/            # 按数据库类型分目录
-│       └── *.sql
-└── v1.1.0/
-    ├── mysql/
-    └── sqlite/
+├── v1.1.0/sqlite/00001_init.sql    # goose版本: 1
+├── v1.2.0/sqlite/00002_xxx.sql     # goose版本: 2
+└── v1.2.0/mysql/00002_xxx.sql
 ```
+
+**Goose版本号规则（重要）：**
+- 文件序号 `{序号}_xxx.sql` 是**全局递增**的，不按版本目录隔离
+- goose 根据文件名中的序号判断迁移顺序
+- 不同版本目录下的文件序号不能重复（否则会跳过执行）
 
 **管理规则：**
 - 新版本发布时创建 `v{版本号}` 目录
 - 目录下按数据库类型分 `mysql/` 和 `sqlite/`
-- 文件命名：`{序号}_description.sql`
+- 文件序号必须全局递增（00001, 00002, 00003...）
 - 必须包含 `-- +goose Up` 和 `-- +goose Down` 注释
-- MySQL 禁止 `DROP COLUMN IF EXISTS`（5.7 不支持）
-- SQLite 表结构变更需重建表
 
 **执行方式：**
 - 安装器统一调用 `migrate up` 命令
