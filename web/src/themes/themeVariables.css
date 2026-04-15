@@ -29,6 +29,11 @@
   --border-color: #e5e7eb;
   --border-light: #f0f0f0;
 
+  /* 功能色 */
+  --color-warning: #faad14;
+  --color-success: #52c41a;
+  --color-info: #1890ff;
+
   /* 阴影 */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
   --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07);
@@ -187,6 +192,11 @@
 
   --border-color: #334155;
   --border-light: #1e293b;
+
+  /* 功能色 */
+  --color-warning: #fbbf24;
+  --color-success: #22c55e;
+  --color-info: #38bdf8;
 
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4);

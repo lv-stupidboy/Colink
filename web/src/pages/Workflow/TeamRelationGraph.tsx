@@ -84,6 +84,27 @@ const TeamRelationGraph: React.FC<TeamRelationGraphProps> = ({ agents, transitio
   return (
     <div className="workflow-relation-graph">
       <svg width={svgWidth} height={NODE_HEIGHT + 80} style={{ overflow: 'visible' }}>
+        {/* 箭头定义 - 为每条连线动态创建 */}
+        <defs>
+          {transitions.map((transition, idx) => {
+            const color = getLineColor(transition.type);
+            return (
+              <marker
+                key={`arrow-${idx}`}
+                id={`arrow-${idx}`}
+                markerWidth="10"
+                markerHeight="10"
+                refX="9"
+                refY="3"
+                orient="auto"
+                markerUnits="strokeWidth"
+              >
+                <path d="M0,0 L0,6 L9,3 z" fill={color} />
+              </marker>
+            );
+          })}
+        </defs>
+
         {/* 连线 */}
         {transitions.map((transition, idx) => {
           const fromPos = positionMap.get(transition.fromAgentId);
@@ -102,7 +123,7 @@ const TeamRelationGraph: React.FC<TeamRelationGraphProps> = ({ agents, transitio
                 fill="none"
                 stroke={color}
                 strokeWidth="2"
-                markerEnd="url(#arrow)"
+                markerEnd={`url(#arrow-${idx})`}
               />
               {transition.triggerHint && (
                 <text
@@ -121,21 +142,6 @@ const TeamRelationGraph: React.FC<TeamRelationGraphProps> = ({ agents, transitio
           );
         })}
 
-        {/* 箭头定义 */}
-        <defs>
-          <marker
-            id="arrow"
-            markerWidth="10"
-            markerHeight="10"
-            refX="9"
-            refY="3"
-            orient="auto"
-            markerUnits="strokeWidth"
-          >
-            <path d="M0,0 L0,6 L9,3 z" fill="#1890ff" />
-          </marker>
-        </defs>
-
         {/* 节点 */}
         {nodePositions.map(({ agent, x, y }) => (
           <g key={agent.config.id}>
@@ -152,7 +158,7 @@ const TeamRelationGraph: React.FC<TeamRelationGraphProps> = ({ agents, transitio
               y={y + 30}
               textAnchor="middle"
               fontSize="14"
-              fill={agent.config.isSystem ? '#faad14' : 'var(--text-primary)'}
+              fill={agent.config.isSystem ? 'var(--color-warning)' : 'var(--text-primary)'}
             >
               {agent.config.isSystem ? '👑' : '👤'}
             </text>
