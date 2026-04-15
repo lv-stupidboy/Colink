@@ -545,6 +545,7 @@ const AgentRoleList: React.FC = () => {
               showSizeChanger: true,
               pageSizeOptions: ['5', '10', '20'],
               showTotal: (total) => `共 ${total} 条`,
+              hideOnSinglePage: false, // 强制显示分页器
             }}
             size="small"
             scroll={{ x: 1130 }}
@@ -585,6 +586,7 @@ const AgentRoleList: React.FC = () => {
               showSizeChanger: true,
               pageSizeOptions: ['5', '10', '20'],
               showTotal: (total) => `共 ${total} 条`,
+              hideOnSinglePage: false, // 强制显示分页器
             }}
             size="small"
             scroll={{ x: 1130 }}
