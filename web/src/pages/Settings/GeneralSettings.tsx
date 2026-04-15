@@ -1,28 +1,29 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Form, Switch, Select, Typography, Space, Button, message, Alert, Tag } from 'antd';
+import { Card, Form, Switch, Typography, Space, Button, message, Alert, Tag } from 'antd';
 import {
   SettingOutlined,
-  ApiOutlined,
-  BellOutlined,
-  UserOutlined,
-  SaveOutlined,
   AlertOutlined,
   DesktopOutlined,
+  SoundOutlined,
 } from '@ant-design/icons';
 import { useAppStore } from '@/store';
 import {
   isNotificationSupported,
   requestNotificationPermission,
   getNotificationPermission,
+  isNotificationSoundEnabled,
+  setNotificationSoundEnabled,
+  playNotificationSound,
 } from '@/utils/systemNotification';
 
 const { Title, Text } = Typography;
 
 const GeneralSettings: React.FC = () => {
-  const [form] = Form.useForm();
-
   // 阻塞提醒开关状态
   const [reminderEnabled, setReminderEnabled] = useState(true);
+
+  // 提示音开关状态
+  const [soundEnabled, setSoundEnabled] = useState(true);
 
   // 系统通知权限状态
   const [notificationPermission, setNotificationPermission] = useState<'granted' | 'denied' | 'default' | 'unsupported'>('default');
@@ -30,10 +31,13 @@ const GeneralSettings: React.FC = () => {
   // 从 Store 获取阻塞提醒相关 actions
   const setBlockingReminderEnabled = useAppStore((state) => state.setBlockingReminderEnabled);
 
-  // 初始化时从 localStorage 读取阻塞提醒开关状态，并检查系统通知权限
+  // 初始化时从 localStorage 读取状态，并检查系统通知权限
   useEffect(() => {
     const stored = localStorage.getItem('isdp_blocking_reminder_enabled');
     setReminderEnabled(stored !== 'false');  // 默认 true
+
+    // 检查提示音开关状态
+    setSoundEnabled(isNotificationSoundEnabled());
 
     // 检查系统通知权限状态
     if (isNotificationSupported()) {
@@ -50,6 +54,23 @@ const GeneralSettings: React.FC = () => {
     message.success(checked ? '已开启阻塞提醒' : '已关闭阻塞提醒');
   };
 
+  // 提示音开关变化
+  const handleSoundChange = (checked: boolean) => {
+    setSoundEnabled(checked);
+    setNotificationSoundEnabled(checked);
+    message.success(checked ? '已开启提示音' : '已关闭提示音');
+  };
+
+  // 测试提示音
+  const handleTestSound = async () => {
+    try {
+      await playNotificationSound();
+      message.info('提示音已播放');
+    } catch (error) {
+      message.error('播放失败，请检查浏览器设置');
+    }
+  };
+
   // 请求系统通知权限
   const handleRequestNotificationPermission = async () => {
     const granted = await requestNotificationPermission();
@@ -60,11 +81,6 @@ const GeneralSettings: React.FC = () => {
       setNotificationPermission('denied');
       message.warning('系统通知权限被拒绝，请检查浏览器设置');
     }
-  };
-
-  const handleSave = async (values: any) => {
-    console.log('Settings saved:', values);
-    message.success('设置已保存');
   };
 
   return (
@@ -78,61 +94,6 @@ const GeneralSettings: React.FC = () => {
         </Title>
         <Text type="secondary">配置平台参数和个性化选项</Text>
       </div>
-
-      <Card
-        title={
-          <Space>
-            <ApiOutlined />
-            API 配置
-          </Space>
-        }
-        style={{ marginBottom: 16 }}
-      >
-        <Form
-          form={form}
-          layout="vertical"
-          onFinish={handleSave}
-          initialValues={{
-            mcpEnabled: true,
-            sandboxEnabled: true,
-            logLevel: 'info',
-          }}
-        >
-          <Form.Item
-            name="mcpEnabled"
-            label="MCP 协议"
-            valuePropName="checked"
-          >
-            <Switch checkedChildren="启用" unCheckedChildren="禁用" />
-          </Form.Item>
-
-          <Form.Item
-            name="sandboxEnabled"
-            label="沙箱环境"
-            valuePropName="checked"
-          >
-            <Switch checkedChildren="启用" unCheckedChildren="禁用" />
-          </Form.Item>
-
-          <Form.Item
-            name="logLevel"
-            label="日志级别"
-          >
-            <Select>
-              <Select.Option value="debug">Debug</Select.Option>
-              <Select.Option value="info">Info</Select.Option>
-              <Select.Option value="warn">Warn</Select.Option>
-              <Select.Option value="error">Error</Select.Option>
-            </Select>
-          </Form.Item>
-
-          <Form.Item>
-            <Button type="primary" htmlType="submit" icon={<SaveOutlined />}>
-              保存配置
-            </Button>
-          </Form.Item>
-        </Form>
-      </Card>
 
       {/* 系统消息提醒设置卡片 */}
       <Card
@@ -169,115 +130,86 @@ const GeneralSettings: React.FC = () => {
               </Text>
             </Space>
           </Form.Item>
-        </Form>
-      </Card>
 
-      <Card
-        title={
-          <Space>
-            <BellOutlined />
-            通知设置
-          </Space>
-        }
-        style={{ marginBottom: 16 }}
-      >
-        {/* 系统通知权限状态 */}
-        <div style={{ marginBottom: 16 }}>
-          <Space direction="vertical" style={{ width: '100%' }}>
-            <Space>
-              <DesktopOutlined />
-              <Text strong>系统通知权限</Text>
-              {notificationPermission === 'granted' && <Tag color="green">已授权</Tag>}
-              {notificationPermission === 'denied' && <Tag color="red">已拒绝</Tag>}
-              {notificationPermission === 'default' && <Tag color="orange">未请求</Tag>}
-              {notificationPermission === 'unsupported' && <Tag color="default">不支持</Tag>}
-            </Space>
-
-            {notificationPermission === 'unsupported' && (
-              <Alert
-                type="warning"
-                message="当前浏览器不支持系统通知功能"
-                showIcon
-              />
-            )}
-
-            {notificationPermission === 'denied' && (
-              <Alert
-                type="error"
-                message="系统通知权限已被拒绝"
-                description="请在浏览器设置中允许通知权限，以便在其他应用时也能收到 Agent 完成提醒"
-                showIcon
-              />
-            )}
-
-            {notificationPermission === 'default' && (
-              <>
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  开启系统通知后，即使切换到其他应用也能收到 Agent 完成提醒
-                </Text>
-                <Button
-                  type="primary"
-                  onClick={handleRequestNotificationPermission}
-                  icon={<DesktopOutlined />}
-                >
-                  授权系统通知
-                </Button>
-              </>
-            )}
-
-            {notificationPermission === 'granted' && (
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                ✓ 已开启系统通知，Agent 完成时会发送系统级提醒
-              </Text>
-            )}
-          </Space>
-        </div>
-
-        <Form
-          layout="vertical"
-          initialValues={{
-            emailNotification: false,
-            soundNotification: true,
-          }}
-        >
+          {/* 提示音开关 */}
           <Form.Item
-            name="soundNotification"
-            label="声音提示"
-            valuePropName="checked"
+            label="提示音"
+            tooltip="系统通知时播放提示音"
           >
-            <Switch checkedChildren="启用" unCheckedChildren="禁用" />
-          </Form.Item>
-        </Form>
-      </Card>
-
-      <Card
-        title={
-          <Space>
-            <UserOutlined />
-            个性化
-          </Space>
-        }
-      >
-        <Form
-          layout="vertical"
-          initialValues={{
-            theme: 'light',
-            language: 'zh-CN',
-          }}
-        >
-          <Form.Item name="theme" label="主题">
-            <Select>
-              <Select.Option value="light">浅色</Select.Option>
-              <Select.Option value="dark">深色</Select.Option>
-              <Select.Option value="auto">跟随系统</Select.Option>
-            </Select>
+            <Space direction="vertical">
+              <Space>
+                <Switch
+                  checked={soundEnabled}
+                  onChange={handleSoundChange}
+                  checkedChildren="开启"
+                  unCheckedChildren="关闭"
+                />
+                <Text type="secondary">
+                  {soundEnabled ? '通知时播放提示音' : '静音模式'}
+                </Text>
+                {soundEnabled && (
+                  <Button
+                    size="small"
+                    icon={<SoundOutlined />}
+                    onClick={handleTestSound}
+                  >
+                    测试
+                  </Button>
+                )}
+              </Space>
+            </Space>
           </Form.Item>
 
-          <Form.Item name="language" label="语言">
-            <Select>
-              <Select.Option value="zh-CN">简体中文</Select.Option>
-              <Select.Option value="en-US">English</Select.Option>
-            </Select>
+          {/* 系统通知权限状态 */}
+          <Form.Item label="系统通知权限">
+            <Space direction="vertical" style={{ width: '100%' }}>
+              <Space>
+                <DesktopOutlined />
+                <Text strong>权限状态</Text>
+                {notificationPermission === 'granted' && <Tag color="green">已授权</Tag>}
+                {notificationPermission === 'denied' && <Tag color="red">已拒绝</Tag>}
+                {notificationPermission === 'default' && <Tag color="orange">未请求</Tag>}
+                {notificationPermission === 'unsupported' && <Tag color="default">不支持</Tag>}
+              </Space>
+
+              {notificationPermission === 'unsupported' && (
+                <Alert
+                  type="warning"
+                  message="当前浏览器不支持系统通知功能"
+                  showIcon
+                />
+              )}
+
+              {notificationPermission === 'denied' && (
+                <Alert
+                  type="error"
+                  message="系统通知权限已被拒绝"
+                  description="请在浏览器设置中允许通知权限，以便在其他应用时也能收到 Agent 完成提醒"
+                  showIcon
+                />
+              )}
+
+              {notificationPermission === 'default' && (
+                <>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    开启系统通知后，即使切换到其他应用也能收到 Agent 完成提醒
+                  </Text>
+                  <Button
+                    type="primary"
+                    onClick={handleRequestNotificationPermission}
+                    icon={<DesktopOutlined />}
+                  >
+                    授权系统通知
+                  </Button>
+                </>
+              )}
+
+              {notificationPermission === 'granted' && (
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  ✓ 已开启系统通知，Agent 完成时会发送系统级提醒
+                </Text>
+              )}
+            </Space>
           </Form.Item>
         </Form>
       </Card>
