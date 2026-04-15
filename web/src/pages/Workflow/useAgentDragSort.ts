@@ -1,7 +1,7 @@
 // web/src/pages/Workflow/useAgentDragSort.ts
 import { useState, useCallback } from 'react';
 
-interface TeamAgent {
+export interface TeamAgent {
   config: { id: string; name: string; isSystem?: boolean };
   triggers: Array<{ toAgentId: string; triggerHint: string }>;
 }
