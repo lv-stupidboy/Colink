@@ -273,3 +273,62 @@
     height: 48px;
   }
 }
+
+/* ========== 拖拽手柄 ========== */
+.workflow-agent-drag-handle {
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  color: var(--text-secondary);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.workflow-agent-avatar-wrapper:hover .workflow-agent-drag-handle {
+  opacity: 1;
+}
+
+.workflow-agent-drag-handle:hover {
+  color: var(--color-primary);
+}
+
+/* ========== 拖拽状态 ========== */
+.workflow-agent-avatar-wrapper.dragging {
+  opacity: 0.5;
+  background: var(--bg-container-hover);
+}
+
+.workflow-agent-avatar-wrapper.drag-over {
+  border: 2px dashed var(--color-primary);
+  background: var(--bg-container-hover);
+}
+
+/* ========== 视图切换按钮 ========== */
+.workflow-team-header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ========== 关系图容器 ========== */
+.workflow-relation-graph {
+  height: 200px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 16px;
+  background: var(--bg-container);
+}
+
+.workflow-relation-graph-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-secondary);
+}
