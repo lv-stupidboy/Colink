@@ -297,7 +297,7 @@ func main() {
 	defer useCountUpdater.Stop()
 
 		// 启动 Reporter（数据上报，如果配置启用）
-		if cfg.Reporter.IsRunnable() {
+		if cfg.Reporter.Enabled {
 			reporterCfg := reporter.Config{
 				Enabled:       cfg.Reporter.Enabled,
 				Endpoint:      cfg.Reporter.Endpoint,
