@@ -321,6 +321,9 @@ class APIClient {
       this.request(`/agents/${id}/subagents`, 'POST', { subagentIds: subagentIds }),
     unbindSubagent: (id: string, subagentId: string): Promise<{ message: string }> =>
       this.request(`/agents/${id}/subagents/${subagentId}`, 'DELETE'),
+    // AskUserQuestion 答案提交（通过 stdin 发送给 CLI）
+    submitQuestionAnswer: (threadId: string, toolCallId: string, answer: string): Promise<{ status: string }> =>
+      this.request(`/agents/question/${threadId}/answer`, 'POST', { toolCallId, answer }),
   };
 
   // 基础Agent API

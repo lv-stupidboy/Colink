@@ -1,8 +1,10 @@
 import React, { useState, useEffect, memo } from 'react';
-import type { MessageContentBlock, ToolUseBlock, ThinkingBlock as ThinkingBlockType, TextBlock as TextBlockType, RichBlock, AgentConfig } from '@/types';
+import { useAppStore } from '@/store';
+import type { MessageContentBlock, ToolUseBlock, ThinkingBlock as ThinkingBlockType, TextBlock as TextBlockType, RichBlock, AgentConfig, QuestionBlock } from '@/types';
 import ThinkingBlockComponent from './ThinkingBlock';
 import ToolBlockComponent, { ToolCallRow } from './ToolBlock';
 import TextBlockComponent from './TextBlock';
+import QuestionBlockComponent from './QuestionBlock';
 import { RichBlocks } from './RichBlocks';
 import './ContentBlock.css';
 
@@ -11,6 +13,13 @@ interface MessageContentRendererProps {
   defaultExpanded?: boolean;
   agentConfigs?: AgentConfig[];
   onInteractiveAction?: (blockId: string, action: string, value?: string | string[]) => void;
+  onQuestionSubmit?: (blockId: string, answers: Record<number, string | string[]>, invocationId: string) => void;
+  // 是否过滤 waiting_user_input 状态的 question blocks
+  // - true（默认）: 用于渲染已完成消息，跳过 waiting_user_input 状态的（由 StreamingMessage 渲染）
+  // - false: 用于渲染 StreamingMessage 的内容，不跳过 waiting_user_input 状态的
+  filterWaitingQuestions?: boolean;
+  // 消息的 invocationId（从 metadata 获取），用于历史消息中 question block 缺少 invocationId 时作为备选
+  messageInvocationId?: string;
 }
 
 /**
@@ -21,19 +30,53 @@ interface MessageContentRendererProps {
  * - 连续的 tool_use 块聚合为一个工具面板
  * - text 块直接渲染
  * - rich 块按 richType 渲染不同组件
+ *
+ * Question blocks 渲染分工：
+ * - 在 streamingContentBlocks 中的 → 由 StreamingMessage 渲染（filterWaitingQuestions=false）
+ * - 不在 streamingContentBlocks 中的 success/failed 状态的 → 由已完成消息渲染（filterWaitingQuestions=true）
  */
 const MessageContentRenderer: React.FC<MessageContentRendererProps> = memo(({
   blocks,
   defaultExpanded = false,
   agentConfigs = [],
   onInteractiveAction,
+  onQuestionSubmit,
+  filterWaitingQuestions = true,
+  messageInvocationId,
 }) => {
+  // 获取 streamingContentBlocks，用于过滤正在等待用户输入的 question blocks
+  const streamingContentBlocks = useAppStore((s) => s.streamingContentBlocks);
+  // 获取已提交的 question block IDs，用于过滤历史消息中的重复渲染
+  const submittedQuestionBlockIds = useAppStore((s) => s.submittedQuestionBlockIds);
+
   if (!blocks || blocks.length === 0) {
     return null;
   }
 
+  // 过滤 blocks：
+  // - 当 filterWaitingQuestions=true 时（已完成消息）：
+  //   跳过已提交的 question blocks（避免重复渲染）
+  //   success/failed 状态的 question blocks 在历史消息中渲染（显示用户答案）
+  //   waiting_user_input 状态的 question blocks 也渲染（让用户可以选择）
+  // - 当 filterWaitingQuestions=false 时（StreamingMessage）：
+  //   不跳过，直接渲染
+  const filteredBlocks = filterWaitingQuestions
+    ? blocks.filter((block) => {
+        if (block.type === 'question') {
+          // 已提交的 question block 直接过滤掉（避免重复渲染）
+          if (submittedQuestionBlockIds.has(block.id)) {
+            console.log('[MessageContentRenderer] Filtering submitted question block:', block.id);
+            return false;
+          }
+          // success/failed 状态的保留（显示用户答案）
+          // waiting_user_input 状态的也保留（让用户可以选择）
+        }
+        return true;
+      })
+    : blocks;
+
   // 智能聚合块
-  const aggregatedBlocks = aggregateBlocks(blocks);
+  const aggregatedBlocks = aggregateBlocks(filteredBlocks);
 
   return (
     <div className="message-content-blocks">
@@ -53,6 +96,41 @@ const MessageContentRenderer: React.FC<MessageContentRendererProps> = memo(({
                 key={`tool-group-${index}`}
                 tools={block.tools as ToolUseBlock[]}
                 defaultExpanded={defaultExpanded}
+              />
+            );
+          case 'question':
+            // AskUserQuestion 工具使用内联组件，直接展示选项
+            const qb = block as QuestionBlock;
+            // 使用 question block 的 invocationId，如果没有则使用消息的 invocationId（备选）
+            const effectiveInvocationId = qb.invocationId || messageInvocationId;
+
+            // 交互启用逻辑：
+            // 1. status 为 success/failed（已提交）：禁用，显示用户选择
+            // 2. status 为 waiting_user_input 且 Agent 已完成：可点击
+            // 3. status 为 waiting_user_input 且 Agent 正在执行：禁用，显示提示
+            const isSubmitted = qb.status === 'success' || qb.status === 'failed';
+            // 从 store 获取 Agent 执行状态
+            const agentRunning = useAppStore.getState().isStreaming;
+            const isInteractionEnabled = qb.status === 'waiting_user_input' && !agentRunning;
+
+            console.log('[MessageContentRenderer] question block:', { id: block.id, invocationId: qb.invocationId, messageInvocationId, effectiveInvocationId, status: qb.status, isInteractionEnabled, isSubmitted, agentRunning, hasOnQuestionSubmit: !!onQuestionSubmit });
+            return (
+              <QuestionBlockComponent
+                key={block.id || `question-${index}`}
+                block={block as QuestionBlock}
+                onSubmit={(answers) => {
+                  const questionBlock = block as QuestionBlock;
+                  // 使用有效的 invocationId（block 的或消息的）
+                  const submitInvocationId = questionBlock.invocationId || messageInvocationId;
+                  console.log('[MessageContentRenderer] onSubmit called:', { blockId: block.id, invocationId: submitInvocationId, answers });
+                  if (onQuestionSubmit && submitInvocationId && block.id) {
+                    onQuestionSubmit(block.id, answers, submitInvocationId);
+                  } else {
+                    console.log('[MessageContentRenderer] onSubmit conditions not met:', { hasOnQuestionSubmit: !!onQuestionSubmit, hasInvocationId: !!submitInvocationId, hasBlockId: !!block.id });
+                  }
+                }}
+                defaultExpanded={(block as QuestionBlock).status === 'waiting_user_input'}
+                disabled={!isInteractionEnabled}
               />
             );
           case 'text':

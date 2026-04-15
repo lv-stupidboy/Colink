@@ -123,12 +123,35 @@ func parseStreamJSONLine(line string, isStreaming bool) []agent.Chunk {
 					Content: "",
 				})
 			case "tool_use":
-				chunks = append(chunks, agent.Chunk{
-					Type:      agent.ChunkTypeToolUse,
-					ToolName:  msg.Event.ContentBlock.Name,
-					ToolID:    msg.Event.ContentBlock.ID,
-					ToolInput: msg.Event.ContentBlock.Input,
-				})
+				// 特殊处理 AskUserQuestion 工具
+				if msg.Event.ContentBlock.Name == "AskUserQuestion" {
+					// 提取 questions 字段
+					var questions []agent.QuestionItem
+					if questionsRaw, ok := msg.Event.ContentBlock.Input["questions"]; ok {
+						// 将 questionsRaw 转换为 JSON 再解析为 QuestionItem 数组
+						questionsJSON, err := json.Marshal(questionsRaw)
+						if err == nil {
+							json.Unmarshal(questionsJSON, &questions)
+						}
+						logInfo("parseStreamJSONLine: AskUserQuestion parsed from stream_event", zap.Int("questionsCount", len(questions)), zap.String("toolId", msg.Event.ContentBlock.ID))
+					} else {
+						logInfo("parseStreamJSONLine: AskUserQuestion has no questions field in Input", zap.String("toolId", msg.Event.ContentBlock.ID))
+					}
+					chunks = append(chunks, agent.Chunk{
+						Type:      agent.ChunkTypeQuestion,
+						ToolName:  msg.Event.ContentBlock.Name,
+						ToolID:    msg.Event.ContentBlock.ID,
+						ToolInput: msg.Event.ContentBlock.Input,
+						Questions: questions,
+					})
+				} else {
+					chunks = append(chunks, agent.Chunk{
+						Type:      agent.ChunkTypeToolUse,
+						ToolName:  msg.Event.ContentBlock.Name,
+						ToolID:    msg.Event.ContentBlock.ID,
+						ToolInput: msg.Event.ContentBlock.Input,
+					})
+				}
 			}
 		case "content_block_delta":
 			switch msg.Event.Delta.Type {
@@ -181,9 +204,28 @@ func parseStreamJSONLine(line string, isStreaming bool) []agent.Chunk {
 		}
 	case "assistant":
 		// 完整消息（非增量模式下的输出）
-		// 在增量模式下忽略，避免重复（内容已通过 stream_event.content_block_delta 发送）
-		if !isStreaming {
-			for _, content := range msg.Message.Content {
+		// AskUserQuestion 特殊处理：即使在增量模式下也需要解析，因为 questions 数据只在 assistant 消息中出现
+		// stream_event.content_block_start 时 input 为空，只有 assistant 消息才有完整的 questions
+		for _, content := range msg.Message.Content {
+			if content.Type == "tool_use" && content.Name == "AskUserQuestion" {
+				// 特殊处理 AskUserQuestion 工具 - 增量模式下也需要
+				var questions []agent.QuestionItem
+				if questionsRaw, ok := content.Input["questions"]; ok {
+					questionsJSON, err := json.Marshal(questionsRaw)
+					if err == nil {
+						json.Unmarshal(questionsJSON, &questions)
+					}
+					logInfo("parseStreamJSONLine: AskUserQuestion parsed from assistant message", zap.Int("questionsCount", len(questions)), zap.String("toolId", content.ID))
+				}
+				chunks = append(chunks, agent.Chunk{
+					Type:      agent.ChunkTypeQuestion,
+					ToolName:  content.Name,
+					ToolID:    content.ID,
+					ToolInput: content.Input,
+					Questions: questions,
+				})
+			} else if !isStreaming {
+				// 非增量模式下处理其他内容
 				if content.Type == "text" && content.Text != "" {
 					chunks = append(chunks, agent.Chunk{
 						Type:    agent.ChunkTypeText,

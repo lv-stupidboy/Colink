@@ -2,7 +2,7 @@
 import React, { memo, useEffect, useRef } from 'react';
 import { useAppStore } from '@/store';
 import { ChatMessage } from './ChatMessage';
-import type { AgentConfig, ToolEvent } from '@/types';
+import type { AgentConfig, ToolEvent, MessageContentBlock } from '@/types';
 import type { ProgressInfo } from './ChatMessage';
 
 interface StreamingMessageProps {
@@ -10,6 +10,7 @@ interface StreamingMessageProps {
   projectPath?: string;
   toolEvents: Record<string, ToolEvent[]>;
   onStop?: (invocationId: string) => void;
+  onQuestionSubmit?: (blockId: string, answers: Record<number, string | string[]>, invocationId: string) => void;
 }
 
 /**
@@ -23,6 +24,7 @@ export const StreamingMessage: React.FC<StreamingMessageProps> = memo(({
   projectPath,
   toolEvents,
   onStop,
+  onQuestionSubmit,
 }) => {
   // 订阅流式状态
   const isStreaming = useAppStore((s) => s.isStreaming);
@@ -39,20 +41,40 @@ export const StreamingMessage: React.FC<StreamingMessageProps> = memo(({
   // 自动滚动 ref
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // 过滤 streamingContentBlocks：
+  // - question 类型：只保留 waiting_user_input 状态的
+  //   - waiting_user_input：等待用户输入，需要渲染选项（由 StreamingMessage 渲染）
+  //   - success/failed：已提交或失败，由历史消息渲染（filterWaitingQuestions=true 不会过滤这些）
+  // - 其他类型：全部保留
+  const filteredContentBlocks = streamingContentBlocks.filter((block: MessageContentBlock) => {
+    if (block.type === 'question') {
+      // 只保留 waiting_user_input 状态的（需要用户交互）
+      return block.status === 'waiting_user_input';
+    }
+    return true;
+  });
+
   // 内容块变化时自动滚动
   useEffect(() => {
-    if (containerRef.current && streamingContentBlocks.length > 0) {
+    if (containerRef.current && filteredContentBlocks.length > 0) {
       containerRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
     }
-  }, [streamingContentBlocks]);
+  }, [filteredContentBlocks]);
+
+  // 检查是否有需要渲染的 question blocks（只有 waiting_user_input 状态的）
+  const hasQuestionToRender = filteredContentBlocks.some(b => b.type === 'question' && b.status === 'waiting_user_input');
 
   // 没有流式内容时不渲染
-  if (!isStreaming || streamingContentBlocks.length === 0) {
+  // 但如果有需要渲染的 question blocks，即使 isStreaming 为 false 也需要渲染
+  if (!isStreaming && !hasQuestionToRender) {
+    return null;
+  }
+  if (filteredContentBlocks.length === 0) {
     return null;
   }
 
   // 从 contentBlocks 提取文本内容（用于 content 字段）
-  const textContent = streamingContentBlocks
+  const textContent = filteredContentBlocks
     .filter(b => b.type === 'text')
     .map(b => b.type === 'text' ? b.content : '')
     .join('');
@@ -67,7 +89,7 @@ export const StreamingMessage: React.FC<StreamingMessageProps> = memo(({
     content: textContent,
     messageType: 'text' as const,
     createdAt: new Date().toISOString(),
-    contentBlocks: streamingContentBlocks,
+    contentBlocks: filteredContentBlocks,
   };
 
   // 获取 Agent 配置
@@ -96,6 +118,7 @@ export const StreamingMessage: React.FC<StreamingMessageProps> = memo(({
         progress={progress}
         toolEvents={messageToolEvents}
         onStop={onStop && streamingInvocationId ? () => onStop(streamingInvocationId) : undefined}
+        onQuestionSubmit={onQuestionSubmit}
       />
     </div>
   );

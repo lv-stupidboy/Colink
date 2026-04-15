@@ -341,16 +341,41 @@ func (es *ExecutionService) SpawnAgent(ctx context.Context, req *SpawnRequest) (
 	agentCtx, cancel := context.WithCancel(context.Background())
 
 	// 记录运行中的Agent
+	// 当使用 resume 策略时，继承之前 invocation 的已回答 question blocks
+	var inheritedContentBlocks []ContentBlockData
+	if req.SessionStrategy == SessionStrategyResume {
+		es.mu.Lock()
+		// 查找同 Thread 中之前的 RunningAgent（已回答问题但未完成）
+		for _, prevAgent := range es.runningAgents {
+			if prevAgent.ThreadID == req.ThreadID {
+				prevAgent.ContentBlocksMu.Lock()
+				// 只继承已回答的 question blocks（status='success'）
+				for _, block := range prevAgent.AccumulatedContentBlocks {
+					if block.Type == "question" && block.Status == "success" {
+						inheritedContentBlocks = append(inheritedContentBlocks, block)
+						logInfo("SpawnAgent: 继承已回答的 question block",
+							zap.String("blockId", block.ID),
+							zap.String("output", block.Output))
+					}
+				}
+				prevAgent.ContentBlocksMu.Unlock()
+				break // 只继承一个之前的 Agent
+			}
+		}
+		es.mu.Unlock()
+	}
+
 	es.mu.Lock()
 	es.runningAgents[invocation.ID] = &RunningAgent{
-		InvocationID:    invocation.ID,
-		ThreadID:        req.ThreadID,
-		AgentConfig:     config,
-		BaseAgent:       baseAgent,
-		StartedAt:       time.Now(),
-		LastActiveAt:    time.Now(), // 初始化活动时间
-		CancelFunc:      cancel,
-		ActiveToolCount: 0, // 初始化工具计数
+		InvocationID:             invocation.ID,
+		ThreadID:                 req.ThreadID,
+		AgentConfig:              config,
+		BaseAgent:                baseAgent,
+		StartedAt:                time.Now(),
+		LastActiveAt:             time.Now(), // 初始化活动时间
+		CancelFunc:               cancel,
+		ActiveToolCount:          0, // 初始化工具计数
+		AccumulatedContentBlocks: inheritedContentBlocks, // 继承已回答的 question blocks
 	}
 	es.mu.Unlock()
 
@@ -467,6 +492,7 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 		ConfigDir:       config.ConfigPath,
 		SessionID:       sessionID,
 		SessionStrategy: req.SessionStrategy,
+		InvocationID:    invocation.ID, // 用于 AskUserQuestion 答案发送
 	}
 	logInfo("[PERF] buildExecutionRequest", zap.Duration("duration", time.Since(execReqBuildStart)), zap.String("sessionID", sessionID), zap.String("sessionStrategy", string(req.SessionStrategy)))
 
@@ -564,6 +590,41 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 		agent.ContentBlocksMu.Unlock()
 	}
 	es.mu.Unlock()
+
+		// 如果使用 resume 策略，从数据库继承上一个 invocation 的已回答 question blocks
+		if req.SessionStrategy == SessionStrategyResume {
+			// 查询上一个 invocation 的 agent 消息
+			prevMessages, err := es.msgRepo.FindByThreadID(ctx, req.ThreadID, 10)
+			if err == nil && len(prevMessages) > 0 {
+				// 找到上一个 agent 消息（包含已回答的 question blocks）
+				for i := len(prevMessages) - 1; i >= 0; i-- {
+					msg := prevMessages[i]
+					if msg.Role == model.MessageRoleAgent && len(msg.ContentBlocks) > 0 {
+						var prevBlocks []ContentBlockData
+						if json.Unmarshal(msg.ContentBlocks, &prevBlocks) == nil {
+							// 合并已回答的 question blocks（status=success）
+							for _, pb := range prevBlocks {
+								if pb.Type == "question" && pb.Status == "success" {
+									// 检查是否已在当前 contentBlocks 中（避免重复）
+									found := false
+									for _, cb := range contentBlocks {
+										if cb.ID == pb.ID {
+											found = true
+											break
+										}
+									}
+									if !found {
+										contentBlocks = append(contentBlocks, pb)
+									}
+								}
+							}
+						}
+						break // 只继承最近一条 agent 消息
+					}
+				}
+			}
+		}
+
 
 	// 保存输出消息到数据库（包含内容块）
 	msg := es.saveAgentMessageWithReturn(ctx, req.ThreadID, config, output, contentBlocks)
@@ -1989,31 +2050,88 @@ func (es *ExecutionService) broadcastChunk(threadID, invocationID uuid.UUID, chu
 			})
 		case ChunkTypeToolResult:
 			// 工具调用结果：更新对应的工具块
-			for i := len(agent.AccumulatedContentBlocks) - 1; i >= 0; i-- {
-				if agent.AccumulatedContentBlocks[i].Type == "tool_use" && agent.AccumulatedContentBlocks[i].ToolID == chunk.ToolID {
-					agent.AccumulatedContentBlocks[i].Output = chunk.Content
-					agent.AccumulatedContentBlocks[i].IsError = chunk.IsError
-					agent.AccumulatedContentBlocks[i].Status = "success"
-					agent.AccumulatedContentBlocks[i].CompletedAt = now
-					break
+			// 特殊处理：AskUserQuestion 工具的 tool_result 表示"拒绝"
+			// 因为 stdin 已关闭，CLI 无法等待用户输入，会返回拒绝响应
+			// 正确做法：忽略拒绝错误，让 CLI 正常结束，保存 sessionId 用于 --resume
+			isQuestionResult := agent.LastQuestionToolID != "" && chunk.ToolID == agent.LastQuestionToolID
+			if isQuestionResult && chunk.IsError {
+				// AskUserQuestion 被拒绝：忽略这个 tool_result
+				// 更新 question 块状态为 waiting_user_input（前端等待用户响应）
+				for i := len(agent.AccumulatedContentBlocks) - 1; i >= 0; i-- {
+					if agent.AccumulatedContentBlocks[i].Type == "question" && agent.AccumulatedContentBlocks[i].ToolID == chunk.ToolID {
+						// 保持 waiting_user_input 状态，不更新为 failed
+						// 用户响应后通过 --resume 恢复会话
+						logInfo("AskUserQuestion tool_result 收到（拒绝），保持 waiting_user_input 状态",
+							zap.String("invocationID", invocationID.String()),
+							zap.String("toolCallID", chunk.ToolID),
+							zap.String("content", chunk.Content))
+						break
+					}
+				}
+			} else {
+				// 正常的 tool_result：更新对应的工具块
+				for i := len(agent.AccumulatedContentBlocks) - 1; i >= 0; i-- {
+					if agent.AccumulatedContentBlocks[i].Type == "tool_use" && agent.AccumulatedContentBlocks[i].ToolID == chunk.ToolID {
+						agent.AccumulatedContentBlocks[i].Output = chunk.Content
+						agent.AccumulatedContentBlocks[i].IsError = chunk.IsError
+						agent.AccumulatedContentBlocks[i].Status = "success"
+						agent.AccumulatedContentBlocks[i].CompletedAt = now
+						break
+					}
 				}
 			}
 		case ChunkTypeQuestion:
 			// AskUserQuestion 工具调用：需要用户输入
-			// 添加到内容块，等待用户响应
-			agent.AccumulatedContentBlocks = append(agent.AccumulatedContentBlocks, ContentBlockData{
-				ID:        fmt.Sprintf("question-%s", chunk.ToolID),
-				Type:      "question",
-				Timestamp: now,
-				Status:    "waiting_user_input",
-				ToolName:  chunk.ToolName,
-				ToolID:    chunk.ToolID,
-				Input:     chunk.ToolInput,
-				StartedAt: now,
-			})
+			// 检查是否已存在同 ID 的 question block（parser 可能发送两次）
+			blockID := fmt.Sprintf("question-%s", chunk.ToolID)
+			existingIdx := -1
+			for i, b := range agent.AccumulatedContentBlocks {
+				if b.ID == blockID {
+					existingIdx = i
+					break
+				}
+			}
+			
+			if existingIdx >= 0 {
+				// 已存在：更新它（特别是 Questions 字段，可能在第二次解析时才有）
+				agent.AccumulatedContentBlocks[existingIdx] = ContentBlockData{
+					ID:           blockID,
+					Type:         "question",
+					Timestamp:    now,
+					Status:       "waiting_user_input",
+					ToolName:     chunk.ToolName,
+					ToolID:       chunk.ToolID,
+					Input:        chunk.ToolInput,
+					Questions:    chunk.Questions,
+					InvocationID: invocationID.String(),
+					StartedAt:    agent.AccumulatedContentBlocks[existingIdx].StartedAt,
+				}
+				logInfo("更新已存在的 question block",
+					zap.String("blockId", blockID),
+					zap.Int("questionsCount", len(chunk.Questions)))
+			} else {
+				// 不存在：添加新 block
+				agent.AccumulatedContentBlocks = append(agent.AccumulatedContentBlocks, ContentBlockData{
+					ID:           blockID,
+					Type:         "question",
+					Timestamp:    now,
+					Status:       "waiting_user_input",
+					ToolName:     chunk.ToolName,
+					ToolID:       chunk.ToolID,
+					Input:        chunk.ToolInput,
+					Questions:    chunk.Questions,
+					InvocationID: invocationID.String(),
+					StartedAt:    now,
+				})
+				logInfo("添加新的 question block",
+					zap.String("blockId", blockID),
+					zap.Int("questionsCount", len(chunk.Questions)))
+			}
 			// 标记为等待用户输入状态
 			agent.WaitingForUserInput = true
 			agent.PendingQuestionID = chunk.ToolID
+			// 记录 AskUserQuestion 工具调用，用于后续判断 tool_result 是否是该工具的拒绝响应
+			agent.LastQuestionToolID = chunk.ToolID
 		}
 		agent.ContentBlocksMu.Unlock()
 
@@ -2182,6 +2300,10 @@ func (es *ExecutionService) toolHeartbeat(ctx context.Context, invocationID uuid
 	}
 }
 
+// AskUserQuestionPendingError 表示 AskUserQuestion 工具需要用户输入
+// 这是一个特殊的 error，表示 CLI 应该正常结束（而非失败），等待用户响应后通过 --resume 恢复
+var ErrAskUserQuestionPending = fmt.Errorf("ask_user_question_pending: waiting for user input")
+
 // SubmitQuestionAnswer 提交 AskUserQuestion 的用户答案
 // 找到运行中的 Agent，并通过 stdin 发送答案给 CLI
 func (es *ExecutionService) SubmitQuestionAnswer(threadID uuid.UUID, toolCallID string, answer string) error {
@@ -2213,18 +2335,20 @@ func (es *ExecutionService) SubmitQuestionAnswer(threadID uuid.UUID, toolCallID 
 			}
 			agent.ContentBlocksMu.Unlock()
 
+
 			// 通过 Adapter 发送答案给 CLI
 			if agent.Adapter != nil {
-				// 尝试通过 ToolResultSender 接口发送响应
+				// 尝试通过 ToolResultSender 接口发送响应（统一接口）
 				if sender, ok := agent.Adapter.(ToolResultSender); ok {
 					err := sender.SendToolResult(invocationID, toolCallID, answer)
 					if err != nil {
 						logError("发送工具结果失败", zap.Error(err))
 						return err
 					}
+				} else {
+					logWarn("Adapter 不支持 ToolResultSender 接口", zap.String("adapterType", fmt.Sprintf("%T", agent.Adapter)))
 				}
 			}
-
 			// 广播更新
 			if es.wsHub != nil {
 				es.wsHub.BroadcastToThread(threadID.String(), ws.WSMessage{
@@ -2245,6 +2369,60 @@ func (es *ExecutionService) SubmitQuestionAnswer(threadID uuid.UUID, toolCallID 
 
 	return fmt.Errorf("未找到等待输入的 Agent 或 toolCallID 不匹配")
 }
+
+// updatePreviousQuestionBlock 更新上一个 Agent 消息中已回答的 question block
+// 当用户回答 AskUserQuestion 时，需要将上一个消息中的 question block 更新为 success 状态
+func (es *ExecutionService) updatePreviousQuestionBlock(ctx context.Context, threadID uuid.UUID, userAnswer string) {
+	if es.msgRepo == nil {
+		return
+	}
+
+	// 查询最近的消息
+	messages, err := es.msgRepo.FindByThreadID(ctx, threadID, 10)
+	if err != nil || len(messages) == 0 {
+		return
+	}
+
+	// 找到最后一个 agent 消息（包含 question block）
+	for i := len(messages) - 1; i >= 0; i-- {
+		msg := messages[i]
+		if msg.Role == model.MessageRoleAgent && len(msg.ContentBlocks) > 0 {
+			var blocks []ContentBlockData
+			if json.Unmarshal(msg.ContentBlocks, &blocks) != nil {
+				continue
+			}
+
+			// 查找 waiting_user_input 状态的 question block
+			updated := false
+			for j, block := range blocks {
+				if block.Type == "question" && block.Status == "waiting_user_input" {
+					blocks[j].Status = "success"
+					blocks[j].Output = userAnswer
+					blocks[j].CompletedAt = time.Now().UnixMilli()
+					updated = true
+					logInfo("updatePreviousQuestionBlock: 更新 question block",
+						zap.String("messageId", msg.ID.String()),
+						zap.String("blockId", block.ID),
+						zap.String("status", "success"),
+						zap.String("output", userAnswer))
+				}
+			}
+
+			// 如果有更新，保存到数据库
+			if updated {
+				newBlocksJSON, _ := json.Marshal(blocks)
+				msg.ContentBlocks = newBlocksJSON
+				if err := es.msgRepo.Update(ctx, msg); err != nil {
+					logError("updatePreviousQuestionBlock: 更新消息失败", zap.Error(err))
+				} else {
+					logInfo("updatePreviousQuestionBlock: 消息更新成功", zap.String("messageId", msg.ID.String()))
+				}
+			}
+			break // 只处理最近的 agent 消息
+		}
+	}
+}
+
 
 // GetInvocationsByThread 获取 Thread 的所有 Agent 调用
 func (es *ExecutionService) GetInvocationsByThread(ctx context.Context, threadID uuid.UUID) ([]model.AgentInvocation, error) {
@@ -2592,6 +2770,12 @@ func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, thread
 				}
 			}
 
+
+			// 如果使用 resume 策略，先更新上一个消息中已回答的 question block
+			if sessionStrategy == SessionStrategyResume {
+				es.updatePreviousQuestionBlock(ctx, threadID, userMessage)
+			}
+
 			// 使用工作流模板中指定的Agent
 			_, err = es.SpawnAgent(ctx, &SpawnRequest{
 				ThreadID:        threadID,
@@ -2639,6 +2823,12 @@ func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, thread
 				zap.String("agentName", config.Name),
 				zap.String("agentID", config.ID.String()))
 		}
+	}
+
+
+	// 如果使用 resume 策略，先更新上一个消息中已回答的 question block
+	if sessionStrategy == SessionStrategyResume {
+		es.updatePreviousQuestionBlock(ctx, threadID, userMessage)
 	}
 
 	// 触发Agent

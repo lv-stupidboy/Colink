@@ -4,7 +4,9 @@ package claude_code
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -34,6 +36,10 @@ type ClaudeAdapter struct {
 	// CLI 进程管理（用于取消）
 	currentCmd   *exec.Cmd
 	currentCmdMu sync.RWMutex
+
+	// AskUserQuestion 支持：保存 stdin 管道用于发送答案
+	currentStdin   io.WriteCloser
+	currentStdinMu sync.RWMutex
 }
 
 // claudeSession Claude会话
@@ -124,7 +130,23 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execut
 	logDebug("Claude: Starting execution", zap.String("workDir", req.WorkDir), zap.String("configDir", req.ConfigDir))
 
 	cmd := exec.CommandContext(ctx, a.cliPath, args...)
-	cmd.Stdin = strings.NewReader(prompt)
+
+	// 使用 stdin 管道发送 prompt，发送后关闭让 CLI 知道输入结束
+	stdinPipe, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create stdin pipe: %w", err)
+	}
+
+	// 发送初始 prompt 后关闭 stdin
+	go func() {
+		stdinPipe.Write([]byte(prompt))
+		stdinPipe.Close()
+	}()
+
+	// stdin 已关闭，清除引用
+	a.currentStdinMu.Lock()
+	a.currentStdin = nil
+	a.currentStdinMu.Unlock()
 
 	if req.WorkDir != "" {
 		cmd.Dir = req.WorkDir
@@ -243,9 +265,10 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execut
 				logInfo("[PERF] CLI first line received", zap.Duration("duration", time.Since(cliStartTime)), zap.Int("lineNum", lineCount))
 			}
 			// 调试：打印每行原始输出
-			if lineCount <= 5 {
-				logInfo("ExecuteWithStream: received line", zap.Int("lineNum", lineCount), zap.String("line", line[:minLen(200, len(line))]))
-			}
+				// 调试：打印每行原始输出（前5行或包含工具相关内容）
+				if lineCount <= 5 || strings.Contains(line, "tool_use") || strings.Contains(line, "AskUserQuestion") || strings.Contains(line, "input_json") {
+					logInfo("ExecuteWithStream: received line", zap.Int("lineNum", lineCount), zap.String("line", line[:min(500, len(line))]))
+				}
 			chunks := parseStreamJSONLine(line, onChunk != nil)
 			for _, chunk := range chunks {
 				if onChunk != nil {
@@ -592,4 +615,37 @@ func logDebug(msg string, fields ...zap.Field) {
 	if logger := zap.L(); logger != nil {
 		logger.Debug(msg, fields...)
 	}
+}
+// SendToolResult 发送工具结果给 CLI（用于 AskUserQuestion 等需要用户输入的工具）
+// CLI 使用 stdin 接收用户答案
+func (a *ClaudeAdapter) SendToolResult(invocationID uuid.UUID, toolCallID string, result string) error {
+	a.currentStdinMu.RLock()
+	stdin := a.currentStdin
+	a.currentStdinMu.RUnlock()
+
+	if stdin == nil {
+		return fmt.Errorf("ClaudeAdapter: stdin pipe not available for invocation %s", invocationID.String())
+	}
+
+	// 构建答案消息格式
+	// 使用 json.Marshal 确保 result 正确转义（处理引号、换行等特殊字符）
+	contentJSON, err := json.Marshal(result)
+	if err != nil {
+		return fmt.Errorf("ClaudeAdapter: failed to marshal result: %w", err)
+	}
+	answerMsg := fmt.Sprintf("{\"type\":\"tool_result\",\"tool_use_id\":\"%s\",\"content\":%s}\n", toolCallID, string(contentJSON))
+
+	logInfo("ClaudeAdapter: sending tool result via stdin",
+		zap.String("invocationID", invocationID.String()),
+		zap.String("toolCallId", toolCallID),
+		zap.String("answer", result))
+
+	_, err = stdin.Write([]byte(answerMsg))
+	if err != nil {
+		logError("ClaudeAdapter: failed to write tool result to stdin", zap.Error(err))
+		return fmt.Errorf("ClaudeAdapter: failed to send tool result: %w", err)
+	}
+
+	logInfo("ClaudeAdapter: tool result sent successfully", zap.String("toolCallId", toolCallID))
+	return nil
 }

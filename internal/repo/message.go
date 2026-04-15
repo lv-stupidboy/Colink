@@ -215,3 +215,15 @@ func deserializeStrings(data []byte) []string {
 	json.Unmarshal(data, &arr)
 	return arr
 }
+// Update 更新消息（用于更新 content_blocks 等字段）
+func (r *MessageRepository) Update(ctx context.Context, msg *model.Message) error {
+	query := `
+		UPDATE messages 
+		SET content_blocks = ?, metadata = ?, content = ?
+		WHERE id = ?
+	`
+	_, err := r.DB().ExecContext(ctx, query,
+		msg.ContentBlocks, msg.Metadata, msg.Content, msg.ID.String(),
+	)
+	return err
+}
