@@ -1,8 +1,9 @@
 // web/src/pages/Workflow/useAgentDragSort.ts
 import { useState, useCallback } from 'react';
+import type { AgentConfig } from '@/types';
 
 export interface TeamAgent {
-  config: { id: string; name: string; isSystem?: boolean };
+  config: AgentConfig;
   triggers: Array<{ toAgentId: string; triggerHint: string }>;
 }
 
@@ -12,7 +13,7 @@ interface DragState {
 }
 
 export const useAgentDragSort = (
-  teamId: string,
+  _teamId: string,
   agents: TeamAgent[],
   onSave: (agentIds: string[]) => Promise<void>
 ) => {
