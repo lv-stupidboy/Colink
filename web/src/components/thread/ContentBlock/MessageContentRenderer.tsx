@@ -55,10 +55,9 @@ const MessageContentRenderer: React.FC<MessageContentRendererProps> = memo(({
 
   // 过滤 blocks：
   // - 当 filterWaitingQuestions=true 时（已完成消息）：
-  //   跳过那些在 streamingContentBlocks 中且状态为 waiting_user_input 的 question blocks
-  //   （这些 blocks 由 StreamingMessage 渲染）
-  //   success/failed 状态的 question blocks 在历史消息中渲染（需要显示用户答案）
-  //   以及已提交的 question blocks（避免重复渲染）
+  //   跳过已提交的 question blocks（避免重复渲染）
+  //   success/failed 状态的 question blocks 在历史消息中渲染（显示用户答案）
+  //   waiting_user_input 状态的 question blocks 也渲染（让用户可以选择）
   // - 当 filterWaitingQuestions=false 时（StreamingMessage）：
   //   不跳过，直接渲染
   const filteredBlocks = filterWaitingQuestions
@@ -66,20 +65,11 @@ const MessageContentRenderer: React.FC<MessageContentRendererProps> = memo(({
         if (block.type === 'question') {
           // 已提交的 question block 直接过滤掉（避免重复渲染）
           if (submittedQuestionBlockIds.has(block.id)) {
+            console.log('[MessageContentRenderer] Filtering submitted question block:', block.id);
             return false;
           }
-          // 只过滤掉正在等待用户输入的（由 StreamingMessage 渲染）
-          // success/failed 状态的保留（由历史消息渲染，显示用户答案）
-          const qb = block as QuestionBlock;
-          if (qb.status === 'waiting_user_input') {
-            // 检查是否在 streamingContentBlocks 中（确认由 StreamingMessage 渲染）
-            const inStreamingBlocks = streamingContentBlocks.some(
-              (sb) => sb.id === block.id && (sb as QuestionBlock).status === 'waiting_user_input'
-            );
-            if (inStreamingBlocks) {
-              return false;
-            }
-          }
+          // success/failed 状态的保留（显示用户答案）
+          // waiting_user_input 状态的也保留（让用户可以选择）
         }
         return true;
       })

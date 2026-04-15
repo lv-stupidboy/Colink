@@ -150,6 +150,21 @@ const QuestionBlockComponent: React.FC<QuestionBlockComponentProps> = memo(({ bl
   const { toolName, questions, status, startedAt, completedAt, output, input } = block;
   const accentColor = '#faad14';
 
+  // 调试日志：打印 block 的完整数据
+  console.log('[QuestionBlock] Block data:', {
+    id: block.id,
+    toolName,
+    status,
+    output,
+    questionsCount: questions?.length,
+    questions: questions,
+    input: input,
+    inputQuestions: input?.questions,
+    startedAt,
+    completedAt,
+    disabled,
+  });
+
   // 防御性检查：确保 questions 存在
   // 如果 questions 字段为空，尝试从 input.questions 中提取（兼容历史数据）
   const safeQuestions = questions || (input?.questions as any[]) || [];
@@ -208,13 +223,18 @@ const QuestionBlockComponent: React.FC<QuestionBlockComponentProps> = memo(({ bl
 
   // 获取 answers：优先从 output 解析，其次从 input 解析（兼容不同数据格式）
   const answers = useMemo(() => {
+    console.log('[QuestionBlock] Computing answers:', { isSubmitted, output, safeQuestionsLength: safeQuestions.length, status, localAnswers });
+
     if (isSubmitted) {
       // 已提交：尝试从 output 解析
       const parsedAnswers = safeQuestions.reduce((acc, q, i) => {
         const parsed = parseOutputAnswers(i, q.multiSelect);
+        console.log('[QuestionBlock] Parsed answer:', { questionIndex: i, parsed, output });
         if (parsed) acc[i] = parsed;
         return acc;
       }, {} as Record<number, string | string[]>);
+
+      console.log('[QuestionBlock] Parsed answers:', parsedAnswers);
 
       // 如果 output 解析成功，返回解析结果
       if (Object.keys(parsedAnswers).length > 0) {
@@ -224,9 +244,10 @@ const QuestionBlockComponent: React.FC<QuestionBlockComponentProps> = memo(({ bl
       // 如果 output 解析失败，尝试从 input 中获取（可能存在 annotations 等字段）
       // 这是为了兼容不同的数据格式
       const inputAnswers = safeQuestions.reduce((acc, q, i) => {
-        // 检查是否有用户答案的记录
-        if (q.userAnswer) {
-          acc[i] = q.userAnswer;
+        // 检查是否有用户答案的记录（兼容扩展字段）
+        const questionAny = q as any;
+        if (questionAny.userAnswer) {
+          acc[i] = questionAny.userAnswer;
         }
         return acc;
       }, {} as Record<number, string | string[]>);
@@ -267,14 +288,17 @@ const QuestionBlockComponent: React.FC<QuestionBlockComponentProps> = memo(({ bl
       return;
     }
 
+    // 先更新 localAnswers 以立即显示选中状态（在提交过程中也能高亮）
+    setLocalAnswers(prev => ({ ...prev, [questionIndex]: value }));
+
     // 检查是否需要自定义输入的选项
     const needsCustomInput = value.toLowerCase().includes('other') ||
                               value.includes('其他') ||
                               value.includes('自定义');
 
     if (needsCustomInput) {
-      // 设置选中值，等待用户输入
-      setLocalAnswers(prev => ({ ...prev, [questionIndex]: value }));
+      // 需要自定义输入：保持选中状态，等待用户输入
+      // localAnswers 已更新，显示选中高亮
     } else {
       // 直接提交，设置提交中状态以禁用后续点击
       console.log('[QuestionBlock] Calling onSubmit');
@@ -564,7 +588,7 @@ const QuestionBlockComponent: React.FC<QuestionBlockComponentProps> = memo(({ bl
                 type="primary"
                 icon={<CheckCircleOutlined />}
                 onClick={handleMultiSelectSubmit}
-                disabled={disabled}
+                disabled={isInteractionDisabled}
               >
                 确认提交
               </Button>
