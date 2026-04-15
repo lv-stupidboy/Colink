@@ -176,8 +176,8 @@ bin/migrate.exe up --db ./data/sqlite/colink.db --version 1.1.0 --json
 - 过渡期保留 MySQL 支持（通过 `database.type` 配置切换）
 
 ### 服务端口
-- 后端: 8080
-- 前端开发: 3000
+- 后端: 26305
+- 前端开发: 26306
 
 ## Data 目录
 

@@ -557,7 +557,7 @@ func validateConfig(cfg *Config) error {
 
 // setDefaults 设置默认值（仅设置非路径类配置的默认值）
 func setDefaults() {
-	viper.SetDefault("server.port", 8080)
+	viper.SetDefault("server.port", 26305)
 	viper.SetDefault("server.mode", "debug")
 	viper.SetDefault("redis.addr", "localhost:6379")
 	viper.SetDefault("claude.path", "claude")
@@ -573,7 +573,7 @@ func setDefaults() {
 	viper.SetDefault("agent.context_max_lines", 400)
 	viper.SetDefault("logging.level", "info")
 	viper.SetDefault("logging.format", "json")
-	viper.SetDefault("mcp.base_url", "http://localhost:8080/api/v1/mcp")
+	viper.SetDefault("mcp.base_url", "http://localhost:26305/api/v1/mcp")
 	viper.SetDefault("mcp.token_ttl", "30m")
 	viper.SetDefault("skill.use_count_update_interval", "1h")
 	viper.SetDefault("skill.upload_max_size", 5)

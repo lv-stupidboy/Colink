@@ -50,7 +50,7 @@ DEV_CONFIG="configs/config.yaml"
 if [ ! -f "$DEV_CONFIG" ]; then
     cat > "$DEV_CONFIG" <<'YAML'
 server:
-  port: 8080
+  port: 26305
   mode: debug
 
 data:
@@ -88,7 +88,7 @@ logging:
   format: json
 
 mcp:
-  base_url: http://localhost:8080/api/v1/mcp
+  base_url: http://localhost:26305/api/v1/mcp
   token_ttl: 30m
 
 auth:

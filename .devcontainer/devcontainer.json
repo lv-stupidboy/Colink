@@ -13,10 +13,10 @@
     "source=${localEnv:HOME}/.config/opencode,target=/home/vscode/.config/opencode,type=bind",
     "source=${localEnv:HOME}/.gitconfig,target=/home/vscode/.gitconfig_host,type=bind"
   ],
-  "forwardPorts": [8080, 3000],
+  "forwardPorts": [26305, 26306],
   "portsAttributes": {
-    "8080": { "label": "Go Backend", "onAutoForward": "notify" },
-    "3000": { "label": "Vite Dev Server", "onAutoForward": "silent" }
+    "26305": { "label": "Go Backend", "onAutoForward": "notify" },
+    "26306": { "label": "Vite Dev Server", "onAutoForward": "silent" }
   },
   "postCreateCommand": "cd /workspaces/isdp && bash .devcontainer/post-create.sh",
   "postStartCommand": "docker image prune -f 2>/dev/null || true",
