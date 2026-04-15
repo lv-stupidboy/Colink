@@ -50,11 +50,13 @@ export const useAgentDragSort = (
     setIsSaving(true);
     try {
       await onSave(newAgentIds);
+    } catch (error) {
+      console.error('Failed to save agent order:', error);
     } finally {
       setIsSaving(false);
       setDragState({ draggingIndex: null, dragOverIndex: null });
     }
-  }, [dragState, agents, onSave]);
+  }, [dragState.draggingIndex, dragState.dragOverIndex, agents, onSave]);
 
   return {
     dragState,
