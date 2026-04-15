@@ -12,11 +12,11 @@ type ReportData struct {
 
 // StatsData contains aggregated usage statistics.
 type StatsData struct {
-	ProjectsCount          int              `json:"projects_count"`
-	ThreadsCount           int              `json:"threads_count"`
-	WorkflowTemplatesCount int              `json:"workflow_templates_count"`
-	AgentConfigsCount      int              `json:"agent_configs_count"`
-	BaseAgents             []BaseAgentStats `json:"base_agents"`
+	ProjectsCount int              `json:"projects_count"`
+	TasksCount    int              `json:"tasks_count"`
+	TeamsCount    int              `json:"teams_count"`
+	AgentsCount   int              `json:"agents_count"`
+	BaseAgents    []BaseAgentStats `json:"base_agents"`
 }
 
 // BaseAgentStats represents count of each base agent type.

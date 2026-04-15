@@ -31,17 +31,17 @@ func (c *Collector) CollectStats(ctx context.Context) (StatsData, error) {
 	}
 
 	// Query threads count
-	if err := c.queryCount(ctx, "SELECT COUNT(*) FROM threads", &stats.ThreadsCount); err != nil {
+	if err := c.queryCount(ctx, "SELECT COUNT(*) FROM threads", &stats.TasksCount); err != nil {
 		return stats, err
 	}
 
 	// Query workflow templates count
-	if err := c.queryCount(ctx, "SELECT COUNT(*) FROM workflow_templates", &stats.WorkflowTemplatesCount); err != nil {
+	if err := c.queryCount(ctx, "SELECT COUNT(*) FROM workflow_templates", &stats.TeamsCount); err != nil {
 		return stats, err
 	}
 
 	// Query agent configs count
-	if err := c.queryCount(ctx, "SELECT COUNT(*) FROM agent_configs", &stats.AgentConfigsCount); err != nil {
+	if err := c.queryCount(ctx, "SELECT COUNT(*) FROM agent_configs", &stats.AgentsCount); err != nil {
 		return stats, err
 	}
 
