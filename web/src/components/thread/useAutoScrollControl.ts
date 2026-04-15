@@ -20,7 +20,6 @@ export const useAutoScrollControl = (
 ): AutoScrollControlResult => {
   const [isNearBottom, setIsNearBottom] = useState(true);
   const bottomAnchorRef = useRef<HTMLDivElement>(null);
-  const isObservingRef = useRef(false);
 
   // IntersectionObserver 监听底部锚点
   useEffect(() => {
@@ -39,11 +38,9 @@ export const useAutoScrollControl = (
     );
 
     observer.observe(bottomAnchorRef.current);
-    isObservingRef.current = true;
 
     return () => {
       observer.disconnect();
-      isObservingRef.current = false;
     };
   }, [containerRef, threshold]);
 
@@ -51,7 +48,6 @@ export const useAutoScrollControl = (
   const scrollToBottom = useCallback(() => {
     if (bottomAnchorRef.current) {
       bottomAnchorRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
-      setIsNearBottom(true);
     }
   }, []);
 
