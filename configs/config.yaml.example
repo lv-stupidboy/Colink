@@ -137,3 +137,16 @@ im:
     #   max_retries: 3
     #   bot_token: ""
     #   application_id: ""
+
+# 数据上报配置 - 用于产品分析和内部统计
+reporter:
+  # 是否启用上报，默认关闭
+  enabled: false
+  # 上报服务地址，如 https://stats.example.com/api/report
+  endpoint: ""
+  # 上报间隔，格式: "30m", "1h"
+  interval: "30m"
+  # 失败重试次数
+  retry_times: 3
+  # 重试间隔，格式: "1m", "30s"
+  retry_interval: "1m"
