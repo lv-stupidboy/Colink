@@ -70,6 +70,7 @@ type RunningAgent struct {
 	// AskUserQuestion 相关状态
 	WaitingForUserInput bool   // 是否正在等待用户输入（AskUserQuestion）
 	PendingQuestionID   string // 待处理的 AskUserQuestion 工具ID
+	LastQuestionToolID  string // 最后一个 AskUserQuestion 工具ID（用于判断 tool_result 是否是该工具的拒绝响应）
 
 	// CLI 进程管理（用于取消执行）
 	Adapter AgentAdapter // Adapter 引用（用于获取当前进程）

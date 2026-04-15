@@ -762,13 +762,13 @@ const ThreadView: React.FC = () => {
               createdAt: new Date().toISOString(),
             });
 
-            // 如果 contentBlocks 包含 question blocks，将其 IDs 加入 submittedQuestionBlockIds
-            // 这样历史消息渲染时会过滤掉这些 blocks，避免重复渲染
+            // 如果 contentBlocks 包含已提交的 question blocks，将其 IDs 加入 submittedQuestionBlockIds
+            // waiting_user_input 状态的 question blocks 应保留在历史消息中渲染（等待用户响应）
             if (contentBlocks && contentBlocks.length > 0) {
-              const questionBlockIds = contentBlocks
-                .filter(b => b.type === 'question')
+              const submittedQuestionBlockIds = contentBlocks
+                .filter(b => b.type === 'question' && (b.status === 'success' || b.status === 'failed'))
                 .map(b => b.id);
-              questionBlockIds.forEach(id => useAppStore.getState().markQuestionSubmitted(id));
+              submittedQuestionBlockIds.forEach(id => useAppStore.getState().markQuestionSubmitted(id));
             }
           }
         }
@@ -1550,8 +1550,9 @@ const ThreadView: React.FC = () => {
         completedAt: Date.now(),
       });
 
-      // 标记该 question block 已提交，用于过滤历史消息中的重复渲染
-      markQuestionSubmitted(blockId);
+      // 注意：不再调用 markQuestionSubmitted
+      // 因为 question block 在 success 状态下仍然需要显示（显示用户的选择）
+      // MessageContentRenderer 会根据 status === 'success' 自动保留渲染
 
       // 发送用户消息（通过 WebSocket），这会触发 SpawnAgentForUserMessage
       // 后端会检查最近的 completed invocation，使用其 SessionID 进行 --resume

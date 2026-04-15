@@ -1990,13 +1990,34 @@ func (es *ExecutionService) broadcastChunk(threadID, invocationID uuid.UUID, chu
 			})
 		case ChunkTypeToolResult:
 			// 工具调用结果：更新对应的工具块
-			for i := len(agent.AccumulatedContentBlocks) - 1; i >= 0; i-- {
-				if agent.AccumulatedContentBlocks[i].Type == "tool_use" && agent.AccumulatedContentBlocks[i].ToolID == chunk.ToolID {
-					agent.AccumulatedContentBlocks[i].Output = chunk.Content
-					agent.AccumulatedContentBlocks[i].IsError = chunk.IsError
-					agent.AccumulatedContentBlocks[i].Status = "success"
-					agent.AccumulatedContentBlocks[i].CompletedAt = now
-					break
+			// 特殊处理：AskUserQuestion 工具的 tool_result 表示"拒绝"
+			// 因为 stdin 已关闭，CLI 无法等待用户输入，会返回拒绝响应
+			// 正确做法：忽略拒绝错误，让 CLI 正常结束，保存 sessionId 用于 --resume
+			isQuestionResult := agent.LastQuestionToolID != "" && chunk.ToolID == agent.LastQuestionToolID
+			if isQuestionResult && chunk.IsError {
+				// AskUserQuestion 被拒绝：忽略这个 tool_result
+				// 更新 question 块状态为 waiting_user_input（前端等待用户响应）
+				for i := len(agent.AccumulatedContentBlocks) - 1; i >= 0; i-- {
+					if agent.AccumulatedContentBlocks[i].Type == "question" && agent.AccumulatedContentBlocks[i].ToolID == chunk.ToolID {
+						// 保持 waiting_user_input 状态，不更新为 failed
+						// 用户响应后通过 --resume 恢复会话
+						logInfo("AskUserQuestion tool_result 收到（拒绝），保持 waiting_user_input 状态",
+							zap.String("invocationID", invocationID.String()),
+							zap.String("toolCallID", chunk.ToolID),
+							zap.String("content", chunk.Content))
+						break
+					}
+				}
+			} else {
+				// 正常的 tool_result：更新对应的工具块
+				for i := len(agent.AccumulatedContentBlocks) - 1; i >= 0; i-- {
+					if agent.AccumulatedContentBlocks[i].Type == "tool_use" && agent.AccumulatedContentBlocks[i].ToolID == chunk.ToolID {
+						agent.AccumulatedContentBlocks[i].Output = chunk.Content
+						agent.AccumulatedContentBlocks[i].IsError = chunk.IsError
+						agent.AccumulatedContentBlocks[i].Status = "success"
+						agent.AccumulatedContentBlocks[i].CompletedAt = now
+						break
+					}
 				}
 			}
 		case ChunkTypeQuestion:
@@ -2017,6 +2038,8 @@ func (es *ExecutionService) broadcastChunk(threadID, invocationID uuid.UUID, chu
 			// 标记为等待用户输入状态
 			agent.WaitingForUserInput = true
 			agent.PendingQuestionID = chunk.ToolID
+			// 记录 AskUserQuestion 工具调用，用于后续判断 tool_result 是否是该工具的拒绝响应
+			agent.LastQuestionToolID = chunk.ToolID
 		}
 		agent.ContentBlocksMu.Unlock()
 
@@ -2185,6 +2208,10 @@ func (es *ExecutionService) toolHeartbeat(ctx context.Context, invocationID uuid
 	}
 }
 
+// AskUserQuestionPendingError 表示 AskUserQuestion 工具需要用户输入
+// 这是一个特殊的 error，表示 CLI 应该正常结束（而非失败），等待用户响应后通过 --resume 恢复
+var ErrAskUserQuestionPending = fmt.Errorf("ask_user_question_pending: waiting for user input")
+
 // SubmitQuestionAnswer 提交 AskUserQuestion 的用户答案
 // 找到运行中的 Agent，并通过 stdin 发送答案给 CLI
 func (es *ExecutionService) SubmitQuestionAnswer(threadID uuid.UUID, toolCallID string, answer string) error {
@@ -2216,28 +2243,20 @@ func (es *ExecutionService) SubmitQuestionAnswer(threadID uuid.UUID, toolCallID 
 			}
 			agent.ContentBlocksMu.Unlock()
 
+
 			// 通过 Adapter 发送答案给 CLI
 			if agent.Adapter != nil {
-				// 尝试通过 ClaudeAdapter 发送响应
-				if claudeAdapter, ok := agent.Adapter.(*ClaudeAdapter); ok {
-					err := claudeAdapter.SendToolResult(invocationID, toolCallID, answer)
-					if err != nil {
-						logError("发送工具结果失败", zap.Error(err))
-						return err
-					}
-				} else if acpAdapter, ok := agent.Adapter.(*BaseACPAdapter); ok {
-					// 尝试通过 ACP adapter 发送响应
-					err := acpAdapter.SendToolResult(invocationID, toolCallID, answer)
-				// 尝试通过 ToolResultSender 接口发送响应
+				// 尝试通过 ToolResultSender 接口发送响应（统一接口）
 				if sender, ok := agent.Adapter.(ToolResultSender); ok {
 					err := sender.SendToolResult(invocationID, toolCallID, answer)
 					if err != nil {
 						logError("发送工具结果失败", zap.Error(err))
 						return err
 					}
+				} else {
+					logWarn("Adapter 不支持 ToolResultSender 接口", zap.String("adapterType", fmt.Sprintf("%T", agent.Adapter)))
 				}
 			}
-
 			// 广播更新
 			if es.wsHub != nil {
 				es.wsHub.BroadcastToThread(threadID.String(), ws.WSMessage{

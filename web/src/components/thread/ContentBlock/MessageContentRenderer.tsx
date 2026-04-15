@@ -46,6 +46,8 @@ const MessageContentRenderer: React.FC<MessageContentRendererProps> = memo(({
 }) => {
   // 获取 streamingContentBlocks，用于过滤正在等待用户输入的 question blocks
   const streamingContentBlocks = useAppStore((s) => s.streamingContentBlocks);
+  // 获取已提交的 question block IDs，用于过滤历史消息中的重复渲染
+  const submittedQuestionBlockIds = useAppStore((s) => s.submittedQuestionBlockIds);
 
   if (!blocks || blocks.length === 0) {
     return null;
@@ -56,11 +58,16 @@ const MessageContentRenderer: React.FC<MessageContentRendererProps> = memo(({
   //   跳过那些在 streamingContentBlocks 中且状态为 waiting_user_input 的 question blocks
   //   （这些 blocks 由 StreamingMessage 渲染）
   //   success/failed 状态的 question blocks 在历史消息中渲染（需要显示用户答案）
+  //   以及已提交的 question blocks（避免重复渲染）
   // - 当 filterWaitingQuestions=false 时（StreamingMessage）：
   //   不跳过，直接渲染
   const filteredBlocks = filterWaitingQuestions
     ? blocks.filter((block) => {
         if (block.type === 'question') {
+          // 已提交的 question block 直接过滤掉（避免重复渲染）
+          if (submittedQuestionBlockIds.has(block.id)) {
+            return false;
+          }
           // 只过滤掉正在等待用户输入的（由 StreamingMessage 渲染）
           // success/failed 状态的保留（由历史消息渲染，显示用户答案）
           const qb = block as QuestionBlock;
@@ -107,13 +114,16 @@ const MessageContentRenderer: React.FC<MessageContentRendererProps> = memo(({
             // 使用 question block 的 invocationId，如果没有则使用消息的 invocationId（备选）
             const effectiveInvocationId = qb.invocationId || messageInvocationId;
 
-            // 简化逻辑：
-            // 1. 如果 question block 的 status 是 success/failed（已提交），禁用
-            // 2. 如果 question block 的 status 是 waiting_user_input（等待用户输入），可点击
-            // 3. 其他情况（如 streaming），禁用
-            const isInteractionEnabled = qb.status === 'waiting_user_input';
+            // 交互启用逻辑：
+            // 1. status 为 success/failed（已提交）：禁用，显示用户选择
+            // 2. status 为 waiting_user_input 且 Agent 已完成：可点击
+            // 3. status 为 waiting_user_input 且 Agent 正在执行：禁用，显示提示
+            const isSubmitted = qb.status === 'success' || qb.status === 'failed';
+            // 从 store 获取 Agent 执行状态
+            const agentRunning = useAppStore.getState().isStreaming;
+            const isInteractionEnabled = qb.status === 'waiting_user_input' && !agentRunning;
 
-            console.log('[MessageContentRenderer] question block:', { id: block.id, invocationId: qb.invocationId, messageInvocationId, effectiveInvocationId, status: qb.status, isInteractionEnabled, hasOnQuestionSubmit: !!onQuestionSubmit });
+            console.log('[MessageContentRenderer] question block:', { id: block.id, invocationId: qb.invocationId, messageInvocationId, effectiveInvocationId, status: qb.status, isInteractionEnabled, isSubmitted, agentRunning, hasOnQuestionSubmit: !!onQuestionSubmit });
             return (
               <QuestionBlockComponent
                 key={block.id || `question-${index}`}

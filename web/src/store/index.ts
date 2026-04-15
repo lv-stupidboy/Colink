@@ -763,13 +763,13 @@ export const useAppStore = create<AppState & AppActions>()(
         const textBlocks = state.streamingContentBlocks.filter(b => b.type === 'text');
         const content = textBlocks.map(b => b.type === 'text' ? b.content : '').join('');
 
-        // 提取所有 question blocks 的 ID，加入 submittedQuestionBlockIds
-        // 这样历史消息渲染时会过滤掉这些 blocks，避免重复渲染
-        const questionBlockIds = state.streamingContentBlocks
-          .filter(b => b.type === 'question')
+        // 只将已提交或失败的 question blocks 的 ID 加入 submittedQuestionBlockIds
+        // waiting_user_input 状态的 question blocks 应保留在历史消息中渲染（等待用户响应）
+        const submittedQuestionBlockIds = state.streamingContentBlocks
+          .filter(b => b.type === 'question' && (b.status === 'success' || b.status === 'failed'))
           .map(b => b.id);
         const newSubmittedIds = new Set(state.submittedQuestionBlockIds);
-        questionBlockIds.forEach(id => newSubmittedIds.add(id));
+        submittedQuestionBlockIds.forEach(id => newSubmittedIds.add(id));
 
         // 去重检查：如果消息已存在，只清理流式缓存
         const messageId = `agent-${invocationId}`;

@@ -1,4 +1,4 @@
-import React, { useState, memo, useCallback } from 'react';
+import React, { useState, memo, useCallback, useMemo } from 'react';
 import { Typography, Tag, Button, Input, Space, Checkbox, Radio } from 'antd';
 import { CheckCircleOutlined, SendOutlined } from '@ant-design/icons';
 import type { QuestionBlock, ContentBlockStatus } from '@/types';
@@ -144,6 +144,7 @@ interface QuestionBlockComponentProps {
  * - 用户自定义输入：显示输入框 + 提交按钮
  * - disabled：当 agent 未完成时，按钮禁用，防止过快点击
  * - 已提交后：选项仍显示但禁用，选中项高亮
+ * - Agent执行中：显示提示"待Agent执行完毕后可以选择"
  */
 const QuestionBlockComponent: React.FC<QuestionBlockComponentProps> = memo(({ block, onSubmit, defaultExpanded = false, disabled = false }) => {
   const { toolName, questions, status, startedAt, completedAt, output, input } = block;
@@ -156,8 +157,14 @@ const QuestionBlockComponent: React.FC<QuestionBlockComponentProps> = memo(({ bl
   // 是否已提交（status 为 success 或 failed）
   const isSubmitted = status === 'success' || status === 'failed';
 
-  // 是否禁用交互（agent 未完成 或 已提交）
-  const isInteractionDisabled = disabled || isSubmitted;
+  // 提交中状态：用于在提交后等待后端响应期间禁用交互
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // 是否等待 Agent 执行完毕（disabled=true 且 status=waiting_user_input）
+  const isWaitingForAgent = disabled && status === 'waiting_user_input';
+
+  // 是否禁用交互（agent 未完成、已提交、或正在提交中）
+  const isInteractionDisabled = disabled || isSubmitted || isSubmitting;
 
   // 从 output 解析用户答案（用于高亮已提交的选项）
   // output 格式：单选为单个字符串，多选为用分隔符连接的多个字符串
@@ -198,13 +205,38 @@ const QuestionBlockComponent: React.FC<QuestionBlockComponentProps> = memo(({ bl
   // 存储每个问题的答案（单选为 string，多选为 string[]）
   // 已提交时使用解析的 output，未提交时使用本地 state
   const [localAnswers, setLocalAnswers] = useState<Record<number, string | string[]>>({});
-  const answers = isSubmitted
-    ? safeQuestions.reduce((acc, q, i) => {
+
+  // 获取 answers：优先从 output 解析，其次从 input 解析（兼容不同数据格式）
+  const answers = useMemo(() => {
+    if (isSubmitted) {
+      // 已提交：尝试从 output 解析
+      const parsedAnswers = safeQuestions.reduce((acc, q, i) => {
         const parsed = parseOutputAnswers(i, q.multiSelect);
         if (parsed) acc[i] = parsed;
         return acc;
-      }, {} as Record<number, string | string[]>)
-    : localAnswers;
+      }, {} as Record<number, string | string[]>);
+
+      // 如果 output 解析成功，返回解析结果
+      if (Object.keys(parsedAnswers).length > 0) {
+        return parsedAnswers;
+      }
+
+      // 如果 output 解析失败，尝试从 input 中获取（可能存在 annotations 等字段）
+      // 这是为了兼容不同的数据格式
+      const inputAnswers = safeQuestions.reduce((acc, q, i) => {
+        // 检查是否有用户答案的记录
+        if (q.userAnswer) {
+          acc[i] = q.userAnswer;
+        }
+        return acc;
+      }, {} as Record<number, string | string[]>);
+
+      if (Object.keys(inputAnswers).length > 0) {
+        return inputAnswers;
+      }
+    }
+    return localAnswers;
+  }, [isSubmitted, safeQuestions, output, localAnswers]);
 
   // 存储用户自定义输入的值
   const [customInputs, setCustomInputs] = useState<Record<number, string>>({});
@@ -244,8 +276,9 @@ const QuestionBlockComponent: React.FC<QuestionBlockComponentProps> = memo(({ bl
       // 设置选中值，等待用户输入
       setLocalAnswers(prev => ({ ...prev, [questionIndex]: value }));
     } else {
-      // 直接提交
+      // 直接提交，设置提交中状态以禁用后续点击
       console.log('[QuestionBlock] Calling onSubmit');
+      setIsSubmitting(true);
       onSubmit({ [questionIndex]: value });
     }
   }, [isInteractionDisabled, onSubmit]);
@@ -268,13 +301,16 @@ const QuestionBlockComponent: React.FC<QuestionBlockComponentProps> = memo(({ bl
     const customValue = customInputs[questionIndex];
     if (!customValue?.trim()) return;
 
-    // 提交自定义输入
+    // 提交自定义输入，设置提交中状态以禁用后续点击
+    setIsSubmitting(true);
     onSubmit({ [questionIndex]: customValue.trim() });
   }, [customInputs, isInteractionDisabled, onSubmit]);
 
   // 处理多选确认提交
   const handleMultiSelectSubmit = useCallback(() => {
     if (isInteractionDisabled || !onSubmit || !allQuestionsAnswered) return;
+    // 设置提交中状态以禁用后续点击
+    setIsSubmitting(true);
     onSubmit(answers);
   }, [answers, allQuestionsAnswered, isInteractionDisabled, onSubmit]);
 
@@ -348,6 +384,21 @@ const QuestionBlockComponent: React.FC<QuestionBlockComponentProps> = memo(({ bl
                   {question.question}
                 </Text>
 
+                {/* 状态提示：等待 Agent 执行完毕 */}
+                {isWaitingForAgent && (
+                  <div style={{
+                    marginBottom: 12,
+                    padding: '8px 12px',
+                    background: 'var(--bg-secondary)',
+                    borderRadius: 4,
+                    borderLeft: '3px solid var(--color-primary)',
+                  }}>
+                    <Text type="secondary" style={{ fontSize: 13 }}>
+                      ⏳ 待 Agent 执行完毕后可以选择
+                    </Text>
+                  </div>
+                )}
+
                 {/* 选项区域 - 始终显示，已提交时禁用 */}
                 <div style={{ marginTop: 8 }}>
                   {question.multiSelect ? (
@@ -367,11 +418,13 @@ const QuestionBlockComponent: React.FC<QuestionBlockComponentProps> = memo(({ bl
                             style={{
                               marginBottom: 8,
                               width: '100%',
-                              // 高亮选中项
-                              background: isSelected ? 'var(--color-primary-bg)' : 'transparent',
+                              // 高亮选中项（已提交时更明显）
+                              background: isSelected ? (isSubmitted ? 'var(--color-primary-bg)' : 'var(--color-primary-bg-hover)') : 'transparent',
                               borderRadius: 4,
                               padding: '4px 8px',
                               marginLeft: '-8px',
+                              // 已提交时添加边框
+                              border: isSelected && isSubmitted ? '1px solid var(--color-primary)' : 'none',
                             }}
                           >
                             <div>
@@ -422,11 +475,13 @@ const QuestionBlockComponent: React.FC<QuestionBlockComponentProps> = memo(({ bl
                             style={{
                               marginBottom: 8,
                               width: '100%',
-                              // 高亮选中项
-                              background: isSelected ? 'var(--color-primary-bg)' : 'transparent',
+                              // 高亮选中项（已提交时更明显）
+                              background: isSelected ? (isSubmitted ? 'var(--color-primary-bg)' : 'var(--color-primary-bg-hover)') : 'transparent',
                               borderRadius: 4,
                               padding: '4px 8px',
                               marginLeft: '-8px',
+                              // 已提交时添加边框
+                              border: isSelected && isSubmitted ? '1px solid var(--color-primary)' : 'none',
                             }}
                           >
                             <div>
