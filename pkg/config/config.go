@@ -519,11 +519,6 @@ func validateConfig(cfg *Config) error {
 		return fmt.Errorf("配置错误: agent_config.data_dir 未设置")
 	}
 
-	// 代码仓库目录必须配置
-	if cfg.Sandbox.ReposDir == "" {
-		return fmt.Errorf("配置错误: sandbox.repos_dir 未设置")
-	}
-
 	// 验证启用的IM平台配置
 	for i, platform := range cfg.IM.Platforms {
 		if !platform.Enabled {
@@ -560,19 +555,7 @@ func setDefaults() {
 	viper.SetDefault("server.port", 26305)
 	viper.SetDefault("server.mode", "debug")
 	viper.SetDefault("redis.addr", "localhost:6379")
-	viper.SetDefault("claude.path", "claude")
-	viper.SetDefault("claude.default_model", "claude-sonnet-4-6")
-	viper.SetDefault("claude.timeout", "30m")
-	viper.SetDefault("sandbox.port_range_start", 30000)
-	viper.SetDefault("sandbox.port_range_end", 40000)
-	viper.SetDefault("sandbox.default_cpu_limit", 2)
-	viper.SetDefault("sandbox.default_memory_limit", 4096)
-	viper.SetDefault("sandbox.network", "isdp-network")
 	viper.SetDefault("agent.max_depth", 15)
-	viper.SetDefault("agent.max_retries", 3)
-	viper.SetDefault("agent.context_max_lines", 400)
-	viper.SetDefault("logging.level", "info")
-	viper.SetDefault("logging.format", "json")
 	viper.SetDefault("mcp.base_url", "http://localhost:26305/api/v1/mcp")
 	viper.SetDefault("mcp.token_ttl", "30m")
 	viper.SetDefault("skill.use_count_update_interval", "1h")
