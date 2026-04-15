@@ -45,6 +45,16 @@ func (c *Collector) CollectStats(ctx context.Context) (StatsData, error) {
 		return stats, err
 	}
 
+	// Query user messages count
+	if err := c.queryCount(ctx, "SELECT COUNT(*) FROM messages WHERE role = 'user'", &stats.UserMessagesCount); err != nil {
+		return stats, err
+	}
+
+	// Query agent messages count
+	if err := c.queryCount(ctx, "SELECT COUNT(*) FROM messages WHERE role = 'agent'", &stats.AgentMessagesCount); err != nil {
+		return stats, err
+	}
+
 	// Query base agents grouped by type
 	baseAgents, err := c.queryBaseAgents(ctx)
 	if err != nil {
