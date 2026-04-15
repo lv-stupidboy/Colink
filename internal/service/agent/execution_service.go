@@ -1890,17 +1890,41 @@ func (es *ExecutionService) broadcastChunk(threadID, invocationID uuid.UUID, chu
 
 		// 上层屏蔽差异：在收到非 thinking 的 chunk 时，自动结束之前的 streaming thinking 块
 		// 这是为了处理某些适配器（如 OpenCode ACP）不发送 Done 标记的情况
+		autoClosedThinking := false
 		if chunk.Type != ChunkTypeThinking && len(agent.AccumulatedContentBlocks) > 0 {
 			for i := len(agent.AccumulatedContentBlocks) - 1; i >= 0; i-- {
 				block := &agent.AccumulatedContentBlocks[i]
 				if block.Type == "thinking" && block.Status == "streaming" {
 					block.Status = "success"
 					block.Done = true
+					autoClosedThinking = true
 					logInfo("Auto-closed streaming thinking block", zap.Int("blockIndex", i))
 					break // 只结束最后一个 streaming thinking 块
 				}
 			}
 		}
+
+		// 如果自动关闭了 thinking 块，需要先广播一个 done 标记让前端感知
+		if autoClosedThinking {
+			agent.ContentBlocksMu.Unlock()
+			es.mu.Unlock()
+			// 广播一个空的 thinking chunk 带 done 标记
+			doneChunk := Chunk{
+				Type:    ChunkTypeThinking,
+				Content: "",
+				Done:    true,
+			}
+			es.broadcastChunk(threadID, invocationID, doneChunk, agentID, agentName)
+			// 重新获取锁继续处理当前 chunk
+			es.mu.Lock()
+			agent, exists = es.runningAgents[invocationID]
+			if !exists {
+				es.mu.Unlock()
+				return
+			}
+			agent.ContentBlocksMu.Lock()
+		}
+
 		switch chunk.Type {
 		case ChunkTypeThinking:
 			// 思考块：智能累积或追加
