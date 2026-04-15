@@ -4,6 +4,7 @@ import type { AgentConfig, ToolEvent } from '@/types';
 import type { FileChange } from '@/types/content';
 import { ChatMessage } from './ChatMessage';
 import { StreamingMessage } from './StreamingMessage';
+import { useAutoScrollControl } from './useAutoScrollControl';
 // Collapsible panels imported for future integration
 // import ToolOutputPanel from '@/components/ToolOutputPanel';
 // import ThinkingPanel from '@/components/ThinkingPanel';
@@ -74,14 +75,16 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = memo(({
   onQuestionSubmit,
 }) => {
   const listRef = useRef<HTMLDivElement>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
 
-  // 自动滚动到底部（只在消息数量变化时触发，不受流式消息影响）
+  // 使用自动滚动控制 hook
+  const { isNearBottom, bottomAnchorRef } = useAutoScrollControl(listRef);
+
+  // 条件自动滚动：只有接近底部时才滚动
   useEffect(() => {
-    if (autoScroll && bottomRef.current) {
-      bottomRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    if (autoScroll && isNearBottom && bottomAnchorRef.current) {
+      bottomAnchorRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
     }
-  }, [messages.length, autoScroll]);
+  }, [messages.length, autoScroll, isNearBottom]);
 
   // 空状态
   if (messages.length === 0) {
@@ -150,8 +153,8 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = memo(({
         onQuestionSubmit={onQuestionSubmit}
       />
 
-      {/* 底部锚点 */}
-      <div ref={bottomRef} style={{ height: '1px' }} />
+      {/* 底部锚点 - 用于 IntersectionObserver */}
+      <div ref={bottomAnchorRef} style={{ height: '1px' }} />
     </div>
   );
 });
