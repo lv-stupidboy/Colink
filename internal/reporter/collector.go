@@ -40,23 +40,8 @@ func (c *Collector) CollectStats(ctx context.Context) (StatsData, error) {
 		return stats, err
 	}
 
-	// Query agent configs count
-	if err := c.queryCount(ctx, "SELECT COUNT(*) FROM agent_configs", &stats.AgentsCount); err != nil {
-		return stats, err
-	}
-
-	// Query user messages count
-	if err := c.queryCount(ctx, "SELECT COUNT(*) FROM messages WHERE role = 'user'", &stats.UserMessagesCount); err != nil {
-		return stats, err
-	}
-
-	// Query agent messages count
-	if err := c.queryCount(ctx, "SELECT COUNT(*) FROM messages WHERE role = 'agent'", &stats.AgentMessagesCount); err != nil {
-		return stats, err
-	}
-
-	// Query base agents grouped by type
-	baseAgents, err := c.queryBaseAgents(ctx)
+	// Query base agents with all statistics grouped by type
+	baseAgents, err := c.queryBaseAgentStats(ctx)
 	if err != nil {
 		return stats, err
 	}
@@ -71,9 +56,22 @@ func (c *Collector) queryCount(ctx context.Context, query string, result *int) e
 	return row.Scan(result)
 }
 
-// queryBaseAgents returns count of each base agent type.
-func (c *Collector) queryBaseAgents(ctx context.Context) ([]BaseAgentStats, error) {
-	query := "SELECT type, COUNT(*) FROM base_agents GROUP BY type"
+// queryBaseAgentStats returns comprehensive statistics for each base agent type.
+func (c *Collector) queryBaseAgentStats(ctx context.Context) ([]BaseAgentStats, error) {
+	// Single query to get all stats grouped by base agent type
+	query := `
+		SELECT
+			ba.type,
+			COUNT(DISTINCT ba.id) as base_count,
+			COUNT(DISTINCT ac.id) as agents_count,
+			SUM(CASE WHEN m.role = 'user' AND m.agent_id IS NOT NULL THEN 1 ELSE 0 END) as user_messages_count,
+			SUM(CASE WHEN m.role = 'agent' THEN 1 ELSE 0 END) as agent_messages_count
+		FROM base_agents ba
+		LEFT JOIN agent_configs ac ON ac.base_agent_id = ba.id
+		LEFT JOIN messages m ON m.agent_id = ac.id
+		GROUP BY ba.type
+	`
+
 	rows, err := c.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
@@ -83,7 +81,7 @@ func (c *Collector) queryBaseAgents(ctx context.Context) ([]BaseAgentStats, erro
 	var results []BaseAgentStats
 	for rows.Next() {
 		var stat BaseAgentStats
-		if err := rows.Scan(&stat.Type, &stat.Count); err != nil {
+		if err := rows.Scan(&stat.Type, &stat.Count, &stat.AgentsCount, &stat.UserMessagesCount, &stat.AgentMessagesCount); err != nil {
 			return nil, err
 		}
 		results = append(results, stat)
