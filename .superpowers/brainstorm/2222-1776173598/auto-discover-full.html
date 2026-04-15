@@ -1,0 +1,234 @@
+<h2>完全自动发现方案</h2>
+<p class="subtitle">编译时扫描目录 + API自动返回类型</p>
+
+<div class="section">
+<h3>自动发现机制：编译时扫描</h3>
+<div class="mockup">
+<div class="mockup-header">构建脚本自动扫描插件目录</div>
+<div class="mockup-body" style="padding: 20px; font-size: 13px;">
+<pre style="background: #fff; padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0;">
+<strong>方案：构建时自动扫描plugins子目录，生成导入代码</strong>
+
+┌────────────────────────────────────────────────────────────────────┐
+│  构建脚本 (Makefile 或 build.sh)                                     │
+│  ────────────────────────────────────────────────────────────────  │
+│                                                                     │
+│  build:                                                             │
+│    # 步骤1：扫描plugins目录生成导入列表                               │
+│    go run tools/genplugins/main.go                                 │
+│                                                                     │
+│    # 步骤2：编译                                                     │
+│    go build ./cmd/server                                           │
+│                                                                     │
+├────────────────────────────────────────────────────────────────────┤
+│  tools/genplugins/main.go                                           │
+│  ────────────────────────────────────────────────────────────────  │
+│                                                                     │
+│  func main() {                                                      │
+│    pluginsDir := "internal/service/agent/plugins"                  │
+│                                                                     │
+│    // 扫描目录，排除"all"子目录                                       │
+│    dirs := scanSubdirs(pluginsDir)                                 │
+│                                                                     │
+│    // 生成all.go文件                                                 │
+│    code := generateImportCode(dirs)                                │
+│    writeFile(pluginsDir + "/all/all.go", code)                     │
+│  }                                                                  │
+│                                                                     │
+│  func generateImportCode(dirs []string) string {                   │
+│    imports := ""                                                    │
+│    for _, dir := range dirs {                                      │
+│      imports += fmt.Sprintf(                                        │
+│        "\t_ \"github.com/colink/isdp/internal/service/agent/plugins/%s\"\n", │
+│        dir)                                                         │
+│    }                                                                │
+│    return fmt.Sprintf(`                                             │
+│  package all                                                        │
+│                                                                     │
+│  import (                                                           │
+│  %s                                                                 │
+│  )                                                                  │
+│  `, imports)                                                        │
+│  }                                                                  │
+│                                                                     │
+├────────────────────────────────────────────────────────────────────┤
+│  生成的 all/all.go（每次构建自动生成）                                │
+│  ────────────────────────────────────────────────────────────────  │
+│                                                                     │
+│  package all                                                        │
+│                                                                     │
+│  import (                                                           │
+│    _ "github.com/colink/isdp/internal/service/agent/plugins/claude_code" │
+│    _ "github.com/colink/isdp/internal/service/agent/plugins/open_code"    │
+│    _ "github.com/colink/isdp/internal/service/agent/plugins/internal_agent" │
+│  )                                                                  │
+│                                                                     │
+│  // 新增插件后，下次构建自动加入                                       │
+│                                                                     │
+└────────────────────────────────────────────────────────────────────┘
+</pre>
+</div>
+</div>
+</div>
+
+<div class="section">
+<h3>新增插件：完全零改动</h3>
+<div class="mockup">
+<div class="mockup-header">新增插件工作流</div>
+<div class="mockup-body" style="padding: 20px;">
+<pre style="background: #e8f5e9; padding: 15px; border-radius: 8px;">
+<strong>开发者只需：</strong>
+
+1. 创建插件目录
+   mkdir internal/service/agent/plugins/internal_agent
+
+2. 实现插件文件
+   ├── plugin.go    # init()注册
+   ├── adapter.go   # AgentAdapter实现
+
+3. 编译
+   make build   # 或 go build（Makefile会自动执行genplugins）
+
+<strong>就是这么简单！无需改动任何其他文件</strong>
+</pre>
+</div>
+</div>
+</div>
+
+<div class="section">
+<h3>前端类型选择：API自动返回</h3>
+<div class="mockup">
+<div class="mockup-header">前后端联动流程</div>
+<div class="mockup-body" style="padding: 20px; font-size: 13px;">
+<pre style="background: #fff; padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0;">
+┌────────────────────────────────────────────────────────────────────┐
+│  后端API：获取已注册类型列表                                          │
+│  ────────────────────────────────────────────────────────────────  │
+│                                                                     │
+│  GET /api/v1/base_agents/types                                      │
+│                                                                     │
+│  响应：                                                              │
+│  {                                                                  │
+│    "types": [                                                       │
+│      {                                                              │
+│        "type": "claude_code",                                       │
+│        "name": "ClaudeCode",                                        │
+│        "description": "Anthropic Claude CLI"                        │
+│      },                                                             │
+│      {                                                              │
+│        "type": "open_code",                                         │
+│        "name": "OpenCode",                                          │
+│        "description": "OpenCode CLI via ACP"                        │
+│      },                                                             │
+│      {                                                              │
+│        "type": "internal_agent",     ←── 新插件自动出现             │
+│        "name": "内网Agent",                                          │
+│        "description": "公司内网自研Agent"                            │
+│      }                                                              │
+│    ]                                                                │
+│  }                                                                  │
+│                                                                     │
+│  实现：AdapterRegistry.GetTypes()                                   │
+│    遍历已注册的所有插件，返回元数据列表                                │
+│                                                                     │
+├────────────────────────────────────────────────────────────────────┤
+│  前端页面：基础Agent类型选择                                          │
+│  ────────────────────────────────────────────────────────────────  │
+│                                                                     │
+│  // 页面加载时调用API                                                │
+│  const { data } = await api.baseAgent.getTypes()                   │
+│                                                                     │
+│  // 渲染下拉选项                                                     │
+│  &lt;Select&gt;                                                         │
+│    {data.types.map(t =&gt; (                                           │
+│      &lt;Option key={t.type} value={t.type}&gt;                           │
+│        {t.name}                                                     │
+│      &lt;/Option&gt;                                                      │
+│    ))}                                                              │
+│  &lt;/Select&gt;                                                          │
+│                                                                     │
+│  <strong>新增插件后，页面自动显示新选项（无需改动前端代码）</strong>              │
+│                                                                     │
+└────────────────────────────────────────────────────────────────────┘
+</pre>
+</div>
+</div>
+</div>
+
+<div class="section">
+<h3>数据流全景图</h3>
+<div class="mockup">
+<div class="mockup-header">从插件到页面完整流程</div>
+<div class="mockup-body" style="padding: 20px; font-size: 12px;">
+<pre style="background: #f5f5f5; padding: 15px; border-radius: 8px;">
+<strong>启动时：</strong>
+
+plugins/internal_agent/plugin.go
+  └─→ init() 执行
+      └─→ agent.RegisterPlugin(meta)
+          └─→ 全局 registry["internal_agent"] = meta
+
+<strong>API调用时：</strong>
+
+GET /api/v1/base_agents/types
+  └─→ BaseAgentService.GetTypes()
+      └─→ AdapterRegistry.GetTypes()
+          └─→ 遍历 registry 返回所有已注册类型
+
+<strong>执行Agent时：</strong>
+
+POST /api/v1/threads/xxx/agents
+  └─→ ExecutionService.SpawnAgent()
+      └─→ AdapterRegistry.GetAdapter(baseAgent)
+          └─→ registry[type].Factory(baseAgent)
+              └─→ NewInternalAgentAdapter(baseAgent)
+                  └─→ 返回 AgentAdapter 实例
+      └─→ adapter.Execute(ctx, req)
+          └─→ InternalAgentAdapter 执行具体逻辑
+</pre>
+</div>
+</div>
+</div>
+
+<div class="section">
+<h3>内网部署：最小改动</h3>
+<div class="mockup">
+<div class="mockup-header">内网Agent独立开发部署</div>
+<div class="mockup-body" style="padding: 20px;">
+<pre style="background: #e3f2fd; padding: 15px; border-radius: 8px;">
+<strong>方式1：直接放入Colink仓库</strong>
+
+git clone https://github.com/colink/isdp.git
+cd isdp/internal/service/agent/plugins
+mkdir internal_agent
+# 编写 plugin.go + adapter.go
+
+make build  # 自动发现并编译
+
+<strong>方式2：独立仓库 + go.mod replace</strong>
+
+# go.mod
+replace github.com/colink/isdp/plugins/internal_agent => ../internal-agent-plugin
+
+# 内网仓库只需包含插件代码
+internal-agent-plugin/
+  ├── go.mod (module github.com/colink/isdp/plugins/internal_agent)
+  └── plugin.go
+  └── adapter.go
+
+<strong>方式3：构建脚本复制</strong>
+
+# 内网构建脚本
+git clone https://github.com/colink/isdp.git
+cp ../internal-agent/* isdp/internal/service/agent/plugins/internal_agent/
+cd isdp && make build
+
+<strong>无论哪种方式，Colink核心代码完全不动</strong>
+</pre>
+</div>
+</div>
+</div>
+
+<p style="margin-top: 20px; text-align: center; color: #666;">
+请确认此方案，我将整理完整设计文档
+</p>

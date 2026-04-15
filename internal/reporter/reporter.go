@@ -98,6 +98,16 @@ func (r *Reporter) doReport() {
 		Stats:      stats,
 	}
 
+	// 打印上报内容（调试用）
+	jsonData, _ := json.MarshalIndent(data, "", "  ")
+	r.logger.Info("[Reporter] 准备上报数据", zap.String("data", string(jsonData)))
+
+	// 如果 endpoint 为空，只打印日志不发送
+	if r.config.Endpoint == "" {
+		r.logger.Info("[Reporter] endpoint 为空，跳过实际发送（仅打印日志）")
+		return
+	}
+
 	if err := r.sendWithRetry(ctx, data); err != nil {
 		r.logger.Error("[Reporter] 上报失败: 连续重试均失败",
 			zap.Int("retries", r.config.RetryTimes),
