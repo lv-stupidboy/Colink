@@ -1,5 +1,5 @@
 // web/src/components/thread/MessageScrollIndicator.tsx
-import React, { useEffect, useState, useCallback, RefObject } from 'react';
+import React, { useEffect, useState, useCallback, useRef, RefObject } from 'react';
 import { Avatar, Tooltip } from 'antd';
 import { UserOutlined, CrownOutlined, RobotOutlined } from '@ant-design/icons';
 import type { Message, AgentConfig } from '@/types';
@@ -30,6 +30,7 @@ const MessageScrollIndicator: React.FC<MessageScrollIndicatorProps> = ({
   onJumpToMessage,
 }) => {
   const [indicators, setIndicators] = useState<IndicatorItem[]>([]);
+  const pendingRafRef = useRef<number | null>(null);
 
   // 计算指示器位置
   const updateIndicators = useCallback(() => {
@@ -78,12 +79,23 @@ const MessageScrollIndicator: React.FC<MessageScrollIndicatorProps> = ({
     if (!container) return;
 
     const handleScroll = () => {
-      // 使用 requestAnimationFrame 节流
-      requestAnimationFrame(updateIndicators);
+      // 使用 requestAnimationFrame 节流，防止堆叠
+      if (pendingRafRef.current !== null) {
+        cancelAnimationFrame(pendingRafRef.current);
+      }
+      pendingRafRef.current = requestAnimationFrame(() => {
+        updateIndicators();
+        pendingRafRef.current = null;
+      });
     };
 
     container.addEventListener('scroll', handleScroll, { passive: true });
-    return () => container.removeEventListener('scroll', handleScroll);
+    return () => {
+      container.removeEventListener('scroll', handleScroll);
+      if (pendingRafRef.current !== null) {
+        cancelAnimationFrame(pendingRafRef.current);
+      }
+    };
   }, [containerRef, messages, updateIndicators]);
 
   // 消息变化时更新
@@ -126,12 +138,12 @@ const MessageScrollIndicator: React.FC<MessageScrollIndicatorProps> = ({
     }
 
     if (indicator.role === 'system') {
-      return <CrownOutlined style={{ color: '#faad14' }} />;
+      return <CrownOutlined style={{ color: 'var(--color-warning)' }} />;
     }
 
     // Agent 角色
     if (agentConfig?.isSystem) {
-      return <CrownOutlined style={{ color: '#faad14' }} />;
+      return <CrownOutlined style={{ color: 'var(--color-warning)' }} />;
     }
 
     return <RobotOutlined style={{ color: 'var(--color-primary)' }} />;
