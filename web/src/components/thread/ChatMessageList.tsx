@@ -38,6 +38,7 @@ interface ChatMessageListProps {
   onOpenCodePanel?: (files: FileChange[]) => void;
   loading?: boolean;
   autoScroll?: boolean;
+  onQuestionSubmit?: (blockId: string, answers: Record<number, string | string[]>, invocationId: string) => void;
 }
 
 /**
@@ -70,6 +71,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = memo(({
   onOpenCodePanel,
   loading = false,
   autoScroll = true,
+  onQuestionSubmit,
 }) => {
   const listRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -134,6 +136,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = memo(({
             toolEvents={messageToolEvents}
             onRetry={onRetryAgent ? () => onRetryAgent(message) : undefined}
             onOpenCodePanel={onOpenCodePanel}
+            onQuestionSubmit={onQuestionSubmit}
           />
         );
       })}
@@ -144,6 +147,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = memo(({
         projectPath={projectPath}
         toolEvents={toolEvents}
         onStop={onStopAgent}
+        onQuestionSubmit={onQuestionSubmit}
       />
 
       {/* 底部锚点 */}

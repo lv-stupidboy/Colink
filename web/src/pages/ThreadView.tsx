@@ -37,7 +37,7 @@ import {
 } from '@ant-design/icons';
 import { useAppStore } from '@/store';
 import { useDebugThreadStore } from '@/store/debugThread';
-import type { Message, Artifact, ReviewIssue, MergeCheckResult, AgentConfig, ToolEvent, MessageContentBlock, QuestionItem } from '@/types';
+import type { Message, Artifact, ReviewIssue, MergeCheckResult, AgentConfig, ToolEvent, MessageContentBlock } from '@/types';
 import type { FileChange } from '@/types/content';
 import { AgentRoleLabels, ArtifactTypeLabels } from '@/types';
 import { ReviewReport } from '@/components/ReviewReport';
@@ -47,7 +47,6 @@ import { BlockingDetector } from '@/utils/blockingDetector';
 import { sendAgentCompletionNotification, requestNotificationPermission, isNotificationGranted, clearPendingNotifications } from '@/utils/systemNotification';
 import { ChatMessageList } from '@/components/thread/ChatMessageList';
 import { StatusPanel } from '@/components/thread/StatusPanel';
-import QuestionModal from '@/components/thread/QuestionModal';
 import FileTree from '@/components/FileTree';
 import api from '@/api/client';
 import type { Thread } from '@/types';
@@ -125,6 +124,7 @@ const ThreadView: React.FC = () => {
   const updateInvocationFullPrompt = useAppStore((s) => s.updateInvocationFullPrompt);
   const appendContentBlock = useAppStore((s) => s.appendContentBlock);
   const updateContentBlock = useAppStore((s) => s.updateContentBlock);
+  const markQuestionSubmitted = useAppStore((s) => s.markQuestionSubmitted);
 
   // 阻塞提醒相关 - 使用 notification 自动显示
   const blockingItems = useAppStore((s) => s.blockingItems);
@@ -140,6 +140,7 @@ const ThreadView: React.FC = () => {
     sandboxLoading: debugSandboxLoading,
     setThreadId: setDebugThreadId,
     addMessage: addDebugMessage,
+    setMessages: setDebugMessages,
     appendStreamChunk: appendDebugStreamChunk,
     clearStreamContent: clearDebugStreamContent,
     setStatus: setDebugStatus,
@@ -199,13 +200,6 @@ const ThreadView: React.FC = () => {
 
   // 右侧面板状态（代码/沙箱统一管理）
   const [rightPanelVisible, setRightPanelVisible] = useState(false);
-
-  // AskUserQuestion 状态
-  const [pendingQuestion, setPendingQuestion] = useState<{
-    invocationId: string;
-    toolId: string;
-    questions: QuestionItem[];
-  } | null>(null);
 
   // Agent 完成后预填入状态
   const [prefilledMention, setPrefilledMention] = useState<string | undefined>(undefined);
@@ -401,34 +395,68 @@ const ThreadView: React.FC = () => {
     };
   }, [threadId, isDebugMode]);
 
-  // 调试模式 - 初始化（每次进入都重新开始）
+  // 调试模式 - 初始化（检查 URL threadId 决定是否恢复会话）
   useEffect(() => {
     if (isDebugMode && agentId) {
-      // 每次进入调试页面都清空之前的消息，开始新会话
-      clearDebugAll();
-      setDebugMode(true, agentId);
-      // 重置 WebSocket 状态
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
-      wsConnectedRef.current = false;
-      setDebugWsConnected(false);
-      // 重置 Solo 模式任务状态
-      setSoloActiveTask(null);
-      setSoloNewTaskPending(true);
-      // 加载 Agent 配置
-      api.agents.get(agentId).then((config: AgentConfig) => {
-        setDebugAgentConfig(config);
-        // 全栈工程师角色自动进入 Solo 模式
-        if (config.role === 'fullstack_engineer') {
-          setSoloMode(true);
+      // 检查 URL 中是否有 threadId，决定是否恢复现有会话
+      const hasExistingThread = Boolean(threadId);
+
+      if (hasExistingThread) {
+        // URL 中有 threadId，恢复现有会话
+        // 不清空消息，不设置 soloNewTaskPending = true
+        setDebugMode(true, agentId);
+        setSoloActiveTask(null);
+        setSoloNewTaskPending(false); // 恢复模式
+
+        // 设置 threadId
+        setDebugThreadId(threadId!);
+
+        // 加载历史消息（直接替换，不追加）
+        api.messages.list(threadId!).then(messages => {
+          setDebugMessages(messages);
+        }).catch(err => {
+          console.error('Failed to load messages:', err);
+        });
+
+        // 加载 Agent 配置
+        api.agents.get(agentId).then((config: AgentConfig) => {
+          setDebugAgentConfig(config);
+          // 全栈工程师角色自动进入 Solo 模式
+          if (config.role === 'fullstack_engineer') {
+            setSoloMode(true);
+          }
+        }).catch(err => {
+          message.error('加载 Agent 配置失败');
+          console.error(err);
+        });
+      } else {
+        // URL 中没有 threadId，创建新会话
+        clearDebugAll();
+        setDebugMode(true, agentId);
+        // 重置 WebSocket 状态
+        if (wsRef.current) {
+          wsRef.current.close();
+          wsRef.current = null;
         }
-      }).catch(err => {
-        message.error('加载 Agent 配置失败');
-        console.error(err);
-      });
-      // 检查 Docker 可用性
+        wsConnectedRef.current = false;
+        setDebugWsConnected(false);
+        // 重置 Solo 模式任务状态
+        setSoloActiveTask(null);
+        setSoloNewTaskPending(true); // 新会话模式
+        // 加载 Agent 配置
+        api.agents.get(agentId).then((config: AgentConfig) => {
+          setDebugAgentConfig(config);
+          // 全栈工程师角色自动进入 Solo 模式
+          if (config.role === 'fullstack_engineer') {
+            setSoloMode(true);
+          }
+        }).catch(err => {
+          message.error('加载 Agent 配置失败');
+          console.error(err);
+        });
+      }
+
+      // 检查 Docker 可用性（无论新会话还是恢复）
       api.sandbox.checkDocker().then(res => {
         setDockerAvailable(res.available);
       }).catch(() => {
@@ -449,18 +477,19 @@ const ThreadView: React.FC = () => {
       }
       wsConnectedRef.current = false;
     };
-  }, [isDebugMode, agentId]);
+  }, [isDebugMode, agentId, threadId]);
 
-  // Solo 模式 - 处理 URL 中的 threadId
+  // Solo 模式 - 从任务列表设置活跃任务（仅用于 UI 显示）
+  // 注意：会话恢复已在初始化 useEffect 中处理，这里只更新 soloActiveTask 用于任务列表 UI
   useEffect(() => {
-    if (soloMode && threadId && soloTasks.length > 0) {
+    if (soloMode && threadId && soloTasks.length > 0 && !soloActiveTask) {
       const task = soloTasks.find(t => t.id === threadId);
       if (task) {
         setSoloActiveTask(task);
-        setSoloNewTaskPending(false);
+        // soloNewTaskPending 已在初始化逻辑中设置，不需要重复设置
       }
     }
-  }, [soloMode, threadId, soloTasks]);
+  }, [soloMode, threadId, soloTasks, soloActiveTask]);
 
   // 调试模式 - 当 debugThreadId 变化时连接 WebSocket
   useEffect(() => {
@@ -589,18 +618,22 @@ const ThreadView: React.FC = () => {
           const thinkingText = data.payload.chunk as string;
           const isDone = data.payload.done as boolean;
 
-          if (isDone) {
-            // thinking 完成，更新状态为 success
-            updateContentBlock(invocId, `thinking-${invocId}`, { status: 'success' });
-          } else if (thinkingText) {
+          // 先追加内容（即使 done=true 也可能有最后一部分内容）
+          if (thinkingText) {
             appendContentBlock(invocId, {
               id: `thinking-${invocId}`,
               type: 'thinking',
               content: thinkingText,
               timestamp: Date.now(),
-              status: 'streaming',
+              status: isDone ? 'success' : 'streaming',
             });
           }
+
+          // 如果 done=true，确保状态更新为 success
+          if (isDone) {
+            updateContentBlock(invocId, `thinking-${invocId}`, { status: 'success' });
+          }
+
           updateProgress(invocId, 'thinking');
         } else if (chunkType === 'tool_use') {
           // 工具调用块
@@ -627,11 +660,19 @@ const ThreadView: React.FC = () => {
           const toolOutput = data.payload.toolOutput as string;
 
           if (toolId) {
+            // 从已保存的 contentBlocks 中获取正确的 startedAt 计算 duration
+            const existingBlocks = useAppStore.getState().streamingContentBlocks;
+            const existingBlock = existingBlocks.find(b => b.id === toolId);
+            // 只有 tool_use 和 question 类型有 startedAt 属性
+            const startedAt = (existingBlock && (existingBlock.type === 'tool_use' || existingBlock.type === 'question'))
+              ? (existingBlock as any).startedAt
+              : Date.now();
+
             updateContentBlock(invocId, toolId, {
               status: isError ? 'failed' : 'success',
               output: toolOutput,
               isError,
-              duration: Date.now() - (data.payload.timestamp as number || Date.now()),
+              duration: Date.now() - startedAt,
               completedAt: Date.now(),
             });
           }
@@ -651,7 +692,7 @@ const ThreadView: React.FC = () => {
           // AskUserQuestion 工具调用 - 需要用户输入
           const toolId = data.payload.toolId as string;
           const toolName = data.payload.toolName as string;
-          const questions = data.payload.questions as QuestionItem[];
+          const questions = data.payload.questions as any[];
           const toolInput = data.payload.toolInput as Record<string, unknown>;
 
           // 追加问题块
@@ -660,6 +701,7 @@ const ThreadView: React.FC = () => {
             type: 'question',
             toolName: toolName || 'AskUserQuestion',
             toolId: toolId || '',
+            invocationId: invocId,  // 保存 invocationId 用于提交答案
             questions: questions || [],
             input: toolInput,
             timestamp: Date.now(),
@@ -667,12 +709,7 @@ const ThreadView: React.FC = () => {
             startedAt: Date.now(),
           });
 
-          // 显示问题弹窗
-          setPendingQuestion({
-            invocationId: invocId,
-            toolId: toolId,
-            questions: questions || [],
-          });
+          // 不再使用弹窗，问题选项直接内联显示在对话中
         }
         break;
       }
@@ -697,17 +734,17 @@ const ThreadView: React.FC = () => {
         // 检查是否有临时消息需要替换ID（流式场景）
         if (invocationId && state.isStreaming) {
           const tempId = `agent-${invocationId}`;
-          // 先完成流式消息（添加临时消息）
+          // 先完成流式消息（添加临时消息）- finalizeStreamingMessage 会将 question block IDs 加入 submittedQuestionBlockIds
           finalizeStreamingMessage(invocationId);
-          // 然后用真实ID替换临时ID
-          useAppStore.getState().replaceMessageId(tempId, realMessageId);
+          // 然后用真实ID和真实contentBlocks替换临时消息（避免重复渲染 question blocks）
+          useAppStore.getState().replaceMessageId(tempId, realMessageId, contentBlocks);
         } else {
           // 非流式场景：检查是否已有临时消息（可能由 agent_status/completed 创建）
           const tempId = `agent-${realMessageId}`;
           const existingTemp = state.messages.find(m => m.id === tempId);
           if (existingTemp) {
-            // 替换临时ID为真实ID
-            useAppStore.getState().replaceMessageId(tempId, realMessageId);
+            // 替换临时ID为真实ID，同时替换contentBlocks
+            useAppStore.getState().replaceMessageId(tempId, realMessageId, contentBlocks);
           } else {
             // 直接添加新消息（使用真实ID）
             addMessage({
@@ -724,6 +761,15 @@ const ThreadView: React.FC = () => {
               },
               createdAt: new Date().toISOString(),
             });
+
+            // 如果 contentBlocks 包含 question blocks，将其 IDs 加入 submittedQuestionBlockIds
+            // 这样历史消息渲染时会过滤掉这些 blocks，避免重复渲染
+            if (contentBlocks && contentBlocks.length > 0) {
+              const questionBlockIds = contentBlocks
+                .filter(b => b.type === 'question')
+                .map(b => b.id);
+              questionBlockIds.forEach(id => useAppStore.getState().markQuestionSubmitted(id));
+            }
           }
         }
         break;
@@ -1472,11 +1518,14 @@ const ThreadView: React.FC = () => {
   }, [blockingItems, blockingReminderEnabled, activeAgents.length, removeBlockingItem]);
 
   /**
-   * 处理 AskUserQuestion 用户答案提交
+   * 处理内联 AskUserQuestion 用户答案提交
    * 采用 --resume 方案：用户响应发送自然语言消息，触发新的 SpawnAgent 恢复会话
    */
-  const handleSubmitQuestionAnswer = useCallback(async (answers: Record<number, string | string[]>) => {
-    if (!pendingQuestion || !threadId) return;
+  const handleInlineQuestionSubmit = useCallback(async (blockId: string, answers: Record<number, string | string[]>, invocationId: string) => {
+    if (!threadId) {
+      console.error('[handleInlineQuestionSubmit] No threadId available');
+      return;
+    }
 
     try {
       // 将答案转换为自然语言消息格式
@@ -1495,14 +1544,14 @@ const ThreadView: React.FC = () => {
       const userResponseMessage = answerStrings.join('\n');
 
       // 更新内容块状态为 success（用户已响应，Agent 正在处理）
-      updateContentBlock(pendingQuestion.invocationId, `question-${pendingQuestion.toolId}`, {
+      updateContentBlock(invocationId, blockId, {
         status: 'success',
         output: userResponseMessage,
         completedAt: Date.now(),
       });
 
-      // 关闭弹窗
-      setPendingQuestion(null);
+      // 标记该 question block 已提交，用于过滤历史消息中的重复渲染
+      markQuestionSubmitted(blockId);
 
       // 发送用户消息（通过 WebSocket），这会触发 SpawnAgentForUserMessage
       // 后端会检查最近的 completed invocation，使用其 SessionID 进行 --resume
@@ -1513,7 +1562,7 @@ const ThreadView: React.FC = () => {
       console.error('提交答案失败:', error);
       message.error('提交答案失败，请重试');
     }
-  }, [pendingQuestion, threadId, updateContentBlock, sendMessage]);
+  }, [threadId, updateContentBlock, sendMessage, markQuestionSubmitted]);
 
   /**
    * 处理发送消息
@@ -1730,6 +1779,7 @@ const ThreadView: React.FC = () => {
                   onRetryAgent={handleRetryAgent}
                   onOpenCodePanel={openCodePanel}
                   autoScroll={true}
+                  onQuestionSubmit={handleInlineQuestionSubmit}
                 />
               )}
               <div ref={messagesEndRef} />
@@ -1842,6 +1892,7 @@ const ThreadView: React.FC = () => {
                   onRetryAgent={handleRetryAgent}
                   onOpenCodePanel={openCodePanel}
                   autoScroll={true}
+                  onQuestionSubmit={handleInlineQuestionSubmit}
                 />
               )}
               <div ref={messagesEndRef} />
@@ -1945,14 +1996,7 @@ const ThreadView: React.FC = () => {
         </>
       )}
 
-      {/* AskUserQuestion 弹窗 */}
-      <QuestionModal
-        visible={pendingQuestion !== null}
-        questions={pendingQuestion?.questions || []}
-        onSubmit={handleSubmitQuestionAnswer}
-        onCancel={() => setPendingQuestion(null)}
-      />
-    </div>
+      </div>
   );
 };
 

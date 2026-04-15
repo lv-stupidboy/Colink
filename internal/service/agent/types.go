@@ -83,6 +83,7 @@ type ExecutionRequest struct {
 	ConfigDir       string           // Agent配置目录路径（使用生成的配置）
 	SessionID       string           // 会话ID（用于 --resume 复用已有会话，避免冷启动延迟）
 	SessionStrategy SessionStrategy  // 会话策略：new 或 resume
+	InvocationID    uuid.UUID        //Invocation ID（用于 AskUserQuestion 答案发送）
 }
 
 // ExecutionResult 执行结果

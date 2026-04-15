@@ -467,6 +467,7 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 		ConfigDir:       config.ConfigPath,
 		SessionID:       sessionID,
 		SessionStrategy: req.SessionStrategy,
+		InvocationID:    invocation.ID, // 用于 AskUserQuestion 答案发送
 	}
 	logInfo("[PERF] buildExecutionRequest", zap.Duration("duration", time.Since(execReqBuildStart)), zap.String("sessionID", sessionID), zap.String("sessionStrategy", string(req.SessionStrategy)))
 
@@ -1964,14 +1965,16 @@ func (es *ExecutionService) broadcastChunk(threadID, invocationID uuid.UUID, chu
 			// AskUserQuestion 工具调用：需要用户输入
 			// 添加到内容块，等待用户响应
 			agent.AccumulatedContentBlocks = append(agent.AccumulatedContentBlocks, ContentBlockData{
-				ID:        fmt.Sprintf("question-%s", chunk.ToolID),
-				Type:      "question",
-				Timestamp: now,
-				Status:    "waiting_user_input",
-				ToolName:  chunk.ToolName,
-				ToolID:    chunk.ToolID,
-				Input:     chunk.ToolInput,
-				StartedAt: now,
+				ID:           fmt.Sprintf("question-%s", chunk.ToolID),
+				Type:         "question",
+				Timestamp:    now,
+				Status:       "waiting_user_input",
+				ToolName:     chunk.ToolName,
+				ToolID:       chunk.ToolID,
+				Input:        chunk.ToolInput,
+				Questions:    chunk.Questions,
+				InvocationID: invocationID.String(),
+				StartedAt:    now,
 			})
 			// 标记为等待用户输入状态
 			agent.WaitingForUserInput = true
@@ -2177,8 +2180,15 @@ func (es *ExecutionService) SubmitQuestionAnswer(threadID uuid.UUID, toolCallID 
 
 			// 通过 Adapter 发送答案给 CLI
 			if agent.Adapter != nil {
-				// 尝试通过 ACP adapter 发送响应
-				if acpAdapter, ok := agent.Adapter.(*BaseACPAdapter); ok {
+				// 尝试通过 ClaudeAdapter 发送响应
+				if claudeAdapter, ok := agent.Adapter.(*ClaudeAdapter); ok {
+					err := claudeAdapter.SendToolResult(invocationID, toolCallID, answer)
+					if err != nil {
+						logError("发送工具结果失败", zap.Error(err))
+						return err
+					}
+				} else if acpAdapter, ok := agent.Adapter.(*BaseACPAdapter); ok {
+					// 尝试通过 ACP adapter 发送响应
 					err := acpAdapter.SendToolResult(invocationID, toolCallID, answer)
 					if err != nil {
 						logError("发送工具结果失败", zap.Error(err))

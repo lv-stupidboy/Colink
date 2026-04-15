@@ -91,6 +91,9 @@ type ContentBlockData struct {
 	Input    map[string]interface{} `json:"input,omitempty"`
 	Output   string                 `json:"output,omitempty"`
 	IsError  bool                   `json:"isError,omitempty"`
+	// AskUserQuestion 相关（字段名与前端 QuestionBlock 对齐）
+	Questions    []QuestionItem    `json:"questions,omitempty"`    // 问题列表
+	InvocationID string            `json:"invocationId,omitempty"` // 关联的 invocation ID
 	// 时间追踪
 	StartedAt   int64 `json:"startedAt,omitempty"`
 	CompletedAt int64 `json:"completedAt,omitempty"`

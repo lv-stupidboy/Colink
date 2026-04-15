@@ -86,6 +86,9 @@ interface AppState {
   // 阻塞提醒相关
   blockingItems: BlockingItem[];
   blockingReminderEnabled: boolean;
+
+  // 已提交的 question block IDs（用于过滤历史消息中的重复渲染）
+  submittedQuestionBlockIds: Set<string>;
 }
 
 interface AppActions {
@@ -164,8 +167,11 @@ interface AppActions {
   // 更新内容块（如工具调用状态变化）
   updateContentBlock: (invocationId: string, blockId: string, update: Partial<MessageContentBlock>) => void;
 
-  // 用真实ID替换临时消息ID（WebSocket收到agent_message时）
-  replaceMessageId: (tempId: string, realId: string) => void;
+  // 标记 question block 已提交（用于过滤历史消息中的重复渲染）
+  markQuestionSubmitted: (blockId: string) => void;
+
+  // 用真实消息替换临时消息（完整替换，包括 contentBlocks）
+  replaceMessageId: (tempId: string, realId: string, realContentBlocks?: MessageContentBlock[]) => void;
 
   // 更新进度状态
   updateProgress: (invocationId: string, status: string, toolName?: string, toolInput?: Record<string, unknown>) => void;
@@ -249,6 +255,8 @@ const initialState: AppState = {
   // 阻塞提醒相关
   blockingItems: [],
   blockingReminderEnabled: localStorage.getItem(STORAGE_KEY_BLOCKING_REMINDER) !== 'false',
+  // 已提交的 question block IDs
+  submittedQuestionBlockIds: new Set<string>(),
 };
 
 export const useAppStore = create<AppState & AppActions>()(
@@ -755,6 +763,14 @@ export const useAppStore = create<AppState & AppActions>()(
         const textBlocks = state.streamingContentBlocks.filter(b => b.type === 'text');
         const content = textBlocks.map(b => b.type === 'text' ? b.content : '').join('');
 
+        // 提取所有 question blocks 的 ID，加入 submittedQuestionBlockIds
+        // 这样历史消息渲染时会过滤掉这些 blocks，避免重复渲染
+        const questionBlockIds = state.streamingContentBlocks
+          .filter(b => b.type === 'question')
+          .map(b => b.id);
+        const newSubmittedIds = new Set(state.submittedQuestionBlockIds);
+        questionBlockIds.forEach(id => newSubmittedIds.add(id));
+
         // 去重检查：如果消息已存在，只清理流式缓存
         const messageId = `agent-${invocationId}`;
         const exists = state.messages.some(m => m.id === messageId);
@@ -768,6 +784,7 @@ export const useAppStore = create<AppState & AppActions>()(
             progressStatus: 'idle',
             progressToolName: null,
             progressToolInput: null,
+            submittedQuestionBlockIds: newSubmittedIds,
           };
         }
 
@@ -796,6 +813,7 @@ export const useAppStore = create<AppState & AppActions>()(
           progressToolName: null,
           progressToolInput: null,
           messages: [...state.messages, finalMessage],
+          submittedQuestionBlockIds: newSubmittedIds,
         };
       });
     },
@@ -816,10 +834,15 @@ export const useAppStore = create<AppState & AppActions>()(
       });
     },
 
-    replaceMessageId: (tempId, realId) => {
+    replaceMessageId: (tempId, realId, realContentBlocks) => {
       set((state) => {
         const messages = state.messages.map((m) =>
-          m.id === tempId ? { ...m, id: realId } : m
+          m.id === tempId ? {
+            ...m,
+            id: realId,
+            // 如果提供了真实的 contentBlocks，用真实的替换（避免重复渲染 question blocks）
+            contentBlocks: realContentBlocks || m.contentBlocks,
+          } : m
         );
         return { messages };
       });
@@ -828,28 +851,52 @@ export const useAppStore = create<AppState & AppActions>()(
     // 追加内容块（思考/工具调用/文本，按顺序，thinking 智能累积）
     appendContentBlock: (invocationId, block) => {
       set((state) => {
-        // 只处理当前 invocation 的内容块
-        if (state.streamingInvocationId && state.streamingInvocationId !== invocationId) {
+        // 问题块类型不受 invocationId 限制（允许跨 invocation 添加）
+        // 因为问题块需要等待用户输入，可能跨多个 invocation 存在
+        const isQuestionBlock = block.type === 'question';
+
+        // 非 question 类型：只处理当前 invocation 的内容块
+        if (!isQuestionBlock && state.streamingInvocationId && state.streamingInvocationId !== invocationId) {
           return {};
         }
 
         const blocks = state.streamingContentBlocks;
 
-        // thinking 块智能累积：如果最后一个是 streaming 状态的 thinking 块，则追加
+        // thinking 块智能累积：查找同 ID 的现有 thinking 块，追加内容
+        // 注意：不再依赖 status === 'streaming' 判断，因为可能在 done=true 后仍有内容
         if (block.type === 'thinking') {
-          const lastBlock = blocks.length > 0 ? blocks[blocks.length - 1] : null;
-          if (lastBlock && lastBlock.type === 'thinking' && lastBlock.status === 'streaming') {
+          const existingThinkingIndex = blocks.findIndex(
+            (b) => b.id === block.id && b.type === 'thinking'
+          );
+          if (existingThinkingIndex >= 0) {
+            // 已存在同 ID 的 thinking 块，累积内容
+            const existingBlock = blocks[existingThinkingIndex] as typeof block;
             const updatedBlocks = [...blocks];
-            updatedBlocks[updatedBlocks.length - 1] = {
-              ...lastBlock,
-              content: lastBlock.content + block.content,
-            };
+            updatedBlocks[existingThinkingIndex] = {
+              ...existingBlock,
+              content: existingBlock.content + block.content,
+              // 如果新块状态是 success，更新状态
+              status: block.status === 'success' ? 'success' : existingBlock.status,
+            } as MessageContentBlock;
             return {
               isStreaming: true,
               streamingInvocationId: invocationId,
               streamingContentBlocks: updatedBlocks,
             };
           }
+        }
+
+        // 去重检查：如果已存在相同 id 的块，更新而非追加（用于 tool_result 和 question 等）
+        const existingIndex = blocks.findIndex((b) => b.id === block.id);
+        if (existingIndex >= 0) {
+          // 已存在，更新该块（合并属性）
+          const updatedBlocks = [...blocks];
+          updatedBlocks[existingIndex] = { ...updatedBlocks[existingIndex], ...block } as MessageContentBlock;
+          return {
+            isStreaming: true,
+            streamingInvocationId: invocationId,
+            streamingContentBlocks: updatedBlocks,
+          };
         }
 
         // 默认：追加新块
@@ -864,14 +911,27 @@ export const useAppStore = create<AppState & AppActions>()(
     // 更新内容块（如工具调用状态变化）
     updateContentBlock: (invocationId, blockId, update) => {
       set((state) => {
-        // 只处理当前 invocation 的内容块
-        if (state.streamingInvocationId && state.streamingInvocationId !== invocationId) {
+        // 问题块类型的更新不受 invocationId 限制（允许跨 invocation 更新）
+        // 因为问题块可能来自不同的 invocation，用户可能在多个问题之间来回操作
+        const targetBlock = state.streamingContentBlocks.find(b => b.id === blockId);
+        const isQuestionBlock = targetBlock && targetBlock.type === 'question';
+
+        if (!isQuestionBlock && state.streamingInvocationId && state.streamingInvocationId !== invocationId) {
           return {};
         }
         const updatedBlocks = state.streamingContentBlocks.map((block) =>
           block.id === blockId ? { ...block, ...update } as MessageContentBlock : block
         );
         return { streamingContentBlocks: updatedBlocks };
+      });
+    },
+
+    // 标记 question block 已提交（用于过滤历史消息中的重复渲染）
+    markQuestionSubmitted: (blockId) => {
+      set((state) => {
+        const newSet = new Set(state.submittedQuestionBlockIds);
+        newSet.add(blockId);
+        return { submittedQuestionBlockIds: newSet };
       });
     },
 

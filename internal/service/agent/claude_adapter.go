@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -33,6 +34,10 @@ type ClaudeAdapter struct {
 	// CLI 进程管理（用于取消执行）
 	currentCmd   *exec.Cmd
 	currentCmdMu sync.RWMutex
+
+	// AskUserQuestion 支持：保存 stdin 管道用于发送答案
+	currentStdin   io.WriteCloser
+	currentStdinMu sync.RWMutex
 }
 
 // claudeSession Claude会话
@@ -123,7 +128,23 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionReq
 	logDebug("Claude: Starting execution", zap.String("workDir", req.WorkDir), zap.String("configDir", req.ConfigDir))
 
 	cmd := exec.CommandContext(ctx, a.cliPath, args...)
-	cmd.Stdin = strings.NewReader(prompt)
+
+	// 使用 stdin 管道发送 prompt，发送后关闭让 CLI 知道输入结束
+	stdinPipe, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create stdin pipe: %w", err)
+	}
+
+	// 发送初始 prompt 后关闭 stdin
+	go func() {
+		stdinPipe.Write([]byte(prompt))
+		stdinPipe.Close()
+	}()
+
+	// stdin 已关闭，清除引用
+	a.currentStdinMu.Lock()
+	a.currentStdin = nil
+	a.currentStdinMu.Unlock()
 
 	if req.WorkDir != "" {
 		cmd.Dir = req.WorkDir
@@ -241,9 +262,9 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionReq
 				firstLineReceived = true
 				logInfo("[PERF] CLI first line received", zap.Duration("duration", time.Since(cliStartTime)), zap.Int("lineNum", lineCount))
 			}
-			// 调试：打印每行原始输出
-			if lineCount <= 5 {
-				logInfo("ExecuteWithStream: received line", zap.Int("lineNum", lineCount), zap.String("line", line[:min(200, len(line))]))
+			// 调试：打印每行原始输出（前5行或包含工具相关内容）
+			if lineCount <= 5 || strings.Contains(line, "tool_use") || strings.Contains(line, "AskUserQuestion") || strings.Contains(line, "input_json") {
+				logInfo("ExecuteWithStream: received line", zap.Int("lineNum", lineCount), zap.String("line", line[:min(500, len(line))]))
 			}
 			chunks := a.parseStreamJSONLine(line, onChunk != nil)
 			for _, chunk := range chunks {
@@ -458,10 +479,11 @@ func (a *ClaudeAdapter) parseStreamJSONLine(line string, isStreaming bool) []Chu
 				PartialJSON string `json:"partial_json"`
 			} `json:"delta"`
 			ContentBlock struct {
-				Type  string                 `json:"type"`
-				Name  string                 `json:"name"`
-				ID    string                 `json:"id"`
-				Input map[string]interface{} `json:"input"`
+				Type     string                 `json:"type"`
+				Name     string                 `json:"name"`
+				ID       string                 `json:"id"`
+				Input    map[string]interface{} `json:"input"`
+				RawInput json.RawMessage        `json:"rawInput"` // CLI 可能使用 rawInput 字段
 			} `json:"content_block"`
 		} `json:"event"`
 		Message struct {
@@ -518,12 +540,58 @@ func (a *ClaudeAdapter) parseStreamJSONLine(line string, isStreaming bool) []Chu
 					Content: "",
 				})
 			case "tool_use":
-				chunks = append(chunks, Chunk{
-					Type:      ChunkTypeToolUse,
-					ToolName:  msg.Event.ContentBlock.Name,
-					ToolID:    msg.Event.ContentBlock.ID,
-					ToolInput: msg.Event.ContentBlock.Input,
-				})
+				toolName := msg.Event.ContentBlock.Name
+				toolID := msg.Event.ContentBlock.ID
+				toolInput := msg.Event.ContentBlock.Input
+				rawInput := msg.Event.ContentBlock.RawInput
+
+				// 如果 Input 为空但有 RawInput，解析 RawInput
+				if len(toolInput) == 0 && len(rawInput) > 0 {
+					if err := json.Unmarshal(rawInput, &toolInput); err != nil {
+						logWarn("ClaudeAdapter: failed to parse rawInput", zap.Error(err))
+					}
+				}
+
+				// 检测 AskUserQuestion 工具
+				if strings.ToLower(toolName) == "askuserquestion" ||
+					strings.Contains(strings.ToLower(toolName), "ask_user") ||
+					strings.Contains(strings.ToLower(toolName), "question") {
+
+					// 打印 toolInput 详细结构（用于调试）
+					inputJSON, _ := json.MarshalIndent(toolInput, "", "  ")
+					logInfo("ClaudeAdapter: AskUserQuestion toolInput detailed",
+						zap.String("toolName", toolName),
+						zap.String("toolId", toolID),
+						zap.Bool("inputIsNil", toolInput == nil),
+						zap.Int("inputLen", len(toolInput)),
+						zap.Int("rawInputLen", len(rawInput)),
+						zap.String("inputJSON", string(inputJSON)),
+						zap.String("rawInputJSON", string(rawInput)))
+
+					// 解析问题列表
+					questions := parseQuestionsFromInput(toolInput)
+
+					logInfo("ClaudeAdapter: detected AskUserQuestion tool",
+						zap.String("toolName", toolName),
+						zap.String("toolId", toolID),
+						zap.Int("questionsCount", len(questions)),
+						zap.Any("questions", questions))
+
+					chunks = append(chunks, Chunk{
+						Type:      ChunkTypeQuestion,
+						ToolName:  toolName,
+						ToolID:    toolID,
+						ToolInput: toolInput,
+						Questions: questions,
+					})
+				} else {
+					chunks = append(chunks, Chunk{
+						Type:      ChunkTypeToolUse,
+						ToolName:  toolName,
+						ToolID:    toolID,
+						ToolInput: toolInput,
+					})
+				}
 			}
 		case "content_block_delta":
 			switch msg.Event.Delta.Type {
@@ -575,21 +643,55 @@ func (a *ClaudeAdapter) parseStreamJSONLine(line string, isStreaming bool) []Chu
 			})
 		}
 	case "assistant":
-		// 完整消息（非增量模式下的输出）
-		// 在增量模式下忽略，避免重复（内容已通过 stream_event.content_block_delta 发送）
-		if !isStreaming {
-			for _, content := range msg.Message.Content {
-				if content.Type == "text" && content.Text != "" {
+		// 完整消息
+		// 在增量模式下，content_block_start 时 input 是空的，完整 input 在这里
+		for _, content := range msg.Message.Content {
+			if content.Type == "text" && content.Text != "" && !isStreaming {
+				chunks = append(chunks, Chunk{
+					Type:    ChunkTypeText,
+					Content: content.Text,
+				})
+			} else if content.Type == "tool_use" {
+				toolName := content.Name
+				toolID := content.ID
+				toolInput := content.Input
+
+				// 检测 AskUserQuestion 工具（增量模式下需要处理完整 input）
+				if strings.ToLower(toolName) == "askuserquestion" ||
+					strings.Contains(strings.ToLower(toolName), "ask_user") ||
+					strings.Contains(strings.ToLower(toolName), "question") {
+
+					// 打印完整 input（用于调试）
+					inputJSON, _ := json.MarshalIndent(toolInput, "", "  ")
+					logInfo("ClaudeAdapter: AskUserQuestion full input from assistant message",
+						zap.String("toolName", toolName),
+						zap.String("toolId", toolID),
+						zap.Int("inputLen", len(toolInput)),
+						zap.String("inputJSON", string(inputJSON)))
+
+					// 解析问题列表
+					questions := parseQuestionsFromInput(toolInput)
+
+					logInfo("ClaudeAdapter: AskUserQuestion parsed from assistant message",
+						zap.String("toolName", toolName),
+						zap.String("toolId", toolID),
+						zap.Int("questionsCount", len(questions)),
+						zap.Any("questions", questions))
+
 					chunks = append(chunks, Chunk{
-						Type:    ChunkTypeText,
-						Content: content.Text,
+						Type:      ChunkTypeQuestion,
+						ToolName:  toolName,
+						ToolID:    toolID,
+						ToolInput: toolInput,
+						Questions: questions,
 					})
-				} else if content.Type == "tool_use" {
+				} else if !isStreaming {
+					// 非增量模式下，普通工具调用
 					chunks = append(chunks, Chunk{
 						Type:      ChunkTypeToolUse,
-						ToolName:  content.Name,
-						ToolID:    content.ID,
-						ToolInput: content.Input,
+						ToolName:  toolName,
+						ToolID:    toolID,
+						ToolInput: toolInput,
 					})
 				}
 			}
@@ -789,5 +891,39 @@ func (a *ClaudeAdapter) CheckHealth(ctx context.Context) error {
 		return fmt.Errorf("claude CLI returned empty response")
 	}
 
+	return nil
+}
+
+// SendToolResult 发送工具结果给 CLI（用于 AskUserQuestion 等需要用户输入的工具）
+// CLI 使用 stdin 接收用户答案
+func (a *ClaudeAdapter) SendToolResult(invocationID uuid.UUID, toolCallID string, result string) error {
+	a.currentStdinMu.RLock()
+	stdin := a.currentStdin
+	a.currentStdinMu.RUnlock()
+
+	if stdin == nil {
+		return fmt.Errorf("ClaudeAdapter: stdin pipe not available for invocation %s", invocationID.String())
+	}
+
+	// 构建答案消息格式
+	// 使用 json.Marshal 确保 result 正确转义（处理引号、换行等特殊字符）
+	contentJSON, err := json.Marshal(result)
+	if err != nil {
+		return fmt.Errorf("ClaudeAdapter: failed to marshal result: %w", err)
+	}
+	answerMsg := fmt.Sprintf("{\"type\":\"tool_result\",\"tool_use_id\":\"%s\",\"content\":%s}\n", toolCallID, string(contentJSON))
+
+	logInfo("ClaudeAdapter: sending tool result via stdin",
+		zap.String("invocationID", invocationID.String()),
+		zap.String("toolCallId", toolCallID),
+		zap.String("answer", result))
+
+	_, err = stdin.Write([]byte(answerMsg))
+	if err != nil {
+		logError("ClaudeAdapter: failed to write tool result to stdin", zap.Error(err))
+		return fmt.Errorf("ClaudeAdapter: failed to send tool result: %w", err)
+	}
+
+	logInfo("ClaudeAdapter: tool result sent successfully", zap.String("toolCallId", toolCallID))
 	return nil
 }

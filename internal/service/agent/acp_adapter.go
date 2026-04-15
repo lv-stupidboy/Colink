@@ -101,10 +101,17 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionRe
 		}
 	}()
 
+	// 设置 invocationID 用于 AskUserQuestion 答案发送
+	var invocationIDStr string
+	if req.InvocationID != uuid.Nil {
+		invocationIDStr = req.InvocationID.String()
+	}
+
 	session := &acpSession{
-		cmd:    cmd,
-		ctx:    ctx,
-		status: SessionStatusRunning,
+		cmd:     cmd,
+		ctx:     ctx,
+		status:  SessionStatusRunning,
+		isdpID:  invocationIDStr,
 	}
 
 	transport := newACPTransport(stdinPipe, stdoutPipe, func(method string, params json.RawMessage) {
@@ -152,6 +159,7 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionRe
 
 	logInfo("ACP: session created",
 		zap.String("sessionId", session.id),
+		zap.String("invocationId", invocationIDStr),
 		zap.Int("configOptions", len(sessionResp.ConfigOptions)))
 
 	if err := a.configureSession(transport, session, &sessionResp, req); err != nil {
@@ -177,6 +185,13 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionRe
 	logInfo("[PERF] ACP total execution",
 		zap.Duration("duration", time.Since(cliStartTime)),
 		zap.String("stopReason", promptResp.StopReason))
+
+	// 执行完成后，从 sessions map 中移除（如果有）
+	if invocationIDStr != "" {
+		a.mu.Lock()
+		delete(a.sessions, invocationIDStr)
+		a.mu.Unlock()
+	}
 
 	a.cleanup(session)
 	wg.Wait()
@@ -455,11 +470,33 @@ func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, 
 			zap.String("toolName", inputRequest.ToolName),
 			zap.Any("input", inputRequest.Input))
 
+		// 详细打印 input 结构（用于调试解析问题）
+		inputJSON, _ := json.MarshalIndent(inputRequest.Input, "", "  ")
+		logInfo("ACP: user input request - detailed input structure",
+			zap.String("inputJSON", string(inputJSON)))
+
 		// 解析问题并创建 question chunk
 		chunk := parseACPUserInputRequest(inputRequest)
+		logInfo("ACP: parsed question chunk",
+			zap.String("toolName", chunk.ToolName),
+			zap.Int("questionsCount", len(chunk.Questions)),
+			zap.Any("questions", chunk.Questions))
 		session.mu.Lock()
 		session.pendingQuestion = &chunk
 		session.mu.Unlock()
+
+		// 将 session 保存到 sessions map，以便 SendToolResult 能找到它
+		// 使用 isdpID（即 invocationID）作为 key
+		if session.isdpID != "" {
+			a.mu.Lock()
+			a.sessions[session.isdpID] = session
+			a.mu.Unlock()
+			logInfo("ACP: session saved to sessions map for AskUserQuestion",
+				zap.String("isdpID", session.isdpID),
+				zap.String("acpSessionId", session.id),
+				zap.String("toolCallId", inputRequest.ToolCallID))
+		}
+
 		onChunk(chunk)
 
 	case "session/tool_call_update":

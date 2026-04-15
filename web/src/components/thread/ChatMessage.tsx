@@ -38,6 +38,7 @@ interface ChatMessageProps {
   onRetry?: () => void;
   onOpenCodePanel?: (files: FileChange[]) => void;
   onReplyClick?: (messageId: string) => void;  // 点击回复引用跳转
+  onQuestionSubmit?: (blockId: string, answers: Record<number, string | string[]>, invocationId: string) => void;  // AskUserQuestion 答案提交
 }
 
 /**
@@ -140,6 +141,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
   onRetry,
   onOpenCodePanel: _onOpenCodePanel,
   onReplyClick,
+  onQuestionSubmit,
 }) => {
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
@@ -315,6 +317,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
             blocks={contentBlocks}
             defaultExpanded={false}
             agentConfigs={_agentConfigs}
+            onQuestionSubmit={onQuestionSubmit}
+            filterWaitingQuestions={!isStreaming}
+            messageInvocationId={message.metadata?.invocationId as string | undefined}
           />
           {isStreaming && (
             <span
