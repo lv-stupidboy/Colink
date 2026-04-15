@@ -37,17 +37,21 @@ echo "Version: $FULL_VERSION"
 echo "Platform: $OS-$ARCH"
 
 # 1. Clean old artifacts
-echo "[1/6] Cleaning old build artifacts..."
+echo "[1/8] Cleaning old build artifacts..."
 rm -rf ../bin/* 2>/dev/null || true
 rm -rf release/*.zip 2>/dev/null || true
 
-# 2. Build backend
-echo "[2/6] Building backend..."
+# 2. Generate plugin registry
+echo "[2/8] Generating plugin registry..."
 cd ..
+go run ./tools/genplugins
+
+# 3. Build backend
+echo "[3/8] Building backend..."
 go build -ldflags "-X main.Version=$FULL_VERSION" -o bin/colink-server.exe ./cmd/server
 
-# 3. Build frontend (ensure dependencies first)
-echo "[3/6] Building frontend..."
+# 4. Build frontend (ensure dependencies first)
+echo "[4/8] Building frontend..."
 cd web
 if [ ! -d "node_modules" ]; then
     echo "  Installing frontend dependencies..."
@@ -55,22 +59,22 @@ if [ ! -d "node_modules" ]; then
 fi
 npm run build
 
-# 4. Build installer
-echo "[4/6] Building installer..."
+# 5. Build installer
+echo "[5/8] Building installer..."
 cd ../installer
 npm install
 npm run build
 
-# 5. Package launcher
-echo "[5/6] Packaging launcher..."
+# 6. Package launcher
+echo "[6/8] Packaging launcher..."
 npm run package:launcher
 
-# 6. Package setup
-echo "[6/6] Packaging setup..."
+# 7. Package setup
+echo "[7/8] Packaging setup..."
 npm run package:setup
 
-# 7. Create ZIP
-echo "[7/7] Creating release package..."
+# 8. Create ZIP
+echo "[8/8] Creating release package..."
 export COLINK_FULL_VERSION=$FULL_VERSION
 export COLINK_OS=$OS
 export COLINK_ARCH=$ARCH

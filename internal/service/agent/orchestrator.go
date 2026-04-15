@@ -405,7 +405,7 @@ func (o *Orchestrator) SpawnDebugAgent(ctx context.Context, req *SpawnRequest) (
 	)
 
 	// 创建适配器
-	adapter := NewAdapter(baseAgent)
+	adapter := GetAdapter(baseAgent)
 	if adapter == nil {
 		o.debugThreadMgr.SetStatus(req.ThreadID, DebugThreadStatusIdle)
 		return nil, fmt.Errorf("不支持的基础Agent类型: %s", baseAgent.Type)

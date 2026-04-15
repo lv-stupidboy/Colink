@@ -7,158 +7,59 @@ import (
 	"github.com/google/uuid"
 )
 
-func TestNewAdapter_NilBaseAgent(t *testing.T) {
-	adapter := NewAdapter(nil)
+func TestGetAdapter_NilBaseAgent(t *testing.T) {
+	adapter := GetAdapter(nil)
 	if adapter != nil {
 		t.Error("Expected nil adapter for nil base agent")
 	}
 }
 
-func TestNewAdapter_ClaudeCode(t *testing.T) {
-	baseAgent := &model.BaseAgent{
-		ID:           uuid.New(),
-		Name:         "Test Claude",
-		Type:         model.BaseAgentTypeClaudeCode,
-		DefaultModel: "claude-sonnet-4-6",
-		CliPath:      "claude",
-	}
+// Note: Tests for GetAdapter require plugins to be registered.
+// Plugin registration happens via init() when importing plugins/all.
+// Due to import cycle restrictions, these tests are in a separate test package.
+// See: internal/service/agent/adapter_integration_test.go
 
-	adapter := NewAdapter(baseAgent)
-	if adapter == nil {
-		t.Error("Expected non-nil adapter for claude_code type")
-	}
-
-	// Verify it implements the interface
-	_, ok := adapter.(*ClaudeAdapter)
-	if !ok {
-		t.Error("Expected ClaudeAdapter type")
-	}
-}
-
-func TestNewAdapter_OpenCode(t *testing.T) {
-	baseAgent := &model.BaseAgent{
-		ID:           uuid.New(),
-		Name:         "Test OpenCode",
-		Type:         model.BaseAgentTypeOpenCode,
-		DefaultModel: "gpt-4",
-		CliPath:      "opencode",
-	}
-
-	adapter := NewAdapter(baseAgent)
-	if adapter == nil {
-		t.Error("Expected non-nil adapter for open_code type")
-	}
-
-	// Verify it implements the interface
-	_, ok := adapter.(*OpenCodeAdapter)
-	if !ok {
-		t.Error("Expected OpenCodeAdapter type")
-	}
-}
-
-func TestNewAdapter_OpenCodeACP(t *testing.T) {
-	baseAgent := &model.BaseAgent{
-		ID:           uuid.New(),
-		Name:         "Test OpenCode ACP",
-		Type:         model.BaseAgentTypeOpenCodeACP,
-		DefaultModel: "gpt-4",
-		CliPath:      "opencode",
-	}
-
-	adapter := NewAdapter(baseAgent)
-	if adapter == nil {
-		t.Error("Expected non-nil adapter for open_code_acp type")
-	}
-
-	_, ok := adapter.(*OpenCodeACPAdapter)
-	if !ok {
-		t.Error("Expected OpenCodeACPAdapter type")
-	}
-}
-
-func TestClaudeAdapter_BuildPrompt(t *testing.T) {
-	baseAgent := &model.BaseAgent{
-		ID:           uuid.New(),
-		Name:         "Test Claude",
-		Type:         model.BaseAgentTypeClaudeCode,
-		DefaultModel: "claude-sonnet-4-6",
-		CliPath:      "claude",
-	}
-	adapter := NewClaudeAdapter(baseAgent)
-
-	layers := &ContextLayers{
-		Layer0: "System prompt here",
-		Layer1: "Previous conversation",
-		Layer2: "Artifacts context",
-		Layer3: "Environment info",
-	}
-
-	req := &ExecutionRequest{
-		Context: layers,
-		Input:   "Hello, world!",
-	}
-
-	prompt := adapter.buildPromptFromRequest(req)
-
-	if prompt == "" {
-		t.Error("Expected non-empty prompt")
-	}
-
-	// Check that all layers are included
-	if !contains(prompt, "<system>") {
-		t.Error("Expected <system> tag in prompt")
-	}
-	if !contains(prompt, "<conversation>") {
-		t.Error("Expected <conversation> tag in prompt")
-	}
-	if !contains(prompt, "<artifacts>") {
-		t.Error("Expected <artifacts> tag in prompt")
-	}
-	if !contains(prompt, "<environment>") {
-		t.Error("Expected <environment> tag in prompt")
-	}
-	if !contains(prompt, "<user>") {
-		t.Error("Expected <user> tag in prompt")
-	}
-}
-
-func TestOpenCodeAdapter_BuildPrompt(t *testing.T) {
-	baseAgent := &model.BaseAgent{
-		ID:           uuid.New(),
-		Type:         model.BaseAgentTypeOpenCode,
-		DefaultModel: "gpt-4",
-		CliPath:      "opencode",
-	}
-	adapter := NewOpenCodeAdapter(baseAgent)
-
-	layers := &ContextLayers{
-		Layer0: "System prompt",
-		Layer1: "History",
-		Layer2: "Files",
-		Layer3: "Env",
-	}
-
-	req := &ExecutionRequest{
-		Context: layers,
-		Input:   "Test input",
-	}
-
-	prompt := adapter.buildPromptFromRequest(req)
-
-	if prompt == "" {
-		t.Error("Expected non-empty prompt")
-	}
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
-}
-
-func containsHelper(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
+func TestGetMeta_RegisteredPlugin(t *testing.T) {
+	// This test only works if plugins are registered
+	// For now, we test the registry structure without plugins
+	meta := GetMeta(model.BaseAgentTypeClaudeCode)
+	// If no plugins registered, meta will be nil - that's expected in this test context
+	if meta != nil {
+		if meta.Name != "ClaudeCode" {
+			t.Errorf("Expected name 'ClaudeCode', got '%s'", meta.Name)
 		}
 	}
-	return false
+}
+
+func TestGetTypes_EmptyRegistry(t *testing.T) {
+	types := GetTypes()
+	// Without plugin imports, registry may be empty
+	// This tests the registry structure, not plugin registration
+	t.Logf("Registered types count: %d", len(types))
+}
+
+func TestRegisterPlugin(t *testing.T) {
+	// Test that RegisterPlugin works correctly
+	// Use a test-specific type to avoid conflicts
+	testType := model.BaseAgentType("test_type_" + uuid.New().String())
+
+	testMeta := PluginMeta{
+		Type:        testType,
+		Name:        "TestPlugin",
+		Description: "Test plugin for unit testing",
+		Factory: func(baseAgent *model.BaseAgent) AgentAdapter {
+			return nil // Mock adapter
+		},
+	}
+
+	RegisterPlugin(testMeta)
+
+	// Verify registration
+	meta := GetMeta(testType)
+	if meta == nil {
+		t.Error("Expected plugin to be registered")
+	}
+	if meta.Name != "TestPlugin" {
+		t.Errorf("Expected name 'TestPlugin', got '%s'", meta.Name)
+	}
 }

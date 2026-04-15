@@ -30,24 +30,30 @@ Write-Host "Version: $FULL_VERSION" -ForegroundColor Cyan
 Write-Host "Platform: $OS-$ARCH" -ForegroundColor Cyan
 
 # 1. Clean old artifacts
-Write-Host "[1/6] Cleaning old build artifacts..." -ForegroundColor Cyan
+Write-Host "[1/8] Cleaning old build artifacts..." -ForegroundColor Cyan
 Remove-Item -Path "..\bin\*" -Force -ErrorAction SilentlyContinue
 Remove-Item -Path "release\*.zip" -Force -ErrorAction SilentlyContinue
 
-# 2. Build backend
-Write-Host "[2/7] Building backend..." -ForegroundColor Cyan
+# 2. Generate plugin registry
+Write-Host "[2/8] Generating plugin registry..." -ForegroundColor Cyan
+Push-Location ..
+go run ./tools/genplugins
+Pop-Location
+
+# 3. Build backend
+Write-Host "[3/8] Building backend..." -ForegroundColor Cyan
 Push-Location ..
 go build -ldflags "-X main.Version=$FULL_VERSION" -o bin\colink-server.exe .\cmd\server
 Pop-Location
 
-# 2.1 Build migrate tool
-Write-Host "[2.1/7] Building migrate tool..." -ForegroundColor Cyan
+# 3.1 Build migrate tool
+Write-Host "[3.1/8] Building migrate tool..." -ForegroundColor Cyan
 Push-Location ..
 go build -o bin\migrate.exe .\cmd\migrate
 Pop-Location
 
-# 3. Build frontend (ensure dependencies first)
-Write-Host "[3/7] Building frontend..." -ForegroundColor Cyan
+# 4. Build frontend (ensure dependencies first)
+Write-Host "[4/8] Building frontend..." -ForegroundColor Cyan
 Push-Location ..\web
 if (-not (Test-Path "node_modules")) {
     Write-Host "  Installing frontend dependencies..." -ForegroundColor Yellow
@@ -56,21 +62,21 @@ if (-not (Test-Path "node_modules")) {
 npm run build
 Pop-Location
 
-# 4. Build installer
-Write-Host "[4/7] Building installer..." -ForegroundColor Cyan
+# 5. Build installer
+Write-Host "[5/8] Building installer..." -ForegroundColor Cyan
 npm install
 npm run build
 
-# 5. Package launcher
-Write-Host "[5/7] Packaging launcher..." -ForegroundColor Cyan
+# 6. Package launcher
+Write-Host "[6/8] Packaging launcher..." -ForegroundColor Cyan
 npm run package:launcher
 
-# 6. Package setup
-Write-Host "[6/7] Packaging setup..." -ForegroundColor Cyan
+# 7. Package setup
+Write-Host "[7/8] Packaging setup..." -ForegroundColor Cyan
 npm run package:setup
 
-# 7. Create ZIP
-Write-Host "[7/7] Creating release package..." -ForegroundColor Cyan
+# 8. Create ZIP
+Write-Host "[8/8] Creating release package..." -ForegroundColor Cyan
 $env:COLINK_FULL_VERSION = $FULL_VERSION
 $env:COLINK_OS = $OS
 $env:COLINK_ARCH = $ARCH

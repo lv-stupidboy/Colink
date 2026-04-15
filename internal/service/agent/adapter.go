@@ -4,7 +4,7 @@ import (
 	"context"
 	"os/exec"
 
-	"github.com/anthropic/isdp/internal/model"
+	"github.com/google/uuid"
 )
 
 // AgentAdapter Agent适配器接口 - 统一的执行和会话管理接口
@@ -35,6 +35,12 @@ type AgentAdapter interface {
 	GetCurrentProcess() *exec.Cmd
 }
 
+// ToolResultSender 发送工具结果的接口（用于 AskUserQuestion 等需要用户输入的工具）
+// ACP adapter 等需要支持此接口
+type ToolResultSender interface {
+	SendToolResult(invocationID uuid.UUID, toolCallID string, result string) error
+}
+
 // SessionStatus 会话状态
 type SessionStatus string
 
@@ -46,24 +52,6 @@ const (
 	SessionStatusFailed    SessionStatus = "failed"
 	SessionStatusStopped   SessionStatus = "stopped"
 )
-
-// NewAdapter 根据基础Agent类型创建适配器
-func NewAdapter(baseAgent *model.BaseAgent) AgentAdapter {
-	if baseAgent == nil {
-		return nil
-	}
-
-	switch baseAgent.Type {
-	case model.BaseAgentTypeClaudeCode:
-		return NewClaudeAdapter(baseAgent)
-	case model.BaseAgentTypeOpenCode:
-		return NewOpenCodeAdapter(baseAgent)
-	case model.BaseAgentTypeOpenCodeACP:
-		return NewOpenCodeACPAdapter(baseAgent)
-	default:
-		return nil
-	}
-}
 
 func min(a, b int) int {
 	if a < b {

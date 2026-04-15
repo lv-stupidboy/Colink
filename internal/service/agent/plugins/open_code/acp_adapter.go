@@ -1,4 +1,6 @@
-package agent
+// internal/service/agent/plugins/open_code/acp_adapter.go
+// Base ACP Adapter implementation
+package open_code
 
 import (
 	"bufio"
@@ -12,14 +14,15 @@ import (
 	"time"
 
 	"github.com/anthropic/isdp/internal/model"
+	"github.com/anthropic/isdp/internal/service/agent"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 
 type acpAdapterConfig struct {
 	cliPath   string
-	buildArgs func(req *ExecutionRequest) []string
-	buildEnv  func(req *ExecutionRequest) []string
+	buildArgs func(req *agent.ExecutionRequest) []string
+	buildEnv  func(req *agent.ExecutionRequest) []string
 }
 
 type acpSession struct {
@@ -29,14 +32,14 @@ type acpSession struct {
 	cmd             *exec.Cmd
 	ctx             context.Context
 	cancel          context.CancelFunc
-	status          SessionStatus
+	status          agent.SessionStatus
 	output          strings.Builder
-	pendingQuestion *Chunk // 待处理的 AskUserQuestion（等待用户响应）
+	pendingQuestion *agent.Chunk // 待处理的 AskUserQuestion（等待用户响应）
 	mu              sync.Mutex
 }
 
 // BaseACPAdapter implements AgentAdapter using ACP (Agent Client Protocol) over stdio.
-// ACP lifecycle: initialize → session/new → session/prompt → session/update notifications → response
+// ACP lifecycle: initialize -> session/new -> session/prompt -> session/update notifications -> response
 type BaseACPAdapter struct {
 	config    acpAdapterConfig
 	baseAgent *model.BaseAgent
@@ -57,11 +60,11 @@ func (a *BaseACPAdapter) GetCurrentProcess() *exec.Cmd {
 	return nil
 }
 
-func (a *BaseACPAdapter) Execute(ctx context.Context, req *ExecutionRequest) (*ExecutionResult, error) {
+func (a *BaseACPAdapter) Execute(ctx context.Context, req *agent.ExecutionRequest) (*agent.ExecutionResult, error) {
 	return a.ExecuteWithStream(ctx, req, nil)
 }
 
-func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionRequest, onChunk func(Chunk)) (*ExecutionResult, error) {
+func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.ExecutionRequest, onChunk func(agent.Chunk)) (*agent.ExecutionResult, error) {
 	cliStartTime := time.Now()
 
 	args := a.config.buildArgs(req)
@@ -108,10 +111,10 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionRe
 	}
 
 	session := &acpSession{
-		cmd:     cmd,
-		ctx:     ctx,
-		status:  SessionStatusRunning,
-		isdpID:  invocationIDStr,
+		cmd:    cmd,
+		ctx:    ctx,
+		status: agent.SessionStatusRunning,
+		isdpID: invocationIDStr,
 	}
 
 	transport := newACPTransport(stdinPipe, stdoutPipe, func(method string, params json.RawMessage) {
@@ -200,13 +203,13 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionRe
 	output := session.output.String()
 	session.mu.Unlock()
 
-	return &ExecutionResult{
+	return &agent.ExecutionResult{
 		Output:    output,
 		SessionID: session.id,
 	}, nil
 }
 
-func (a *BaseACPAdapter) StartSession(ctx context.Context, sessionID string, req *ExecutionRequest) error {
+func (a *BaseACPAdapter) StartSession(ctx context.Context, sessionID string, req *agent.ExecutionRequest) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -254,7 +257,7 @@ func (a *BaseACPAdapter) StartSession(ctx context.Context, sessionID string, req
 		cmd:    cmd,
 		ctx:    sessionCtx,
 		cancel: sessionCancel,
-		status: SessionStatusRunning,
+		status: agent.SessionStatusRunning,
 	}
 
 	transport := newACPTransport(stdinPipe, stdoutPipe, func(method string, params json.RawMessage) {
@@ -298,7 +301,7 @@ func (a *BaseACPAdapter) StartSession(ctx context.Context, sessionID string, req
 	return nil
 }
 
-func (a *BaseACPAdapter) ResumeSession(ctx context.Context, sessionID string, input string, onChunk func(Chunk)) error {
+func (a *BaseACPAdapter) ResumeSession(ctx context.Context, sessionID string, input string, onChunk func(agent.Chunk)) error {
 	a.mu.RLock()
 	session, exists := a.sessions[sessionID]
 	a.mu.RUnlock()
@@ -337,7 +340,7 @@ func (a *BaseACPAdapter) StopSession(sessionID string) error {
 	a.mu.Unlock()
 
 	session.mu.Lock()
-	session.status = SessionStatusStopped
+	session.status = agent.SessionStatusStopped
 	if session.cancel != nil {
 		session.cancel()
 	}
@@ -349,13 +352,13 @@ func (a *BaseACPAdapter) StopSession(sessionID string) error {
 	return nil
 }
 
-func (a *BaseACPAdapter) GetSessionStatus(sessionID string) SessionStatus {
+func (a *BaseACPAdapter) GetSessionStatus(sessionID string) agent.SessionStatus {
 	a.mu.RLock()
 	session, exists := a.sessions[sessionID]
 	a.mu.RUnlock()
 
 	if !exists {
-		return SessionStatusIdle
+		return agent.SessionStatusIdle
 	}
 
 	session.mu.Lock()
@@ -367,10 +370,10 @@ func (a *BaseACPAdapter) CheckHealth(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	args := a.config.buildArgs(&ExecutionRequest{BaseAgent: a.baseAgent})
+	args := a.config.buildArgs(&agent.ExecutionRequest{BaseAgent: a.baseAgent})
 	cmd := exec.CommandContext(ctx, a.config.cliPath, args...)
 	cmd.Dir = os.TempDir()
-	cmd.Env = a.buildEnv(&ExecutionRequest{BaseAgent: a.baseAgent})
+	cmd.Env = a.buildEnv(&agent.ExecutionRequest{BaseAgent: a.baseAgent})
 
 	stdinPipe, err := cmd.StdinPipe()
 	if err != nil {
@@ -405,7 +408,7 @@ func (a *BaseACPAdapter) CheckHealth(ctx context.Context) error {
 	return nil
 }
 
-func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, params json.RawMessage, onChunk func(Chunk)) {
+func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, params json.RawMessage, onChunk func(agent.Chunk)) {
 	// 记录所有收到的通知（调试用）
 	logInfo("ACP: received notification",
 		zap.String("method", method),
@@ -436,11 +439,11 @@ func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, 
 		session.mu.Lock()
 		defer session.mu.Unlock()
 		for _, chunk := range chunks {
-			if chunk.Type == ChunkTypeText {
+			if chunk.Type == agent.ChunkTypeText {
 				session.output.WriteString(chunk.Content)
 			}
 			// 对于 question 类型，存储到 session 以便等待用户响应
-			if chunk.Type == ChunkTypeQuestion {
+			if chunk.Type == agent.ChunkTypeQuestion {
 				session.pendingQuestion = &chunk
 			}
 			onChunk(chunk)
@@ -511,7 +514,7 @@ func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, 
 	}
 }
 
-func (a *BaseACPAdapter) buildPromptFromRequest(req *ExecutionRequest) string {
+func (a *BaseACPAdapter) buildPromptFromRequest(req *agent.ExecutionRequest) string {
 	var sb strings.Builder
 
 	if req.Context != nil {
@@ -547,7 +550,7 @@ func (a *BaseACPAdapter) buildPromptFromRequest(req *ExecutionRequest) string {
 	return sb.String()
 }
 
-func (a *BaseACPAdapter) buildEnv(req *ExecutionRequest) []string {
+func (a *BaseACPAdapter) buildEnv(req *agent.ExecutionRequest) []string {
 	envMap := make(map[string]string)
 
 	for _, e := range os.Environ() {
@@ -558,7 +561,7 @@ func (a *BaseACPAdapter) buildEnv(req *ExecutionRequest) []string {
 
 	// OPENCODE_PURE=1 disables external plugins (e.g. oh-my-openagent) that may
 	// set an invalid default_agent for ACP sessions, causing session/new to fail
-	// with "Internal error". Built-in agents (build, plan, explore…) remain available.
+	// with "Internal error". Built-in agents (build, plan, explore...) remain available.
 	envMap["OPENCODE_PURE"] = "1"
 
 	if extraEnv := a.config.buildEnv(req); len(extraEnv) > 0 {
@@ -576,7 +579,7 @@ func (a *BaseACPAdapter) buildEnv(req *ExecutionRequest) []string {
 	return env
 }
 
-func (a *BaseACPAdapter) configureSession(transport *acpTransport, session *acpSession, sessionResp *acpNewSessionResult, req *ExecutionRequest) error {
+func (a *BaseACPAdapter) configureSession(transport *acpTransport, session *acpSession, sessionResp *acpNewSessionResult, req *agent.ExecutionRequest) error {
 	desiredModel := a.baseAgent.DefaultModel
 
 	if len(sessionResp.ConfigOptions) > 0 {
@@ -682,4 +685,12 @@ func (a *BaseACPAdapter) SendToolResult(invocationID uuid.UUID, toolCallID strin
 	logInfo("ACP: tool result sent successfully",
 		zap.String("toolCallId", toolCallID))
 	return nil
+}
+
+// min helper function
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

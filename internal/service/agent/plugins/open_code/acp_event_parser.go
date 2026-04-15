@@ -1,4 +1,6 @@
-package agent
+// internal/service/agent/plugins/open_code/acp_event_parser.go
+// ACP event parser
+package open_code
 
 import (
 	"encoding/json"
@@ -6,10 +8,11 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/anthropic/isdp/internal/service/agent"
 	"go.uber.org/zap"
 )
 
-func parseACPSessionUpdate(raw json.RawMessage, session *acpSession) ([]Chunk, error) {
+func parseACPSessionUpdate(raw json.RawMessage, session *acpSession) ([]agent.Chunk, error) {
 	var header acpSessionUpdateHeader
 	if err := json.Unmarshal(raw, &header); err != nil {
 		logError("ACP: failed to parse session update header", zap.Error(err))
@@ -37,33 +40,33 @@ func parseACPSessionUpdate(raw json.RawMessage, session *acpSession) ([]Chunk, e
 	}
 }
 
-func parseACPAgentMessageChunk(raw json.RawMessage) ([]Chunk, error) {
+func parseACPAgentMessageChunk(raw json.RawMessage) ([]agent.Chunk, error) {
 	var msg acpAgentMessageChunk
 	if err := json.Unmarshal(raw, &msg); err != nil {
 		logError("ACP: failed to parse agent_message_chunk", zap.Error(err))
 		return nil, fmt.Errorf("ACP: parse agent_message_chunk: %w", err)
 	}
 
-	return []Chunk{{
-		Type:    ChunkTypeText,
+	return []agent.Chunk{{
+		Type:    agent.ChunkTypeText,
 		Content: msg.Content.Text,
 	}}, nil
 }
 
-func parseACPAgentThoughtChunk(raw json.RawMessage) ([]Chunk, error) {
+func parseACPAgentThoughtChunk(raw json.RawMessage) ([]agent.Chunk, error) {
 	var thought acpAgentThoughtChunk
 	if err := json.Unmarshal(raw, &thought); err != nil {
 		logError("ACP: failed to parse agent_thought_chunk", zap.Error(err))
 		return nil, fmt.Errorf("ACP: parse agent_thought_chunk: %w", err)
 	}
 
-	return []Chunk{{
-		Type:    ChunkTypeThinking,
+	return []agent.Chunk{{
+		Type:    agent.ChunkTypeThinking,
 		Content: thought.Content.Text,
 	}}, nil
 }
 
-func parseACPToolCall(raw json.RawMessage, session *acpSession) ([]Chunk, error) {
+func parseACPToolCall(raw json.RawMessage, session *acpSession) ([]agent.Chunk, error) {
 	var tc acpToolCall
 	if err := json.Unmarshal(raw, &tc); err != nil {
 		logError("ACP: failed to parse tool_call", zap.Error(err))
@@ -118,8 +121,8 @@ func parseACPToolCall(raw json.RawMessage, session *acpSession) ([]Chunk, error)
 		// 解析问题列表
 		questions := parseQuestionsFromInput(toolInput)
 
-		chunk := Chunk{
-			Type:      ChunkTypeQuestion,
+		chunk := agent.Chunk{
+			Type:      agent.ChunkTypeQuestion,
 			ToolName:  tc.Title,
 			ToolID:    tc.ToolCallID,
 			ToolInput: toolInput,
@@ -131,18 +134,18 @@ func parseACPToolCall(raw json.RawMessage, session *acpSession) ([]Chunk, error)
 			session.pendingQuestion = &chunk
 		}
 
-		return []Chunk{chunk}, nil
+		return []agent.Chunk{chunk}, nil
 	}
 
-	return []Chunk{{
-		Type:      ChunkTypeToolUse,
+	return []agent.Chunk{{
+		Type:      agent.ChunkTypeToolUse,
 		ToolName:  tc.Title,
 		ToolID:    tc.ToolCallID,
 		ToolInput: toolInput,
 	}}, nil
 }
 
-func parseACPToolCallUpdate(raw json.RawMessage) ([]Chunk, error) {
+func parseACPToolCallUpdate(raw json.RawMessage) ([]agent.Chunk, error) {
 	var update acpToolCallUpdate
 	if err := json.Unmarshal(raw, &update); err != nil {
 		logError("ACP: failed to parse tool_call_update", zap.Error(err))
@@ -169,31 +172,31 @@ func parseACPToolCallUpdate(raw json.RawMessage) ([]Chunk, error) {
 		content = update.Content[0].Text
 	}
 
-	return []Chunk{{
-		Type:    ChunkTypeToolResult,
+	return []agent.Chunk{{
+		Type:    agent.ChunkTypeToolResult,
 		Content: content,
 		ToolID:  update.ToolCallID,
 		IsError: isError,
 	}}, nil
 }
 
-func parseACPUsageUpdate(raw json.RawMessage) ([]Chunk, error) {
+func parseACPUsageUpdate(raw json.RawMessage) ([]agent.Chunk, error) {
 	var usage acpUsageUpdate
 	if err := json.Unmarshal(raw, &usage); err != nil {
 		logError("ACP: failed to parse usage_update", zap.Error(err))
 		return nil, fmt.Errorf("ACP: parse usage_update: %w", err)
 	}
 
-	return []Chunk{{
-		Type: ChunkTypeUsage,
-		Usage: &TokenUsage{
+	return []agent.Chunk{{
+		Type: agent.ChunkTypeUsage,
+		Usage: &agent.TokenUsage{
 			InputTokens:  usage.InputTokens,
 			OutputTokens: usage.OutputTokens,
 		},
 	}}, nil
 }
 
-func parseACPPlanUpdate(raw json.RawMessage) ([]Chunk, error) {
+func parseACPPlanUpdate(raw json.RawMessage) ([]agent.Chunk, error) {
 	var plan acpPlanUpdate
 	if err := json.Unmarshal(raw, &plan); err != nil {
 		logError("ACP: failed to parse plan", zap.Error(err))
@@ -206,25 +209,25 @@ func parseACPPlanUpdate(raw json.RawMessage) ([]Chunk, error) {
 		lines = append(lines, line)
 	}
 
-	return []Chunk{{
-		Type:    ChunkTypeStatus,
+	return []agent.Chunk{{
+		Type:    agent.ChunkTypeStatus,
 		Content: strings.Join(lines, "\n"),
 	}}, nil
 }
 
 // parseQuestionsFromInput 从工具输入中解析问题列表
-func parseQuestionsFromInput(input map[string]interface{}) []QuestionItem {
+func parseQuestionsFromInput(input map[string]interface{}) []agent.QuestionItem {
 	if input == nil {
 		return nil
 	}
 
-	questions := make([]QuestionItem, 0)
+	questions := make([]agent.QuestionItem, 0)
 
 	// 尝试解析 questions 数组
 	if questionsArray, ok := input["questions"].([]interface{}); ok {
 		for _, q := range questionsArray {
 			if qMap, ok := q.(map[string]interface{}); ok {
-				question := QuestionItem{
+				question := agent.QuestionItem{
 					Header:     getStringFromMap(qMap, "header"),
 					Question:   getStringFromMap(qMap, "question"),
 					MultiSelect: getBoolFromMap(qMap, "multiSelect"),
@@ -234,7 +237,7 @@ func parseQuestionsFromInput(input map[string]interface{}) []QuestionItem {
 				if optionsArray, ok := qMap["options"].([]interface{}); ok {
 					for _, o := range optionsArray {
 						if oMap, ok := o.(map[string]interface{}); ok {
-							question.Options = append(question.Options, QuestionOption{
+							question.Options = append(question.Options, agent.QuestionOption{
 								Label:       getStringFromMap(oMap, "label"),
 								Description: getStringFromMap(oMap, "description"),
 								Preview:     getStringFromMap(oMap, "preview"),
@@ -252,11 +255,11 @@ func parseQuestionsFromInput(input map[string]interface{}) []QuestionItem {
 }
 
 // parseACPUserInputRequest 解析用户输入请求通知
-func parseACPUserInputRequest(req acpUserInputRequest) Chunk {
+func parseACPUserInputRequest(req acpUserInputRequest) agent.Chunk {
 	questions := parseQuestionsFromInput(req.Input)
 
-	return Chunk{
-		Type:      ChunkTypeQuestion,
+	return agent.Chunk{
+		Type:      agent.ChunkTypeQuestion,
 		ToolName:  req.ToolName,
 		ToolID:    req.ToolCallID,
 		ToolInput: req.Input,

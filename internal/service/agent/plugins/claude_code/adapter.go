@@ -1,9 +1,9 @@
-package agent
+// Package claude_code implements the Claude CLI adapter as a plugin.
+package claude_code
 
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/anthropic/isdp/internal/model"
+	"github.com/anthropic/isdp/internal/service/agent"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
@@ -31,7 +32,7 @@ type ClaudeAdapter struct {
 	sessions map[string]*claudeSession
 	mu       sync.RWMutex
 
-	// CLI 进程管理（用于取消执行）
+	// CLI 进程管理（用于取消）
 	currentCmd   *exec.Cmd
 	currentCmdMu sync.RWMutex
 
@@ -46,11 +47,11 @@ type claudeSession struct {
 	cmd    *exec.Cmd
 	ctx    context.Context
 	cancel context.CancelFunc
-	status SessionStatus
+	status agent.SessionStatus
 }
 
 // NewClaudeAdapter 创建Claude适配器
-func NewClaudeAdapter(baseAgent *model.BaseAgent) *ClaudeAdapter {
+func NewClaudeAdapter(baseAgent *model.BaseAgent) agent.AgentAdapter {
 	cliPath := baseAgent.CliPath
 	if cliPath == "" {
 		cliPath = "claude"
@@ -74,7 +75,7 @@ func NewClaudeAdapter(baseAgent *model.BaseAgent) *ClaudeAdapter {
 }
 
 // Execute 执行单次任务（无会话上下文）
-func (a *ClaudeAdapter) Execute(ctx context.Context, req *ExecutionRequest) (*ExecutionResult, error) {
+func (a *ClaudeAdapter) Execute(ctx context.Context, req *agent.ExecutionRequest) (*agent.ExecutionResult, error) {
 	result, err := a.ExecuteWithStream(ctx, req, nil)
 	if err != nil {
 		return nil, err
@@ -90,7 +91,7 @@ func (a *ClaudeAdapter) GetCurrentProcess() *exec.Cmd {
 }
 
 // ExecuteWithStream 流式执行
-func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionRequest, onChunk func(Chunk)) (*ExecutionResult, error) {
+func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *agent.ExecutionRequest, onChunk func(agent.Chunk)) (*agent.ExecutionResult, error) {
 	prompt := a.buildPromptFromRequest(req)
 
 	// 确定会话ID：复用已有或创建新的
@@ -262,11 +263,14 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionReq
 				firstLineReceived = true
 				logInfo("[PERF] CLI first line received", zap.Duration("duration", time.Since(cliStartTime)), zap.Int("lineNum", lineCount))
 			}
+			// 调试：打印每行原始输出
+			if lineCount <= 5 {
+				logInfo("ExecuteWithStream: received line", zap.Int("lineNum", lineCount), zap.String("line", line[:minLen(200, len(line))]))
 			// 调试：打印每行原始输出（前5行或包含工具相关内容）
 			if lineCount <= 5 || strings.Contains(line, "tool_use") || strings.Contains(line, "AskUserQuestion") || strings.Contains(line, "input_json") {
 				logInfo("ExecuteWithStream: received line", zap.Int("lineNum", lineCount), zap.String("line", line[:min(500, len(line))]))
 			}
-			chunks := a.parseStreamJSONLine(line, onChunk != nil)
+			chunks := parseStreamJSONLine(line, onChunk != nil)
 			for _, chunk := range chunks {
 				if onChunk != nil {
 					chunkCount++
@@ -298,29 +302,29 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *ExecutionReq
 		)
 		// 执行失败时也返回 sessionId（用于入库追踪和问题定位）
 		if stderrOutput.Len() > 0 {
-			return &ExecutionResult{SessionID: sessionID}, fmt.Errorf("CLI error: %s", stderrOutput.String())
+			return &agent.ExecutionResult{SessionID: sessionID}, fmt.Errorf("CLI error: %s", stderrOutput.String())
 		}
-		return &ExecutionResult{SessionID: sessionID}, fmt.Errorf("CLI execution failed: %w", err)
+		return &agent.ExecutionResult{SessionID: sessionID}, fmt.Errorf("CLI execution failed: %w", err)
 	}
 
 	logInfo("[PERF] CLI total execution", zap.Duration("duration", time.Since(cliStartTime)))
-	return &ExecutionResult{SessionID: sessionID}, nil
+	return &agent.ExecutionResult{SessionID: sessionID}, nil
 }
 
 // StartSession 启动交互式会话
-func (a *ClaudeAdapter) StartSession(ctx context.Context, sessionID string, req *ExecutionRequest) error {
+func (a *ClaudeAdapter) StartSession(ctx context.Context, sessionID string, req *agent.ExecutionRequest) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
 	session := &claudeSession{
 		id:     sessionID,
-		status: SessionStatusRunning,
+		status: agent.SessionStatusRunning,
 	}
 
 	// 首次启动使用 ExecuteWithStream
 	_, err := a.ExecuteWithStream(ctx, req, nil)
 	if err != nil {
-		session.status = SessionStatusFailed
+		session.status = agent.SessionStatusFailed
 		return err
 	}
 
@@ -330,7 +334,7 @@ func (a *ClaudeAdapter) StartSession(ctx context.Context, sessionID string, req 
 }
 
 // ResumeSession 恢复会话
-func (a *ClaudeAdapter) ResumeSession(ctx context.Context, sessionID string, input string, onChunk func(Chunk)) error {
+func (a *ClaudeAdapter) ResumeSession(ctx context.Context, sessionID string, input string, onChunk func(agent.Chunk)) error {
 	a.mu.RLock()
 	_, exists := a.sessions[sessionID]
 	a.mu.RUnlock()
@@ -339,7 +343,7 @@ func (a *ClaudeAdapter) ResumeSession(ctx context.Context, sessionID string, inp
 		return fmt.Errorf("session not found: %s", sessionID)
 	}
 
-	req := &ExecutionRequest{
+	req := &agent.ExecutionRequest{
 		Input:     input,
 		BaseAgent: a.baseAgent,
 	}
@@ -358,7 +362,7 @@ func (a *ClaudeAdapter) StopSession(sessionID string) error {
 		return nil
 	}
 
-	session.status = SessionStatusStopped
+	session.status = agent.SessionStatusStopped
 	if session.cancel != nil {
 		session.cancel()
 	}
@@ -371,19 +375,19 @@ func (a *ClaudeAdapter) StopSession(sessionID string) error {
 }
 
 // GetSessionStatus 获取会话状态
-func (a *ClaudeAdapter) GetSessionStatus(sessionID string) SessionStatus {
+func (a *ClaudeAdapter) GetSessionStatus(sessionID string) agent.SessionStatus {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 
 	session, exists := a.sessions[sessionID]
 	if !exists {
-		return SessionStatusStopped
+		return agent.SessionStatusStopped
 	}
 	return session.status
 }
 
 // buildPromptFromRequest 从ExecutionRequest构建提示词
-func (a *ClaudeAdapter) buildPromptFromRequest(req *ExecutionRequest) string {
+func (a *ClaudeAdapter) buildPromptFromRequest(req *agent.ExecutionRequest) string {
 	var sb strings.Builder
 
 	if req.Context != nil {
@@ -748,7 +752,7 @@ func (a *ClaudeAdapter) parseStreamJSONLine(line string, isStreaming bool) []Chu
 
 // buildEnv 构建环境变量
 // 使用 map 去重，BaseAgent 配置的值会覆盖系统环境变量
-func (a *ClaudeAdapter) buildEnv(req *ExecutionRequest) []string {
+func (a *ClaudeAdapter) buildEnv(req *agent.ExecutionRequest) []string {
 	// 用 map 存储环境变量，后面的值会覆盖前面的
 	envMap := make(map[string]string)
 
@@ -820,7 +824,7 @@ func (a *ClaudeAdapter) CheckHealth(ctx context.Context) error {
 	cmd := exec.CommandContext(ctx, a.cliPath, args...)
 
 	// 构建与正常执行相同的环境变量（使用空的 ExecutionRequest，但包含基本配置）
-	execReq := &ExecutionRequest{
+	execReq := &agent.ExecutionRequest{
 		BaseAgent: a.baseAgent,
 	}
 	env := a.buildEnv(execReq)
@@ -894,6 +898,47 @@ func (a *ClaudeAdapter) CheckHealth(ctx context.Context) error {
 	return nil
 }
 
+// minLen returns the minimum of two integers
+func minLen(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// maskToken 对敏感token进行掩码处理，只显示前4位和后4位
+// 例如: "sk-ant-api03-xxxxx" -> "sk-a****xxxx"
+func maskToken(token string) string {
+	if token == "" {
+		return "<empty>"
+	}
+	if len(token) <= 8 {
+		return "****"
+	}
+	// 显示前4位和后4位，中间用****替代
+	return token[:4] + "****" + token[len(token)-4:]
+}
+
+// logInfo 记录信息级别日志
+func logInfo(msg string, fields ...zap.Field) {
+	if logger := zap.L(); logger != nil {
+		logger.Info(msg, fields...)
+	}
+}
+
+// logError 记录错误级别日志
+func logError(msg string, fields ...zap.Field) {
+	if logger := zap.L(); logger != nil {
+		logger.Error(msg, fields...)
+	}
+}
+
+// logDebug 记录调试级别日志
+func logDebug(msg string, fields ...zap.Field) {
+	if logger := zap.L(); logger != nil {
+		logger.Debug(msg, fields...)
+	}
+}
 // SendToolResult 发送工具结果给 CLI（用于 AskUserQuestion 等需要用户输入的工具）
 // CLI 使用 stdin 接收用户答案
 func (a *ClaudeAdapter) SendToolResult(invocationID uuid.UUID, toolCallID string, result string) error {

@@ -146,7 +146,6 @@ const BaseAgentSettings: React.FC = () => {
       case 'claude_code':
         return 'blue';
       case 'open_code':
-      case 'open_code_acp':
         return 'green';
       default:
         return 'default';
@@ -303,7 +302,7 @@ const BaseAgentSettings: React.FC = () => {
           <Form.Item shouldUpdate noStyle>
             {({ getFieldValue }) => {
               const agentType = getFieldValue('type');
-              if (agentType === 'open_code' || agentType === 'open_code_acp') {
+              if (agentType === 'open_code') {
                 return (
                   <Form.Item
                     name="apiUrl"
@@ -330,7 +329,7 @@ const BaseAgentSettings: React.FC = () => {
           <Form.Item shouldUpdate noStyle>
             {({ getFieldValue }) => {
               const agentType = getFieldValue('type');
-              if (agentType === 'open_code' || agentType === 'open_code_acp') {
+              if (agentType === 'open_code') {
                 return (
                   <div style={{ padding: '12px', background: '#fffbe6', borderRadius: '4px', marginBottom: '24px' }}>
                     <Text type="warning">

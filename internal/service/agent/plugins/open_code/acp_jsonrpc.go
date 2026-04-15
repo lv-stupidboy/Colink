@@ -1,4 +1,6 @@
-package agent
+// internal/service/agent/plugins/open_code/acp_jsonrpc.go
+// ACP JSON-RPC transport
+package open_code
 
 import (
 	"bufio"

@@ -79,10 +79,9 @@ func (s *BaseAgentService) Create(ctx context.Context, req *model.CreateBaseAgen
 	// 设置默认值
 	cliPath := req.CliPath
 	if cliPath == "" {
-		if req.Type == model.BaseAgentTypeClaudeCode {
-			cliPath = "claude"
-		} else if req.Type == model.BaseAgentTypeOpenCode || req.Type == model.BaseAgentTypeOpenCodeACP {
-			cliPath = "opencode"
+		meta := GetMeta(req.Type)
+		if meta != nil {
+			cliPath = meta.DefaultPath
 		}
 	}
 
@@ -196,7 +195,7 @@ func (s *BaseAgentService) TestConnection(ctx context.Context, id uuid.UUID) err
 	}
 
 	// 根据类型创建适配器并测试
-	adapter := NewAdapter(agent)
+	adapter := GetAdapter(agent)
 	if adapter == nil {
 		return errors.New("unsupported agent type")
 	}
@@ -206,23 +205,16 @@ func (s *BaseAgentService) TestConnection(ctx context.Context, id uuid.UUID) err
 
 // GetTypes 获取支持的基础Agent类型
 func (s *BaseAgentService) GetTypes() []model.BaseAgentTypeInfo {
-	return []model.BaseAgentTypeInfo{
-		{
-			Type:        model.BaseAgentTypeClaudeCode,
-			Name:        "Claude Code",
-			Description: "Anthropic Claude CLI - 使用 claude 命令行工具",
-		},
-		{
-			Type:        model.BaseAgentTypeOpenCode,
-			Name:        "OpenCode",
-			Description: "OpenCode CLI - 开源AI编程助手",
-		},
-		{
-			Type:        model.BaseAgentTypeOpenCodeACP,
-			Name:        "OpenCode (ACP)",
-			Description: "OpenCode CLI via ACP - 结构化输出(工具面板、思考过程、用量统计)",
-		},
+	types := GetTypes()
+	result := make([]model.BaseAgentTypeInfo, len(types))
+	for i, t := range types {
+		result[i] = model.BaseAgentTypeInfo{
+			Type:        t.Type,
+			Name:        t.Name,
+			Description: t.Description,
+		}
 	}
+	return result
 }
 
 // sanitizeAgent 清理敏感信息

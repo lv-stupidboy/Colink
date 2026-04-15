@@ -1,4 +1,6 @@
-package agent
+// internal/service/agent/plugins/open_code/acp_types.go
+// ACP protocol types
+package open_code
 
 import "encoding/json"
 
