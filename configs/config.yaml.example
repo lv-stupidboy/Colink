@@ -71,9 +71,24 @@ agent_config:
    data_dir: ./data/agent-configs
 
 # Multi-platform IM configuration
-# 如需启用飞书等平台集成，请参考 docs/im-adapter-guide.md 进行配置
+# 如需启用飞书等平台集成，请取消下方注释并填写对应配置
+# 详见 docs/im-adapter-guide.md
 im:
   platforms: []
+  # platforms:
+  #   # Feishu (Lark) platform
+  #   - type: feishu
+  #     enabled: true
+  #     rate_limit_max: 20
+  #     rate_limit_window: 60s
+  #     max_retries: 3
+  #     app_id: "your_app_id"
+  #     app_secret: "your_app_secret"
+  #     verification_token: ""
+  #     encrypt_key: ""
+  #     lark_cli_path: lark-cli
+  #     default_project_id: ""
+  #     event_mode: listener
 
 # 数据上报配置 - 用于产品分析和内部统计
 reporter:
