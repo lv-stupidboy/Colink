@@ -16,11 +16,11 @@ database:
 
   # MySQL配置 (type=mysql时生效)
   mysql:
-    host: "rm-bp1u503844l66n8g7no.mysql.rds.aliyuncs.com"
+    host: "localhost"
     port: 3306
-    database: dev_xx  # 开发库，正式库用 product
-    username: "isdp"
-    password: "<密码>"  # 密码请通过团队内部渠道获取
+    database: colink
+    username: "root"
+    password: ""  # 请填写实际密码
     charset: utf8mb4
     max_open_conns: 10
     max_idle_conns: 5
@@ -54,7 +54,7 @@ logging:
   format: json
 
 mcp:
-  base_url: http://localhost:8080/api/v1/mcp
+  base_url: http://localhost:26305/api/v1/mcp
   token_ttl: 30m
 
 # 认证配置
@@ -87,19 +87,6 @@ rule:
 # Agent配置池
 agent_config:
    data_dir: ./data/agent-configs
-
-# 飞书集成配置 (deprecated: use im.platforms instead)
-feishu:
-   enabled: false
-   app_id: ""
-   app_secret: ""
-   verification_token: ""
-   encrypt_key: ""
-   lark_cli_path: lark-cli
-   default_project_id: ""
-   # Event mode: "listener" (default) uses lark-cli WebSocket - no public URL needed
-   #             "webhook" uses HTTP webhook - requires public URL for Feishu to call
-   event_mode: listener
 
 # Multi-platform IM configuration
 im:
