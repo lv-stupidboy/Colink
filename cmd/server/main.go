@@ -34,6 +34,7 @@ import (
 	"github.com/anthropic/isdp/internal/service/thread"
 	"github.com/anthropic/isdp/internal/service/workflow"
 	"github.com/anthropic/isdp/internal/ws"
+	"github.com/anthropic/isdp/internal/reporter"
 	"github.com/anthropic/isdp/pkg/config"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -294,6 +295,21 @@ func main() {
 	}
 	useCountUpdater.Start(updateInterval)
 	defer useCountUpdater.Stop()
+
+		// 启动 Reporter（数据上报，如果配置启用）
+		if cfg.Reporter.Enabled {
+			reporterCfg := reporter.Config{
+				Enabled:       cfg.Reporter.Enabled,
+				Endpoint:      cfg.Reporter.Endpoint,
+				Interval:      cfg.Reporter.GetInterval(),
+				RetryTimes:    cfg.Reporter.RetryTimes,
+				RetryInterval: cfg.Reporter.GetRetryInterval(),
+			}
+			usageReporter := reporter.NewReporter(db, reporterCfg, Version)
+			usageReporter.SetLogger(logger)
+			usageReporter.Start()
+			defer usageReporter.Stop()
+		}
 
 	// 初始化适配器
 	// 默认适配器设为 nil，在执行时根据 AgentRoleConfig.BaseAgentID 动态创建适配器

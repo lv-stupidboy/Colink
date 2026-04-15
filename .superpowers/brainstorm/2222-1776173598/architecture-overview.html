@@ -1,0 +1,128 @@
+<h2>Colink 基础Agent架构分析</h2>
+<p class="subtitle">当前问题 vs 目标架构</p>
+
+<div class="section">
+<h3>当前架构问题</h3>
+<div class="mockup">
+<div class="mockup-header">现状：硬编码工厂模式</div>
+<div class="mockup-body" style="padding: 20px; font-size: 14px;">
+<pre style="background: #f5f5f5; padding: 15px; border-radius: 8px; overflow-x: auto;">
+┌─────────────────────────────────────────────────────────────┐
+│  编排层 (Orchestrator / ExecutionService)                   │
+│    ↓ 调用 NewAdapter(baseAgent)                             │
+├─────────────────────────────────────────────────────────────┤
+│  适配器工厂 (adapter.go)                                     │
+│    switch baseAgent.Type {                                   │
+│      case "claude_code":    → ClaudeAdapter     ❌ 硬编码   │
+│      case "open_code":      → OpenCodeAdapter   ❌ 硬编码   │
+│      case "open_code_acp":  → OpenCodeACPAdapter ❌ 硬编码  │
+│      default: nil                                          │
+│    }                                                        │
+├─────────────────────────────────────────────────────────────┤
+│  具体适配器实现                                              │
+│    ClaudeAdapter      ←── 内部代码                          │
+│    OpenCodeAdapter    ←── 内部代码 (要删除)                  │
+│    OpenCodeACPAdapter ←── 内部代码 (要重命名)                │
+└─────────────────────────────────────────────────────────────┘
+</pre>
+</div>
+</div>
+
+<div class="pros-cons" style="margin-top: 20px;">
+<div class="cons">
+<h4>问题清单</h4>
+<ul>
+<li><strong>违反开闭原则</strong>：新增Agent需修改工厂switch</li>
+<li><strong>4+文件耦合</strong>：adapter.go、base_agent_service.go、configgen、model</li>
+<li><strong>无法插件化</strong>：内网Agent无法独立打包部署</li>
+<li><strong>类型混乱</strong>：OpenCode vs OpenCode(ACP) 对用户暴露</li>
+<li><strong>命名不一致</strong>："Claude Code" 有空格</li>
+</ul>
+</div>
+</div>
+</div>
+
+<div class="section">
+<h3>目标架构：插件化注册机制</h3>
+<div class="mockup">
+<div class="mockup-header">目标：Adapter Registry + 插件包</div>
+<div class="mockup-body" style="padding: 20px; font-size: 14px;">
+<pre style="background: #e8f5e9; padding: 15px; border-radius: 8px; overflow-x: auto;">
+┌─────────────────────────────────────────────────────────────┐
+│  编排层 (Orchestrator / ExecutionService)                   │
+│    ↓ adapterRegistry.GetAdapter(baseAgent.Type)             │
+│    ✅ 完全不感知具体Agent类型                                 │
+├─────────────────────────────────────────────────────────────┤
+│  适配器注册中心 (AdapterRegistry)                            │
+│    map[string]AdapterFactory                                │
+│    Register(type, factory)  ←── 插件注册入口                 │
+│    GetAdapter(type)         ←── 编排层调用                   │
+├─────────────────────────────────────────────────────────────┤
+│  插件包 (独立部署单元)                                        │
+│                                                              │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │
+│  │ claude-code  │  │ open-code    │  │ 内网Agent    │       │
+│  │   插件包     │  │   插件包     │  │   插件包     │       │
+│  │              │  │              │  │              │       │
+│  │ Register()   │  │ Register()   │  │ Register()   │       │
+│  │ ClaudeAdapter│  │ OpenCodeACP  │  │ 内网Adapter  │       │
+│  │ config目录   │  │ config目录   │  │ config目录   │       │
+│  └──────────────┘  └──────────────┘  └──────────────┘       │
+│                                                              │
+│  新增Agent：只需实现插件包 + 调用Register()                   │
+└─────────────────────────────────────────────────────────────┘
+</pre>
+</div>
+</div>
+
+<div class="pros-cons" style="margin-top: 20px;">
+<div class="pros">
+<h4>架构优势</h4>
+<ul>
+<li><strong>开闭原则</strong>：新增Agent无需修改编排层代码</li>
+<li><strong>插件独立</strong>：内网Agent可单独开发、打包、部署</li>
+<li><strong>注册机制</strong>：启动时加载插件，动态注册类型</li>
+<li><strong>统一接口</strong>：所有Adapter实现相同AgentAdapter接口</li>
+<li><strong>配置分离</strong>：每个插件自带默认配置</li>
+</ul>
+</div>
+</div>
+</div>
+
+<div class="section">
+<h3>ACP协议通用性论证</h3>
+<div class="mockup">
+<div class="mockup-body" style="padding: 20px;">
+<table style="width: 100%; border-collapse: collapse;">
+<tr style="background: #f5f5f5;">
+<th style="padding: 10px; border: 1px solid #ddd;">协议</th>
+<th style="padding: 10px; border: 1px solid #ddd;">输出格式</th>
+<th style="padding: 10px; border: 1px solid #ddd;">扩展性</th>
+<th style="padding: 10px; border: 1px solid #ddd;">适用场景</th>
+</tr>
+<tr>
+<td style="padding: 10px; border: 1px solid #ddd;"><strong>CLI原生</strong></td>
+<td style="padding: 10px; border: 1px solid #ddd;">各Agent自定义格式<br/>Claude: stream-json<br/>OpenCode: 自定义JSON</td>
+<td style="padding: 10px; border: 1px solid #ddd;">❌ 每个Agent需单独解析</td>
+<td style="padding: 10px; border: 1px solid #ddd;">单一Agent</td>
+</tr>
+<tr style="background: #e8f5e9;">
+<td style="padding: 10px; border: 1px solid #ddd;"><strong>ACP协议</strong></td>
+<td style="padding: 10px; border: 1px solid #ddd;">标准化JSON-RPC<br/>统一事件类型<br/>结构化输出</td>
+<td style="padding: 10px; border: 1px solid #ddd;">✅ 新Agent只需实现ACP</td>
+<td style="padding: 10px; border: 1px solid #ddd;">多Agent通用</td>
+</tr>
+</table>
+
+<p style="margin-top: 15px; color: #666;">
+<strong>结论</strong>：ACP（Agent Communication Protocol）提供标准化的事件流格式，包括：
+<br/>• 工具调用/结果、思考过程、用量统计、错误信息
+<br/>• 新Agent只需实现ACP协议，无需单独适配解析逻辑
+</p>
+</div>
+</div>
+</div>
+
+<p style="margin-top: 20px; text-align: center; color: #666;">
+请查看架构图，后续我会展示具体改动方案
+</p>

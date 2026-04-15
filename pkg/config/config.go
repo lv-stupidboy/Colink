@@ -28,6 +28,7 @@ type Config struct {
 	Rule        RuleConfig        `mapstructure:"rule"`
 	Feishu      FeishuConfig      `mapstructure:"feishu"`
 	IM          IMConfig          `mapstructure:"im"`
+	Reporter    ReporterConfig    `mapstructure:"reporter"`
 }
 
 // DataConfig 数据目录配置
@@ -242,6 +243,56 @@ type RuleConfig struct {
 	UploadMaxSize int `mapstructure:"upload_max_size"`
 }
 
+// ReporterConfig 数据上报配置
+type ReporterConfig struct {
+	// Enabled 是否启用上报，默认 false
+	Enabled bool `mapstructure:"enabled"`
+	// Endpoint 上报服务地址
+	Endpoint string `mapstructure:"endpoint"`
+	// Interval 上报间隔，格式示例: "30m", "1h"
+	Interval string `mapstructure:"interval"`
+	// RetryTimes 失败重试次数，默认 3
+	RetryTimes int `mapstructure:"retry_times"`
+	// RetryInterval 重试间隔，格式示例: "1m", "30s"
+	RetryInterval string `mapstructure:"retry_interval"`
+}
+
+// ApplyDefaults 设置 Reporter 配置默认值
+func (c *ReporterConfig) ApplyDefaults() {
+	if c.Interval == "" {
+		c.Interval = "30m"
+	}
+	if c.RetryTimes == 0 {
+		c.RetryTimes = 3
+	}
+	if c.RetryInterval == "" {
+		c.RetryInterval = "1m"
+	}
+}
+
+// IsRunnable 返回是否应该启动 Reporter
+func (c *ReporterConfig) IsRunnable() bool {
+	return c.Enabled && c.Endpoint != ""
+}
+
+// GetInterval 获取上报间隔（解析为 time.Duration）
+func (c *ReporterConfig) GetInterval() time.Duration {
+	d, err := time.ParseDuration(c.Interval)
+	if err != nil {
+		return 30 * time.Minute
+	}
+	return d
+}
+
+// GetRetryInterval 获取重试间隔（解析为 time.Duration）
+func (c *ReporterConfig) GetRetryInterval() time.Duration {
+	d, err := time.ParseDuration(c.RetryInterval)
+	if err != nil {
+		return 1 * time.Minute
+	}
+	return d
+}
+
 const (
 	EventModeWebhook  = "webhook"
 	EventModeListener = "listener"
@@ -418,6 +469,7 @@ func Load(configPath string) (*Config, error) {
 	// 应用默认值（确保零值字段有合理的默认值）
 	cfg.Database.ApplyDefaults()
 	cfg.Feishu.ApplyDefaults()
+	cfg.Reporter.ApplyDefaults()
 
 	// 应用IM平台默认值
 	for i := range cfg.IM.Platforms {
@@ -531,6 +583,10 @@ func setDefaults() {
 	viper.SetDefault("feishu.enabled", false)
 	viper.SetDefault("feishu.lark_cli_path", "lark-cli")
 	viper.SetDefault("feishu.event_mode", EventModeListener)
+	viper.SetDefault("reporter.enabled", false)
+	viper.SetDefault("reporter.interval", "30m")
+	viper.SetDefault("reporter.retry_times", 3)
+	viper.SetDefault("reporter.retry_interval", "1m")
 
 	// IM 平台默认值（可选配置，默认为空数组）
 	// 具体平台配置通过 ApplyDefaults() 动态设置
