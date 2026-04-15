@@ -3,9 +3,9 @@
 *.dll
 *.so
 *.out
-server
-main
-isdp-server
+/server
+/main
+/isdp-server
 build/
 deploy/
 
