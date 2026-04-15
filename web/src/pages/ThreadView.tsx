@@ -529,10 +529,7 @@ const ThreadView: React.FC = () => {
     };
   }, [currentThread?.workflowTemplateId, currentThread?.projectId, projectId, loadWorkflowTemplate, loadProjectContext, clearProjectContext, isDebugMode]);
 
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
-
+  
   // 沙箱面板拖拽调整大小
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -1007,10 +1004,7 @@ const ThreadView: React.FC = () => {
     }
   };
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
+  
   /**
    * 调试模式发送消息
    */
