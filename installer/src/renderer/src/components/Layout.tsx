@@ -13,6 +13,10 @@ export default function Layout({ currentStep = 1, stepLabels = [], children, hid
     window.electronAPI?.minimizeWindow()
   }
 
+  const handleMaximize = () => {
+    window.electronAPI?.maximizeWindow()
+  }
+
   const handleClose = () => {
     window.electronAPI?.closeWindow()
   }
@@ -24,6 +28,7 @@ export default function Layout({ currentStep = 1, stepLabels = [], children, hid
         <h1>{title}</h1>
         <div className="title-bar-controls">
           <button className="title-bar-btn minimize" onClick={handleMinimize} />
+          <button className="title-bar-btn maximize" onClick={handleMaximize} />
           <button className="title-bar-btn close" onClick={handleClose} />
         </div>
       </div>

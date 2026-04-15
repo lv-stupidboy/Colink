@@ -14,6 +14,13 @@ let installDir: string = ''
 // ==================== IPC 处理器 ====================
 
 ipcMain.on('window-minimize', () => mainWindow?.minimize())
+ipcMain.on('window-maximize', () => {
+  if (mainWindow?.isMaximized()) {
+    mainWindow.unmaximize()
+  } else {
+    mainWindow?.maximize()
+  }
+})
 ipcMain.on('window-close', () => mainWindow?.close())
 
 ipcMain.handle('is-launcher-mode', () => true)
