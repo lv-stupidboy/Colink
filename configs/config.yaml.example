@@ -89,6 +89,24 @@ im:
   #     lark_cli_path: lark-cli
   #     default_project_id: ""
   #     event_mode: listener
+  #
+  #   # Slack platform
+  #   - type: slack
+  #     enabled: true
+  #     rate_limit_max: 20
+  #     rate_limit_window: 60s
+  #     max_retries: 3
+  #     bot_token: ""
+  #     signing_secret: ""
+  #
+  #   # Discord platform
+  #   - type: discord
+  #     enabled: true
+  #     rate_limit_max: 20
+  #     rate_limit_window: 60s
+  #     max_retries: 3
+  #     bot_token: ""
+  #     application_id: ""
 
 # 数据上报配置 - 用于产品分析和内部统计
 reporter:
