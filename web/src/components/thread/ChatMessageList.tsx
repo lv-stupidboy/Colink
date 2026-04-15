@@ -1,5 +1,5 @@
 // isdp/web/src/components/thread/ChatMessageList.tsx
-import React, { memo, useEffect, useRef } from 'react';
+import { forwardRef, useRef, useEffect, RefObject } from 'react';
 import type { AgentConfig, ToolEvent } from '@/types';
 import type { FileChange } from '@/types/content';
 import { ChatMessage } from './ChatMessage';
@@ -62,19 +62,24 @@ function getAgentConfig(
 /**
  * 消息列表组件
  */
-export const ChatMessageList: React.FC<ChatMessageListProps> = memo(({
-  messages,
-  agentConfigs,
-  projectPath,
-  toolEvents = {},
-  onStopAgent,
-  onRetryAgent,
-  onOpenCodePanel,
-  loading = false,
-  autoScroll = true,
-  onQuestionSubmit,
-}) => {
-  const listRef = useRef<HTMLDivElement>(null);
+export const ChatMessageList = forwardRef<HTMLDivElement, ChatMessageListProps>(
+  (props, ref) => {
+    const {
+      messages,
+      agentConfigs,
+      projectPath,
+      toolEvents = {},
+      onStopAgent,
+      onRetryAgent,
+      onOpenCodePanel,
+      loading = false,
+      autoScroll = true,
+      onQuestionSubmit,
+    } = props;
+
+    // Use passed ref or create internal one
+    const internalRef = useRef<HTMLDivElement>(null);
+    const listRef = (ref as RefObject<HTMLDivElement>) || internalRef;
 
   // 使用自动滚动控制 hook
   const { isNearBottom, bottomAnchorRef } = useAutoScrollControl(listRef);

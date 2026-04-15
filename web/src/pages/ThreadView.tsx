@@ -47,6 +47,7 @@ import { BlockingDetector } from '@/utils/blockingDetector';
 import { sendAgentCompletionNotification, requestNotificationPermission, isNotificationGranted, clearPendingNotifications } from '@/utils/systemNotification';
 import { ChatMessageList } from '@/components/thread/ChatMessageList';
 import { StatusPanel } from '@/components/thread/StatusPanel';
+import MessageScrollIndicator from '@/components/thread/MessageScrollIndicator';
 import FileTree from '@/components/FileTree';
 import api from '@/api/client';
 import type { Thread } from '@/types';
@@ -69,6 +70,7 @@ const ThreadView: React.FC = () => {
   const { threadId, projectId, agentId } = useParams<{ threadId: string; projectId: string; agentId: string }>();
   const navigate = useNavigate();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatMessageListRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const threadIdRef = useRef<string | null>(null);
   const wsConnectedRef = useRef(false);
@@ -1765,17 +1767,25 @@ const ThreadView: React.FC = () => {
                   </Text>
                 </div>
               ) : (
-                <ChatMessageList
-                  messages={messages}
-                  agentConfigs={mentionableAgents}
-                  projectPath={displayProjectPath}
-                  toolEvents={toolEvents}
-                  onStopAgent={handleStopAgent}
-                  onRetryAgent={handleRetryAgent}
-                  onOpenCodePanel={openCodePanel}
-                  autoScroll={true}
-                  onQuestionSubmit={handleInlineQuestionSubmit}
-                />
+                <>
+                  <ChatMessageList
+                    ref={chatMessageListRef}
+                    messages={messages}
+                    agentConfigs={mentionableAgents}
+                    projectPath={displayProjectPath}
+                    toolEvents={toolEvents}
+                    onStopAgent={handleStopAgent}
+                    onRetryAgent={handleRetryAgent}
+                    onOpenCodePanel={openCodePanel}
+                    autoScroll={true}
+                    onQuestionSubmit={handleInlineQuestionSubmit}
+                  />
+                  <MessageScrollIndicator
+                    messages={messages}
+                    agentConfigs={mentionableAgents}
+                    containerRef={chatMessageListRef}
+                  />
+                </>
               )}
               <div ref={messagesEndRef} />
             </div>
@@ -1878,17 +1888,25 @@ const ThreadView: React.FC = () => {
                   <Text type="secondary">在下方输入您的需求，或使用 @需求分析师、@架构师、@开发者 等 Agent 协助开发</Text>
                 </div>
               ) : (
-                <ChatMessageList
-                  messages={messages}
-                  agentConfigs={mentionableAgents}
-                  projectPath={displayProjectPath}
-                  toolEvents={toolEvents}
-                  onStopAgent={handleStopAgent}
-                  onRetryAgent={handleRetryAgent}
-                  onOpenCodePanel={openCodePanel}
-                  autoScroll={true}
-                  onQuestionSubmit={handleInlineQuestionSubmit}
-                />
+                <>
+                  <ChatMessageList
+                    ref={chatMessageListRef}
+                    messages={messages}
+                    agentConfigs={mentionableAgents}
+                    projectPath={displayProjectPath}
+                    toolEvents={toolEvents}
+                    onStopAgent={handleStopAgent}
+                    onRetryAgent={handleRetryAgent}
+                    onOpenCodePanel={openCodePanel}
+                    autoScroll={true}
+                    onQuestionSubmit={handleInlineQuestionSubmit}
+                  />
+                  <MessageScrollIndicator
+                    messages={messages}
+                    agentConfigs={mentionableAgents}
+                    containerRef={chatMessageListRef}
+                  />
+                </>
               )}
               <div ref={messagesEndRef} />
             </div>
