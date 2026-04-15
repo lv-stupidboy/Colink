@@ -1887,6 +1887,20 @@ func (es *ExecutionService) broadcastChunk(threadID, invocationID uuid.UUID, chu
 		// 累积结构化内容块（用于持久化）
 		agent.ContentBlocksMu.Lock()
 		now := time.Now().UnixMilli()
+
+		// 上层屏蔽差异：在收到非 thinking 的 chunk 时，自动结束之前的 streaming thinking 块
+		// 这是为了处理某些适配器（如 OpenCode ACP）不发送 Done 标记的情况
+		if chunk.Type != ChunkTypeThinking && len(agent.AccumulatedContentBlocks) > 0 {
+			for i := len(agent.AccumulatedContentBlocks) - 1; i >= 0; i-- {
+				block := &agent.AccumulatedContentBlocks[i]
+				if block.Type == "thinking" && block.Status == "streaming" {
+					block.Status = "success"
+					block.Done = true
+					logInfo("Auto-closed streaming thinking block", zap.Int("blockIndex", i))
+					break // 只结束最后一个 streaming thinking 块
+				}
+			}
+		}
 		switch chunk.Type {
 		case ChunkTypeThinking:
 			// 思考块：智能累积或追加
