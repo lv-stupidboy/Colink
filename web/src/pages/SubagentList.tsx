@@ -7,7 +7,6 @@ import {
   PlusOutlined,
   EditOutlined,
   DeleteOutlined,
-  RobotOutlined,
   EyeOutlined,
   CloudUploadOutlined
 } from '@ant-design/icons';

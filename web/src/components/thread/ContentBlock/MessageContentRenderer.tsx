@@ -44,8 +44,6 @@ const MessageContentRenderer: React.FC<MessageContentRendererProps> = memo(({
   filterWaitingQuestions = true,
   messageInvocationId,
 }) => {
-  // 获取 streamingContentBlocks，用于过滤正在等待用户输入的 question blocks
-  const streamingContentBlocks = useAppStore((s) => s.streamingContentBlocks);
   // 获取已提交的 question block IDs，用于过滤历史消息中的重复渲染
   const submittedQuestionBlockIds = useAppStore((s) => s.submittedQuestionBlockIds);
 
