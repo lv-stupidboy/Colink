@@ -17,6 +17,25 @@ const fsReadFile = (path: string, options?: any) => Promise.resolve(readFileSync
 const fsUnlink = (path: string) => Promise.resolve(unlinkSync(path))
 const fsStat = (path: string) => Promise.resolve(statSync(path))
 
+// 手动递归复制目录（替代 cpSync，因为 original-fs 不支持 cpSync）
+function copyDirRecursive(src: string, dest: string): void {
+  if (existsSync(dest)) {
+    rmSync(dest, { recursive: true, force: true })
+  }
+  mkdirSync(dest, { recursive: true })
+
+  const entries = readdirSync(src, { withFileTypes: true })
+  for (const entry of entries) {
+    const srcPath = join(src, entry.name)
+    const destPath = join(dest, entry.name)
+    if (entry.isDirectory()) {
+      copyDirRecursive(srcPath, destPath)
+    } else {
+      copyFileSync(srcPath, destPath)
+    }
+  }
+}
+
 // ==================== 依赖检测与安装 ====================
 
 export interface DependencyCheckResult {
@@ -356,7 +375,7 @@ export async function copyApplicationFiles(
       if (existsSync(webDest)) {
         await forceDelete(webDest)
       }
-      cpSync(webSrc, webDest, { recursive: true })
+      copyDirRecursive(webSrc, webDest)
     } else {
       console.warn('[Copy] web/ not found')
     }
