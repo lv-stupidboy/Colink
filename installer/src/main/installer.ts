@@ -280,12 +280,23 @@ function mergeObjects(user: any, template: any): any {
 
 // 强制结束所有相关进程（不包括当前进程）
 export async function killAllProcesses(): Promise<void> {
+  // 结束服务进程
   try {
     execSync('taskkill /f /im colink-server.exe 2>nul', { encoding: 'utf8' })
   } catch {}
-  // 同时结束旧版进程名（兼容升级）
+  // 同时结束旧版服务进程名（兼容升级）
   try {
     execSync('taskkill /f /im isdp-server.exe 2>nul', { encoding: 'utf8' })
+  } catch {}
+
+  // 结束启动器进程（升级时需要覆盖 Colink.exe）
+  // Setup.exe 进程名是 "Colink Setup.exe"，不会被误杀
+  try {
+    execSync('taskkill /f /im Colink.exe 2>nul', { encoding: 'utf8' })
+  } catch {}
+  // 同时结束旧版启动器进程（兼容升级）
+  try {
+    execSync('taskkill /f /im ISDP.exe 2>nul', { encoding: 'utf8' })
   } catch {}
 
   // 等待进程完全退出
