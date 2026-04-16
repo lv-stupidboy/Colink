@@ -401,6 +401,25 @@ export async function copyLauncherFiles(
 
     const fs = require('original-fs')
 
+    // 手动递归复制目录（original-fs 不支持 cpSync）
+    const copyDirRecursive = (src: string, dest: string) => {
+      if (fs.existsSync(dest)) {
+        fs.rmSync(dest, { recursive: true, force: true })
+      }
+      fs.mkdirSync(dest, { recursive: true })
+
+      const entries = fs.readdirSync(src, { withFileTypes: true })
+      for (const entry of entries) {
+        const srcPath = join(src, entry.name)
+        const destPath = join(dest, entry.name)
+        if (entry.isDirectory()) {
+          copyDirRecursive(srcPath, destPath)
+        } else {
+          fs.copyFileSync(srcPath, destPath)
+        }
+      }
+    }
+
     const entries = fs.readdirSync(launcherSrcDir, { withFileTypes: true })
     if (entries.length === 0) {
       return { success: false, error: `启动器目录为空: ${launcherSrcDir}` }
@@ -431,16 +450,13 @@ export async function copyLauncherFiles(
               }
               fs.copyFileSync(resSrcPath, resDestPath)
             } else if (fs.statSync(resSrcPath).isDirectory()) {
-              fs.cpSync(resSrcPath, resDestPath, { recursive: true })
+              copyDirRecursive(resSrcPath, resDestPath)
             } else {
               fs.copyFileSync(resSrcPath, resDestPath)
             }
           }
         } else if (fileStat.isDirectory()) {
-          if (fs.existsSync(destPath)) {
-            fs.rmSync(destPath, { recursive: true, force: true })
-          }
-          fs.cpSync(srcPath, destPath, { recursive: true })
+          copyDirRecursive(srcPath, destPath)
         } else {
           if (fs.existsSync(destPath)) {
             fs.rmSync(destPath, { force: true })
