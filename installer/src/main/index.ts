@@ -741,7 +741,10 @@ ipcMain.handle('open-console', async () => {
 
 // ==================== 应用启动 ====================
 
-// 单实例锁定：如果已有实例运行，激活它并退出
+// 设置应用名称，确保与 Launcher 的单实例锁独立
+app.setName('Colink Setup')
+
+// 单实例锁定：Setup 只允许一个实例运行
 const gotTheLock = app.requestSingleInstanceLock()
 
 if (!gotTheLock) {

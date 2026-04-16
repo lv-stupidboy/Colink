@@ -206,6 +206,9 @@ function createLauncherWindow(): BrowserWindow {
 
 // ==================== 应用启动 ====================
 
+// 设置应用名称，确保与 Setup 的单实例锁独立
+app.setName('Colink')
+
 // 单实例锁定
 const gotTheLock = app.requestSingleInstanceLock()
 
