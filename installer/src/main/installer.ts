@@ -9,13 +9,13 @@ import YAML from 'yaml'
 
 const execAsync = promisify(exec)
 
-// 使用 promisify 包装 fs 函数，避免 fs/promises 在 Electron 打包时被替换为 original-fs/promises 导致错误
-const fsMkdir = promisify(mkdirSync)
-const fsWriteFile = promisify(writeFileSync)
-const fsCopyFile = promisify(copyFileSync)
-const fsReadFile = promisify(readFileSync)
-const fsUnlink = promisify(unlinkSync)
-const fsStat = promisify(statSync)
+// 使用 Promise 包装 fs 同步函数，避免 fs/promises 在 Electron 打包时被替换为 original-fs/promises 导致错误
+const fsMkdir = (path: string, options?: any) => Promise.resolve(mkdirSync(path, options))
+const fsWriteFile = (path: string, data: string | Buffer, options?: any) => Promise.resolve(writeFileSync(path, data, options))
+const fsCopyFile = (src: string, dest: string) => Promise.resolve(copyFileSync(src, dest))
+const fsReadFile = (path: string, options?: any) => Promise.resolve(readFileSync(path, options))
+const fsUnlink = (path: string) => Promise.resolve(unlinkSync(path))
+const fsStat = (path: string) => Promise.resolve(statSync(path))
 
 // ==================== 依赖检测与安装 ====================
 
