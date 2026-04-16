@@ -451,7 +451,16 @@ export async function copyLauncherFiles(
         onProgress?.(Math.round((copiedFiles / totalFiles) * 100))
       } catch (copyError) {
         console.error(`[Copy] Failed to copy ${entry.name}:`, copyError)
-        // 继续复制其他文件
+        // 关键文件复制失败立即返回错误
+        if (entry.name === 'Colink.exe' || entry.name === 'ISDP.exe') {
+          const errorMsg = copyError instanceof Error ? copyError.message : '未知错误'
+          // Windows常见错误：文件被锁定
+          if (errorMsg.includes('EPERM') || errorMsg.includes('EACCES') || errorMsg.includes('being used')) {
+            return { success: false, error: `${entry.name} 被锁定，请确保启动器已完全关闭后重试` }
+          }
+          return { success: false, error: `${entry.name} 复制失败: ${errorMsg}` }
+        }
+        // 非关键文件继续复制
       }
     }
 
