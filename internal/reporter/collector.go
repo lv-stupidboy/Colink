@@ -58,17 +58,21 @@ func (c *Collector) queryCount(ctx context.Context, query string, result *int) e
 
 // queryBaseAgentStats returns comprehensive statistics for each base agent type.
 func (c *Collector) queryBaseAgentStats(ctx context.Context) ([]BaseAgentStats, error) {
-	// Single query to get all stats grouped by base agent type
+	// 查询所有 base_agents 的统计数据
+	// 1. 处理 base_agent_id 为空的角色，归入默认 base_agent
+	// 2. user_messages_count：统计 agent_invocations 的调用次数（每次调用代表一次用户请求）
+	// 3. agent_messages_count：统计 messages 中 role='agent' 的消息数
 	query := `
 		SELECT
 			ba.type,
 			COUNT(DISTINCT ba.id) as base_count,
 			COUNT(DISTINCT ac.id) as agents_count,
-			SUM(CASE WHEN m.role = 'user' AND m.agent_id IS NOT NULL THEN 1 ELSE 0 END) as user_messages_count,
+			COUNT(DISTINCT ai.id) as user_messages_count,
 			SUM(CASE WHEN m.role = 'agent' THEN 1 ELSE 0 END) as agent_messages_count
 		FROM base_agents ba
-		LEFT JOIN agent_configs ac ON ac.base_agent_id = ba.id
-		LEFT JOIN messages m ON m.agent_id = ac.id
+		LEFT JOIN agent_configs ac ON ac.base_agent_id = ba.id OR (ac.base_agent_id IS NULL AND ba.is_default = true)
+		LEFT JOIN agent_invocations ai ON ai.agent_config_id = ac.id
+		LEFT JOIN messages m ON m.role = 'agent' AND CAST(m.agent_id AS TEXT) = CAST(ac.id AS TEXT)
 		GROUP BY ba.type
 	`
 
