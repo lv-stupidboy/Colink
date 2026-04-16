@@ -16,7 +16,8 @@ import {
   readExistingConfig,
   copyApplicationFiles,
   writeRegistry,
-  deleteRegistry
+  deleteRegistry,
+  checkProcessesRunning
 } from './installer'
 import { ServiceManager } from './service-manager'
 import { showCloseConfirm } from './shared/window-utils'
@@ -383,8 +384,20 @@ ipcMain.handle('generate-config-preview', async (_event, params: {
 })
 
 ipcMain.handle('start-installation', async (_event, config) => {
-  // 安装前停止所有进程
-  await stopAllProcesses()
+  // 升级前检测进程是否运行，若运行则报错提示用户手动停止
+  const runningProcesses = checkProcessesRunning()
+  if (runningProcesses.length > 0) {
+    // 弹窗提示用户
+    const processList = runningProcesses.map(p => `- ${p}`).join('\n')
+    dialog.showMessageBox(mainWindow!, {
+      type: 'error',
+      title: '无法升级',
+      message: '检测到以下进程正在运行，请先手动停止后再升级：',
+      detail: `${processList}\n\n请在启动器中停止服务，或手动关闭相关程序后重试。`,
+      buttons: ['确定'],
+    })
+    return { success: false, error: '进程正在运行，请先手动停止' }
+  }
 
   const sourceDir = getExeDir()
   const resourcePath = isDev ? join(__dirname, '../../resources') : process.resourcesPath
