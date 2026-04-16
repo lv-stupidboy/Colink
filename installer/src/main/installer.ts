@@ -468,8 +468,9 @@ export async function uninstallOldVersion(
     try { if (existsSync(startMenuPath)) rmSync(startMenuPath) } catch {}
     onProgress?.(20)
 
-    // 白名单模式：只保留 data 目录，其余全部删除
-    const whitelist = ['data']  // 保留的目录/文件
+    // 白名单模式：只保留 data 和 resources 目录，其余全部删除
+    // resources 保留是因为 Setup.exe 可能锁定同名目录，后续复制会覆盖
+    const whitelist = ['data', 'resources']  // 保留的目录/文件
     const entries = readdirSync(installDir, { withFileTypes: true })
     const entriesToDelete = entries.filter(e => !whitelist.includes(e.name))
 
