@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron'
 import { join } from 'path'
 import { existsSync, readFileSync } from 'fs'
+import http from 'http'
 import { ServiceManager } from './service-manager'
 import { getInstalledVersion } from './shared/install-utils'
 import { showCloseConfirm } from './shared/window-utils'
@@ -52,6 +53,53 @@ ipcMain.handle('stop-service', async () => {
 
 ipcMain.handle('get-service-status', async () => {
   return { status: serviceManager?.getStatus() || 'stopped' }
+})
+
+ipcMain.handle('get-running-agents', async () => {
+  if (!installDir) {
+    return { instances: [] }
+  }
+
+  let port = 26305
+  try {
+    const configPath = join(installDir, 'data', 'configs', 'config.yaml')
+    if (existsSync(configPath)) {
+      const content = readFileSync(configPath, 'utf-8')
+      const portMatch = content.match(/port:\s*(\d+)/)
+      if (portMatch) {
+        port = parseInt(portMatch[1])
+      }
+    }
+  } catch (e) {
+    console.warn('[Launcher] Failed to read config port:', e)
+  }
+
+  return new Promise((resolve) => {
+    const req = http.request({
+      hostname: 'localhost',
+      port: port,
+      path: '/api/v1/invocations/running',
+      method: 'GET',
+      timeout: 5000
+    }, (res) => {
+      let data = ''
+      res.on('data', chunk => data += chunk)
+      res.on('end', () => {
+        try {
+          const result = JSON.parse(data)
+          resolve(result)
+        } catch {
+          resolve({ instances: [] })
+        }
+      })
+    })
+    req.on('error', () => resolve({ instances: [] }))
+    req.on('timeout', () => {
+      req.destroy()
+      resolve({ instances: [] })
+    })
+    req.end()
+  })
 })
 
 ipcMain.handle('open-logs', async () => {

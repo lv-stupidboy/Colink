@@ -473,6 +473,56 @@ ipcMain.handle('get-service-status', async () => {
   return { status: serviceManager?.getStatus() || 'stopped' }
 })
 
+ipcMain.handle('get-running-agents', async () => {
+  const installed = getInstalledVersion()
+  if (!installed.installed || !installed.installDir) {
+    return { instances: [] }
+  }
+
+  // 尝试从配置文件读取端口
+  let port = 26305
+  try {
+    const configPath = join(installed.installDir, 'data', 'configs', 'config.yaml')
+    if (existsSync(configPath)) {
+      const content = await readFile(configPath, 'utf-8')
+      const portMatch = content.match(/port:\s*(\d+)/)
+      if (portMatch) {
+        port = parseInt(portMatch[1])
+      }
+    }
+  } catch (e) {
+    console.warn('[GetRunningAgents] Failed to read config:', e)
+  }
+
+  // 使用http模块调用API
+  return new Promise((resolve) => {
+    const req = http.request({
+      hostname: 'localhost',
+      port: port,
+      path: '/api/v1/invocations/running',
+      method: 'GET',
+      timeout: 5000
+    }, (res) => {
+      let data = ''
+      res.on('data', chunk => data += chunk)
+      res.on('end', () => {
+        try {
+          const result = JSON.parse(data)
+          resolve(result)
+        } catch {
+          resolve({ instances: [] })
+        }
+      })
+    })
+    req.on('error', () => resolve({ instances: [] }))
+    req.on('timeout', () => {
+      req.destroy()
+      resolve({ instances: [] })
+    })
+    req.end()
+  })
+})
+
 // 卸载前确认
 ipcMain.handle('confirm-uninstall', async () => {
   const installed = getInstalledVersion()
