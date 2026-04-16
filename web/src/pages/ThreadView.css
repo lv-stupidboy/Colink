@@ -157,10 +157,12 @@
   flex: 1;
   overflow-y: auto;
   padding: 20px 24px;
+  padding-right: 32px;
   background: transparent;
   display: flex;
   flex-direction: column;
   gap: 4px;
+  position: relative; /* 为指示器提供定位基准 */
 }
 
 /* 自定义滚动条 */
@@ -992,9 +994,9 @@
 .message-scroll-indicators {
   position: absolute;
   right: 8px;
-  top: 0;
+  top: 10px; /* 避免覆盖顶部按钮区域 */
   width: 24px;
-  height: 100%;
+  height: calc(100% - 20px); /* 上下留出空间 */
   pointer-events: auto;
   z-index: 10;
 }
@@ -1006,18 +1008,18 @@
   height: 16px;
   cursor: pointer;
   transition: transform 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.indicator-item:hover {
-  transform: scale(1.3);
-}
-
-/* 调整消息区域为指示器留出空间 */
-.thread-messages {
-  padding-right: 32px;
-}
-
-/* 深色模式适配 */
-[data-theme='dark'] .indicator-item {
+.indicator-item .ant-avatar {
+  border: 1px solid var(--border-color);
   background: var(--bg-container);
+}
+
+/* 深色模式适配 - Avatar 背景 */
+[data-theme='dark'] .indicator-item .ant-avatar {
+  background: var(--bg-container);
+  border-color: var(--border-color);
 }
