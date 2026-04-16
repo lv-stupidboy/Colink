@@ -153,7 +153,19 @@ const MessageScrollIndicator: React.FC<MessageScrollIndicatorProps> = ({
   const getDisplayName = (indicator: IndicatorItem) => {
     if (indicator.role === 'user') return '用户';
     if (indicator.role === 'system') return '系统';
-    return indicator.agentName || 'Agent';
+
+    // 优先使用 agentName
+    if (indicator.agentName && indicator.agentName.trim()) {
+      return indicator.agentName;
+    }
+
+    // 从 agentConfigs 中查找名字
+    const config = getAgentConfig(indicator.agentId, indicator.agentName);
+    if (config?.name) {
+      return config.name;
+    }
+
+    return 'Agent';
   };
 
   // 消息为空时不渲染
