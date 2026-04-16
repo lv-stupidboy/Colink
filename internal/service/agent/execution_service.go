@@ -3490,3 +3490,35 @@ func (es *ExecutionService) extractStructuredHistory(messages []*model.Message, 
 	return sb.String()
 }
 
+// GetAllRunningAgents 获取所有运行中的Agent信息
+func (es *ExecutionService) GetAllRunningAgents(ctx context.Context) ([]RunningAgentInfo, error) {
+	es.mu.RLock()
+	defer es.mu.RUnlock()
+
+	var result []RunningAgentInfo
+	for _, agent := range es.runningAgents {
+		// 通过ThreadContext缓存获取Project和Thread信息
+		threadCtx, exists := es.threadContexts[agent.ThreadID]
+		projectName := ""
+		threadTitle := ""
+		if exists && threadCtx != nil {
+			if threadCtx.Project != nil {
+				projectName = threadCtx.Project.Name
+			}
+			if threadCtx.Thread != nil {
+				threadTitle = threadCtx.Thread.Name
+			}
+		}
+
+		result = append(result, RunningAgentInfo{
+			InvocationID:           agent.InvocationID,
+			AgentName:              agent.AgentConfig.Name,
+			ProjectName:            projectName,
+			ThreadTitle:            threadTitle,
+			StartedAt:              agent.StartedAt,
+			RunningDurationSeconds: int(time.Since(agent.StartedAt).Seconds()),
+		})
+	}
+	return result, nil
+}
+
