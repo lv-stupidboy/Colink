@@ -1,56 +1,21 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Typography,
   Button,
   Modal,
   Form,
   Input,
   message,
-  Tag,
-  Popconfirm,
   Spin,
   Empty,
-  Popover,
 } from 'antd';
-import {
-  PlusOutlined,
-  DeleteOutlined,
-  TeamOutlined,
-  UserOutlined,
-  CrownOutlined,
-  EditOutlined,
-} from '@ant-design/icons';
+import { PlusOutlined } from '@ant-design/icons';
 import { api } from '@/api/client';
 import type { AgentConfig, Transition } from '@/types';
-import { AgentRoleLabels } from '@/types';
 import AgentTriggerModal from './AgentTriggerModal';
+import TeamCard, { TeamAgent, TeamView, AgentTrigger, teamViewToTransitions } from './TeamCard';
 import './Workflow.css';
 
-const { Text } = Typography;
-
-// Agent 触发配置
-interface AgentTrigger {
-  toAgentId: string;
-  triggerHint: string;
-}
-
-// 团队视图中的 Agent
-interface TeamAgent {
-  config: AgentConfig;
-  triggers: AgentTrigger[];
-}
-
-// 团队视图
-interface TeamView {
-  id: string;
-  name: string;
-  description?: string;
-  agents: TeamAgent[];
-  isDefault: boolean;
-  isSystem: boolean;
-}
-
-// Transition 转换为 AgentTrigger 视图
+// Transition 转换为 TeamAgent 视图
 function transitionsToTeamView(
   agentIds: string[],
   transitions: Transition[],
@@ -77,24 +42,6 @@ function transitionsToTeamView(
 
     return { config, triggers };
   });
-}
-
-// AgentTrigger 视图转换为 Transition 数组
-function teamViewToTransitions(teamAgents: TeamAgent[]): Transition[] {
-  const transitions: Transition[] = [];
-
-  teamAgents.forEach(agent => {
-    agent.triggers.forEach(trigger => {
-      transitions.push({
-        fromAgentId: agent.config.id,
-        toAgentId: trigger.toAgentId,
-        type: 'sequence', // 默认顺序执行
-        triggerHint: trigger.triggerHint,
-      });
-    });
-  });
-
-  return transitions;
 }
 
 const WorkflowPage: React.FC = () => {
@@ -310,119 +257,42 @@ const WorkflowPage: React.FC = () => {
     }
   };
 
-  // 获取可添加的 Agent 列表
-  const getAvailableAgents = useCallback((teamId: string) => {
+  // 更新 Agent 排序
+  const handleUpdateAgentOrder = useCallback(async (teamId: string, agentIds: string[]) => {
     const team = teams.find(t => t.id === teamId);
-    if (!team) return agents;
+    if (!team) return;
 
-    const existingIds = new Set(team.agents.map(a => a.config.id));
-    return agents.filter(a => !existingIds.has(a.id));
+    // 根据新的 agentIds 顺序重建 agents 数组
+    const agentMap = new Map(team.agents.map(a => [a.config.id, a]));
+    const updatedAgents = agentIds.map(id => {
+      const agent = agentMap.get(id);
+      if (!agent) {
+        // 如果 agentId 不在现有 agents 中，可能是新添加的
+        const config = agents.find(a => a.id === id);
+        if (config) {
+          return { config, triggers: [] };
+        }
+        return { config: { id, name: '未知 Agent' } as AgentConfig, triggers: [] };
+      }
+      return agent;
+    }).filter((a): a is TeamAgent => a !== null);
+
+    const transitions = teamViewToTransitions(updatedAgents);
+
+    try {
+      await api.workflows.update(teamId, {
+        agentIds,
+        transitions,
+      });
+
+      setTeams(teams.map(t =>
+        t.id === teamId ? { ...t, agents: updatedAgents } : t
+      ));
+      message.success('排序更新成功');
+    } catch (error: any) {
+      message.error(error?.response?.data?.error || '排序更新失败');
+    }
   }, [teams, agents]);
-
-  // 渲染团队卡片
-  const renderTeamCard = (team: TeamView) => {
-    const availableAgents = getAvailableAgents(team.id);
-
-    return (
-      <div key={team.id} className="workflow-team-card">
-        {/* 团队头部 */}
-        <div className="workflow-team-header">
-          <div className="workflow-team-title-wrapper">
-            <TeamNameEditor
-              name={team.name}
-              description={team.description}
-              onSave={(name, desc) => handleUpdateTeamName(team.id, name, desc)}
-              disabled={team.isSystem}
-            />
-            {team.isDefault && <Tag color="gold" style={{ marginLeft: 8 }}>默认</Tag>}
-            {team.isSystem && <Tag color="purple" style={{ marginLeft: 4 }}>系统</Tag>}
-          </div>
-          {!team.isSystem && (
-            <Popconfirm
-              title="确定删除此团队？"
-              onConfirm={() => handleDeleteTeam(team.id)}
-              okText="确定"
-              cancelText="取消"
-            >
-              <Button type="text" danger icon={<DeleteOutlined />} size="small" />
-            </Popconfirm>
-          )}
-        </div>
-
-        {/* Agent 列表 */}
-        <div className="workflow-team-agents">
-          {team.agents.map((agent, index) => (
-            <div
-              key={agent.config.id}
-              className="workflow-agent-avatar-wrapper"
-            >
-              <div
-                className="workflow-agent-avatar"
-                onClick={() => handleOpenTriggerModal(team.id, agent, index)}
-              >
-                {agent.config.isSystem ? (
-                  <CrownOutlined className="workflow-agent-icon system" />
-                ) : (
-                  <UserOutlined className="workflow-agent-icon" />
-                )}
-              </div>
-              <div className="workflow-agent-name">{agent.config.name}</div>
-              <Popconfirm
-                title="确定移除此 Agent？"
-                onConfirm={() => handleRemoveAgent(team.id, index)}
-                okText="确定"
-                cancelText="取消"
-              >
-                <Button
-                  type="text"
-                  danger
-                  size="small"
-                  icon={<DeleteOutlined />}
-                  className="workflow-agent-remove"
-                />
-              </Popconfirm>
-            </div>
-          ))}
-
-          {/* 添加 Agent 按钮 */}
-          {availableAgents.length > 0 && (
-            <Popover
-              trigger="click"
-              placement="bottom"
-              content={
-                <div className="workflow-add-agent-popover">
-                  <div className="workflow-add-agent-title">选择 Agent</div>
-                  <div className="workflow-add-agent-list">
-                    {availableAgents.map(agent => (
-                      <div
-                        key={agent.id}
-                        className="workflow-add-agent-item"
-                        onClick={() => handleAddAgent(team.id, agent.id)}
-                      >
-                        {agent.isSystem ? (
-                          <CrownOutlined style={{ color: '#faad14', marginRight: 8 }} />
-                        ) : (
-                          <UserOutlined style={{ marginRight: 8 }} />
-                        )}
-                        <span>{agent.name}</span>
-                        <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
-                          {AgentRoleLabels[agent.role] || agent.role}
-                        </Text>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              }
-            >
-              <div className="workflow-agent-add">
-                <PlusOutlined />
-              </div>
-            </Popover>
-          )}
-        </div>
-      </div>
-    );
-  };
 
   return (
     <div className="workflow-page-wrapper">
@@ -456,7 +326,19 @@ const WorkflowPage: React.FC = () => {
             style={{ padding: 48 }}
           />
         ) : (
-          teams.map(renderTeamCard)
+          teams.map(team => (
+            <TeamCard
+              key={team.id}
+              team={team}
+              allAgents={agents}
+              onUpdateName={(name, description) => handleUpdateTeamName(team.id, name, description)}
+              onDelete={() => handleDeleteTeam(team.id)}
+              onAddAgent={(agentId) => handleAddAgent(team.id, agentId)}
+              onRemoveAgent={(index) => handleRemoveAgent(team.id, index)}
+              onOpenTriggerModal={(agent, index) => handleOpenTriggerModal(team.id, agent, index)}
+              onSaveAgentOrder={(agentIds) => handleUpdateAgentOrder(team.id, agentIds)}
+            />
+          ))
         )}
       </div>
 
@@ -497,58 +379,6 @@ const WorkflowPage: React.FC = () => {
           setCurrentAgent(null);
         }}
       />
-    </div>
-  );
-};
-
-// 团队名称行内编辑组件
-const TeamNameEditor: React.FC<{
-  name: string;
-  description?: string;
-  onSave: (name: string, description?: string) => void;
-  disabled?: boolean;
-}> = ({ name, description, onSave, disabled }) => {
-  const [editing, setEditing] = useState(false);
-  const [editName, setEditName] = useState(name);
-  const [editDesc, setEditDesc] = useState(description || '');
-
-  const handleSave = () => {
-    if (editName.trim()) {
-      onSave(editName.trim(), editDesc.trim() || undefined);
-      setEditing(false);
-    }
-  };
-
-  if (editing) {
-    return (
-      <div className="workflow-team-name-editor">
-        <Input
-          value={editName}
-          onChange={e => setEditName(e.target.value)}
-          placeholder="团队名称"
-          style={{ width: 160, marginRight: 8 }}
-          autoFocus
-        />
-        <Input
-          value={editDesc}
-          onChange={e => setEditDesc(e.target.value)}
-          placeholder="描述（可选）"
-          style={{ width: 200, marginRight: 8 }}
-        />
-        <Button type="primary" size="small" onClick={handleSave}>保存</Button>
-        <Button size="small" onClick={() => setEditing(false)} style={{ marginLeft: 4 }}>取消</Button>
-      </div>
-    );
-  }
-
-  return (
-    <div
-      className={`workflow-team-name ${disabled ? '' : 'editable'}`}
-      onClick={() => !disabled && setEditing(true)}
-    >
-      <TeamOutlined style={{ marginRight: 8 }} />
-      <span>{name}</span>
-      {!disabled && <EditOutlined style={{ marginLeft: 8, fontSize: 12, opacity: 0.5 }} />}
     </div>
   );
 };

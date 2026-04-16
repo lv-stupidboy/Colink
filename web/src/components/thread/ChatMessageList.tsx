@@ -1,9 +1,11 @@
 // isdp/web/src/components/thread/ChatMessageList.tsx
-import React, { memo, useEffect, useRef } from 'react';
+import { forwardRef, useRef, useEffect, RefObject } from 'react';
+import { useAppStore } from '@/store';
 import type { AgentConfig, ToolEvent } from '@/types';
 import type { FileChange } from '@/types/content';
 import { ChatMessage } from './ChatMessage';
 import { StreamingMessage } from './StreamingMessage';
+import { useAutoScrollControl } from './useAutoScrollControl';
 // Collapsible panels imported for future integration
 // import ToolOutputPanel from '@/components/ToolOutputPanel';
 // import ThinkingPanel from '@/components/ThinkingPanel';
@@ -61,27 +63,46 @@ function getAgentConfig(
 /**
  * 消息列表组件
  */
-export const ChatMessageList: React.FC<ChatMessageListProps> = memo(({
-  messages,
-  agentConfigs,
-  projectPath,
-  toolEvents = {},
-  onStopAgent,
-  onRetryAgent,
-  onOpenCodePanel,
-  loading = false,
-  autoScroll = true,
-  onQuestionSubmit,
-}) => {
-  const listRef = useRef<HTMLDivElement>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
+export const ChatMessageList = forwardRef<HTMLDivElement, ChatMessageListProps>(
+  (props, ref) => {
+    const {
+      messages,
+      agentConfigs,
+      projectPath,
+      toolEvents = {},
+      onStopAgent,
+      onRetryAgent,
+      onOpenCodePanel,
+      loading = false,
+      autoScroll = true,
+      onQuestionSubmit,
+    } = props;
 
-  // 自动滚动到底部（只在消息数量变化时触发，不受流式消息影响）
+    // Use passed ref or create internal one
+    const internalRef = useRef<HTMLDivElement>(null);
+    const listRef = (ref as RefObject<HTMLDivElement>) || internalRef;
+
+  // 使用自动滚动控制 hook
+  const { isNearBottom, bottomAnchorRef } = useAutoScrollControl(listRef);
+
+  // 订阅流式内容块变化（用于滚动控制）
+  const streamingContentBlocks = useAppStore((s) => s.streamingContentBlocks);
+
+  // 条件自动滚动：只有接近底部时才滚动
+  // 监听已完成消息数量和流式内容变化
   useEffect(() => {
-    if (autoScroll && bottomRef.current) {
-      bottomRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    if (autoScroll && isNearBottom && bottomAnchorRef.current) {
+      bottomAnchorRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
     }
-  }, [messages.length, autoScroll]);
+  }, [messages.length, autoScroll, isNearBottom]);
+
+  // 流式内容变化时的滚动：只有接近底部时才滚动
+  // 使用整个 streamingContentBlocks 数组作为依赖，这样内容更新也会触发滚动
+  useEffect(() => {
+    if (autoScroll && isNearBottom && streamingContentBlocks.length > 0 && bottomAnchorRef.current) {
+      bottomAnchorRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
+  }, [streamingContentBlocks, autoScroll, isNearBottom]);
 
   // 空状态
   if (messages.length === 0) {
@@ -150,8 +171,8 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = memo(({
         onQuestionSubmit={onQuestionSubmit}
       />
 
-      {/* 底部锚点 */}
-      <div ref={bottomRef} style={{ height: '1px' }} />
+      {/* 底部锚点 - 用于 IntersectionObserver */}
+      <div ref={bottomAnchorRef} style={{ height: '1px' }} />
     </div>
   );
 });
