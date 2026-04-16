@@ -360,7 +360,75 @@ export async function copyApplicationFiles(
       renameSync(tmpPath, dest)
     }
 
-    // 卸载老版本（保留数据目录）
+    // 原子替换目录：先删除目标（如果存在），递归复制每个文件
+    const atomicReplaceDir = (src: string, dest: string) => {
+      if (existsSync(dest)) {
+        rmSync(dest, { recursive: true, force: true })
+      }
+      mkdirSync(dest, { recursive: true })
+      const entries = readdirSync(src, { withFileTypes: true })
+      for (const entry of entries) {
+        const srcPath = join(src, entry.name)
+        const destPath = join(dest, entry.name)
+        if (entry.isDirectory()) {
+          atomicReplaceDir(srcPath, destPath)
+        } else {
+          atomicReplaceFile(srcPath, destPath)
+        }
+      }
+    }
+
+    // 复制 colink-server.exe
+    const serverSrc = join(runtimeDir, 'colink-server.exe')
+    const serverDest = join(destDir, 'colink-server.exe')
+
+    if (existsSync(serverSrc)) {
+      atomicReplaceFile(serverSrc, serverDest)
+    } else {
+      console.warn('[Copy] colink-server.exe not found')
+    }
+
+    // 复制 web/
+    const webSrc = join(runtimeDir, 'web')
+    const webDest = join(destDir, 'web')
+
+    if (existsSync(webSrc)) {
+      atomicReplaceDir(webSrc, webDest)
+    } else {
+      console.warn('[Copy] web/ not found')
+    }
+
+    // 创建数据目录
+    await fsMkdir(join(destDir, 'data', 'configs'), { recursive: true })
+    await fsMkdir(join(destDir, 'data', 'logs'), { recursive: true })
+    await fsMkdir(join(destDir, 'data', 'agent-assets'), { recursive: true })
+    await fsMkdir(join(destDir, 'data', 'agent-configs'), { recursive: true })
+    await fsMkdir(join(destDir, 'data', 'repos'), { recursive: true })
+
+    // 复制配置模板
+    const templateSrc = join(runtimeDir, 'data', 'configs', 'config.yaml.example')
+    const templateDest = join(destDir, 'data', 'configs', 'config.yaml.example')
+    if (existsSync(templateSrc)) {
+      atomicReplaceFile(templateSrc, templateDest)
+      console.log('[Copy] Config template copied')
+    }
+
+    // 复制 icon.ico
+    const iconSrc = join(resourcesDir, 'icon.ico')
+    const iconDest = join(destDir, 'icon.ico')
+    if (existsSync(iconSrc)) {
+      atomicReplaceFile(iconSrc, iconDest)
+    }
+
+    onProgress?.(100)
+    return { success: true }
+  } catch (error) {
+    console.error('[Copy] Error:', error)
+    return { success: false, error: error instanceof Error ? error.message : '复制失败' }
+  }
+}
+
+// 卸载老版本（保留数据目录）
 // 用于升级时先清理老版本程序文件，避免复制冲突
 export async function uninstallOldVersion(
   installDir: string,
@@ -442,74 +510,6 @@ export async function uninstallOldVersion(
   } catch (error) {
     console.error('[UninstallOld] Error:', error)
     return { success: false, error: error instanceof Error ? error.message : '卸载老版本失败' }
-  }
-}
-
-// 原子替换目录：先删除目标（如果存在），递归复制每个文件
-    const atomicReplaceDir = (src: string, dest: string) => {
-      if (existsSync(dest)) {
-        rmSync(dest, { recursive: true, force: true })
-      }
-      mkdirSync(dest, { recursive: true })
-      const entries = readdirSync(src, { withFileTypes: true })
-      for (const entry of entries) {
-        const srcPath = join(src, entry.name)
-        const destPath = join(dest, entry.name)
-        if (entry.isDirectory()) {
-          atomicReplaceDir(srcPath, destPath)
-        } else {
-          atomicReplaceFile(srcPath, destPath)
-        }
-      }
-    }
-
-    // 复制 colink-server.exe
-    const serverSrc = join(runtimeDir, 'colink-server.exe')
-    const serverDest = join(destDir, 'colink-server.exe')
-
-    if (existsSync(serverSrc)) {
-      atomicReplaceFile(serverSrc, serverDest)
-    } else {
-      console.warn('[Copy] colink-server.exe not found')
-    }
-
-    // 复制 web/
-    const webSrc = join(runtimeDir, 'web')
-    const webDest = join(destDir, 'web')
-
-    if (existsSync(webSrc)) {
-      atomicReplaceDir(webSrc, webDest)
-    } else {
-      console.warn('[Copy] web/ not found')
-    }
-
-    // 创建数据目录
-    await fsMkdir(join(destDir, 'data', 'configs'), { recursive: true })
-    await fsMkdir(join(destDir, 'data', 'logs'), { recursive: true })
-    await fsMkdir(join(destDir, 'data', 'agent-assets'), { recursive: true })
-    await fsMkdir(join(destDir, 'data', 'agent-configs'), { recursive: true })
-    await fsMkdir(join(destDir, 'data', 'repos'), { recursive: true })
-
-    // 复制配置模板
-    const templateSrc = join(runtimeDir, 'data', 'configs', 'config.yaml.example')
-    const templateDest = join(destDir, 'data', 'configs', 'config.yaml.example')
-    if (existsSync(templateSrc)) {
-      atomicReplaceFile(templateSrc, templateDest)
-      console.log('[Copy] Config template copied')
-    }
-
-    // 复制 icon.ico
-    const iconSrc = join(resourcesDir, 'icon.ico')
-    const iconDest = join(destDir, 'icon.ico')
-    if (existsSync(iconSrc)) {
-      atomicReplaceFile(iconSrc, iconDest)
-    }
-
-    onProgress?.(100)
-    return { success: true }
-  } catch (error) {
-    console.error('[Copy] Error:', error)
-    return { success: false, error: error instanceof Error ? error.message : '复制失败' }
   }
 }
 
