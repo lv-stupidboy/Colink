@@ -1,6 +1,6 @@
 import { exec, spawn, execSync } from 'child_process'
 import { promisify } from 'util'
-import { createWriteStream, existsSync, unlinkSync, rmSync, readdirSync, mkdirSync, writeFileSync, copyFileSync, readFileSync, statSync } from 'fs'
+import { createWriteStream, existsSync, unlinkSync, rmSync, readdirSync, mkdirSync, writeFileSync, copyFileSync, readFileSync, statSync, openSync, closeSync } from 'fs'
 import { join, dirname, basename } from 'path'
 import { BrowserWindow } from 'electron'
 import { tmpdir } from 'os'
@@ -410,6 +410,24 @@ export async function copyApplicationFiles(
   }
 }
 
+// 检测文件是否被锁定（Windows）
+function checkFileLocked(filePath: string): boolean {
+  try {
+    // 尝试以读写模式打开文件，如果失败则说明被锁定
+    const fd = openSync(filePath, 'r+')
+    closeSync(fd)
+    return false // 可以打开，未被锁定
+  } catch (e) {
+    const errorMsg = e instanceof Error ? e.message : ''
+    // EPERM、EACCES、being used 都表示文件被锁定
+    if (errorMsg.includes('EPERM') || errorMsg.includes('EACCES') || errorMsg.includes('being used')) {
+      return true
+    }
+    // 其他错误（如文件不存在）不算锁定
+    return false
+  }
+}
+
 // 复制启动器文件到目标目录
 // 从 resources/launcher/ 目录复制完整的启动器
 export async function copyLauncherFiles(
@@ -423,6 +441,17 @@ export async function copyLauncherFiles(
 
     if (!existsSync(launcherSrcDir)) {
       return { success: false, error: `启动器目录不存在: ${launcherSrcDir}` }
+    }
+
+    // 升级模式：先检查目标目录的关键文件是否被锁定
+    if (existsSync(destDir)) {
+      const criticalFiles = ['Colink.exe', 'colink-server.exe']
+      for (const fileName of criticalFiles) {
+        const targetFile = join(destDir, fileName)
+        if (existsSync(targetFile) && checkFileLocked(targetFile)) {
+          return { success: false, error: `${fileName} 正在被使用，请先关闭启动器（Colink.exe）后再重试` }
+        }
+      }
     }
 
     const fs = require('original-fs')
