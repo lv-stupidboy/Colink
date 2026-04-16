@@ -126,7 +126,6 @@ const ThreadView: React.FC = () => {
   const updateInvocationFullPrompt = useAppStore((s) => s.updateInvocationFullPrompt);
   const appendContentBlock = useAppStore((s) => s.appendContentBlock);
   const updateContentBlock = useAppStore((s) => s.updateContentBlock);
-  const markQuestionSubmitted = useAppStore((s) => s.markQuestionSubmitted);
 
   // 阻塞提醒相关 - 使用 notification 自动显示
   const blockingItems = useAppStore((s) => s.blockingItems);
@@ -691,22 +690,44 @@ const ThreadView: React.FC = () => {
           // AskUserQuestion 工具调用 - 需要用户输入
           const toolId = data.payload.toolId as string;
           const toolName = data.payload.toolName as string;
-          const questions = data.payload.questions as any[];
+          // questions 可能直接在 payload.questions，也可能在 payload.input.questions
+          const questions = (data.payload.questions as any[]) || ((data.payload.toolInput as any)?.questions as any[]) || [];
           const toolInput = data.payload.toolInput as Record<string, unknown>;
+          const agentId = data.payload.agentId as string;
+          const agentName = data.payload.agentName as string;
 
-          // 追加问题块
-          appendContentBlock(invocId, {
+          // 调试日志：输出完整的 WebSocket payload
+          console.log('[WebSocket] Received question chunk:', {
+            payload: data.payload,
+            agentId,
+            agentName,
+            toolId,
+            toolName,
+            questionsFromPayload: data.payload.questions,
+            questionsFromToolInput: (data.payload.toolInput as any)?.questions,
+            questionsCount: questions?.length,
+          });
+
+          // 构建要追加的 block 对象
+          const blockToAppend = {
             id: `question-${toolId}`,
             type: 'question',
             toolName: toolName || 'AskUserQuestion',
             toolId: toolId || '',
             invocationId: invocId,  // 保存 invocationId 用于提交答案
+            agentId: agentId || '',
+            agentName: agentName || '',  // 保存 agentName 用于 @mention resume
             questions: questions || [],
             input: toolInput,
             timestamp: Date.now(),
             status: 'waiting_user_input',
             startedAt: Date.now(),
-          });
+          };
+
+          console.log('[WebSocket] Appending question block:', blockToAppend);
+
+          // 追加问题块（保存 agentName 用于 resume 调用）
+          appendContentBlock(invocId, blockToAppend);
 
           // 不再使用弹窗，问题选项直接内联显示在对话中
         }
@@ -1516,6 +1537,8 @@ const ThreadView: React.FC = () => {
   /**
    * 处理内联 AskUserQuestion 用户答案提交
    * 采用 --resume 方案：用户响应发送自然语言消息，触发新的 SpawnAgent 恢复会话
+   *
+   * 关键改进：在答案前加上 @AgentName 前缀，确保后端使用 resume 调用正确的 Agent
    */
   const handleInlineQuestionSubmit = useCallback(async (blockId: string, answers: Record<number, string | string[]>, invocationId: string) => {
     if (!threadId) {
@@ -1524,6 +1547,42 @@ const ThreadView: React.FC = () => {
     }
 
     try {
+      // 获取提出问题的 Agent 名称（从 contentBlocks 中获取）
+      const state = useAppStore.getState();
+      const streamingContentBlocks = state.streamingContentBlocks;
+
+      // 先从 streamingContentBlocks 查找（最新数据）
+      let questionBlock = streamingContentBlocks.find(b => b.id === blockId);
+
+      // 如果 streamingContentBlocks 中找不到（可能已被 finalizeStreamingMessage 清空）
+      // 则从 messages 的 contentBlocks 中查找（备选方案）
+      if (!questionBlock) {
+        console.log('[handleInlineQuestionSubmit] Not found in streamingContentBlocks, searching in messages');
+        for (const msg of state.messages) {
+          if (msg.contentBlocks) {
+            const found = msg.contentBlocks.find(b => b.id === blockId);
+            if (found && found.type === 'question') {
+              questionBlock = found;
+              console.log('[handleInlineQuestionSubmit] Found in message:', msg.id, 'block:', found);
+              break;
+            }
+          }
+        }
+      }
+
+      // 调试日志：输出完整的查找过程
+      console.log('[handleInlineQuestionSubmit] Looking for question block:', {
+        blockId,
+        invocationId,
+        streamingContentBlocksCount: streamingContentBlocks.length,
+        streamingContentBlocksIds: streamingContentBlocks.map(b => b.id),
+        foundInStreaming: streamingContentBlocks.find(b => b.id === blockId),
+        foundBlock: questionBlock,
+        agentName: (questionBlock as any)?.agentName,
+      });
+
+      const agentName = (questionBlock as any)?.agentName || '';
+
       // 将答案转换为自然语言消息格式
       // 对于多选，将多个答案合并为一个字符串
       const answerStrings: string[] = [];
@@ -1537,12 +1596,29 @@ const ThreadView: React.FC = () => {
 
       // 生成自然语言消息（而非技术性 tool_result）
       // 这样 Agent 可以通过 --resume 恢复会话并继续执行
-      const userResponseMessage = answerStrings.join('\n');
+      const userResponseContent = answerStrings.join('\n');
+
+      // 关键：在答案前加上 @AgentName 前缀
+      // 这样后端 SpawnAgentForUserMessage 会解析 @mention
+      // shouldUseResumeStrategy 会判断用户 @ 的是同一个 Agent（与最后一个完成的相同）
+      // 从而使用 resume 会话策略，调用正确的 Agent
+      const userResponseMessage = agentName
+        ? `@${agentName} ${userResponseContent}`
+        : userResponseContent;
+
+      console.log('[handleInlineQuestionSubmit] Sending message with @mention:', {
+        agentName,
+        originalAnswer: userResponseContent,
+        finalMessage: userResponseMessage,
+        blockId,
+        invocationId
+      });
 
       // 更新内容块状态为 success（用户已响应，Agent 正在处理）
+      // 注意：output 显示完整的消息（包含 @AgentName），这样对话展示也带上 @mention
       updateContentBlock(invocationId, blockId, {
         status: 'success',
-        output: userResponseMessage,
+        output: userResponseMessage,  // 显示完整消息，包含 @AgentName
         completedAt: Date.now(),
       });
 
@@ -1551,7 +1627,7 @@ const ThreadView: React.FC = () => {
       // MessageContentRenderer 会根据 status === 'success' 自动保留渲染
 
       // 发送用户消息（通过 WebSocket），这会触发 SpawnAgentForUserMessage
-      // 后端会检查最近的 completed invocation，使用其 SessionID 进行 --resume
+      // 后端会解析 @mention，使用 resume 策略调用正确的 Agent
       await sendMessage(userResponseMessage);
 
       message.success('答案已提交，Agent 正在处理...');
@@ -1559,7 +1635,7 @@ const ThreadView: React.FC = () => {
       console.error('提交答案失败:', error);
       message.error('提交答案失败，请重试');
     }
-  }, [threadId, updateContentBlock, sendMessage, markQuestionSubmitted]);
+  }, [threadId, updateContentBlock, sendMessage]);
 
   /**
    * 处理发送消息
