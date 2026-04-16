@@ -23,6 +23,7 @@ interface StepProgress {
 
 // 完整的安装步骤定义
 const INSTALL_STEPS = [
+  { key: 'uninstall', label: '卸载老版本', description: '清理老版本程序文件，保留数据目录' },
   { key: 'copy', label: '复制文件', description: '复制应用程序文件到安装目录' },
   { key: 'dbcheck', label: '检测数据库变更', description: '检查是否需要执行数据库迁移' },
   { key: 'migration', label: '数据库迁移', description: '执行 SQLite 数据库迁移脚本' },
