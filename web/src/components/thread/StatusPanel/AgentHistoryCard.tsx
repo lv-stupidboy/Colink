@@ -110,7 +110,7 @@ export const AgentHistoryCard: React.FC<Props> = ({ completedAgents, agentUsage 
             <div className="idle-status">暂无历史调用</div>
           ) : (
             <>
-              {sortedAgents.filter(a => a.status === 'completed').map(agent => (
+              {sortedAgents.filter(a => a.status === 'completed' || a.status === 'interrupted').map(agent => (
                 <div key={agent.id} className="history-item completed">
                   <div className="history-header">
                     <CheckCircleOutlined style={{ color: '#22c55e', fontSize: 14 }} />
@@ -158,10 +158,10 @@ export const AgentHistoryCard: React.FC<Props> = ({ completedAgents, agentUsage 
                   </div>
                 </div>
               ))}
-              {sortedAgents.filter(a => a.status === 'interrupted' || a.status === 'cancelled').map(agent => (
+              {sortedAgents.filter(a => a.status === 'cancelled').map(agent => (
                 <div key={agent.id} className="history-item other-ended">
                   <div className="history-header">
-                    <span className={`agent-status-badge ${agent.status}`}>{agent.status === 'interrupted' ? '中断' : '取消'}</span>
+                    <span className={`agent-status-badge ${agent.status}`}>取消</span>
                     <span className="history-name">{getDisplayName(agent)}</span>
                     <DurationDisplay
                       startedAt={getStartTime(agent)}
