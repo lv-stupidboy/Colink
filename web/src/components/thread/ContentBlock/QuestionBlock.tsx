@@ -183,14 +183,24 @@ const QuestionBlockComponent: React.FC<QuestionBlockComponentProps> = memo(({ bl
 
   // 从 output 解析用户答案（用于高亮已提交的选项）
   // output 格式：单选为单个字符串，多选为用分隔符连接的多个字符串
+  // 注意：output 可能包含 @AgentName 前缀，需要先去除后再匹配选项
   const parseOutputAnswers = (questionIndex: number, multiSelect: boolean): string | string[] | undefined => {
     if (!output) return undefined;
     const question = safeQuestions[questionIndex];
     if (!question) return undefined;
 
+    // 去除 @AgentName 前缀（格式：@AgentName 内容）
+    // 正则匹配 @ 开头后面跟非空白字符，然后空格，剩余的是实际答案
+    let actualOutput = output.trim();
+    const mentionMatch = actualOutput.match(/^@\S+\s+(.+)$/);
+    if (mentionMatch) {
+      actualOutput = mentionMatch[1].trim();
+      console.log('[QuestionBlock] Stripped @mention from output:', { original: output, stripped: actualOutput });
+    }
+
     if (multiSelect) {
       // 多选：output 可能包含多个答案
-      const outputParts = output.split(/[、,\n]/).filter(p => p.trim());
+      const outputParts = actualOutput.split(/[、,\n]/).filter(p => p.trim());
       // 找出哪些选项被选中
       const selectedLabels: string[] = [];
       for (const option of question.options) {
@@ -206,14 +216,13 @@ const QuestionBlockComponent: React.FC<QuestionBlockComponentProps> = memo(({ bl
       return selectedLabels.length > 0 ? selectedLabels : undefined;
     } else {
       // 单选：找匹配的选项或自定义答案
-      const trimmedOutput = output.trim();
       for (const option of question.options) {
-        if (option.label === trimmedOutput) {
+        if (option.label === actualOutput) {
           return option.label;
         }
       }
-      // 自定义答案
-      return trimmedOutput;
+      // 自定义答案（去除 @mention 后仍不匹配选项的）
+      return actualOutput;
     }
   };
 
