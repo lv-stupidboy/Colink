@@ -1,5 +1,5 @@
 // isdp/web/src/components/thread/StreamingMessage.tsx
-import React, { memo, useEffect, useRef } from 'react';
+import React, { memo, useRef } from 'react';
 import { useAppStore } from '@/store';
 import { ChatMessage } from './ChatMessage';
 import type { AgentConfig, ToolEvent, MessageContentBlock } from '@/types';
@@ -54,12 +54,8 @@ export const StreamingMessage: React.FC<StreamingMessageProps> = memo(({
     return true;
   });
 
-  // 内容块变化时自动滚动
-  useEffect(() => {
-    if (containerRef.current && filteredContentBlocks.length > 0) {
-      containerRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
-    }
-  }, [filteredContentBlocks]);
+  // 注意：滚动控制由 ChatMessageList 通过 useAutoScrollControl hook 统一管理
+  // 本组件不再直接调用 scrollIntoView
 
   // 检查是否有需要渲染的 question blocks（只有 waiting_user_input 状态的）
   const hasQuestionToRender = filteredContentBlocks.some(b => b.type === 'question' && b.status === 'waiting_user_input');
