@@ -241,27 +241,36 @@ export async function writeConfigFile(
   }
 }
 
-// 递归合并对象（用户值优先）
+// 递归合并对象（以模板结构为准，用户值填充）
+// 只保留模板中定义的字段，废弃字段自动丢弃
 function mergeObjects(user: any, template: any): any {
+  // 模板不是对象，直接返回模板值
   if (typeof template !== 'object' || template === null) {
-    return user !== undefined ? user : template
+    return template
   }
 
+  // 用户配置不是对象，返回模板结构
   if (typeof user !== 'object' || user === null) {
     return template
   }
 
   const result = { ...template }
 
-  for (const key of Object.keys(user)) {
-    if (typeof user[key] === 'object' && user[key] !== null &&
-        typeof template[key] === 'object' && template[key] !== null) {
-      // 递归合并嵌套对象
-      result[key] = mergeObjects(user[key], template[key])
-    } else {
-      // 用户值优先
-      result[key] = user[key]
+  // 只遍历模板中的字段（以模板结构为准）
+  for (const key of Object.keys(template)) {
+    if (user[key] !== undefined) {
+      // 用户有值，检查是否需要递归合并
+      if (typeof user[key] === 'object' && user[key] !== null &&
+          typeof template[key] === 'object' && template[key] !== null &&
+          !Array.isArray(template[key])) {
+        // 递归合并嵌套对象（非数组）
+        result[key] = mergeObjects(user[key], template[key])
+      } else {
+        // 用户值优先（包括数组，直接替换）
+        result[key] = user[key]
+      }
     }
+    // 用户没有值的字段，保留模板默认值
   }
 
   return result

@@ -305,10 +305,7 @@ const RuleList: React.FC = () => {
       {/* 页面标题 */}
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <Title level={2} style={{ margin: 0 }}>
-            <SafetyOutlined style={{ marginRight: 8, color: 'var(--ant-color-primary)' }} />
-            Rules 管理
-          </Title>
+          <Title level={2} style={{ margin: 0 }}>Rules 管理</Title>
           <Text type="secondary">管理 Agent 行为 Rules</Text>
         </div>
         <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
@@ -510,15 +507,15 @@ const RuleList: React.FC = () => {
             </Paragraph>
             <div
               style={{
-                background: 'var(--ant-color-bg-container)',
-                border: '1px solid var(--ant-color-border)',
+                background: 'var(--bg-container)',
+                border: '1px solid var(--border-color)',
                 borderRadius: 8,
                 padding: 12,
                 maxHeight: 400,
                 overflow: 'auto',
               }}
             >
-              <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'monospace', fontSize: 13 }}>
+              <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'monospace', fontSize: 13, background: 'transparent' }}>
                 {viewingRule.content || '暂无内容'}
               </pre>
             </div>

@@ -7,7 +7,6 @@ import {
   PlusOutlined,
   EditOutlined,
   DeleteOutlined,
-  RobotOutlined,
   EyeOutlined,
   CloudUploadOutlined
 } from '@ant-design/icons';
@@ -443,10 +442,7 @@ const SubagentList: React.FC = () => {
       {/* 页面标题 */}
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <Title level={2} style={{ margin: 0 }}>
-            <RobotOutlined style={{ marginRight: 8, color: 'var(--ant-color-primary)' }} />
-            Subagents 管理
-          </Title>
+          <Title level={2} style={{ margin: 0 }}>Subagents 管理</Title>
           <Text type="secondary">管理可复用的 Subagent 配置</Text>
         </div>
         <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
@@ -518,7 +514,7 @@ const SubagentList: React.FC = () => {
         >
           {/* 创建方式选择 - 仅新建时显示 */}
           {!editingSubagent && !isAfterUpload && (
-            <div style={{ marginBottom: 16, padding: 16, background: 'var(--ant-color-bg-container)', borderRadius: 8, border: '1px solid var(--ant-color-border)' }}>
+            <div style={{ marginBottom: 16, padding: 16, background: 'var(--bg-container)', borderRadius: 8, border: '1px solid var(--border-color)' }}>
               <Text strong style={{ marginRight: 12 }}>创建方式：</Text>
               <Radio.Group
                 value={createMethod}
@@ -684,15 +680,15 @@ const SubagentList: React.FC = () => {
             </Paragraph>
             <div
               style={{
-                background: 'var(--ant-color-bg-container)',
-                border: '1px solid var(--ant-color-border)',
+                background: 'var(--bg-container)',
+                border: '1px solid var(--border-color)',
                 borderRadius: 8,
                 padding: 12,
                 maxHeight: 400,
                 overflow: 'auto',
               }}
             >
-              <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'monospace', fontSize: 13 }}>
+              <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'monospace', fontSize: 13, background: 'transparent' }}>
                 {viewingSubagent.content}
               </pre>
             </div>

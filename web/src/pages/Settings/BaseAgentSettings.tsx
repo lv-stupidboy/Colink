@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Button, Card, Modal, Form, Input, Select, InputNumber, message, Space, Tag, Typography, Tooltip } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, ApiOutlined, RobotOutlined, StarOutlined, StarFilled } from '@ant-design/icons';
+import { Table, Button, Card, Modal, Form, Input, Select, InputNumber, message, Space, Tag, Typography, Tooltip, Collapse } from 'antd';
+import { PlusOutlined, EditOutlined, DeleteOutlined, ApiOutlined, RobotOutlined, StarOutlined, StarFilled, SettingOutlined } from '@ant-design/icons';
 import api from '@/api/client';
 import type { BaseAgent, BaseAgentType, BaseAgentTypeInfo } from '@/types';
 
@@ -47,9 +47,6 @@ const BaseAgentSettings: React.FC = () => {
     form.resetFields();
     form.setFieldsValue({
       type: 'claude_code',
-      cliPath: 'claude',
-      maxTokens: 4096,
-      timeoutMinutes: 30,
     });
     setModalVisible(true);
   };
@@ -178,15 +175,9 @@ const BaseAgentSettings: React.FC = () => {
       ),
     },
     {
-      title: '默认模型',
+      title: '模型',
       dataIndex: 'defaultModel',
       key: 'defaultModel',
-    },
-    {
-      title: 'CLI路径',
-      dataIndex: 'cliPath',
-      key: 'cliPath',
-      ellipsis: true,
     },
     {
       title: 'API URL',
@@ -282,78 +273,124 @@ const BaseAgentSettings: React.FC = () => {
             </Select>
           </Form.Item>
 
-          <Form.Item name="defaultModel" label="默认模型">
-            <Input placeholder="如: claude-sonnet-4-6, gpt-4" />
-          </Form.Item>
-
-          <Form.Item name="cliPath" label="CLI路径">
-            <Input placeholder="如: claude, opencode, /usr/local/bin/claude" />
-          </Form.Item>
-
           <Form.Item
-            name="gitBashPath"
-            label="Git-Bash路径 (Windows)"
-            extra="Windows下Claude CLI需要git-bash。如: D:\Program Files\Git\bin\bash.exe"
+            name="defaultModel"
+            label="模型"
+            rules={[{ required: true, message: '请输入模型' }]}
+            extra="指定Agent使用的模型，如 claude-sonnet-4-20250514"
           >
-            <Input placeholder="如: D:\Program Files\Git\bin\bash.exe" />
+            <Input placeholder="如: claude-sonnet-4-20250514" />
           </Form.Item>
 
-          {/* 根据类型显示不同的 API URL 提示 */}
+          {/* API 配置区域 */}
           <Form.Item shouldUpdate noStyle>
             {({ getFieldValue }) => {
               const agentType = getFieldValue('type');
               if (agentType === 'open_code') {
                 return (
+                  <>
+                    <Form.Item
+                      name="apiUrl"
+                      label="API URL"
+                      extra={
+                        <div>
+                          <Text type="secondary">自定义 API 地址，默认使用官方地址</Text>
+                          <br />
+                          <Text type="warning" style={{ fontSize: 12 }}>
+                            ⚠️ API URL 需要写入配置文件，不支持环境变量。
+                            <br />
+                            Windows: %LOCALAPPDATA%\opencode\opencode.json
+                            <br />
+                            Linux/macOS: ~/.local/share/opencode/opencode.json
+                          </Text>
+                        </div>
+                      }
+                    >
+                      <Input placeholder="如: https://your-custom-api.com/v1" />
+                    </Form.Item>
+                    <Form.Item
+                      name="apiToken"
+                      label="API Token"
+                      extra={
+                        <div>
+                          <Text type="secondary">OpenCode API 令牌，用于身份认证</Text>
+                          <br />
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            可通过环境变量 OPENCODE_API_KEY 传递，或写入配置文件
+                          </Text>
+                        </div>
+                      }
+                    >
+                      <Input.Password placeholder="输入API令牌" />
+                    </Form.Item>
+                  </>
+                );
+              }
+              return (
+                <>
                   <Form.Item
                     name="apiUrl"
-                    label="API URL (可选)"
-                    extra="仅私有部署模型需要配置，公开模型无需填写。OpenCode 使用 auth.json 管理 Provider 凭证"
+                    label="API URL"
+                    extra="Anthropic API 地址，如 https://api.anthropic.com"
                   >
-                    <Input placeholder="私有模型API地址，公开模型留空" />
+                    <Input placeholder="如: https://api.anthropic.com" />
+                  </Form.Item>
+                  <Form.Item
+                    name="apiToken"
+                    label="API Token"
+                    extra="Anthropic API 令牌，用于身份认证"
+                  >
+                    <Input.Password placeholder="输入API令牌" />
+                  </Form.Item>
+                </>
+              );
+            }}
+          </Form.Item>
+
+          {/* GitBash 路径配置 */}
+          <Form.Item shouldUpdate noStyle>
+            {({ getFieldValue }) => {
+              const agentType = getFieldValue('type');
+              if (agentType === 'claude_code') {
+                return (
+                  <Form.Item
+                    name="gitBashPath"
+                    label="Git-Bash路径"
+                    extra="Windows下 Claude CLI 需要 git-bash 执行。如果 Git 已添加到系统 PATH，此项可留空；若 Claude CLI 无法启动，请配置 Git 安装目录下的 bash.exe 路径"
+                  >
+                    <Input placeholder="如: D:\Program Files\Git\bin\bash.exe" />
                   </Form.Item>
                 );
               }
-              return (
-                <Form.Item
-                  name="apiUrl"
-                  label="API URL (可选)"
-                  extra="自定义API地址，留空使用默认"
-                >
-                  <Input placeholder="自定义API地址，留空使用默认" />
-                </Form.Item>
-              );
+              return null;
             }}
           </Form.Item>
 
-          {/* OpenCode 类型不显示 API Token 字段 */}
-          <Form.Item shouldUpdate noStyle>
-            {({ getFieldValue }) => {
-              const agentType = getFieldValue('type');
-              if (agentType === 'open_code') {
-                return (
-                  <div style={{ padding: '12px', background: '#fffbe6', borderRadius: '4px', marginBottom: '24px' }}>
-                    <Text type="warning">
-                      ⚠️ OpenCode 的 API 令牌需要在 ~/.local/share/opencode/auth.json 中配置，
-                      不支持在此处设置。请使用 opencode providers login 命令添加凭证。
-                    </Text>
-                  </div>
-                );
-              }
-              return (
-                <Form.Item name="apiToken" label="API Token (可选)" extra="API令牌，留空使用环境变量">
-                  <Input.Password placeholder="API令牌，留空使用环境变量" />
-                </Form.Item>
-              );
-            }}
-          </Form.Item>
+          {/* 高级配置：默认折叠 */}
+          <Collapse
+            style={{ marginBottom: 16 }}
+            items={[
+              {
+                key: 'advanced',
+                label: <Space><SettingOutlined />高级配置</Space>,
+                children: (
+                  <>
+                    <Form.Item name="cliPath" label="CLI路径" extra="CLI 命令路径，默认为 claude 或 opencode">
+                      <Input placeholder="如: claude, opencode, /usr/local/bin/claude" />
+                    </Form.Item>
 
-          <Form.Item name="maxTokens" label="最大Token数">
-            <InputNumber min={100} max={100000} style={{ width: '100%' }} />
-          </Form.Item>
+                    <Form.Item name="maxTokens" label="最大Token数" extra="限制输出 Token 数量，0 表示不限制">
+                      <InputNumber min={0} max={100000} style={{ width: '100%' }} />
+                    </Form.Item>
 
-          <Form.Item name="timeoutMinutes" label="超时时间(分钟)">
-            <InputNumber min={1} max={120} style={{ width: '100%' }} />
-          </Form.Item>
+                    <Form.Item name="timeoutMinutes" label="超时时间(分钟)" extra="Agent 执行超时时间，默认30分钟">
+                      <InputNumber min={1} max={120} style={{ width: '100%' }} />
+                    </Form.Item>
+                  </>
+                ),
+              },
+            ]}
+          />
         </Form>
       </Modal>
     </div>

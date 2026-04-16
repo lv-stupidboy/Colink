@@ -1,11 +1,9 @@
 # Build artifacts
-*.exe
+bin/
+/*.exe
 *.dll
 *.so
 *.out
-server
-main
-isdp-server
 build/
 deploy/
 

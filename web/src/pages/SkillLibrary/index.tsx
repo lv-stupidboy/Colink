@@ -785,7 +785,7 @@ const SkillLibrary: React.FC = () => {
     <div style={{ padding: 12 }}>
       <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <Title level={2} style={{ margin: 0 }}>Skills</Title>
+          <Title level={2} style={{ margin: 0 }}>Skills管理</Title>
           <Text type="secondary">管理可复用的技能</Text>
         </div>
         <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>

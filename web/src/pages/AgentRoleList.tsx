@@ -59,6 +59,9 @@ const AgentRoleList: React.FC = () => {
   const [previewData, setPreviewData] = useState<ConfigPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [form] = Form.useForm();
+  // 分页状态
+  const [systemPageSize, setSystemPageSize] = useState(5);
+  const [customPageSize, setCustomPageSize] = useState(5);
 
   useEffect(() => {
     loadConfigs();
@@ -541,10 +544,12 @@ const AgentRoleList: React.FC = () => {
             rowKey="id"
             loading={loading}
             pagination={{
-              pageSize: 5,
+              pageSize: systemPageSize,
               showSizeChanger: true,
               pageSizeOptions: ['5', '10', '20'],
               showTotal: (total) => `共 ${total} 条`,
+              hideOnSinglePage: false,
+              onShowSizeChange: (_, size) => setSystemPageSize(size),
             }}
             size="small"
             scroll={{ x: 1130 }}
@@ -581,10 +586,12 @@ const AgentRoleList: React.FC = () => {
             rowKey="id"
             loading={loading}
             pagination={{
-              pageSize: 5,
+              pageSize: customPageSize,
               showSizeChanger: true,
               pageSizeOptions: ['5', '10', '20'],
               showTotal: (total) => `共 ${total} 条`,
+              hideOnSinglePage: false,
+              onShowSizeChange: (_, size) => setCustomPageSize(size),
             }}
             size="small"
             scroll={{ x: 1130 }}

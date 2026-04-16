@@ -21,10 +21,10 @@ func SetupLogging() (*zap.Logger, error) {
 	// 配置日志轮转
 	logFile := &lumberjack.Logger{
 		Filename:   "logs/server.log", // 统一日志文件位置
-		MaxSize:    10,               // MB
-		MaxBackups: 3,
-		MaxAge:     30,              // days
-		Compress:   true,            // disabled by default
+		MaxSize:    1,                 // MB
+		MaxBackups: 10,
+		MaxAge:     30,                // days
+		Compress:   true,              // disabled by default
 	}
 
 	// 设置编码器配置

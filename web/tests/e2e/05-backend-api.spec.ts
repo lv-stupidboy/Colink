@@ -12,7 +12,7 @@ import { test, expect } from '../fixtures/test-fixtures';
 test.describe('BT-01: 健康检查', () => {
   test('应该返回健康状态', async ({ page }) => {
     // 使用 page 直接访问后端地址（绕过代理）
-    const response = await page.request.get('http://localhost:8080/health');
+    const response = await page.request.get('http://localhost:26305/health');
     expect(response.ok()).toBeTruthy();
 
     const data = await response.json();
@@ -28,7 +28,7 @@ test.describe('BT-01: 健康检查', () => {
  */
 test.describe('BT-02: 项目列表 API', () => {
   test('应该返回项目列表（可以是空数组）', async ({ page }) => {
-    const response = await page.request.get('http://localhost:8080/api/v1/projects');
+    const response = await page.request.get('http://localhost:26305/api/v1/projects');
 
     // 检查响应状态
     const status = response.status();
@@ -53,7 +53,7 @@ test.describe('BT-03: 创建项目 API', () => {
   test('应该能创建新项目', async ({ page }) => {
     const testProjectName = `测试项目-${Date.now()}`;
 
-    const response = await page.request.post('http://localhost:8080/api/v1/projects', {
+    const response = await page.request.post('http://localhost:26305/api/v1/projects', {
       data: {
         name: testProjectName,
         type: 'service',
@@ -83,7 +83,7 @@ test.describe('BT-03: 创建项目 API', () => {
  */
 test.describe('BT-04: 线程列表 API', () => {
   test('应该返回线程列表', async ({ page }) => {
-    const response = await page.request.get('http://localhost:8080/api/v1/threads');
+    const response = await page.request.get('http://localhost:26305/api/v1/threads');
     const status = response.status();
 
     if (status === 200) {
@@ -101,7 +101,7 @@ test.describe('BT-04: 线程列表 API', () => {
  */
 test.describe('BT-05: Agent 配置 API', () => {
   test('应该返回 Agent 配置列表', async ({ page }) => {
-    const response = await page.request.get('http://localhost:8080/api/v1/agents');
+    const response = await page.request.get('http://localhost:26305/api/v1/agents');
     const status = response.status();
 
     if (status === 200) {

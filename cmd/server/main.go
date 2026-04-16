@@ -632,8 +632,8 @@ func initLogger(level, format, logDir string) (*zap.Logger, error) {
 	// 配置 lumberjack 用于日志轮转
 	logFile := &lumberjack.Logger{
 		Filename:   filepath.Join(logDir, "server.log"),
-		MaxSize:    10,   // MB，单个文件最大大小
-		MaxBackups: 5,    // 保留的旧日志文件数量
+		MaxSize:    1,    // MB，单个文件最大大小
+		MaxBackups: 10,   // 保留的旧日志文件数量
 		MaxAge:     30,   // 天，保留天数
 		Compress:   true, // 压缩旧日志文件
 	}

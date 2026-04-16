@@ -17,6 +17,7 @@ export interface SystemNotificationOptions {
   tag?: string; // 用于替换相同 tag 的通知
   requireInteraction?: boolean; // 是否需要用户交互才关闭
   onClick?: () => void;
+  silent?: boolean; // 是否静音（不播放提示音）
 }
 
 // 存储权限请求的回调
@@ -26,6 +27,75 @@ let permissionRequestCallbacks: ((granted: boolean) => void)[] = [];
 let pendingNotificationCount = 0;
 let pendingAgentNames: string[] = [];
 let lastNotification: Notification | null = null;
+
+// 提示音开关（从 localStorage 读取）
+let soundEnabled = localStorage.getItem('isdp_notification_sound_enabled') !== 'false';
+
+/**
+ * 设置提示音开关
+ */
+export function setNotificationSoundEnabled(enabled: boolean): void {
+  soundEnabled = enabled;
+  localStorage.setItem('isdp_notification_sound_enabled', String(enabled));
+  console.log('[SystemNotification] 提示音开关:', enabled);
+}
+
+/**
+ * 获取提示音开关状态
+ */
+export function isNotificationSoundEnabled(): boolean {
+  return soundEnabled;
+}
+
+/**
+ * 播放提示音
+ * 使用 Web Audio API 生成双音节提示音
+ * 类似 Windows 系统通知音风格
+ */
+export async function playNotificationSound(): Promise<void> {
+  if (!soundEnabled) {
+    return;
+  }
+
+  try {
+    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+
+    // 如果 AudioContext 处于 suspended 状态，需要先 resume
+    if (audioContext.state === 'suspended') {
+      await audioContext.resume();
+    }
+
+    const now = audioContext.currentTime;
+
+    // 播放单个清脆音符
+    const playNote = (frequency: number, startTime: number, duration: number, volume: number) => {
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(frequency, startTime);
+
+      // 快速起音，自然衰减（类似Windows通知音）
+      gainNode.gain.setValueAtTime(0, startTime);
+      gainNode.gain.linearRampToValueAtTime(volume, startTime + 0.01);
+      gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+
+      oscillator.start(startTime);
+      oscillator.stop(startTime + duration);
+    };
+
+    // 双音节组合：低音 + 高音（类似Windows"叮-叮"）
+    playNote(700, now, 0.2, 0.3);           // 第一音：低音（稳定）
+    playNote(1050, now + 0.18, 0.2, 0.35);  // 第二音：高音（明亮，上扬感）
+
+    console.log('[SystemNotification] 双音节提示音已播放');
+  } catch (error) {
+    console.warn('[SystemNotification] 播放提示音失败:', error);
+  }
+}
 
 /**
  * 检查浏览器是否支持通知
@@ -125,12 +195,18 @@ export function sendSystemNotification(options: SystemNotificationOptions): Noti
     return null;
   }
 
+  // 播放提示音（除非指定静音）
+  if (!options.silent) {
+    playNotificationSound();
+  }
+
   try {
     const notification = new Notification(options.title, {
       body: options.body,
       icon: options.icon || '/favicon.ico',
       tag: options.tag,
       requireInteraction: options.requireInteraction ?? false,
+      silent: true, // 使用 Web Audio API 播放提示音，不使用系统默认声音
     });
 
     // 点击通知时的处理
@@ -246,6 +322,10 @@ const SystemNotification = {
   checkAndPrompt: checkAndPromptPermission,
   clearPending: clearPendingNotifications,
   getPendingCount: getPendingNotificationCount,
+  // 提示音相关
+  isSoundEnabled: isNotificationSoundEnabled,
+  setSoundEnabled: setNotificationSoundEnabled,
+  playSound: playNotificationSound,
 };
 
 export default SystemNotification;
