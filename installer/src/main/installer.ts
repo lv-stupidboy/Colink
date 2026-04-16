@@ -276,40 +276,6 @@ function mergeObjects(user: any, template: any): any {
   return result
 }
 
-// ==================== 进程检测 ====================
-
-// 检测单个进程是否正在运行
-export function checkProcessRunning(processName: string): boolean {
-  try {
-    const output = execSync(`tasklist /fi "imagename eq ${processName}" /fo csv`, { encoding: 'utf8' })
-    // CSV格式: "Image Name","PID","Session Name","Session#","Mem Usage"
-    // 如果进程不存在，只返回一行标题
-    // 如果进程存在，返回多行数据
-    const lines = output.trim().split('\n')
-    // 过滤掉空行和只包含标题的行
-    const dataLines = lines.filter(line => line.trim() && !line.includes('"Image Name"'))
-    return dataLines.length > 0
-  } catch {
-    return false
-  }
-}
-
-// 检测所有相关进程是否正在运行，返回运行中的进程列表
-// 注意：不检测 colink.exe，因为：
-// 1. Setup 的 Electron 子进程可能被误判为 "colink"
-// 2. 用户能看到安装页面，就已经证明 Launcher 不在运行
-// 3. 只检测后端服务进程即可
-export function checkProcessesRunning(): string[] {
-  const processesToCheck = ['colink-server.exe', 'ISDP.exe', 'isdp-server.exe']
-  const running: string[] = []
-  for (const name of processesToCheck) {
-    if (checkProcessRunning(name)) {
-      running.push(name)
-    }
-  }
-  return running
-}
-
 // ==================== 文件操作 ====================
 
 // 强制结束所有相关进程（不包括当前进程）
