@@ -230,7 +230,8 @@ if (!gotTheLock) {
       })
 
       if (canClose) {
-        mainWindow?.destroy()
+        app.isQuitting = true  // 设置标志，避免再次触发 close 事件
+        app.quit()  // 退出应用，而非只销毁窗口
       }
     })
 
