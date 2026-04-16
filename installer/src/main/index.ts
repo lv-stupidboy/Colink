@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, shell, Menu } from 'electron'
 import { join, dirname } from 'path'
 import { execSync } from 'child_process'
 import { existsSync, readdirSync, rmSync } from 'fs'
@@ -100,6 +100,18 @@ function createWindow() {
     if (input.key === 'F12') {
       mainWindow?.webContents.toggleDevTools()
     }
+  })
+
+  // 右键菜单支持（粘贴、复制、剪切、全选）
+  mainWindow.webContents.on('context-menu', (event, params) => {
+    const menu = Menu.buildFromTemplate([
+      { label: '粘贴', role: 'paste', enabled: params.editFlags.canPaste },
+      { label: '复制', role: 'copy', enabled: params.editFlags.canCopy },
+      { label: '剪切', role: 'cut', enabled: params.editFlags.canCut },
+      { type: 'separator' },
+      { label: '全选', role: 'selectAll' }
+    ])
+    menu.popup(mainWindow!)
   })
 
   // 关闭窗口时弹出确认对话框
