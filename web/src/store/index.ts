@@ -448,14 +448,12 @@ export const useAppStore = create<AppState & AppActions>()(
           // 找到完成的 agent 并移到历史列表
           const completedAgent = state.activeAgents.find((a) => a.id === invocationId);
 
-          // 对于 cancelled/interrupted 状态，保留已输出的内容（转成临时消息）
-          // 只有 completed/failed 才清理流式状态
-          const isCancelledOrInterrupted = status === 'cancelled' || status === 'interrupted';
           const isCurrentStreaming = state.streamingInvocationId === invocationId;
 
-          // 如果取消/中断且有流式内容，创建一个临时消息保留这些内容
+          // 如果有流式内容，创建一个临时消息保留这些内容
+          // 对于 completed/failed/interrupted/cancelled 都需要保存流式内容
           let newMessages = state.messages;
-          if (isCancelledOrInterrupted && isCurrentStreaming && state.streamingContentBlocks.length > 0) {
+          if (isCurrentStreaming && state.streamingContentBlocks.length > 0) {
             const tempMessage: Message = {
               id: `agent-${invocationId}`,
               threadId: state.currentThread?.id || '',
@@ -492,7 +490,14 @@ export const useAppStore = create<AppState & AppActions>()(
               ]
             : state.completedAgents;
 
-          // 重置流式状态（但 cancelled/interrupted 不清空 contentBlocks，因为已转为消息）
+          // 将已提交或失败的 question blocks 的 ID 加入 submittedQuestionBlockIds
+          const submittedQuestionBlockIds = state.streamingContentBlocks
+            .filter(b => b.type === 'question' && (b.status === 'success' || b.status === 'failed'))
+            .map(b => b.id);
+          const newSubmittedIds = new Set(state.submittedQuestionBlockIds);
+          submittedQuestionBlockIds.forEach(id => newSubmittedIds.add(id));
+
+          // 重置流式状态
           return {
             messages: newMessages,
             activeAgents: state.activeAgents.filter((a) => a.id !== invocationId),
@@ -507,9 +512,11 @@ export const useAppStore = create<AppState & AppActions>()(
             progressStatus: isCurrentStreaming ? 'idle' : state.progressStatus,
             progressToolName: isCurrentStreaming ? null : state.progressToolName,
             progressToolInput: isCurrentStreaming ? null : state.progressToolInput,
+            // 更新已提交的 question block IDs
+            submittedQuestionBlockIds: newSubmittedIds,
           };
         }
-        // Agent 启动时添加到 activeAgents
+        // Agent 启动时添加到 activeAgents 并设置流式状态
         if (status === 'started' || status === 'running') {
           const exists = state.activeAgents.some((a) => a.id === invocationId);
           if (!exists) {
@@ -524,6 +531,10 @@ export const useAppStore = create<AppState & AppActions>()(
                   startedAt: new Date().toISOString(),
                 } as AgentInvocation,
               ],
+              // 设置流式状态（用于终态时正确匹配 invocationId）
+              isStreaming: true,
+              streamingInvocationId: invocationId,
+              streamingAgentName: agentName || null,
             };
           }
         }
