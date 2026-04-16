@@ -145,6 +145,19 @@ func (h *InvocationHandler) ListByThread(c *gin.Context) {
 	c.JSON(http.StatusOK, invocations)
 }
 
+// ListRunning 获取所有运行中的Agent实例
+func (h *InvocationHandler) ListRunning(c *gin.Context) {
+	instances, err := h.orchestrator.GetExecutionService().GetAllRunningAgents(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if instances == nil {
+		instances = []agent.RunningAgentInfo{}
+	}
+	c.JSON(http.StatusOK, gin.H{"instances": instances})
+}
+
 // SpawnRequest 启动请求
 type SpawnRequest struct {
 	ConfigID string          `json:"configId"`
@@ -164,6 +177,7 @@ func (h *InvocationHandler) RegisterRoutes(r *gin.RouterGroup) {
 
 	invocations := r.Group("/invocations")
 	{
+		invocations.GET("/running", h.ListRunning) // 新增：获取运行中的Agent
 		invocations.GET("/:id", h.Get)
 		invocations.POST("/:id/cancel", h.Cancel)
 	}
