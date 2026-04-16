@@ -468,34 +468,33 @@ export async function uninstallOldVersion(
     try { if (existsSync(startMenuPath)) rmSync(startMenuPath) } catch {}
     onProgress?.(20)
 
-    // 删除程序文件（保留 data 目录）
-    const entriesToDelete = [
-      'Colink.exe', 'colink-server.exe', 'web',
-      'resources',
-      'ffmpeg.dll', 'd3dcompiler_47.dll', 'libEGL.dll', 'libGLESv2.dll',
-      'vk_swiftshader.dll', 'vulkan-1.dll',
-      'resources.pak', 'chrome_100_percent.pak', 'chrome_200_percent.pak',
-      'icudtl.dat', 'snapshot_blob.bin', 'v8_context_snapshot.bin',
-      'vk_swiftshader_icd.json', 'icon.ico',
-      'LICENSE.electron.txt', 'LICENSES.chromium.html',
-      'locales'
-    ]
+    // 白名单模式：只保留 data 目录，其余全部删除
+    const whitelist = ['data']  // 保留的目录/文件
+    const entries = readdirSync(installDir, { withFileTypes: true })
+    const entriesToDelete = entries.filter(e => !whitelist.includes(e.name))
 
     const totalEntries = entriesToDelete.length
     let deletedCount = 0
+    const failedEntries: string[] = []
 
     for (const entry of entriesToDelete) {
-      const path = join(installDir, entry)
-      if (existsSync(path)) {
-        sendProgress(`删除 ${entry}...`)
-        try {
-          rmSync(path, { recursive: true, force: true })
-        } catch (e) {
-          console.error(`[UninstallOld] Failed:`, path, e)
-        }
+      const path = join(installDir, entry.name)
+      sendProgress(`删除 ${entry.name}...`)
+      try {
+        rmSync(path, { recursive: true, force: true })
+        deletedCount++
+      } catch (e) {
+        console.error(`[UninstallOld] Failed to delete:`, path, e)
+        failedEntries.push(entry.name)
       }
-      deletedCount++
-      onProgress?.(Math.round(20 + (deletedCount / totalEntries) * 70))
+      onProgress?.(Math.round(20 + ((deletedCount + failedEntries.length) / totalEntries) * 70))
+    }
+
+    // 如果有删除失败的，报错
+    if (failedEntries.length > 0) {
+      const errorMsg = `以下文件删除失败：${failedEntries.join(', ')}\n请手动关闭相关程序后重试`
+      sendProgress('删除失败', errorMsg)
+      return { success: false, error: errorMsg }
     }
 
     // 删除注册表
