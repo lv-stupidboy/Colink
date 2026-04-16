@@ -711,7 +711,7 @@ const ThreadView: React.FC = () => {
           // 构建要追加的 block 对象
           const blockToAppend = {
             id: `question-${toolId}`,
-            type: 'question',
+            type: 'question' as const,  // 使用 as const 确保类型为字面量 "question"
             toolName: toolName || 'AskUserQuestion',
             toolId: toolId || '',
             invocationId: invocId,  // 保存 invocationId 用于提交答案
