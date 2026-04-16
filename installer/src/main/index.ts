@@ -156,12 +156,6 @@ async function stopAllProcesses(): Promise<void> {
   } catch {
     // 忽略错误
   }
-  // 同时结束旧版进程名（兼容升级）
-  try {
-    execSync('taskkill /f /im isdp-server.exe 2>nul', { encoding: 'utf8' })
-  } catch {
-    // 忽略错误
-  }
 }
 
 // ==================== IPC 处理 ====================
@@ -418,9 +412,6 @@ ipcMain.handle('start-installation', async (_event, config) => {
     try {
       execSync('taskkill /f /im colink-server.exe 2>nul', { encoding: 'utf8' })
     } catch {}
-    try {
-      execSync('taskkill /f /im isdp-server.exe 2>nul', { encoding: 'utf8' })
-    } catch {}
 
     // 等待进程完全退出（文件句柄释放）
     await new Promise(resolve => setTimeout(resolve, 2000))
@@ -642,7 +633,7 @@ ipcMain.handle('uninstall', async (_event, keepData: boolean) => {
     }
 
     const entriesToDelete = [
-      'Colink.exe', 'colink-server.exe', 'isdp-server.exe', 'web',
+      'Colink.exe', 'colink-server.exe', 'web',
       // DLL 文件
       'ffmpeg.dll', 'd3dcompiler_47.dll', 'libEGL.dll', 'libGLESv2.dll',
       'vk_swiftshader.dll', 'vulkan-1.dll',

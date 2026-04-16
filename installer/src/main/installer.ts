@@ -308,10 +308,6 @@ export async function killAllProcesses(): Promise<void> {
   try {
     execSync('taskkill /f /im colink-server.exe 2>nul', { encoding: 'utf8' })
   } catch {}
-  // 同时结束旧版进程名（兼容升级）
-  try {
-    execSync('taskkill /f /im isdp-server.exe 2>nul', { encoding: 'utf8' })
-  } catch {}
 
   // 等待进程完全退出
   await new Promise(resolve => setTimeout(resolve, 1500))
