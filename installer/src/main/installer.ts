@@ -1,6 +1,6 @@
 import { exec, spawn, execSync } from 'child_process'
 import { promisify } from 'util'
-import { createWriteStream, existsSync, unlinkSync, rmSync, readdirSync, mkdirSync, writeFileSync, copyFileSync, readFileSync, statSync, openSync, closeSync, renameSync } from 'fs'
+import { createWriteStream, existsSync, unlinkSync, rmSync, readdirSync, mkdirSync, writeFileSync, copyFileSync, readFileSync, statSync, renameSync } from 'fs'
 import { join, dirname, basename } from 'path'
 import { BrowserWindow } from 'electron'
 import { tmpdir } from 'os'
@@ -354,50 +354,51 @@ export async function copyApplicationFiles(
       return { success: false, error: `运行时目录不存在: ${runtimeDir}` }
     }
 
-    // 原子复制单个文件：先复制到 .tmp，再 rename
-    const atomicCopyFileSync = (src: string, dest: string) => {
+    // ========== 统一的原子替换策略 ==========
+    // 原子替换单个文件：先删除目标（如果存在），复制到 .tmp，再 rename
+    const atomicReplaceFile = (src: string, dest: string) => {
+      if (existsSync(dest)) {
+        rmSync(dest, { force: true })
+      }
       const tmpPath = dest + '.tmp'
       copyFileSync(src, tmpPath)
       renameSync(tmpPath, dest)
     }
 
-    // 原子复制目录
-    const atomicCopyDirSync = (src: string, dest: string) => {
+    // 原子替换目录：先删除目标（如果存在），递归复制每个文件
+    const atomicReplaceDir = (src: string, dest: string) => {
+      if (existsSync(dest)) {
+        rmSync(dest, { recursive: true, force: true })
+      }
       mkdirSync(dest, { recursive: true })
       const entries = readdirSync(src, { withFileTypes: true })
       for (const entry of entries) {
         const srcPath = join(src, entry.name)
         const destPath = join(dest, entry.name)
         if (entry.isDirectory()) {
-          atomicCopyDirSync(srcPath, destPath)
+          atomicReplaceDir(srcPath, destPath)
         } else {
-          atomicCopyFileSync(srcPath, destPath)
+          atomicReplaceFile(srcPath, destPath)
         }
       }
     }
 
-    // 复制 colink-server.exe（原子方式）
+    // 复制 colink-server.exe
     const serverSrc = join(runtimeDir, 'colink-server.exe')
     const serverDest = join(destDir, 'colink-server.exe')
 
     if (existsSync(serverSrc)) {
-      if (existsSync(serverDest)) {
-        await forceDelete(serverDest)
-      }
-      atomicCopyFileSync(serverSrc, serverDest)
+      atomicReplaceFile(serverSrc, serverDest)
     } else {
       console.warn('[Copy] colink-server.exe not found')
     }
 
-    // 复制 web/（原子方式）
+    // 复制 web/
     const webSrc = join(runtimeDir, 'web')
     const webDest = join(destDir, 'web')
 
     if (existsSync(webSrc)) {
-      if (existsSync(webDest)) {
-        await forceDelete(webDest)
-      }
-      atomicCopyDirSync(webSrc, webDest)
+      atomicReplaceDir(webSrc, webDest)
     } else {
       console.warn('[Copy] web/ not found')
     }
@@ -409,19 +410,19 @@ export async function copyApplicationFiles(
     await fsMkdir(join(destDir, 'data', 'agent-configs'), { recursive: true })
     await fsMkdir(join(destDir, 'data', 'repos'), { recursive: true })
 
-    // 复制配置模板（原子方式）
+    // 复制配置模板
     const templateSrc = join(runtimeDir, 'data', 'configs', 'config.yaml.example')
     const templateDest = join(destDir, 'data', 'configs', 'config.yaml.example')
     if (existsSync(templateSrc)) {
-      atomicCopyFileSync(templateSrc, templateDest)
+      atomicReplaceFile(templateSrc, templateDest)
       console.log('[Copy] Config template copied')
     }
 
-    // 复制 icon.ico（原子方式）
+    // 复制 icon.ico
     const iconSrc = join(resourcesDir, 'icon.ico')
     const iconDest = join(destDir, 'icon.ico')
     if (existsSync(iconSrc)) {
-      atomicCopyFileSync(iconSrc, iconDest)
+      atomicReplaceFile(iconSrc, iconDest)
     }
 
     onProgress?.(100)
@@ -432,27 +433,9 @@ export async function copyApplicationFiles(
   }
 }
 
-// 检测文件是否被锁定（Windows）
-function checkFileLocked(filePath: string): boolean {
-  try {
-    // 尝试以读写模式打开文件，如果失败则说明被锁定
-    const fd = openSync(filePath, 'r+')
-    closeSync(fd)
-    return false // 可以打开，未被锁定
-  } catch (e) {
-    const errorMsg = e instanceof Error ? e.message : ''
-    // EPERM、EACCES、being used 都表示文件被锁定
-    if (errorMsg.includes('EPERM') || errorMsg.includes('EACCES') || errorMsg.includes('being used')) {
-      return true
-    }
-    // 其他错误（如文件不存在）不算锁定
-    return false
-  }
-}
-
 // 复制启动器文件到目标目录
 // 从 resources/launcher/ 目录复制完整的启动器
-// 采用原子替换策略：先复制到临时目录，再批量替换，避免中途失败导致损坏
+// 采用原子替换策略：先复制到临时目录，再批量替换
 export async function copyLauncherFiles(
   sourceDir: string,
   destDir: string,
@@ -466,23 +449,11 @@ export async function copyLauncherFiles(
       return { success: false, error: `启动器目录不存在: ${launcherSrcDir}` }
     }
 
-    // 升级模式：先检查目标目录的关键文件是否被锁定
-    if (existsSync(destDir)) {
-      const criticalFiles = ['Colink.exe', 'colink-server.exe']
-      for (const fileName of criticalFiles) {
-        const targetFile = join(destDir, fileName)
-        if (existsSync(targetFile) && checkFileLocked(targetFile)) {
-          return { success: false, error: `${fileName} 正在被使用，请先关闭启动器（Colink.exe）后再重试` }
-        }
-      }
-    }
-
     const fs = require('original-fs')
 
-    // ========== 原子替换策略 ==========
-    // Step 1: 创建临时目录 staging
-    const stagingDir = join(destDir, '.staging-' + Date.now())
-    fs.mkdirSync(stagingDir, { recursive: true })
+    // ========== 统一的原子替换策略 ==========
+    // Step 1: 在系统临时目录创建 staging（避免放在目标目录内）
+    const stagingDir = join(tmpdir(), 'colink-staging-' + Date.now())
 
     // 原子复制单个文件：先复制到 .tmp，再 rename
     const atomicCopyFile = (src: string, dest: string) => {
@@ -506,13 +477,31 @@ export async function copyLauncherFiles(
       }
     }
 
+    // 原子替换单个文件到目标目录
+    const atomicReplaceFile = (src: string, dest: string) => {
+      if (fs.existsSync(dest)) {
+        fs.rmSync(dest, { force: true })
+      }
+      fs.renameSync(src, dest)
+    }
+
+    // 原子替换目录到目标目录
+    const atomicReplaceDir = (src: string, dest: string) => {
+      if (fs.existsSync(dest)) {
+        fs.rmSync(dest, { recursive: true, force: true })
+      }
+      fs.renameSync(src, dest)
+    }
+
     // Step 2: 将所有文件原子复制到 staging 目录
     const entries = fs.readdirSync(launcherSrcDir, { withFileTypes: true })
     if (entries.length === 0) {
       return { success: false, error: `启动器目录为空: ${launcherSrcDir}` }
     }
 
-    let copiedFiles = 0
+    fs.mkdirSync(stagingDir, { recursive: true })
+
+    let processedFiles = 0
     const totalFiles = entries.length
 
     for (const entry of entries) {
@@ -520,17 +509,15 @@ export async function copyLauncherFiles(
       const stagingPath = join(stagingDir, entry.name)
 
       try {
-        const fileStat = fs.statSync(srcPath)
-
-        if (fileStat.isDirectory()) {
+        if (entry.isDirectory()) {
           atomicCopyDir(srcPath, stagingPath)
         } else {
           atomicCopyFile(srcPath, stagingPath)
         }
-        copiedFiles++
-        onProgress?.(Math.round((copiedFiles / totalFiles) * 50))  // 复制进度 50%
+        processedFiles++
+        onProgress?.(Math.round((processedFiles / totalFiles) * 50))
       } catch (copyError) {
-        console.error(`[Copy] Failed to stage ${entry.name}:`, copyError)
+        console.error(`[Copy] Failed to copy ${entry.name}:`, copyError)
         // 清理 staging 目录
         try { fs.rmSync(stagingDir, { recursive: true, force: true }) } catch {}
         const errorMsg = copyError instanceof Error ? copyError.message : '未知错误'
@@ -541,14 +528,7 @@ export async function copyLauncherFiles(
       }
     }
 
-    // Step 3: 验证 staging 中的关键文件
-    const stagingExe = join(stagingDir, 'Colink.exe')
-    if (!fs.existsSync(stagingExe)) {
-      try { fs.rmSync(stagingDir, { recursive: true, force: true }) } catch {}
-      return { success: false, error: '启动器可执行文件复制失败: Colink.exe 未成功复制到临时目录' }
-    }
-
-    // Step 4: 从 staging 原子替换到目标目录
+    // Step 3: 从 staging 原子替换到目标目录
     for (const entry of entries) {
       const stagingPath = join(stagingDir, entry.name)
       const destPath = join(destDir, entry.name)
@@ -558,19 +538,18 @@ export async function copyLauncherFiles(
       }
 
       try {
-        // 删除目标位置的老文件/目录
-        if (fs.existsSync(destPath)) {
-          fs.rmSync(destPath, { recursive: true, force: true })
+        if (entry.isDirectory()) {
+          atomicReplaceDir(stagingPath, destPath)
+        } else {
+          atomicReplaceFile(stagingPath, destPath)
         }
-        // 原子 rename（Windows 下 rename 是原子操作）
-        fs.renameSync(stagingPath, destPath)
-        copiedFiles++
-        onProgress?.(Math.round(50 + (copiedFiles / totalFiles) * 50))  // 替换进度 50%-100%
-      } catch (renameError) {
-        console.error(`[Copy] Failed to replace ${entry.name}:`, renameError)
+        processedFiles++
+        onProgress?.(Math.round(50 + (processedFiles / totalFiles) * 50))
+      } catch (replaceError) {
+        console.error(`[Copy] Failed to replace ${entry.name}:`, replaceError)
         // 清理 staging 目录
         try { fs.rmSync(stagingDir, { recursive: true, force: true }) } catch {}
-        const errorMsg = renameError instanceof Error ? renameError.message : '未知错误'
+        const errorMsg = replaceError instanceof Error ? replaceError.message : '未知错误'
         if (errorMsg.includes('EPERM') || errorMsg.includes('EACCES') || errorMsg.includes('being used')) {
           return { success: false, error: `${entry.name} 替换失败（文件被锁定），请确保启动器已完全关闭后重试` }
         }
@@ -578,18 +557,12 @@ export async function copyLauncherFiles(
       }
     }
 
-    // Step 5: 清理 staging 目录（如果还有残留）
+    // Step 4: 清理 staging 目录
     try {
       if (fs.existsSync(stagingDir)) {
         fs.rmSync(stagingDir, { recursive: true, force: true })
       }
     } catch {}
-
-    // 验证关键文件
-    const exeDest = join(destDir, 'Colink.exe')
-    if (!fs.existsSync(exeDest)) {
-      return { success: false, error: '启动器可执行文件替换失败: Colink.exe 不存在' }
-    }
 
     onProgress?.(100)
     return { success: true }
