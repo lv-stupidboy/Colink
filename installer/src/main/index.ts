@@ -158,41 +158,15 @@ async function stopServiceProcess(): Promise<void> {
   }
 }
 
-// 停止服务进程（用于卸载流程，不停止 Colink.exe）
-async function stopServiceProcessForUninstall(): Promise<void> {
-  // 停止服务管理器
-  if (serviceManager) {
-    await serviceManager.stop()
-    serviceManager = null
-  }
-
-  // 强制结束服务进程（Colink.exe 需要用户手动关闭）
+// 检查 Colink.exe 是否在运行
+function checkColinkRunning(): boolean {
   try {
-    execSync('taskkill /f /im colink-server.exe 2>nul', { encoding: 'utf8' })
-  } catch {
-    // 忽略错误
-  }
-
-  // 等待进程退出
-  await new Promise(resolve => setTimeout(resolve, 2000))
-}
-
-// 检查进程是否还在运行
-function checkProcessRunning(processName: string): boolean {
-  try {
-    const output = execSync(`tasklist /fi "imagename eq ${processName}" /fo csv`, { encoding: 'utf8' })
-    // CSV格式: "Image Name","PID","Session Name","Session#","Mem Usage"
-    // 如果进程不存在，只返回一行标题
+    const output = execSync(`tasklist /fi "imagename eq Colink.exe" /fo csv`, { encoding: 'utf8' })
     const lines = output.trim().split('\n')
     return lines.length > 1
   } catch {
     return false
   }
-}
-
-// 检查 Colink.exe 是否在运行
-function checkColinkRunning(): boolean {
-  return checkProcessRunning('Colink.exe')
 }
 
 // ==================== IPC 处理 ====================
@@ -226,8 +200,6 @@ ipcMain.handle('check-old-isdp', async () => {
 })
 
 ipcMain.handle('uninstall-old-isdp', async () => {
-  // 先停止服务进程（ISDP.exe 是旧版，不需要检查）
-  await stopServiceProcessForUninstall()
   return uninstallOldISDP()
 })
 
@@ -606,7 +578,7 @@ ipcMain.handle('uninstall', async (_event, keepData: boolean) => {
   try {
     // 先检查 Colink.exe 是否在运行，不允许自动停止
     if (checkColinkRunning()) {
-      const errorMsg = 'Colink.exe（启动器）正在运行，请先手动关闭启动器后重试。\n\n可在任务栏右下角找到 Colink 图标，右键选择退出；或通过任务管理器结束进程。'
+      const errorMsg = 'Colink.exe 正在运行，请先关闭启动器后重试。'
       dialog.showMessageBox(mainWindow!, {
         type: 'error',
         title: '卸载失败',
@@ -615,9 +587,6 @@ ipcMain.handle('uninstall', async (_event, keepData: boolean) => {
       })
       return { success: false, error: errorMsg }
     }
-
-    // 停止服务进程
-    await stopServiceProcessForUninstall()
 
     // 删除注册表
     deleteRegistry()
