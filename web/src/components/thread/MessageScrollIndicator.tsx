@@ -110,10 +110,10 @@ const MessageScrollIndicator: React.FC<MessageScrollIndicatorProps> = ({
     if (onJumpToMessage) {
       onJumpToMessage(messageId);
     } else {
-      // 默认跳转逻辑
+      // 默认跳转逻辑：将消息首行对齐到可视区域顶部
       const element = document.querySelector(`[data-message-id="${messageId}"]`);
       if (element) {
-        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        element.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
     }
   }, [onJumpToMessage]);

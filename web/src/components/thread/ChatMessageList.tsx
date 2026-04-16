@@ -97,11 +97,12 @@ export const ChatMessageList = forwardRef<HTMLDivElement, ChatMessageListProps>(
   }, [messages.length, autoScroll, isNearBottom]);
 
   // 流式内容变化时的滚动：只有接近底部时才滚动
+  // 使用整个 streamingContentBlocks 数组作为依赖，这样内容更新也会触发滚动
   useEffect(() => {
     if (autoScroll && isNearBottom && streamingContentBlocks.length > 0 && bottomAnchorRef.current) {
       bottomAnchorRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
     }
-  }, [streamingContentBlocks.length, autoScroll, isNearBottom]);
+  }, [streamingContentBlocks, autoScroll, isNearBottom]);
 
   // 空状态
   if (messages.length === 0) {
