@@ -1,4 +1,5 @@
-import { Card, Button, Space, Tag, Divider, Typography } from 'antd'
+import { useEffect, useState } from 'react'
+import { Card, Button, Space, Tag, Divider, Typography, Table, Alert } from 'antd'
 import {
   PlayCircleOutlined,
   StopOutlined,
@@ -7,6 +8,7 @@ import {
   FolderOutlined,
   GlobalOutlined
 } from '@ant-design/icons'
+import type { RunningAgentInstance } from '../types'
 
 const { Title, Text } = Typography
 
@@ -74,6 +76,33 @@ export function LauncherDashboard({
 }: LauncherDashboardProps) {
   const isRunning = serviceStatus === 'running'
 
+  const [runningAgents, setRunningAgents] = useState<RunningAgentInstance[]>([])
+  const [agentCount, setAgentCount] = useState(0)
+
+  // 轮询获取运行中的Agent
+  useEffect(() => {
+    if (!isRunning) {
+      setRunningAgents([])
+      setAgentCount(0)
+      return
+    }
+
+    const fetchRunningAgents = async () => {
+      try {
+        const result = await window.electronAPI.getRunningAgents()
+        setRunningAgents(result.instances || [])
+        setAgentCount(result.instances?.length || 0)
+      } catch {
+        setRunningAgents([])
+        setAgentCount(0)
+      }
+    }
+
+    fetchRunningAgents()
+    const interval = setInterval(fetchRunningAgents, 5000) // 每5秒轮询
+    return () => clearInterval(interval)
+  }, [isRunning])
+
   const handleOpenConsole = async () => {
     await window.electronAPI.openConsole()
   }
@@ -118,6 +147,7 @@ export function LauncherDashboard({
                 icon={<StopOutlined />}
                 onClick={onStopService}
                 danger
+                disabled={agentCount > 0}
               >
                 停止服务
               </Button>
@@ -132,6 +162,46 @@ export function LauncherDashboard({
             )}
           </Space>
         </div>
+      </Card>
+
+      {/* Agent实例列表 */}
+      <Card title="正在运行的Agent实例" size="small" style={{ marginBottom: 16 }}>
+        {runningAgents.length === 0 ? (
+          <Text type="secondary">当前无Agent实例运行</Text>
+        ) : (
+          <>
+            <Table
+              size="small"
+              dataSource={runningAgents}
+              rowKey="invocationId"
+              pagination={false}
+              columns={[
+                { title: '项目', dataIndex: 'projectName', key: 'project', width: 100, ellipsis: true },
+                { title: '任务', dataIndex: 'threadTitle', key: 'thread', width: 150, ellipsis: true },
+                { title: 'Agent', dataIndex: 'agentName', key: 'agent', width: 120, ellipsis: true },
+                {
+                  title: '运行时间',
+                  key: 'duration',
+                  width: 80,
+                  render: (_, record) => {
+                    const mins = Math.floor(record.runningDurationSeconds / 60)
+                    if (mins < 1) return '<1分钟'
+                    if (mins < 60) return `${mins}分钟`
+                    const hours = Math.floor(mins / 60)
+                    const remainMins = mins % 60
+                    return `${hours}小时${remainMins}分钟`
+                  }
+                }
+              ]}
+            />
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginTop: 8 }}
+              message={`有${agentCount}个Agent实例正在运行，请在Web控制台手动停止后才能停止服务`}
+            />
+          </>
+        )}
       </Card>
 
       {/* 快捷操作 */}
