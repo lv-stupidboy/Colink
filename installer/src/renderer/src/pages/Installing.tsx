@@ -89,18 +89,19 @@ export default function Installing({ config, onComplete, isUpgrade }: Installing
     if (!isRetrying) {
       console.log('Starting installation with config:', config)
       window.electronAPI.startInstallation(config).then(result => {
-      if (!isMounted) return
-      console.log('Installation result:', result)
+        if (!isMounted) return
+        console.log('Installation result:', result)
 
-      if (!result.success) {
-        setInstallError(result.error || '安装失败')
-        message.error(result.error || '安装失败')
-      }
-    }).catch(err => {
-      if (!isMounted) return
-      console.error('Installation error:', err)
-      setInstallError(err.message || '安装过程出错')
-    })
+        if (!result.success) {
+          setInstallError(result.error || '安装失败')
+          message.error(result.error || '安装失败')
+        }
+      }).catch(err => {
+        if (!isMounted) return
+        console.error('Installation error:', err)
+        setInstallError(err.message || '安装过程出错')
+      })
+    }
 
     return () => {
       isMounted = false
