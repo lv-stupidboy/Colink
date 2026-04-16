@@ -25,6 +25,7 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
   const [configMerged, setConfigMerged] = useState(false)
   const [userSelectedDbType, setUserSelectedDbType] = useState<boolean>(false)  // 用户是否手动选择了数据库类型
   const [wasMySQLDetected, setWasMySQLDetected] = useState<boolean>(false)  // 检测到原配置是 MySQL
+  const [userEditedYaml, setUserEditedYaml] = useState<boolean>(false)  // 用户是否手动编辑过 YAML
 
   // 保存 MySQL 配置，即使切换到 sqlite 也保留（用于切换回来时恢复）
   const [mysqlConfig, setMysqlConfig] = useState<{
@@ -102,7 +103,8 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
 
   // 当数据库类型或配置变化时更新预览
   useEffect(() => {
-    if (editingYaml) return // 编辑模式不自动更新
+    // 编辑模式或用户已手动编辑过 YAML 时，不自动更新
+    if (editingYaml || userEditedYaml) return
 
     const generatePreview = async () => {
       try {
@@ -153,13 +155,14 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
     }
 
     generatePreview()
-  }, [isUpgrade, userSelectedDbType, config.database.type, mysqlConfig, config.serverPort, editingYaml, config.installDir, installedVersion?.installDir])
+  }, [isUpgrade, userSelectedDbType, config.database.type, mysqlConfig, config.serverPort, editingYaml, userEditedYaml, config.installDir, installedVersion?.installDir])
 
   // MySQL 配置变化时更新 mysqlConfig state
   const handleDbChange = (field: string, value: string | number) => {
     const newMysqlConfig = { ...mysqlConfig, [field]: value }
     setMysqlConfig(newMysqlConfig)
     setUserSelectedDbType(true)  // 用户手动修改了数据库配置
+    setUserEditedYaml(false)  // 修改数据库配置时重置 YAML 编辑标记，允许重新生成
     onConfigUpdate({
       database: { type: 'mysql', ...newMysqlConfig }
     })
@@ -197,6 +200,7 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
         return
       }
       setEditingYaml(false)
+      setUserEditedYaml(true)  // 标记用户已手动编辑，阻止后续自动重新生成
       setYamlError(null)
       // 将编辑后的 YAML 内容传递到 config
       onConfigUpdate({ configYaml: mergedConfigYaml })
@@ -259,6 +263,7 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
             onChange={(e) => {
               const newType = e.target.value as 'sqlite' | 'mysql'
               setUserSelectedDbType(true)  // 用户手动选择了数据库类型
+              setUserEditedYaml(false)  // 切换数据库类型时重置 YAML 编辑标记，允许重新生成
               if (newType === 'mysql') {
                 // 切换到 MySQL 时使用保存的 mysqlConfig
                 onConfigUpdate({
@@ -393,6 +398,7 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
                 type="number"
                 value={config.serverPort || 8080}
                 onChange={(e) => {
+                  setUserEditedYaml(false)  // 修改端口时重置 YAML 编辑标记，允许重新生成
                   onConfigUpdate({ serverPort: parseInt(e.target.value) || 8080 })
                   setConfigMerged(false)
                 }}
