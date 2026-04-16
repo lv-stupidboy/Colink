@@ -395,6 +395,8 @@ export interface QuestionBlock extends MessageContentBlockBase {
   toolName: string;
   toolId: string;
   invocationId: string;  // 关联的 invocation ID，用于提交答案时定位
+  agentId?: string;      // 提出问题的 Agent ID
+  agentName?: string;    // 提出问题的 Agent 名称（用于 resume 调用）
   input?: Record<string, unknown>;
   questions: QuestionItem[];
   output?: string;         // 用户选择的答案

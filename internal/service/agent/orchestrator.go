@@ -95,6 +95,8 @@ type ContentBlockData struct {
 	// AskUserQuestion 相关（字段名与前端 QuestionBlock 对齐）
 	Questions    []QuestionItem    `json:"questions,omitempty"`    // 问题列表
 	InvocationID string            `json:"invocationId,omitempty"` // 关联的 invocation ID
+	AgentID      string            `json:"agentId,omitempty"`      // 提出问题的 Agent ID（用于前端 resume）
+	AgentName    string            `json:"agentName,omitempty"`    // 提出问题的 Agent 名称（用于前端 @mention resume）
 	// 时间追踪
 	StartedAt   int64 `json:"startedAt,omitempty"`
 	CompletedAt int64 `json:"completedAt,omitempty"`

@@ -2231,9 +2231,18 @@ func (es *ExecutionService) broadcastChunk(threadID, invocationID uuid.UUID, chu
 					break
 				}
 			}
-			
+
+			// 获取 Agent ID 和 Name（用于前端 @mention resume）
+			agentIDStr := ""
+			agentNameStr := ""
+			if agent.AgentConfig != nil {
+				agentIDStr = agent.AgentConfig.ID.String()
+				agentNameStr = agent.AgentConfig.Name
+			}
+
 			if existingIdx >= 0 {
 				// 已存在：更新它（特别是 Questions 字段，可能在第二次解析时才有）
+				// 注意：保留已有的 AgentID 和 AgentName（第一次创建时已设置）
 				agent.AccumulatedContentBlocks[existingIdx] = ContentBlockData{
 					ID:           blockID,
 					Type:         "question",
@@ -2244,13 +2253,16 @@ func (es *ExecutionService) broadcastChunk(threadID, invocationID uuid.UUID, chu
 					Input:        chunk.ToolInput,
 					Questions:    chunk.Questions,
 					InvocationID: invocationID.String(),
+					AgentID:      agent.AccumulatedContentBlocks[existingIdx].AgentID,      // 保留已有值
+					AgentName:    agent.AccumulatedContentBlocks[existingIdx].AgentName,    // 保留已有值
 					StartedAt:    agent.AccumulatedContentBlocks[existingIdx].StartedAt,
 				}
 				logInfo("更新已存在的 question block",
 					zap.String("blockId", blockID),
-					zap.Int("questionsCount", len(chunk.Questions)))
+					zap.Int("questionsCount", len(chunk.Questions)),
+					zap.String("agentName", agent.AccumulatedContentBlocks[existingIdx].AgentName))
 			} else {
-				// 不存在：添加新 block
+				// 不存在：添加新 block（包含 AgentID 和 AgentName）
 				agent.AccumulatedContentBlocks = append(agent.AccumulatedContentBlocks, ContentBlockData{
 					ID:           blockID,
 					Type:         "question",
@@ -2261,11 +2273,15 @@ func (es *ExecutionService) broadcastChunk(threadID, invocationID uuid.UUID, chu
 					Input:        chunk.ToolInput,
 					Questions:    chunk.Questions,
 					InvocationID: invocationID.String(),
+					AgentID:      agentIDStr,   // 保存 Agent ID
+					AgentName:    agentNameStr, // 保存 Agent Name（用于前端 @mention）
 					StartedAt:    now,
 				})
 				logInfo("添加新的 question block",
 					zap.String("blockId", blockID),
-					zap.Int("questionsCount", len(chunk.Questions)))
+					zap.Int("questionsCount", len(chunk.Questions)),
+					zap.String("agentId", agentIDStr),
+					zap.String("agentName", agentNameStr))
 			}
 			// 标记为等待用户输入状态
 			agent.WaitingForUserInput = true
@@ -2820,93 +2836,124 @@ func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, thread
 		zap.Any("workflowTemplateID", workflowTemplateID),
 		zap.Any("threadWorkflowTemplateID", thread.WorkflowTemplateID))
 
-	// 获取工作流模板中的Agent列表和Transitions
-	var agentIDs []string
-	var transitions []model.Transition
-	if workflowTemplateID != nil && es.workflowRepo != nil {
-		workflow, err := es.workflowRepo.FindByID(ctx, *workflowTemplateID)
-		if err != nil {
-			logError("SpawnAgentForUserMessage: 查找工作流模板失败", zap.Error(err))
-		} else if workflow == nil {
-			logInfo("SpawnAgentForUserMessage: 工作流模板为 nil")
-		} else {
-			logInfo("SpawnAgentForUserMessage: 找到工作流模板",
-				zap.String("name", workflow.Name),
-				zap.Int("agentIDsLen", len(workflow.AgentIDs)))
-			// 解析 agent_ids JSON
-			if len(workflow.AgentIDs) > 0 {
-				if err := json.Unmarshal(workflow.AgentIDs, &agentIDs); err != nil {
-					logError("Failed to parse agent_ids", zap.Error(err))
-				} else {
-					logInfo("SpawnAgentForUserMessage: 解析的 Agent IDs", zap.Strings("agentIDs", agentIDs))
-				}
+	// 如果用户 @mention 了某个 Agent，优先调用那个 Agent（使用 resume 策略）
+	// 这是对 AskUserQuestion 响应的关键支持
+	var targetConfig *model.AgentRoleConfig
+	var sessionStrategy SessionStrategy
+	var sessionIdFromDB string
+
+	if len(mentionedAgentIDs) > 0 {
+		logInfo("SpawnAgentForUserMessage: 用户 @mention 了 Agent，优先调用被 @ 的 Agent", zap.Strings("mentionedAgentIDs", mentionedAgentIDs))
+
+		// 找到被 @ 的 Agent 配置
+		for _, mentionedID := range mentionedAgentIDs {
+			configID, err := uuid.Parse(mentionedID)
+			if err != nil {
+				logError("SpawnAgentForUserMessage: 无法解析 @mention 的 Agent ID", zap.String("mentionedID", mentionedID), zap.Error(err))
+				continue
 			}
-			// 解析 transitions JSON
-			if len(workflow.Transitions) > 0 {
-				if err := json.Unmarshal(workflow.Transitions, &transitions); err != nil {
-					logError("Failed to parse transitions", zap.Error(err))
-				} else {
-					logInfo("SpawnAgentForUserMessage: 解析的 Transitions", zap.Int("count", len(transitions)))
-				}
+
+			config, err := es.configSvc.GetByID(ctx, configID)
+			if err != nil {
+				logError("SpawnAgentForUserMessage: 无法找到 @mention 的 Agent 配置", zap.String("mentionedID", mentionedID), zap.Error(err))
+				continue
 			}
+
+			// 找到被 @ 的 Agent，检查是否应该使用 resume 策略
+			targetConfig = config
+			logInfo("SpawnAgentForUserMessage: 找到被 @ 的 Agent", zap.String("name", config.Name), zap.String("id", config.ID.String()))
+
+			// 检查是否与最后一个完成的 Agent 相同（使用 resume）
+			sessionStrategy, sessionIdFromDB = es.shouldUseResumeStrategy(ctx, threadID, config.ID, mentionedAgentIDs)
+			if sessionStrategy == SessionStrategyResume {
+				logInfo("SpawnAgentForUserMessage: 用户 @ 同一 Agent，使用 resume 会话策略",
+					zap.String("agentName", config.Name),
+					zap.String("agentID", config.ID.String()),
+					zap.String("sessionID", sessionIdFromDB))
+			}
+			break
 		}
-	} else if workflowTemplateID == nil {
-		logInfo("SpawnAgentForUserMessage: workflowTemplateID 为 nil，无法获取 Agent 列表")
 	}
 
-	// 根据Transitions找到入口Agent（没有被其他Agent指向的Agent）
-	entryAgentID := ""
-	if len(agentIDs) > 0 {
-		if len(transitions) > 0 {
-			// 收集所有 to_agent_id（被指向的Agent）
-			targetAgents := make(map[string]bool)
-			for _, t := range transitions {
-				targetAgents[t.ToAgentID] = true
-			}
-
-			// 找到不在 targetAgents 中的 Agent（入口 Agent）
-			for _, id := range agentIDs {
-				if !targetAgents[id] {
-					entryAgentID = id
-					logInfo("SpawnAgentForUserMessage: 找到入口 Agent", zap.String("entryAgentID", entryAgentID))
-					break
+	// 如果没有 @mention 或没找到被 @ 的 Agent，使用 workflow 入口 Agent
+	if targetConfig == nil {
+		// 获取工作流模板中的Agent列表和Transitions
+		var agentIDs []string
+		var transitions []model.Transition
+		if workflowTemplateID != nil && es.workflowRepo != nil {
+			workflow, err := es.workflowRepo.FindByID(ctx, *workflowTemplateID)
+			if err != nil {
+				logError("SpawnAgentForUserMessage: 查找工作流模板失败", zap.Error(err))
+			} else if workflow == nil {
+				logInfo("SpawnAgentForUserMessage: 工作流模板为 nil")
+			} else {
+				logInfo("SpawnAgentForUserMessage: 找到工作流模板",
+					zap.String("name", workflow.Name),
+					zap.Int("agentIDsLen", len(workflow.AgentIDs)))
+				// 解析 agent_ids JSON
+				if len(workflow.AgentIDs) > 0 {
+					if err := json.Unmarshal(workflow.AgentIDs, &agentIDs); err != nil {
+						logError("Failed to parse agent_ids", zap.Error(err))
+					} else {
+						logInfo("SpawnAgentForUserMessage: 解析的 Agent IDs", zap.Strings("agentIDs", agentIDs))
+					}
+				}
+				// 解析 transitions JSON
+				if len(workflow.Transitions) > 0 {
+					if err := json.Unmarshal(workflow.Transitions, &transitions); err != nil {
+						logError("Failed to parse transitions", zap.Error(err))
+					} else {
+						logInfo("SpawnAgentForUserMessage: 解析的 Transitions", zap.Int("count", len(transitions)))
+					}
 				}
 			}
-
-			// 如果没找到入口 Agent，使用 agent_ids[0]
-			if entryAgentID == "" {
-				logInfo("SpawnAgentForUserMessage: 未找到入口 Agent，使用 agent_ids[0]")
-				entryAgentID = agentIDs[0]
-			}
-		} else {
-			// 没有 Transitions，使用 agent_ids[0]
-			entryAgentID = agentIDs[0]
+		} else if workflowTemplateID == nil {
+			logInfo("SpawnAgentForUserMessage: workflowTemplateID 为 nil，无法获取 Agent 列表")
 		}
 
-		configID, err := uuid.Parse(entryAgentID)
-		if err != nil {
-			return fmt.Errorf("invalid agent id in workflow template: %w", err)
-		}
+		// 根据Transitions找到入口Agent（没有被其他Agent指向的Agent）
+		entryAgentID := ""
+		if len(agentIDs) > 0 {
+			if len(transitions) > 0 {
+				// 收集所有 to_agent_id（被指向的Agent）
+				targetAgents := make(map[string]bool)
+				for _, t := range transitions {
+					targetAgents[t.ToAgentID] = true
+				}
 
-		// 验证Agent配置存在
-		config, err := es.configSvc.GetByID(ctx, configID)
-		if err != nil {
-			logError("Agent config not found, falling back to default", zap.Error(err))
-			// 继续使用回退逻辑
-		} else {
-			logInfo("SpawnAgentForUserMessage: 使用入口 Agent", zap.String("name", config.Name), zap.String("id", config.ID.String()))
+				// 找到不在 targetAgents 中的 Agent（入口 Agent）
+				for _, id := range agentIDs {
+					if !targetAgents[id] {
+						entryAgentID = id
+						logInfo("SpawnAgentForUserMessage: 找到入口 Agent", zap.String("entryAgentID", entryAgentID))
+						break
+					}
+				}
 
-			// 判断会话策略：如果用户@的是同一个Agent，使用 resume
-			var sessionStrategy SessionStrategy
-			var sessionIdFromDB string
-			if len(mentionedAgentIDs) > 0 {
-				sessionStrategy, sessionIdFromDB = es.shouldUseResumeStrategy(ctx, threadID, config.ID, mentionedAgentIDs)
-				if sessionStrategy == SessionStrategyResume {
-					logInfo("SpawnAgentForUserMessage: 用户@同一Agent，使用 resume 会话策略",
-						zap.String("agentName", config.Name),
-						zap.String("agentID", config.ID.String()))
+				// 如果没找到入口 Agent，使用 agent_ids[0]
+				if entryAgentID == "" {
+					logInfo("SpawnAgentForUserMessage: 未找到入口 Agent，使用 agent_ids[0]")
+					entryAgentID = agentIDs[0]
 				}
 			} else {
+				// 没有 Transitions，使用 agent_ids[0]
+				entryAgentID = agentIDs[0]
+			}
+
+			configID, err := uuid.Parse(entryAgentID)
+			if err != nil {
+				return fmt.Errorf("invalid agent id in workflow template: %w", err)
+			}
+
+			// 验证Agent配置存在
+			config, err := es.configSvc.GetByID(ctx, configID)
+			if err != nil {
+				logError("Agent config not found, falling back to default", zap.Error(err))
+				// 继续使用回退逻辑
+			} else {
+				targetConfig = config
+				logInfo("SpawnAgentForUserMessage: 使用入口 Agent", zap.String("name", config.Name), zap.String("id", config.ID.String()))
+
 				// 没有 @mention，检查是否应该自动 resume
 				sessionStrategy, sessionIdFromDB = es.shouldAutoResume(ctx, threadID, config.ID)
 				if sessionStrategy == SessionStrategyResume {
@@ -2915,62 +2962,36 @@ func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, thread
 						zap.String("agentID", config.ID.String()))
 				}
 			}
+		}
+	}
 
-
-			// 如果使用 resume 策略，先更新上一个消息中已回答的 question block
-			if sessionStrategy == SessionStrategyResume {
-				es.updatePreviousQuestionBlock(ctx, threadID, userMessage)
+	// 如果仍然没有找到 Agent，使用回退逻辑
+	if targetConfig == nil {
+		// 回退逻辑：获取任意一个可用的默认 Agent
+		logDebug("No workflow agent found, using fallback selection")
+		configs, listErr := es.configSvc.List(ctx)
+		if listErr != nil || len(configs) == 0 {
+			return fmt.Errorf("no agent config available: %w", listErr)
+		}
+		// 优先选择 is_default=true 的，否则选第一个
+		targetConfig = configs[0]
+		for _, c := range configs {
+			if c.IsDefault {
+				targetConfig = c
+				break
 			}
-
-			// 使用工作流模板中指定的Agent
-			_, err = es.SpawnAgent(ctx, &SpawnRequest{
-				ThreadID:        threadID,
-				Role:            config.Role,
-				ConfigID:        config.ID,
-				Input:           userMessage,
-				ProjectPath:     projectPath,
-				SessionStrategy: sessionStrategy,
-				SessionID:       sessionIdFromDB,
-			})
-			return err
 		}
-	}
 
-	// 回退逻辑：获取任意一个可用的默认 Agent
-	logDebug("No workflow agent found, using fallback selection")
-	configs, listErr := es.configSvc.List(ctx)
-	if listErr != nil || len(configs) == 0 {
-		return fmt.Errorf("no agent config available: %w", listErr)
-	}
-	// 优先选择 is_default=true 的，否则选第一个
-	config := configs[0]
-	for _, c := range configs {
-		if c.IsDefault {
-			config = c
-			break
-		}
-	}
+		logInfo("SpawnAgentForUserMessage: 使用回退 Agent", zap.String("name", targetConfig.Name), zap.String("id", targetConfig.ID.String()))
 
-	// 判断会话策略：如果用户@的是同一个Agent，使用 resume
-	var sessionStrategy SessionStrategy
-	var sessionIdFromDB string
-	if len(mentionedAgentIDs) > 0 {
-		sessionStrategy, sessionIdFromDB = es.shouldUseResumeStrategy(ctx, threadID, config.ID, mentionedAgentIDs)
-		if sessionStrategy == SessionStrategyResume {
-			logInfo("SpawnAgentForUserMessage: 用户@同一Agent（回退），使用 resume 会话策略",
-				zap.String("agentName", config.Name),
-				zap.String("agentID", config.ID.String()))
-		}
-	} else {
 		// 没有 @mention，检查是否应该自动 resume
-		sessionStrategy, sessionIdFromDB = es.shouldAutoResume(ctx, threadID, config.ID)
+		sessionStrategy, sessionIdFromDB = es.shouldAutoResume(ctx, threadID, targetConfig.ID)
 		if sessionStrategy == SessionStrategyResume {
 			logInfo("SpawnAgentForUserMessage: 自动判断使用 resume 会话策略（回退，无@mention）",
-				zap.String("agentName", config.Name),
-				zap.String("agentID", config.ID.String()))
+				zap.String("agentName", targetConfig.Name),
+				zap.String("agentID", targetConfig.ID.String()))
 		}
 	}
-
 
 	// 如果使用 resume 策略，先更新上一个消息中已回答的 question block
 	if sessionStrategy == SessionStrategyResume {
@@ -2980,8 +3001,8 @@ func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, thread
 	// 触发Agent
 	_, err = es.SpawnAgent(ctx, &SpawnRequest{
 		ThreadID:        threadID,
-		Role:            config.Role,
-		ConfigID:        config.ID,
+		Role:            targetConfig.Role,
+		ConfigID:        targetConfig.ID,
 		Input:           userMessage,
 		ProjectPath:     projectPath,
 		SessionStrategy: sessionStrategy,
