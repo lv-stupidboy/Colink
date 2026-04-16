@@ -303,6 +303,170 @@ export async function killAllProcesses(): Promise<void> {
   await new Promise(resolve => setTimeout(resolve, 1500))
 }
 
+// 检测并清理僵尸文件（文件存在但损坏/无法使用）
+// 僵尸文件特征：图标不显示、无法启动、无法删除、大小异常
+export async function detectAndCleanZombieFiles(installDir: string): Promise<{
+  cleaned: boolean
+  zombieFiles: string[]
+  error?: string
+}> {
+  const fs = require('original-fs')
+  const zombieFiles: string[] = []
+  const criticalFiles = ['Colink.exe', 'ISDP.exe']
+
+  console.log('[ZombieCheck] Checking for zombie files in:', installDir)
+
+  for (const fileName of criticalFiles) {
+    const filePath = join(installDir, fileName)
+
+    if (!fs.existsSync(filePath)) {
+      continue  // 文件不存在，跳过
+    }
+
+    // 检测文件是否为僵尸状态
+    const isZombie = await checkIfZombie(filePath, fs)
+    if (isZombie) {
+      zombieFiles.push(fileName)
+      console.warn(`[ZombieCheck] Detected zombie file: ${fileName}`)
+    }
+  }
+
+  if (zombieFiles.length === 0) {
+    return { cleaned: true, zombieFiles: [] }
+  }
+
+  // 尝试清理僵尸文件
+  const cleanResult = await cleanZombieFiles(installDir, zombieFiles, fs)
+
+  return {
+    cleaned: cleanResult.success,
+    zombieFiles,
+    error: cleanResult.error
+  }
+}
+
+// 检测单个文件是否为僵尸状态
+async function checkIfZombie(filePath: string, fs: any): Promise<boolean> {
+  try {
+    // 1. 检查文件大小（正常 Colink.exe 约 170MB，如果太小说明损坏）
+    const stats = fs.statSync(filePath)
+    const normalMinSize = 100 * 1024 * 1024  // 100 MB 最小阈值
+
+    if (stats.size < normalMinSize) {
+      console.warn(`[ZombieCheck] ${filePath} size too small: ${stats.size} bytes`)
+      return true
+    }
+
+    // 2. 尝试读取文件头（验证文件是否可读）
+    // Windows PE 文件头前两个字节应该是 'MZ' (0x4D5A)
+    const fd = fs.openSync(filePath, 'r')
+    const header = Buffer.alloc(2)
+    fs.readSync(fd, header, 0, 2, 0)
+    fs.closeSync(fd)
+
+    if (header[0] !== 0x4D || header[1] !== 0x5A) {
+      console.warn(`[ZombieCheck] ${filePath} invalid PE header: ${header.toString('hex')}`)
+      return true
+    }
+
+    // 3. 尝试获取文件版本信息（验证资源是否完整）
+    // 如果图标不显示，通常意味着资源部分损坏
+    try {
+      const versionInfo = execSync(
+        `powershell -Command "(Get-Item '${filePath}').VersionInfo | ConvertTo-Json"`,
+        { encoding: 'utf8', timeout: 5000 }
+      )
+      // 能获取版本信息说明文件基本可用
+    } catch {
+      // 无法获取版本信息，可能资源损坏
+      console.warn(`[ZombieCheck] ${filePath} cannot get version info`)
+      // 不直接判定为僵尸，可能是其他原因
+    }
+
+    return false
+  } catch (err) {
+    // 任何检查失败都可能意味着文件异常
+    console.warn(`[ZombieCheck] ${filePath} check failed:`, err)
+    // 尝试删除来验证是否真的无法操作
+    try {
+      // 能读取 stats 说明文件存在，如果无法读取内容则是僵尸
+      return true
+    } catch {
+      return false
+    }
+  }
+}
+
+// 清理僵尸文件（多种方式尝试）
+async function cleanZombieFiles(
+  installDir: string,
+  zombieFiles: string[],
+  fs: any
+): Promise<{ success: boolean; error?: string }> {
+  const cleanedFiles: string[] = []
+  const failedFiles: string[] = []
+
+  for (const fileName of zombieFiles) {
+    const filePath = join(installDir, fileName)
+
+    // 方式1: 直接删除
+    let deleted = false
+    try {
+      fs.rmSync(filePath, { force: true })
+      if (!fs.existsSync(filePath)) {
+        deleted = true
+        cleanedFiles.push(fileName)
+        console.log(`[ZombieClean] Direct delete success: ${fileName}`)
+        continue
+      }
+    } catch (e) {
+      console.warn(`[ZombieClean] Direct delete failed: ${fileName}`, e)
+    }
+
+    // 方式2: 获取权限后删除
+    if (!deleted) {
+      try {
+        execSync(`takeown /f "${filePath}"`, { encoding: 'utf8' })
+        execSync(`icacls "${filePath}" /grant administrators:F`, { encoding: 'utf8' })
+        fs.rmSync(filePath, { force: true })
+        if (!fs.existsSync(filePath)) {
+          deleted = true
+          cleanedFiles.push(fileName)
+          console.log(`[ZombieClean] Permission+delete success: ${fileName}`)
+          continue
+        }
+      } catch (e) {
+        console.warn(`[ZombieClean] Permission+delete failed: ${fileName}`, e)
+      }
+    }
+
+    // 方式3: 注册 RunOnce，重启后删除
+    if (!deleted) {
+      try {
+        execSync(
+          `reg add "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce" /v "CleanZombie_${fileName}" /t REG_SZ /d "cmd /c del /f /q \"${filePath}\"" /f`,
+          { encoding: 'utf8' }
+        )
+        console.log(`[ZombieClean] Scheduled reboot delete for: ${fileName}`)
+        cleanedFiles.push(fileName)  // 算作成功，重启后会删除
+        deleted = true
+      } catch (e) {
+        console.error(`[ZombieClean] RunOnce schedule failed: ${fileName}`, e)
+        failedFiles.push(fileName)
+      }
+    }
+  }
+
+  if (failedFiles.length > 0) {
+    return {
+      success: false,
+      error: `无法清理以下僵尸文件: ${failedFiles.join(', ')}。请手动删除或重启电脑后再试。`
+    }
+  }
+
+  return { success: true }
+}
+
 // 带重试的强制删除
 async function forceDelete(path: string, retries: number = 5): Promise<boolean> {
   for (let i = 0; i < retries; i++) {
@@ -874,7 +1038,29 @@ export async function runInstallation(
     // Step 0: 停止所有进程
     sendProgress('prepare', 'running', 0, '停止服务...', '正在停止所有相关进程...')
     await killAllProcesses()
-    sendProgress('prepare', 'success', 100, '服务已停止', '所有进程已停止')
+    sendProgress('prepare', 'success', 50, '服务已停止', '所有进程已停止')
+
+    // Step 0.5: 检测并清理僵尸文件（升级场景）
+    if (config.installDir && existsSync(config.installDir)) {
+      sendProgress('prepare', 'running', 60, '检测文件状态...', '检查是否存在损坏的文件...')
+      const zombieResult = await detectAndCleanZombieFiles(config.installDir)
+
+      if (zombieResult.zombieFiles.length > 0) {
+        if (zombieResult.cleaned) {
+          sendProgress('prepare', 'success', 80, '已清理损坏文件',
+            `发现并清理了以下损坏文件:\n${zombieResult.zombieFiles.join('\n')}`)
+        } else {
+          sendProgress('prepare', 'warning', 80, '存在损坏文件',
+            `检测到损坏文件但无法清理:\n${zombieResult.error || '未知错误'}\n建议重启电脑后重新运行安装程序`)
+          // 不阻止继续安装，因为后面会强制替换
+        }
+      } else {
+        sendProgress('prepare', 'success', 80, '文件状态正常', '未发现损坏文件')
+      }
+    } else {
+      sendProgress('prepare', 'success', 80, '跳过检测', '新安装目录不存在')
+    }
+    sendProgress('prepare', 'success', 100, '准备工作完成', '准备开始复制文件')
 
     // Step 1: 复制应用文件
     sendProgress('copy', 'running', 0, '复制应用文件...', `源目录: ${sourceDir}\n目标目录: ${config.installDir}`)
