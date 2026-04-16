@@ -151,7 +151,7 @@ export function uninstallOldISDP(): { success: boolean; error?: string } {
     // 删除老安装目录中的程序文件（保留 data 目录）
     const entriesToDelete = [
       // 可执行文件
-      'ISDP.exe', 'isdp-server.exe', 'Colink.exe', 'colink-server.exe',
+      'Colink.exe', 'colink-server.exe',
       'uninstall.exe',
       // DLL 文件
       'ffmpeg.dll', 'd3dcompiler_47.dll', 'libEGL.dll', 'libGLESv2.dll',

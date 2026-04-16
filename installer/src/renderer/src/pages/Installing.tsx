@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Progress, Button, Tag, Alert, message } from 'antd'
+import { Progress, Button, Tag, Alert, message, Space } from 'antd'
 import { CheckCircleOutlined, LoadingOutlined, CloseCircleOutlined, RightOutlined, WarningOutlined } from '@ant-design/icons'
 import { InstallConfig, InstallProgress, InstalledVersion } from '../types'
 
@@ -23,6 +23,7 @@ interface StepProgress {
 
 // 完整的安装步骤定义
 const INSTALL_STEPS = [
+  { key: 'uninstall', label: '卸载老版本', description: '清理老版本程序文件，保留数据目录' },
   { key: 'copy', label: '复制文件', description: '复制应用程序文件到安装目录' },
   { key: 'dbcheck', label: '检测数据库变更', description: '检查是否需要执行数据库迁移' },
   { key: 'migration', label: '数据库迁移', description: '执行 SQLite 数据库迁移脚本' },
@@ -45,6 +46,8 @@ export default function Installing({ config, onComplete, isUpgrade }: Installing
   const [installError, setInstallError] = useState<string | null>(null)
   const [installComplete, setInstallComplete] = useState(false)
   const [expandedSteps, setExpandedSteps] = useState<string[]>([])
+  const [failedStep, setFailedStep] = useState<string | null>(null)  // 记录失败的步骤
+  const [isRetrying, setIsRetrying] = useState(false)  // 是否正在重试
 
   useEffect(() => {
     let isMounted = true
@@ -72,6 +75,7 @@ export default function Installing({ config, onComplete, isUpgrade }: Installing
 
       if (progress.status === 'failed') {
         setInstallError(progress.message || `${progress.step} 失败`)
+        setFailedStep(progress.step)  // 记录失败步骤
       }
 
       // 只有在没有错误且 registry 成功时才完成
@@ -81,26 +85,58 @@ export default function Installing({ config, onComplete, isUpgrade }: Installing
       }
     })
 
-    // 启动安装
-    console.log('Starting installation with config:', config)
-    window.electronAPI.startInstallation(config).then(result => {
-      if (!isMounted) return
-      console.log('Installation result:', result)
+    // 启动安装（非重试时才执行）
+    if (!isRetrying) {
+      console.log('Starting installation with config:', config)
+      window.electronAPI.startInstallation(config).then(result => {
+        if (!isMounted) return
+        console.log('Installation result:', result)
 
-      if (!result.success) {
-        setInstallError(result.error || '安装失败')
-        message.error(result.error || '安装失败')
-      }
-    }).catch(err => {
-      if (!isMounted) return
-      console.error('Installation error:', err)
-      setInstallError(err.message || '安装过程出错')
-    })
+        if (!result.success) {
+          setInstallError(result.error || '安装失败')
+          message.error(result.error || '安装失败')
+        }
+      }).catch(err => {
+        if (!isMounted) return
+        console.error('Installation error:', err)
+        setInstallError(err.message || '安装过程出错')
+      })
+    }
 
     return () => {
       isMounted = false
     }
-  }, [config, installError])
+  }, [config, isRetrying])
+
+  // 重试安装
+  const handleRetry = async () => {
+    console.log('Retrying installation...')
+    setIsRetrying(true)
+    setInstallError(null)
+    setFailedStep(null)
+    setInstallComplete(false)
+
+    // 重置步骤状态（保留已成功的不变，只重置失败及之后的步骤）
+    setSteps(prev => prev.map(s => {
+      if (s.status === 'failed' || s.status === 'pending') {
+        return { ...s, status: 'pending', progress: 0, message: undefined, details: undefined }
+      }
+      return s
+    }))
+
+    // 重新启动安装
+    window.electronAPI.startInstallation(config).then(result => {
+      if (!result.success) {
+        setInstallError(result.error || '安装失败')
+        message.error(result.error || '安装失败')
+      }
+      setIsRetrying(false)
+    }).catch(err => {
+      console.error('Retry error:', err)
+      setInstallError(err.message || '安装过程出错')
+      setIsRetrying(false)
+    })
+  }
 
   const getStepIcon = (status: string) => {
     switch (status) {
@@ -231,7 +267,26 @@ export default function Installing({ config, onComplete, isUpgrade }: Installing
           showIcon
           style={{ marginBottom: 20 }}
           message="安装失败"
-          description={installError}
+          description={
+            <div>
+              <p style={{ marginBottom: 8 }}>{installError}</p>
+              {failedStep && (
+                <div style={{ marginBottom: 8, color: '#666' }}>
+                  <strong>处理建议：</strong>
+                  {failedStep === 'uninstall' && '请检查是否有进程占用文件，可在任务管理器中结束 Colink.exe 和 colink-server.exe'}
+                  {failedStep === 'copy' && '请检查磁盘空间是否充足，或是否有程序占用目标文件'}
+                  {failedStep === 'migration' && '请检查数据库文件是否正常，可尝试手动执行数据库迁移脚本'}
+                  {failedStep === 'claude' && '请检查 npm 是否正常安装，或手动执行 npm install -g @anthropic-ai/claude-cli'}
+                  {failedStep === 'opencode' && '请检查 npm 是否正常安装，或手动执行 npm install -g @anthropic-ai/opencode'}
+                  {failedStep === 'config' && '请检查安装目录权限，确保可写入配置文件'}
+                  {failedStep === 'shortcut' && '请检查桌面和开始菜单目录权限'}
+                  {failedStep === 'registry' && '请检查注册表写入权限，可能需要管理员权限运行'}
+                  {!['uninstall', 'copy', 'migration', 'claude', 'opencode', 'config', 'shortcut', 'registry'].includes(failedStep) && '请检查错误信息，处理后点击重试'}
+                </div>
+              )}
+              <p style={{ marginBottom: 0, color: '#999' }}>处理完成后，点击"重试"按钮继续安装</p>
+            </div>
+          }
         />
       )}
 
@@ -337,9 +392,14 @@ export default function Installing({ config, onComplete, isUpgrade }: Installing
       {/* 底部按钮 */}
       <div style={{ marginTop: 24, textAlign: 'right' }}>
         {installError ? (
-          <Button type="primary" onClick={handleClose}>
-            关闭
-          </Button>
+          <Space>
+            <Button onClick={handleClose}>
+              关闭
+            </Button>
+            <Button type="primary" onClick={handleRetry} loading={isRetrying}>
+              重试
+            </Button>
+          </Space>
         ) : installComplete ? (
           <Button type="primary" size="large" onClick={handleComplete}>
             完成

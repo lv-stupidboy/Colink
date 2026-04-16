@@ -124,7 +124,7 @@ function createWindow() {
     event.preventDefault()
     const canClose = await showCloseConfirm(mainWindow!, {
       checkServiceRunning: () => serviceManager?.getStatus() === 'running',
-      stopService: async () => { await stopAllProcesses() }
+      stopService: async () => { await stopServiceProcess() }
     })
 
     if (canClose) {
@@ -142,8 +142,8 @@ function initServiceManager() {
   }
 }
 
-// 停止所有相关进程
-async function stopAllProcesses(): Promise<void> {
+// 停止后端服务进程（用于启动器页面"停止服务"按钮）
+async function stopServiceProcess(): Promise<void> {
   // 停止服务管理器
   if (serviceManager) {
     await serviceManager.stop()
@@ -156,12 +156,28 @@ async function stopAllProcesses(): Promise<void> {
   } catch {
     // 忽略错误
   }
-  // 同时结束旧版进程名（兼容升级）
-  try {
-    execSync('taskkill /f /im isdp-server.exe 2>nul', { encoding: 'utf8' })
-  } catch {
-    // 忽略错误
+}
+
+// 停止所有相关进程（用于卸载流程）
+async function stopAllProcessesForUninstall(): Promise<void> {
+  // 停止服务管理器
+  if (serviceManager) {
+    await serviceManager.stop()
+    serviceManager = null
   }
+
+  // 强制结束所有相关进程
+  const processesToKill = ['Colink.exe', 'colink-server.exe']
+  for (const proc of processesToKill) {
+    try {
+      execSync(`taskkill /f /im ${proc} 2>nul`, { encoding: 'utf8' })
+    } catch {
+      // 忽略错误
+    }
+  }
+
+  // 等待进程退出
+  await new Promise(resolve => setTimeout(resolve, 2000))
 }
 
 // ==================== IPC 处理 ====================
@@ -196,7 +212,7 @@ ipcMain.handle('check-old-isdp', async () => {
 
 ipcMain.handle('uninstall-old-isdp', async () => {
   // 先停止所有进程
-  await stopAllProcesses()
+  await stopAllProcessesForUninstall()
   return uninstallOldISDP()
 })
 
@@ -395,11 +411,6 @@ ipcMain.handle('generate-config-preview', async (_event, params: {
 })
 
 ipcMain.handle('start-installation', async (_event, config) => {
-  // 注意：不再检测进程是否运行，原因：
-  // 1. 用户能看到安装页面，就代表 Launcher 已关闭
-  // 2. Launcher 关闭时会自动停止 colink-server.exe
-  // 3. Setup 的 Electron 子进程可能被误判为 "Colink"
-
   const sourceDir = getExeDir()
   const resourcePath = isDev ? join(__dirname, '../../resources') : process.resourcesPath
 
@@ -466,7 +477,7 @@ ipcMain.handle('start-service', async () => {
 })
 
 ipcMain.handle('stop-service', async () => {
-  await stopAllProcesses()
+  await stopServiceProcess()
   return { success: true }
 })
 
@@ -579,7 +590,7 @@ ipcMain.handle('uninstall', async (_event, keepData: boolean) => {
 
   try {
     // 停止所有进程
-    await stopAllProcesses()
+    await stopAllProcessesForUninstall()
 
     // 删除注册表
     deleteRegistry()
@@ -596,69 +607,34 @@ ipcMain.handle('uninstall', async (_event, keepData: boolean) => {
     try { if (existsSync(oldDesktopPath)) rmSync(oldDesktopPath) } catch {}
     try { if (existsSync(oldStartMenuPath)) rmSync(oldStartMenuPath) } catch {}
 
-    // 删除文件（除了data目录）
+    // 白名单模式删除目录（只保留 data）
     const dir = installed.installDir
+    const whitelist = keepData ? ['data'] : []
+    const entries = readdirSync(dir, { withFileTypes: true })
+    const entriesToDelete = entries.filter(e => !whitelist.includes(e.name))
 
-    // 先强制删除 resources 目录（包含 launcher 和 runtime）
-    const resourcesDir = join(dir, 'resources')
-    if (existsSync(resourcesDir)) {
-      try {
-        // 使用最大力度的删除参数
-        rmSync(resourcesDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 })
-        console.log('[Uninstall] Removed resources directory')
-      } catch (e) {
-        console.error('[Uninstall] Failed to remove resources:', resourcesDir, e)
-        // 尝试逐个删除子目录
-        try {
-          const subEntries = readdirSync(resourcesDir)
-          for (const subEntry of subEntries) {
-            const subPath = join(resourcesDir, subEntry)
-            try {
-              rmSync(subPath, { recursive: true, force: true, maxRetries: 3 })
-            } catch {}
-          }
-          // 最后删除空目录
-          rmSync(resourcesDir, { force: true })
-        } catch {}
-      }
-    }
-
-    const entriesToDelete = [
-      'Colink.exe', 'colink-server.exe', 'isdp-server.exe', 'web',
-      // DLL 文件
-      'ffmpeg.dll', 'd3dcompiler_47.dll', 'libEGL.dll', 'libGLESv2.dll',
-      'vk_swiftshader.dll', 'vulkan-1.dll',
-      // 其他文件
-      'resources.pak', 'chrome_100_percent.pak', 'chrome_200_percent.pak',
-      'icudtl.dat', 'snapshot_blob.bin', 'v8_context_snapshot.bin',
-      'vk_swiftshader_icd.json', 'icon.ico',
-      'LICENSE.electron.txt', 'LICENSES.chromium.html',
-      // 目录
-      'locales'
-    ]
-
+    const failedEntries: string[] = []
     for (const entry of entriesToDelete) {
-      const path = join(dir, entry)
-      if (existsSync(path)) {
-        try {
-          rmSync(path, { recursive: true, force: true })
-          console.log('[Uninstall] Removed:', entry)
-        } catch (e) {
-          console.error('[Uninstall] Failed to remove:', path, e)
-        }
+      const path = join(dir, entry.name)
+      try {
+        rmSync(path, { recursive: true, force: true })
+        console.log('[Uninstall] Removed:', entry.name)
+      } catch (e) {
+        console.error('[Uninstall] Failed to remove:', path, e)
+        failedEntries.push(entry.name)
       }
     }
 
-    // 删除数据目录
-    if (!keepData) {
-      const dataDir = join(dir, 'data')
-      if (existsSync(dataDir)) {
-        try {
-          rmSync(dataDir, { recursive: true, force: true })
-        } catch (e) {
-          console.error('[Uninstall] Failed to remove data:', dataDir, e)
-        }
-      }
+    // 如果有删除失败的，报错
+    if (failedEntries.length > 0) {
+      const errorMsg = `以下文件删除失败：${failedEntries.join(', ')}\n请手动关闭相关程序后重试`
+      dialog.showMessageBox(mainWindow!, {
+        type: 'error',
+        title: '卸载失败',
+        message: '部分文件无法删除',
+        detail: errorMsg,
+      })
+      return { success: false, error: errorMsg }
     }
 
     installDir = ''
@@ -670,8 +646,8 @@ ipcMain.handle('uninstall', async (_event, keepData: boolean) => {
       title: '卸载完成',
       message: 'Colink 已卸载',
       detail: keepData
-        ? `数据目录已保留：${dir}\\data\n\n请手动删除安装目录：${dir}`
-        : `请手动删除安装目录：${dir}`,
+        ? `数据目录已保留：${dir}\\data`
+        : '所有文件已删除',
     })
 
     return { success: true }

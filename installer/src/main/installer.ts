@@ -308,10 +308,6 @@ export async function killAllProcesses(): Promise<void> {
   try {
     execSync('taskkill /f /im colink-server.exe 2>nul', { encoding: 'utf8' })
   } catch {}
-  // 同时结束旧版进程名（兼容升级）
-  try {
-    execSync('taskkill /f /im isdp-server.exe 2>nul', { encoding: 'utf8' })
-  } catch {}
 
   // 等待进程完全退出
   await new Promise(resolve => setTimeout(resolve, 1500))
@@ -429,6 +425,90 @@ export async function copyApplicationFiles(
   } catch (error) {
     console.error('[Copy] Error:', error)
     return { success: false, error: error instanceof Error ? error.message : '复制失败' }
+  }
+}
+
+// 卸载老版本（保留数据目录）
+// 用于升级时先清理老版本程序文件，避免复制冲突
+export async function uninstallOldVersion(
+  installDir: string,
+  mainWindow: BrowserWindow,
+  onProgress?: (progress: number) => void
+): Promise<{ success: boolean; error?: string }> {
+  const sendProgress = (message: string, details?: string) => {
+    console.log(`[UninstallOld] ${message}`)
+    mainWindow.webContents.send('install-progress', {
+      step: 'uninstall',
+      status: 'running',
+      message,
+      details
+    })
+  }
+
+  try {
+    sendProgress('停止进程...', '结束 Colink.exe 和 colink-server.exe')
+
+    // 结束进程
+    try {
+      execSync('taskkill /f /im Colink.exe 2>nul', { encoding: 'utf8' })
+    } catch {}
+    try {
+      execSync('taskkill /f /im colink-server.exe 2>nul', { encoding: 'utf8' })
+    } catch {}
+
+    // 等待进程退出
+    await new Promise(resolve => setTimeout(resolve, 2000))
+    onProgress?.(10)
+
+    // 删除快捷方式
+    sendProgress('删除快捷方式...')
+    const desktopPath = process.env.USERPROFILE + '\\Desktop\\Colink.lnk'
+    const startMenuPath = process.env.USERPROFILE + '\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Colink.lnk'
+    try { if (existsSync(desktopPath)) rmSync(desktopPath) } catch {}
+    try { if (existsSync(startMenuPath)) rmSync(startMenuPath) } catch {}
+    onProgress?.(20)
+
+    // 白名单模式：只保留 data 目录，其余全部删除
+    const whitelist = ['data']  // 保留的目录/文件
+    const entries = readdirSync(installDir, { withFileTypes: true })
+    const entriesToDelete = entries.filter(e => !whitelist.includes(e.name))
+
+    const totalEntries = entriesToDelete.length
+    let deletedCount = 0
+    const failedEntries: string[] = []
+
+    for (const entry of entriesToDelete) {
+      const path = join(installDir, entry.name)
+      sendProgress(`删除 ${entry.name}...`)
+      try {
+        rmSync(path, { recursive: true, force: true })
+        deletedCount++
+      } catch (e) {
+        console.error(`[UninstallOld] Failed to delete:`, path, e)
+        failedEntries.push(entry.name)
+      }
+      onProgress?.(Math.round(20 + ((deletedCount + failedEntries.length) / totalEntries) * 70))
+    }
+
+    // 如果有删除失败的，报错
+    if (failedEntries.length > 0) {
+      const errorMsg = `以下文件删除失败：${failedEntries.join(', ')}\n请手动关闭相关程序后重试`
+      sendProgress('删除失败', errorMsg)
+      return { success: false, error: errorMsg }
+    }
+
+    // 删除注册表
+    sendProgress('清理注册表...')
+    deleteRegistry()
+    onProgress?.(95)
+
+    sendProgress('老版本已清理', '数据目录已保留')
+    onProgress?.(100)
+
+    return { success: true }
+  } catch (error) {
+    console.error('[UninstallOld] Error:', error)
+    return { success: false, error: error instanceof Error ? error.message : '卸载老版本失败' }
   }
 }
 
@@ -864,8 +944,23 @@ export async function runInstallation(
   }
 
   try {
-    // 注意：进程检测已在 start-installation handler 中前置完成
-    // 此处不再自动终止进程，避免僵尸文件问题
+    // Step 0: 卸载老版本（如果已安装）
+    // 采用卸载重装策略，避免文件锁定和复制冲突问题
+    // 保留 data 目录，数据库 goose 版本信息不会丢失
+    // 允许重复安装，不需要校验版本号
+    if (existsSync(config.installDir)) {
+      sendProgress('uninstall', 'running', 0, '卸载老版本...', `安装目录: ${config.installDir}\n保留数据目录`)
+      const uninstallResult = await uninstallOldVersion(config.installDir, mainWindow, (p) => {
+        sendProgress('uninstall', 'running', p, `卸载老版本 ${p}%...`)
+      })
+      if (!uninstallResult.success) {
+        sendProgress('uninstall', 'failed', 0, uninstallResult.error, `卸载老版本失败: ${uninstallResult.error}`)
+        return uninstallResult
+      }
+      sendProgress('uninstall', 'success', 100, '老版本已卸载', '数据目录已保留，数据库版本信息完整')
+    } else {
+      sendProgress('uninstall', 'success', 100, '跳过卸载', '首次安装，无需卸载老版本')
+    }
 
     // Step 1: 复制应用文件
     sendProgress('copy', 'running', 0, '复制应用文件...', `源目录: ${sourceDir}\n目标目录: ${config.installDir}`)
