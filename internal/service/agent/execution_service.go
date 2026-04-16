@@ -1469,28 +1469,37 @@ func (es *ExecutionService) checkRouting(ctx context.Context, threadID uuid.UUID
 		}
 		es.a2aMu.Unlock()
 
-		// 决定会话策略：跨角色使用新会话，同角色使用 resume
+		// 决定会话策略：只有同一个 Agent ID 才能 resume，跨 Agent 调用使用新会话
 		var sessionStrategy SessionStrategy
+
+		// 详细日志：打印 ID 对比
+		fromAgentID := ""
+		if a2aCtx.FromAgent != nil {
+			fromAgentID = a2aCtx.FromAgent.ID.String()
+		}
+		logInfo("A2A ID对比详情",
+			zap.String("fromAgentID", fromAgentID),
+			zap.String("toAgentID", targetConfig.ID.String()),
+			zap.Bool("fromAgentNotNil", a2aCtx.FromAgent != nil),
+			zap.Bool("ID相等", a2aCtx.FromAgent != nil && a2aCtx.FromAgent.ID == targetConfig.ID))
+
 		if a2aCtx.FromAgent != nil && a2aCtx.FromAgent.ID == targetConfig.ID {
 			// 同一 Agent 再次调用 → 恢复会话
 			sessionStrategy = SessionStrategyResume
 			logInfo("A2A 会话策略: 同Agent调用，使用 resume",
 				zap.String("fromAgent", a2aCtx.FromAgent.Name),
-				zap.String("toAgent", targetConfig.Name))
-		} else if a2aCtx.FromAgent != nil && a2aCtx.FromAgent.Role == string(targetConfig.Role) {
-			// 同角色不同实例 → 恢复会话
-			sessionStrategy = SessionStrategyResume
-			logInfo("A2A 会话策略: 同角色调用，使用 resume",
-				zap.String("fromRole", a2aCtx.FromAgent.Role),
-				zap.String("toAgent", targetConfig.Name))
-		} else {
-			// 跨角色 → 新会话，不传递历史
-			sessionStrategy = SessionStrategyNew
-			logInfo("A2A 会话策略: 跨角色调用，使用新会话",
-				zap.String("fromAgent", a2aCtx.FromAgent.Name),
-				zap.String("fromRole", a2aCtx.FromAgent.Role),
+				zap.String("fromAgentID", a2aCtx.FromAgent.ID.String()),
 				zap.String("toAgent", targetConfig.Name),
-				zap.String("toRole", string(targetConfig.Role)))
+				zap.String("toAgentID", targetConfig.ID.String()))
+		} else {
+			// 跨 Agent 调用 → 新会话，不传递历史
+			// 即使是同角色，不同 Agent 之间也不共享会话上下文
+			sessionStrategy = SessionStrategyNew
+			logInfo("A2A 会话策略: 跨Agent调用，使用新会话",
+				zap.String("fromAgent", func() string { if a2aCtx.FromAgent != nil { return a2aCtx.FromAgent.Name } else { return "nil" } }()),
+				zap.String("fromAgentID", fromAgentID),
+				zap.String("toAgent", targetConfig.Name),
+				zap.String("toAgentID", targetConfig.ID.String()))
 
 			// 清除该 Agent 的会话缓存，确保不传递历史
 			sessionKey := fmt.Sprintf("%s:%s", threadID.String(), targetConfig.ID.String())
@@ -1848,28 +1857,37 @@ func (es *ExecutionService) checkSignalRouting(ctx context.Context, threadID uui
 		}
 		es.a2aMu.Unlock()
 
-		// 决定会话策略：跨角色使用新会话，同角色使用 resume
+		// 决定会话策略：只有同一个 Agent ID 才能 resume，跨 Agent 调用使用新会话
 		var sessionStrategy SessionStrategy
+
+		// 详细日志：打印 ID 对比
+		fromAgentID := ""
+		if a2aCtx.FromAgent != nil {
+			fromAgentID = a2aCtx.FromAgent.ID.String()
+		}
+		logInfo("A2A ID对比详情",
+			zap.String("fromAgentID", fromAgentID),
+			zap.String("toAgentID", targetConfig.ID.String()),
+			zap.Bool("fromAgentNotNil", a2aCtx.FromAgent != nil),
+			zap.Bool("ID相等", a2aCtx.FromAgent != nil && a2aCtx.FromAgent.ID == targetConfig.ID))
+
 		if a2aCtx.FromAgent != nil && a2aCtx.FromAgent.ID == targetConfig.ID {
 			// 同一 Agent 再次调用 → 恢复会话
 			sessionStrategy = SessionStrategyResume
 			logInfo("A2A 会话策略: 同Agent调用，使用 resume",
 				zap.String("fromAgent", a2aCtx.FromAgent.Name),
-				zap.String("toAgent", targetConfig.Name))
-		} else if a2aCtx.FromAgent != nil && a2aCtx.FromAgent.Role == string(targetConfig.Role) {
-			// 同角色不同实例 → 恢复会话
-			sessionStrategy = SessionStrategyResume
-			logInfo("A2A 会话策略: 同角色调用，使用 resume",
-				zap.String("fromRole", a2aCtx.FromAgent.Role),
-				zap.String("toAgent", targetConfig.Name))
-		} else {
-			// 跨角色 → 新会话，不传递历史
-			sessionStrategy = SessionStrategyNew
-			logInfo("A2A 会话策略: 跨角色调用，使用新会话",
-				zap.String("fromAgent", a2aCtx.FromAgent.Name),
-				zap.String("fromRole", a2aCtx.FromAgent.Role),
+				zap.String("fromAgentID", a2aCtx.FromAgent.ID.String()),
 				zap.String("toAgent", targetConfig.Name),
-				zap.String("toRole", string(targetConfig.Role)))
+				zap.String("toAgentID", targetConfig.ID.String()))
+		} else {
+			// 跨 Agent 调用 → 新会话，不传递历史
+			// 即使是同角色，不同 Agent 之间也不共享会话上下文
+			sessionStrategy = SessionStrategyNew
+			logInfo("A2A 会话策略: 跨Agent调用，使用新会话",
+				zap.String("fromAgent", func() string { if a2aCtx.FromAgent != nil { return a2aCtx.FromAgent.Name } else { return "nil" } }()),
+				zap.String("fromAgentID", fromAgentID),
+				zap.String("toAgent", targetConfig.Name),
+				zap.String("toAgentID", targetConfig.ID.String()))
 
 			// 清除该 Agent 的会话缓存，确保不传递历史
 			sessionKey := fmt.Sprintf("%s:%s", threadID.String(), targetConfig.ID.String())
@@ -3044,8 +3062,17 @@ func (es *ExecutionService) shouldUseResumeStrategy(ctx context.Context, threadI
 		return "", ""
 	}
 
-	// 检查最后一个完成的 Agent 是否与目标 Agent 相同
+	// 检查最后一个完成的 Agent 是否与目标 Agent **完全相同**（同一个 Agent ID）
+	// 只有同一个 Agent 才能 resume，跨 Agent 调用（即使同角色）应使用新会话
 	lastInvocation := lastCompleted[0] // 第一个是最近的
+
+	// 详细日志：打印两个 ID 的完整值进行比较
+	logInfo("shouldUseResumeStrategy: ID对比详情",
+		zap.String("targetConfigID", targetConfigID.String()),
+		zap.String("lastCompletedConfigID", lastInvocation.AgentConfigID.String()),
+		zap.Bool("相等", lastInvocation.AgentConfigID == targetConfigID),
+		zap.String("lastCompletedName", lastInvocation.AgentName))
+
 	if lastInvocation.AgentConfigID == targetConfigID {
 		logInfo("shouldUseResumeStrategy: 目标 Agent 与最后一个完成的 Agent 相同，使用 resume",
 			zap.String("targetConfigID", targetConfigID.String()),
@@ -3054,17 +3081,13 @@ func (es *ExecutionService) shouldUseResumeStrategy(ctx context.Context, threadI
 		return SessionStrategyResume, lastInvocation.SessionID
 	}
 
-	// 检查是否同角色（不同实例）
-	config, err := es.configSvc.GetByID(ctx, targetConfigID)
-	if err != nil || config == nil {
-		return "", ""
-	}
-	if string(config.Role) == string(lastInvocation.Role) {
-		logInfo("shouldUseResumeStrategy: 目标 Agent 与最后一个完成的 Agent 同角色，使用 resume",
-			zap.String("targetRole", string(config.Role)),
-			zap.String("lastCompletedRole", string(lastInvocation.Role)))
-		return SessionStrategyResume, lastInvocation.SessionID
-	}
+	// 跨 Agent 调用：使用新会话，不 resume
+	// 即使是同角色，不同 Agent 之间也不共享会话上下文
+	logInfo("shouldUseResumeStrategy: 目标 Agent 与最后一个完成的 Agent 不同，使用新会话",
+		zap.String("targetConfigID", targetConfigID.String()),
+		zap.String("lastCompletedConfigID", lastInvocation.AgentConfigID.String()),
+		zap.String("targetRole", "N/A"),
+		zap.String("lastCompletedRole", string(lastInvocation.Role)))
 
 	return "", ""
 }
@@ -3079,8 +3102,17 @@ func (es *ExecutionService) shouldAutoResume(ctx context.Context, threadID uuid.
 		return "", ""
 	}
 
-	// 检查最后一个完成的 Agent 是否与目标 Agent 相同
+	// 只有同一个 Agent ID 才能 resume
+	// 跨 Agent 调用（即使同角色）应使用新会话
 	lastInvocation := lastCompleted[0] // 第一个是最近的
+
+	// 详细日志：打印两个 ID 的完整值进行比较
+	logInfo("shouldAutoResume: ID对比详情",
+		zap.String("targetConfigID", targetConfigID.String()),
+		zap.String("lastCompletedConfigID", lastInvocation.AgentConfigID.String()),
+		zap.Bool("相等", lastInvocation.AgentConfigID == targetConfigID),
+		zap.String("lastCompletedName", lastInvocation.AgentName))
+
 	if lastInvocation.AgentConfigID == targetConfigID {
 		logInfo("shouldAutoResume: 目标 Agent 与最后一个完成的 Agent 相同，自动使用 resume",
 			zap.String("targetConfigID", targetConfigID.String()),
@@ -3089,17 +3121,10 @@ func (es *ExecutionService) shouldAutoResume(ctx context.Context, threadID uuid.
 		return SessionStrategyResume, lastInvocation.SessionID
 	}
 
-	// 检查是否同角色（不同实例）
-	config, err := es.configSvc.GetByID(ctx, targetConfigID)
-	if err != nil || config == nil {
-		return "", ""
-	}
-	if string(config.Role) == string(lastInvocation.Role) {
-		logInfo("shouldAutoResume: 目标 Agent 与最后一个完成的 Agent 同角色，自动使用 resume",
-			zap.String("targetRole", string(config.Role)),
-			zap.String("lastCompletedRole", string(lastInvocation.Role)))
-		return SessionStrategyResume, lastInvocation.SessionID
-	}
+	// 跨 Agent：不自动 resume
+	logInfo("shouldAutoResume: 目标 Agent 与最后一个完成的 Agent 不同，使用新会话",
+		zap.String("targetConfigID", targetConfigID.String()),
+		zap.String("lastCompletedConfigID", lastInvocation.AgentConfigID.String()))
 
 	return "", ""
 }
@@ -3355,160 +3380,140 @@ func (es *ExecutionService) filterStructuredOutput(output string, contentBlocks 
 // 用于优化 Layer1 内容，避免完整历史导致输入过长
 func (es *ExecutionService) extractStructuredHistory(messages []*model.Message, maxMessages int) string {
 	var sb strings.Builder
-	sb.WriteString("## 会话历史摘要\n\n")
+	sb.WriteString("## 会话历史\n\n")
 
 	// 限制处理的消息数量
 	if len(messages) > maxMessages {
 		messages = messages[:maxMessages]
 	}
 
-	// 1. 提取用户核心请求（第一条用户消息）
+	// 逐条处理消息
 	for _, msg := range messages {
 		if msg.Role == model.MessageRoleUser {
-			sb.WriteString("**用户请求**: ")
-			content := msg.Content
-			if len(content) > 200 {
-				content = content[:200] + "..."
-			}
-			sb.WriteString(content)
+			// 用户消息：完整保留
+			sb.WriteString("**用户**: ")
+			sb.WriteString(msg.Content)
 			sb.WriteString("\n\n")
-			break
-		}
-	}
-
-	// 2. 提取关键决策和结论
-	sb.WriteString("**关键结论**:\n")
-	conclusionPatterns := []string{
-		`结论[:：]\s*[^\n]+`,
-		`结果[:：]\s*[^\n]+`,
-		`关键点[:：]\s*[^\n]+`,
-		`总结[:：]\s*[^\n]+`,
-		`建议[:：]\s*[^\n]+`,
-		`要点[:：]\s*[^\n]+`,
-		`决定[:：]\s*[^\n]+`,
-		`完成[:：]\s*[^\n]+`,
-		`分析[:：]\s*[^\n]+`,
-	}
-
-	conclusionsFound := false
-	for _, msg := range messages {
-		if msg.Role == model.MessageRoleAgent {
-			for _, pattern := range conclusionPatterns {
-				re := regexp.MustCompile(pattern)
-				matches := re.FindAllString(msg.Content, -1)
-				for _, m := range matches {
-					sb.WriteString("- ")
-					sb.WriteString(m)
-					sb.WriteString("\n")
-					conclusionsFound = true
-				}
-			}
-		}
-	}
-	if !conclusionsFound {
-		sb.WriteString("- (无明确结论)\n")
-	}
-	sb.WriteString("\n")
-
-	// 3. 提取文件路径引用
-	sb.WriteString("**涉及文件**:\n")
-	filePatterns := []string{
-		`file://[^\s]+`,
-		`path:\s*[^\s]+`,
-		`\./[^\s]+`,
-		`[a-zA-Z0-9_\-]+\.(go|ts|tsx|js|jsx|py|java|kt|rs|c|cpp|h|sql|yaml|yml|json|md|html|css)`,
-	}
-	excludeWords := map[string]bool{
-		"true.md":    true,
-		"false.md":   true,
-		"null.json":  true,
-		"true.json":  true,
-		"false.json": true,
-	}
-
-	filesFound := false
-	seenFiles := make(map[string]bool)
-	for _, msg := range messages {
-		for _, pattern := range filePatterns {
-			re := regexp.MustCompile(pattern)
-			matches := re.FindAllString(msg.Content, -1)
-			for _, m := range matches {
-				m = strings.TrimSpace(m)
-				if !excludeWords[m] && !seenFiles[m] && len(m) > 5 {
-					sb.WriteString("- ")
-					sb.WriteString(m)
-					sb.WriteString("\n")
-					seenFiles[m] = true
-					filesFound = true
-				}
-			}
-		}
-	}
-	if !filesFound {
-		sb.WriteString("- (无文件引用)\n")
-	}
-	sb.WriteString("\n")
-
-	// 4. 提取工具调用摘要（从 ContentBlocks 解析）
-	sb.WriteString("**工具调用摘要**:\n")
-	toolsFound := false
-	for _, msg := range messages {
-		if msg.Role == model.MessageRoleAgent && len(msg.ContentBlocks) > 0 {
-			var blocks []ContentBlockData
-			if err := json.Unmarshal(msg.ContentBlocks, &blocks); err == nil {
-				for _, block := range blocks {
-					if block.Type == "tool_use" {
-						sb.WriteString("- [")
-						sb.WriteString(block.ToolName)
-						sb.WriteString("] ")
-						// 输入摘要（前 100 字符）
-						if block.Input != nil {
-							inputStr := fmt.Sprintf("%v", block.Input)
-							if len(inputStr) > 100 {
-								inputStr = inputStr[:100] + "..."
-							}
-							sb.WriteString(inputStr)
-						}
-						// 输出摘要（前 100 字符）
-						if block.Output != "" && !block.IsError {
-							outputStr := block.Output
-							if len(outputStr) > 100 {
-								outputStr = outputStr[:100] + "..."
-							}
-							sb.WriteString(" -> ")
-							sb.WriteString(outputStr)
-						}
-						sb.WriteString("\n")
-						toolsFound = true
+		} else if msg.Role == model.MessageRoleAgent {
+			// Agent 消息：简化处理，删除 tool output，保留摘要
+			sb.WriteString("**")
+			// 尝试从 metadata 获取 agentName
+			var agentName string
+			if msg.Metadata != nil {
+				var metadata map[string]interface{}
+				if err := json.Unmarshal(msg.Metadata, &metadata); err == nil {
+					if name, ok := metadata["agentName"].(string); ok && name != "" {
+						agentName = name
 					}
 				}
 			}
-		}
-	}
-	if !toolsFound {
-		sb.WriteString("- (无工具调用)\n")
-	}
-	sb.WriteString("\n")
-
-	// 5. Agent 角色标识（最近的消息来源）
-	sb.WriteString("**对话参与者**:\n")
-	seenAgents := make(map[string]bool)
-	recentCount := 0
-	for i := len(messages) - 1; i >= 0 && recentCount < 5; i-- {
-		msg := messages[i]
-		if msg.Role == model.MessageRoleAgent && msg.AgentID != "" {
-			if !seenAgents[msg.AgentID] {
-				sb.WriteString("- ")
-				sb.WriteString(msg.AgentID)
-				sb.WriteString("\n")
-				seenAgents[msg.AgentID] = true
-				recentCount++
+			if agentName == "" {
+				agentName = msg.AgentID
 			}
+			sb.WriteString(agentName)
+			sb.WriteString("**: ")
+
+			// 从 ContentBlocks 中提取简化内容
+			if len(msg.ContentBlocks) > 0 {
+				var blocks []ContentBlockData
+				if err := json.Unmarshal(msg.ContentBlocks, &blocks); err == nil {
+					sb.WriteString(es.extractSimplifiedAgentBlocks(blocks))
+				} else {
+					// 解析失败，使用过滤后的原始 content
+					sb.WriteString(es.filterAndTruncateContent(msg.Content))
+				}
+			} else {
+				// 没有 ContentBlocks，使用过滤后的原始 content
+				sb.WriteString(es.filterAndTruncateContent(msg.Content))
+			}
+			sb.WriteString("\n\n")
 		}
 	}
-	sb.WriteString("\n")
 
 	return sb.String()
+}
+
+// extractSimplifiedAgentBlocks 从 Agent 的 ContentBlocks 中提取简化内容
+// 删除 tool_result 的 output，简化 text 内容
+func (es *ExecutionService) extractSimplifiedAgentBlocks(blocks []ContentBlockData) string {
+	var parts []string
+	toolCalls := make(map[string]string) // toolID -> toolName，用于关联 tool_result
+
+	for _, block := range blocks {
+		switch block.Type {
+		case "text":
+			// text 内容：截断过长的内容
+			content := es.filterThinkingContent(block.Content)
+			if content != "" && content != "(无实质性内容)" {
+				// 截断过长的 text 内容，保留前 500 字符
+				if len(content) > 500 {
+					content = content[:500] + "...(已省略)"
+				}
+				parts = append(parts, content)
+			}
+		case "tool_use":
+			// tool_use：只记录工具名，不保留完整 input
+			toolCalls[block.ToolID] = block.ToolName
+			parts = append(parts, fmt.Sprintf("[调用工具: %s]", block.ToolName))
+		case "tool_result":
+			// tool_result：删除 output 内容，只记录工具名和状态
+			toolName := toolCalls[block.ToolID]
+			if toolName == "" {
+				toolName = "未知工具"
+			}
+			status := "完成"
+			if block.IsError {
+				status = "失败"
+			}
+			// 不保留 output 内容
+			parts = append(parts, fmt.Sprintf("[工具结果: %s - %s，output已省略]", toolName, status))
+		}
+	}
+
+	if len(parts) == 0 {
+		return "(执行了工具调用)"
+	}
+
+	return strings.Join(parts, " ")
+}
+
+// filterAndTruncateContent 过滤 thinking 内容并截断过长内容
+func (es *ExecutionService) filterAndTruncateContent(content string) string {
+	filtered := es.filterThinkingContent(content)
+	if filtered == "" || filtered == "(无实质性内容)" {
+		return "(无实质性内容)"
+	}
+	// 截断过长的内容
+	if len(filtered) > 500 {
+		return filtered[:500] + "...(已省略)"
+	}
+	return filtered
+}
+
+// filterThinkingContent 过滤掉 thinking 内容（<thinking>...</thinking> 标签）
+func (es *ExecutionService) filterThinkingContent(content string) string {
+	// 匹配 <thinking>...</thinking> 标签（可能跨多行）
+	thinkingRegex := regexp.MustCompile(`<thinking>[\s\S]*?</thinking>`)
+	filtered := thinkingRegex.ReplaceAllString(content, "")
+
+	// 也过滤可能的 markdown 格式的思考块
+	// 例如：**思考过程** 或 ## Thinking 等开头的段落
+	thinkingPatterns := []string{
+		`(?s)\*\*思考过程\*\*.*?\n\n`,
+		`(?s)## Thinking.*?\n\n`,
+		`(?s)## 思考.*?\n\n`,
+	}
+	for _, pattern := range thinkingPatterns {
+		re := regexp.MustCompile(pattern)
+		filtered = re.ReplaceAllString(filtered, "")
+	}
+
+	// 清理多余的空白
+	filtered = strings.TrimSpace(filtered)
+	if filtered == "" {
+		return "(无实质性内容)"
+	}
+	return filtered
 }
 
 // GetAllRunningAgents 获取所有运行中的Agent信息
