@@ -178,7 +178,14 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
   if (isSystem) {
     const alertType = (message.metadata?.alertType as string) || 'info';
     return (
-      <div className="chat-message chat-message-system" style={{ marginBottom: '16px' }}>
+      <div
+        className="chat-message chat-message-system"
+        data-message-id={message.id}
+        data-message-role={message.role}
+        data-agent-id={message.agentId || ''}
+        data-agent-name={message.agentName || ''}
+        style={{ marginBottom: '16px' }}
+      >
         <Alert
           type={alertType === 'error' ? 'error' : alertType === 'warning' ? 'warning' : 'info'}
           message={message.metadata?.title as string || '系统消息'}
@@ -193,6 +200,10 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
   return (
     <div
       className={`chat-message ${isUser ? 'chat-message-user' : ''}`}
+      data-message-id={message.id}
+      data-message-role={message.role}
+      data-agent-id={message.agentId || ''}
+      data-agent-name={message.agentName || ''}
       style={{
         display: 'flex',
         flexDirection: isUser ? 'row-reverse' : 'row',
