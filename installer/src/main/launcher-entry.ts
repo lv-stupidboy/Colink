@@ -56,24 +56,26 @@ ipcMain.handle('get-service-status', async () => {
 })
 
 ipcMain.handle('get-running-agents', async () => {
-  if (!installDir) {
-    return { instances: [] }
-  }
-
+  // 端口获取：优先从配置文件读取，否则使用默认端口26305
   let port = 26305
-  try {
-    const configPath = join(installDir, 'data', 'configs', 'config.yaml')
-    if (existsSync(configPath)) {
-      const content = readFileSync(configPath, 'utf-8')
-      const portMatch = content.match(/port:\s*(\d+)/)
-      if (portMatch) {
-        port = parseInt(portMatch[1])
+  const dir = installDir
+
+  if (dir) {
+    try {
+      const configPath = join(dir, 'data', 'configs', 'config.yaml')
+      if (existsSync(configPath)) {
+        const content = readFileSync(configPath, 'utf-8')
+        const portMatch = content.match(/port:\s*(\d+)/)
+        if (portMatch) {
+          port = parseInt(portMatch[1])
+        }
       }
+    } catch {
+      // ignore
     }
-  } catch (e) {
-    console.warn('[Launcher] Failed to read config port:', e)
   }
 
+  // 调用 Go API
   return new Promise((resolve) => {
     const req = http.request({
       hostname: 'localhost',
@@ -93,7 +95,9 @@ ipcMain.handle('get-running-agents', async () => {
         }
       })
     })
-    req.on('error', () => resolve({ instances: [] }))
+    req.on('error', () => {
+      resolve({ instances: [] })
+    })
     req.on('timeout', () => {
       req.destroy()
       resolve({ instances: [] })

@@ -475,23 +475,24 @@ ipcMain.handle('get-service-status', async () => {
 
 ipcMain.handle('get-running-agents', async () => {
   const installed = getInstalledVersion()
-  if (!installed.installed || !installed.installDir) {
-    return { instances: [] }
-  }
 
-  // 尝试从配置文件读取端口
+  // 端口获取：优先从配置文件读取，否则使用默认端口
   let port = 26305
-  try {
-    const configPath = join(installed.installDir, 'data', 'configs', 'config.yaml')
-    if (existsSync(configPath)) {
-      const content = await readFile(configPath, 'utf-8')
-      const portMatch = content.match(/port:\s*(\d+)/)
-      if (portMatch) {
-        port = parseInt(portMatch[1])
+  const dir = installed.installDir || installDir
+
+  if (dir) {
+    try {
+      const configPath = join(dir, 'data', 'configs', 'config.yaml')
+      if (existsSync(configPath)) {
+        const content = await readFile(configPath, 'utf-8')
+        const portMatch = content.match(/port:\s*(\d+)/)
+        if (portMatch) {
+          port = parseInt(portMatch[1])
+        }
       }
+    } catch (e) {
+      // ignore
     }
-  } catch (e) {
-    console.warn('[GetRunningAgents] Failed to read config:', e)
   }
 
   // 使用http模块调用API
@@ -514,7 +515,9 @@ ipcMain.handle('get-running-agents', async () => {
         }
       })
     })
-    req.on('error', () => resolve({ instances: [] }))
+    req.on('error', () => {
+      resolve({ instances: [] })
+    })
     req.on('timeout', () => {
       req.destroy()
       resolve({ instances: [] })

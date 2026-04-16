@@ -79,14 +79,8 @@ export function LauncherDashboard({
   const [runningAgents, setRunningAgents] = useState<RunningAgentInstance[]>([])
   const [agentCount, setAgentCount] = useState(0)
 
-  // 轮询获取运行中的Agent
+  // 轮询获取运行中的Agent（不依赖 serviceStatus，因为 Go 服务可能独立运行）
   useEffect(() => {
-    if (!isRunning) {
-      setRunningAgents([])
-      setAgentCount(0)
-      return
-    }
-
     const fetchRunningAgents = async () => {
       try {
         const result = await window.electronAPI.getRunningAgents()
@@ -101,7 +95,7 @@ export function LauncherDashboard({
     fetchRunningAgents()
     const interval = setInterval(fetchRunningAgents, 5000) // 每5秒轮询
     return () => clearInterval(interval)
-  }, [isRunning])
+  }, []) // 空依赖，始终轮询
 
   const handleOpenConsole = async () => {
     await window.electronAPI.openConsole()
