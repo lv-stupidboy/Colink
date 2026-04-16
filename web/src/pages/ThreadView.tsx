@@ -37,7 +37,7 @@ import {
 } from '@ant-design/icons';
 import { useAppStore } from '@/store';
 import { useDebugThreadStore } from '@/store/debugThread';
-import type { Message, Artifact, ReviewIssue, MergeCheckResult, AgentConfig, ToolEvent, MessageContentBlock } from '@/types';
+import type { Message, Artifact, ReviewIssue, MergeCheckResult, AgentConfig, ToolEvent, MessageContentBlock, QuestionBlock } from '@/types';
 import type { FileChange } from '@/types/content';
 import { AgentRoleLabels, ArtifactTypeLabels } from '@/types';
 import { ReviewReport } from '@/components/ReviewReport';
@@ -709,7 +709,7 @@ const ThreadView: React.FC = () => {
           });
 
           // 构建要追加的 block 对象
-          const blockToAppend = {
+          const blockToAppend: QuestionBlock = {
             id: `question-${toolId}`,
             type: 'question',
             toolName: toolName || 'AskUserQuestion',
