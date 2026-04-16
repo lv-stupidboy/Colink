@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"time"
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/google/uuid"
@@ -98,4 +99,14 @@ type SessionExecutor interface {
 	ResumeSession(ctx context.Context, sessionID string, input string, onChunk func(Chunk)) error
 	StopSession(sessionID string) error
 	GetSessionStatus(sessionID string) SessionStatus
+}
+
+// RunningAgentInfo 运行中的Agent信息（用于API返回）
+type RunningAgentInfo struct {
+	InvocationID           uuid.UUID `json:"invocationId"`
+	AgentName              string    `json:"agentName"`
+	ProjectName            string    `json:"projectName"`
+	ThreadTitle            string    `json:"threadTitle"`
+	StartedAt              time.Time `json:"startedAt"`
+	RunningDurationSeconds int       `json:"runningDurationSeconds"`
 }
