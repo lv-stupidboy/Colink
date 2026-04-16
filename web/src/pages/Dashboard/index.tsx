@@ -7,10 +7,12 @@ import {
   ClockCircleOutlined,
   PlusOutlined,
   ArrowRightOutlined,
+  TeamOutlined,
+  RobotOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '@/api/client';
-import type { Project, Thread } from '@/types';
+import type { Project, Thread, WorkflowTemplate, AgentConfig } from '@/types';
 import { PhaseLabels, AgentRoleLabels } from '@/types';
 
 const { Title, Text } = Typography;
@@ -26,6 +28,8 @@ const Dashboard: React.FC = () => {
     pendingReviews: 0,
   });
   const [loading, setLoading] = useState(false);
+  const [workflows, setWorkflows] = useState<WorkflowTemplate[]>([]);
+  const [agentConfigs, setAgentConfigs] = useState<AgentConfig[]>([]);
 
   useEffect(() => {
     loadDashboardData();
@@ -34,11 +38,16 @@ const Dashboard: React.FC = () => {
   const loadDashboardData = async () => {
     setLoading(true);
     try {
-      // 加载项目列表
-      const projectData = await api.projects.list();
-      // 处理可能返回 null 的情况
+      // 并行加载所有数据
+      const [projectData, workflowsData, agentsData] = await Promise.all([
+        api.projects.list(),
+        api.workflows.list(),
+        api.agents.list(),
+      ]);
+
+      // 处理项目列表
       const projectsList = ((projectData as unknown as Project[]) || []);
-      setProjects(projectsList.slice(0, 5)); // 只显示最新 5 个
+      setProjects(projectsList.slice(0, 5));
 
       // 统计
       setStats({
@@ -47,6 +56,10 @@ const Dashboard: React.FC = () => {
         completedThreads: 12,
         pendingReviews: 2,
       });
+
+      // 设置工作流和Agent数据
+      setWorkflows(workflowsData || []);
+      setAgentConfigs(agentsData || []);
 
       // 加载活跃线程
       setActiveThreads([
@@ -167,6 +180,75 @@ const Dashboard: React.FC = () => {
               prefix={<ThunderboltOutlined />}
               valueStyle={{ color: '#eb2f96' }}
             />
+          </Card>
+        </Col>
+      </Row>
+
+      {/* Agent团队和角色卡片 */}
+      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+        <Col xs={24} lg={12}>
+          <Card
+            hoverable
+            onClick={() => navigate('/workflow')}
+            style={{ cursor: 'pointer' }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <Space>
+                <TeamOutlined style={{ fontSize: 18 }} />
+                <Text strong>Agent团队</Text>
+                <Tag color="blue">{workflows.length}</Tag>
+              </Space>
+              <ArrowRightOutlined />
+            </div>
+            {workflows.length > 0 ? (
+              <>
+                <div style={{ marginBottom: 8 }}>
+                  {workflows.slice(0, 3).map((workflow) => (
+                    <div key={workflow.id} style={{ padding: '4px 0', color: 'var(--text-secondary)' }}>
+                      · {workflow.name} ({workflow.agentIds?.length || 0} Agents)
+                    </div>
+                  ))}
+                </div>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  查看全部 →
+                </Text>
+              </>
+            ) : (
+              <Text type="secondary">暂无团队，点击创建</Text>
+            )}
+          </Card>
+        </Col>
+        <Col xs={24} lg={12}>
+          <Card
+            hoverable
+            onClick={() => navigate('/agents')}
+            style={{ cursor: 'pointer' }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <Space>
+                <RobotOutlined style={{ fontSize: 18 }} />
+                <Text strong>Agent角色</Text>
+                <Tag color="purple">{agentConfigs.length}</Tag>
+              </Space>
+              <ArrowRightOutlined />
+            </div>
+            {agentConfigs.length > 0 ? (
+              <>
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ padding: '4px 0', color: 'var(--text-secondary)' }}>
+                    系统预置: {agentConfigs.filter(a => a.isSystem).length}
+                  </div>
+                  <div style={{ padding: '4px 0', color: 'var(--text-secondary)' }}>
+                    自定义: {agentConfigs.filter(a => !a.isSystem).length}
+                  </div>
+                </div>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  查看全部 →
+                </Text>
+              </>
+            ) : (
+              <Text type="secondary">暂无角色，点击创建</Text>
+            )}
           </Card>
         </Col>
       </Row>
