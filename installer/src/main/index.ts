@@ -180,6 +180,31 @@ async function stopAllProcessesForUninstall(): Promise<void> {
   await new Promise(resolve => setTimeout(resolve, 2000))
 }
 
+// 检查进程是否还在运行
+function checkProcessRunning(processName: string): boolean {
+  try {
+    const output = execSync(`tasklist /fi "imagename eq ${processName}" /fo csv`, { encoding: 'utf8' })
+    // CSV格式: "Image Name","PID","Session Name","Session#","Mem Usage"
+    // 如果进程不存在，只返回一行标题
+    const lines = output.trim().split('\n')
+    return lines.length > 1
+  } catch {
+    return false
+  }
+}
+
+// 检查所有相关进程是否都已退出
+function checkAllProcessesStopped(): string[] {
+  const processesToCheck = ['Colink.exe', 'colink-server.exe']
+  const stillRunning: string[] = []
+  for (const proc of processesToCheck) {
+    if (checkProcessRunning(proc)) {
+      stillRunning.push(proc)
+    }
+  }
+  return stillRunning
+}
+
 // ==================== IPC 处理 ====================
 
 ipcMain.on('window-minimize', () => mainWindow?.minimize())
@@ -591,6 +616,19 @@ ipcMain.handle('uninstall', async (_event, keepData: boolean) => {
   try {
     // 停止所有进程
     await stopAllProcessesForUninstall()
+
+    // 检查进程是否真的退出
+    const stillRunning = checkAllProcessesStopped()
+    if (stillRunning.length > 0) {
+      const errorMsg = `以下进程仍在运行，无法卸载：\n${stillRunning.map(p => `- ${p}`).join('\n')}\n\n请手动关闭这些进程后重试。`
+      dialog.showMessageBox(mainWindow!, {
+        type: 'error',
+        title: '卸载失败',
+        message: '进程仍在运行',
+        detail: errorMsg,
+      })
+      return { success: false, error: errorMsg }
+    }
 
     // 删除注册表
     deleteRegistry()

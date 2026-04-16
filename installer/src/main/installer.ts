@@ -428,6 +428,29 @@ export async function copyApplicationFiles(
   }
 }
 
+// 检查进程是否还在运行
+function checkProcessRunning(processName: string): boolean {
+  try {
+    const output = execSync(`tasklist /fi "imagename eq ${processName}" /fo csv`, { encoding: 'utf8' })
+    const lines = output.trim().split('\n')
+    return lines.length > 1
+  } catch {
+    return false
+  }
+}
+
+// 检查所有相关进程是否都已退出
+function checkAllProcessesStopped(): string[] {
+  const processesToCheck = ['Colink.exe', 'colink-server.exe']
+  const stillRunning: string[] = []
+  for (const proc of processesToCheck) {
+    if (checkProcessRunning(proc)) {
+      stillRunning.push(proc)
+    }
+  }
+  return stillRunning
+}
+
 // 卸载老版本（保留数据目录）
 // 用于升级时先清理老版本程序文件，避免复制冲突
 export async function uninstallOldVersion(
@@ -459,6 +482,14 @@ export async function uninstallOldVersion(
     // 等待进程退出
     await new Promise(resolve => setTimeout(resolve, 2000))
     onProgress?.(10)
+
+    // 检查进程是否真的退出
+    const stillRunning = checkAllProcessesStopped()
+    if (stillRunning.length > 0) {
+      const errorMsg = `以下进程仍在运行，无法卸载：\n${stillRunning.map(p => `- ${p}`).join('\n')}\n\n请手动关闭这些进程后重试。`
+      sendProgress('进程未退出', errorMsg)
+      return { success: false, error: errorMsg }
+    }
 
     // 删除快捷方式
     sendProgress('删除快捷方式...')
