@@ -945,11 +945,12 @@ export async function runInstallation(
   }
 
   try {
-    // Step 0: 卸载老版本（如果是升级安装）
+    // Step 0: 卸载老版本（如果已安装）
     // 采用卸载重装策略，避免文件锁定和复制冲突问题
     // 保留 data 目录，数据库 goose 版本信息不会丢失
-    if (config.currentVersion && config.currentVersion !== '0.0.0') {
-      sendProgress('uninstall', 'running', 0, '卸载老版本...', `当前版本: ${config.currentVersion}\n保留数据目录`)
+    // 允许重复安装，不需要校验版本号
+    if (existsSync(config.installDir)) {
+      sendProgress('uninstall', 'running', 0, '卸载老版本...', `安装目录: ${config.installDir}\n保留数据目录`)
       const uninstallResult = await uninstallOldVersion(config.installDir, mainWindow, (p) => {
         sendProgress('uninstall', 'running', p, `卸载老版本 ${p}%...`)
       })
