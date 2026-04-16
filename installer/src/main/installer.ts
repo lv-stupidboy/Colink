@@ -439,16 +439,9 @@ function checkProcessRunning(processName: string): boolean {
   }
 }
 
-// 检查所有相关进程是否都已退出
-function checkAllProcessesStopped(): string[] {
-  const processesToCheck = ['Colink.exe', 'colink-server.exe']
-  const stillRunning: string[] = []
-  for (const proc of processesToCheck) {
-    if (checkProcessRunning(proc)) {
-      stillRunning.push(proc)
-    }
-  }
-  return stillRunning
+// 检查 Colink.exe 是否在运行
+function checkColinkRunning(): boolean {
+  return checkProcessRunning('Colink.exe')
 }
 
 // 卸载老版本（保留数据目录）
@@ -469,12 +462,16 @@ export async function uninstallOldVersion(
   }
 
   try {
-    sendProgress('停止进程...', '结束 Colink.exe 和 colink-server.exe')
+    // 先检查 Colink.exe 是否在运行，不允许自动停止
+    if (checkColinkRunning()) {
+      const errorMsg = 'Colink.exe（启动器）正在运行，请先手动关闭启动器后重试。\n\n可在任务栏右下角找到 Colink 图标，右键选择退出；或通过任务管理器结束进程。'
+      sendProgress('启动器仍在运行', errorMsg)
+      return { success: false, error: errorMsg }
+    }
 
-    // 结束进程
-    try {
-      execSync('taskkill /f /im Colink.exe 2>nul', { encoding: 'utf8' })
-    } catch {}
+    sendProgress('停止服务进程...', '结束 colink-server.exe')
+
+    // 只停止服务进程（Colink.exe 需要用户手动关闭）
     try {
       execSync('taskkill /f /im colink-server.exe 2>nul', { encoding: 'utf8' })
     } catch {}
@@ -482,14 +479,6 @@ export async function uninstallOldVersion(
     // 等待进程退出
     await new Promise(resolve => setTimeout(resolve, 2000))
     onProgress?.(10)
-
-    // 检查进程是否真的退出
-    const stillRunning = checkAllProcessesStopped()
-    if (stillRunning.length > 0) {
-      const errorMsg = `以下进程仍在运行，无法卸载：\n${stillRunning.map(p => `- ${p}`).join('\n')}\n\n请手动关闭这些进程后重试。`
-      sendProgress('进程未退出', errorMsg)
-      return { success: false, error: errorMsg }
-    }
 
     // 删除快捷方式
     sendProgress('删除快捷方式...')

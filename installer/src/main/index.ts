@@ -158,22 +158,19 @@ async function stopServiceProcess(): Promise<void> {
   }
 }
 
-// 停止所有相关进程（用于卸载流程）
-async function stopAllProcessesForUninstall(): Promise<void> {
+// 停止服务进程（用于卸载流程，不停止 Colink.exe）
+async function stopServiceProcessForUninstall(): Promise<void> {
   // 停止服务管理器
   if (serviceManager) {
     await serviceManager.stop()
     serviceManager = null
   }
 
-  // 强制结束所有相关进程
-  const processesToKill = ['Colink.exe', 'colink-server.exe']
-  for (const proc of processesToKill) {
-    try {
-      execSync(`taskkill /f /im ${proc} 2>nul`, { encoding: 'utf8' })
-    } catch {
-      // 忽略错误
-    }
+  // 强制结束服务进程（Colink.exe 需要用户手动关闭）
+  try {
+    execSync('taskkill /f /im colink-server.exe 2>nul', { encoding: 'utf8' })
+  } catch {
+    // 忽略错误
   }
 
   // 等待进程退出
@@ -193,16 +190,9 @@ function checkProcessRunning(processName: string): boolean {
   }
 }
 
-// 检查所有相关进程是否都已退出
-function checkAllProcessesStopped(): string[] {
-  const processesToCheck = ['Colink.exe', 'colink-server.exe']
-  const stillRunning: string[] = []
-  for (const proc of processesToCheck) {
-    if (checkProcessRunning(proc)) {
-      stillRunning.push(proc)
-    }
-  }
-  return stillRunning
+// 检查 Colink.exe 是否在运行
+function checkColinkRunning(): boolean {
+  return checkProcessRunning('Colink.exe')
 }
 
 // ==================== IPC 处理 ====================
@@ -236,8 +226,8 @@ ipcMain.handle('check-old-isdp', async () => {
 })
 
 ipcMain.handle('uninstall-old-isdp', async () => {
-  // 先停止所有进程
-  await stopAllProcessesForUninstall()
+  // 先停止服务进程（ISDP.exe 是旧版，不需要检查）
+  await stopServiceProcessForUninstall()
   return uninstallOldISDP()
 })
 
@@ -614,21 +604,20 @@ ipcMain.handle('uninstall', async (_event, keepData: boolean) => {
   }
 
   try {
-    // 停止所有进程
-    await stopAllProcessesForUninstall()
-
-    // 检查进程是否真的退出
-    const stillRunning = checkAllProcessesStopped()
-    if (stillRunning.length > 0) {
-      const errorMsg = `以下进程仍在运行，无法卸载：\n${stillRunning.map(p => `- ${p}`).join('\n')}\n\n请手动关闭这些进程后重试。`
+    // 先检查 Colink.exe 是否在运行，不允许自动停止
+    if (checkColinkRunning()) {
+      const errorMsg = 'Colink.exe（启动器）正在运行，请先手动关闭启动器后重试。\n\n可在任务栏右下角找到 Colink 图标，右键选择退出；或通过任务管理器结束进程。'
       dialog.showMessageBox(mainWindow!, {
         type: 'error',
         title: '卸载失败',
-        message: '进程仍在运行',
+        message: '启动器正在运行',
         detail: errorMsg,
       })
       return { success: false, error: errorMsg }
     }
+
+    // 停止服务进程
+    await stopServiceProcessForUninstall()
 
     // 删除注册表
     deleteRegistry()
