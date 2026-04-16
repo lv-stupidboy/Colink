@@ -16,8 +16,7 @@ import {
   readExistingConfig,
   copyApplicationFiles,
   writeRegistry,
-  deleteRegistry,
-  checkProcessesRunning
+  deleteRegistry
 } from './installer'
 import { ServiceManager } from './service-manager'
 import { showCloseConfirm } from './shared/window-utils'
@@ -384,20 +383,10 @@ ipcMain.handle('generate-config-preview', async (_event, params: {
 })
 
 ipcMain.handle('start-installation', async (_event, config) => {
-  // 升级前检测进程是否运行，若运行则报错提示用户手动停止
-  const runningProcesses = checkProcessesRunning()
-  if (runningProcesses.length > 0) {
-    // 弹窗提示用户
-    const processList = runningProcesses.map(p => `- ${p}`).join('\n')
-    dialog.showMessageBox(mainWindow!, {
-      type: 'error',
-      title: '无法升级',
-      message: '检测到以下进程正在运行，请先手动停止后再升级：',
-      detail: `${processList}\n\n请在启动器中停止服务，或手动关闭相关程序后重试。`,
-      buttons: ['确定'],
-    })
-    return { success: false, error: '进程正在运行，请先手动停止' }
-  }
+  // 注意：不再检测进程是否运行，原因：
+  // 1. 用户能看到安装页面，就代表 Launcher 已关闭
+  // 2. Launcher 关闭时会自动停止 colink-server.exe
+  // 3. Setup 的 Electron 子进程可能被误判为 "Colink"
 
   const sourceDir = getExeDir()
   const resourcePath = isDev ? join(__dirname, '../../resources') : process.resourcesPath
