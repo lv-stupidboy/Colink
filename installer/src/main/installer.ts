@@ -790,10 +790,8 @@ export async function runInstallation(
   }
 
   try {
-    // Step 0: 停止所有进程
-    sendProgress('prepare', 'running', 0, '停止服务...', '正在停止所有相关进程...')
-    await killAllProcesses()
-    sendProgress('prepare', 'success', 100, '服务已停止', '所有进程已停止')
+    // 注意：进程检测已在 start-installation handler 中前置完成
+    // 此处不再自动终止进程，避免僵尸文件问题
 
     // Step 1: 复制应用文件
     sendProgress('copy', 'running', 0, '复制应用文件...', `源目录: ${sourceDir}\n目标目录: ${config.installDir}`)
