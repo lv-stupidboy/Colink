@@ -17,7 +17,7 @@ const statusLabels: Record<string, string> = {
   completed: '完成',
   failed: '失败',
   cancelled: '已取消',
-  interrupted: '中断',
+  interrupted: '完成', // AskUserQuestion 等待用户输入，显示为完成
 };
 
 const formatTokens = (n: number): string => {

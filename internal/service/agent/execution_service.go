@@ -538,12 +538,92 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 	logInfo("[PERF] CLI execution completed", zap.Duration("duration", cliDuration), zap.String("invocationID", invocation.ID.String()))
 
 	if err != nil {
+			// 检查是否因 AskUserQuestion 等待用户输入而取消
+			es.mu.Lock()
+			runningAgent, agentExists := es.runningAgents[invocation.ID]
+			isWaitingForInput := agentExists && runningAgent.WaitingForUserInput
+			es.mu.Unlock()
+			
+			if isWaitingForInput {
+				// 因 AskUserQuestion 等待用户输入而取消
+				// 关键修复：将 invocation 状态更新为 "interrupted"，以便 shouldAutoResume 可以找到
+				// 并触发 --resume 恢复会话（继续处理用户的 AskUserQuestion 答案）
+				logInfo("CLI canceled due to AskUserQuestion waiting for user input",
+								zap.String("invocationID", invocation.ID.String()),
+								zap.String("sessionId", func() string { if result != nil { return result.SessionID } else { return "" } }()))
+
+				// 设置 invocation 为 interrupted 状态（终态）
+				// 这样 FindRecentlyCompletedByThread 可以查询到，触发 --resume
+				invocation.Status = model.InvocationStatusInterrupted
+				invocation.CompletedAt = timePtr(time.Now())
+
+				// 保存 sessionId 用于后续 --resume
+				if result != nil && result.SessionID != "" {
+					invocation.SessionID = result.SessionID
+				}
+
+				// 使用新的 context 保存 invocation 状态（因为原 ctx 已被取消）
+				saveCtx, saveCancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer saveCancel()
+
+				if updateErr := es.invocationRepo.Update(saveCtx, invocation); updateErr != nil {
+					logError("Failed to save interrupted invocation", zap.Error(updateErr))
+				} else {
+					logInfo("Invocation saved as interrupted for --resume",
+						zap.String("invocationID", invocation.ID.String()),
+						zap.String("sessionId", invocation.SessionID))
+				}
+
+				// 获取已累积的内容块（需要保存到消息）
+				es.mu.Lock()
+				runningAgentForSave, _ := es.runningAgents[invocation.ID]
+				var contentBlocksForSave []ContentBlockData
+				if runningAgentForSave != nil {
+					runningAgentForSave.ContentBlocksMu.Lock()
+					contentBlocksForSave = runningAgentForSave.AccumulatedContentBlocks
+					runningAgentForSave.ContentBlocksMu.Unlock()
+				}
+				es.mu.Unlock()
+
+				// 保存 Agent 消息到数据库（包含已累积的内容块）
+				// 这样刷新页面后对话不会丢失
+				if len(contentBlocksForSave) > 0 {
+					// 提取文本内容
+					var outputBuilderForSave strings.Builder
+					for _, block := range contentBlocksForSave {
+						if block.Type == "text" {
+							outputBuilderForSave.WriteString(block.Content)
+						}
+					}
+					outputForSave := outputBuilderForSave.String()
+
+					msgForSave := es.saveAgentMessageWithReturn(saveCtx, req.ThreadID, config, outputForSave, contentBlocksForSave)
+					if msgForSave != nil {
+						es.broadcastAgentMessage(req.ThreadID, msgForSave, config.Name, string(config.Role))
+					}
+					logInfo("Interrupted: saved agent message to database",
+						zap.String("invocationID", invocation.ID.String()),
+						zap.Int("contentBlocksCount", len(contentBlocksForSave)))
+				}
+
+				// 广播 interrupted 状态，通知前端 Agent 已中断等待用户输入
+				es.broadcastStatus(invocation.ThreadID, invocation.ID, "interrupted",
+					invocation.Role, "", invocation.AgentConfigID.String(), "")
+
+				// 不调用 handleAgentError，已正确更新为 interrupted 状态
+				// 用户响应后通过 shouldAutoResume 找到该 invocation，使用 --resume 恢复
+				return
+			}
+			
 		logError("Adapter.ExecuteWithStream failed", zap.Error(err))
 		// 执行失败时也保存 sessionId 用于问题定位
 		if result != nil && result.SessionID != "" {
 			// 保存 sessionId 到 invocation（入库用于问题定位）
+			// 注意：此时 ctx 可能已被取消，使用新的 context
 			invocation.SessionID = result.SessionID
-			if updateErr := es.invocationRepo.Update(ctx, invocation); updateErr != nil {
+			saveCtx, saveCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer saveCancel()
+			if updateErr := es.invocationRepo.Update(saveCtx, invocation); updateErr != nil {
 				logError("Failed to save sessionId on failure", zap.Error(updateErr))
 			}
 			// 记录失败会话（通过 sessionRecorder）
@@ -1904,6 +1984,47 @@ func (es *ExecutionService) CancelAgent(ctx context.Context, invocationID uuid.U
 	return nil
 }
 
+// broadcastQuestionReadyEvent 广播 question_ready 事件
+// 当 AskUserQuestion 被拒绝时（stdin 已关闭），通知前端可以等待用户输入
+// 用户响应后，前端会发送 user_message，isdp 使用 --resume 恢复会话
+func (es *ExecutionService) broadcastQuestionReadyEvent(invocationID uuid.UUID, agent *RunningAgent, toolCallID string) {
+	if es.wsHub == nil {
+		return
+	}
+
+	// 获取 threadID
+	threadID := agent.ThreadID
+
+	// 构造事件 payload
+	payload := map[string]interface{}{
+		"invocationId": invocationID.String(),
+		"toolCallId":   toolCallID,
+		"status":       "question_ready",
+		"message":      "AskUserQuestion was rejected due to stdin closed, waiting for user input",
+	}
+
+	// 查找对应的 question block 获取问题详情
+	for _, block := range agent.AccumulatedContentBlocks {
+		if block.Type == "question" && block.ToolID == toolCallID {
+			payload["questions"] = block.Questions
+			payload["toolName"] = block.ToolName
+			break
+		}
+	}
+
+	logInfo("broadcastQuestionReadyEvent called",
+		zap.String("threadId", threadID.String()),
+		zap.String("invocationId", invocationID.String()),
+		zap.String("toolCallId", toolCallID))
+
+	es.wsHub.BroadcastToThread(threadID.String(), ws.WSMessage{
+		Type:      "question_ready",
+		ThreadID:  threadID.String(),
+		Timestamp: time.Now().UnixMilli(),
+		Payload:   payload,
+	})
+}
+
 // broadcastStatus 广播状态
 func (es *ExecutionService) broadcastStatus(threadID, invocationID uuid.UUID, status string, role model.AgentRole, agentName string, agentID string, input string) {
 	logInfo("broadcastStatus called", zap.String("threadId", threadID.String()), zap.String("invocationId", invocationID.String()), zap.String("status", status))
@@ -1947,7 +2068,9 @@ func (es *ExecutionService) broadcastChunk(threadID, invocationID uuid.UUID, chu
 
 		// 累积结构化内容块（用于持久化）
 		agent.ContentBlocksMu.Lock()
-		now := time.Now().UnixMilli()
+			shouldCancel := false
+			cancelReason := ""
+						now := time.Now().UnixMilli()
 
 		// 上层屏蔽差异：在收到非 thinking 的 chunk 时，自动结束之前的 streaming thinking 块
 		// 这是为了处理某些适配器（如 OpenCode ACP）不发送 Done 标记的情况
@@ -2055,17 +2178,29 @@ func (es *ExecutionService) broadcastChunk(threadID, invocationID uuid.UUID, chu
 			// 正确做法：忽略拒绝错误，让 CLI 正常结束，保存 sessionId 用于 --resume
 			isQuestionResult := agent.LastQuestionToolID != "" && chunk.ToolID == agent.LastQuestionToolID
 			if isQuestionResult && chunk.IsError {
-				// AskUserQuestion 被拒绝：忽略这个 tool_result
-				// 更新 question 块状态为 waiting_user_input（前端等待用户响应）
+				// AskUserQuestion 被拒绝（stdin 已关闭）
+				// 设置 Agent 状态，阻止模型继续循环调用工具
+				agent.WaitingForUserInput = true
+				agent.PendingQuestionID = chunk.ToolID
+				
+				// 更新 question 块状态并广播事件
 				for i := len(agent.AccumulatedContentBlocks) - 1; i >= 0; i-- {
 					if agent.AccumulatedContentBlocks[i].Type == "question" && agent.AccumulatedContentBlocks[i].ToolID == chunk.ToolID {
-						// 保持 waiting_user_input 状态，不更新为 failed
-						// 用户响应后通过 --resume 恢复会话
-						logInfo("AskUserQuestion tool_result 收到（拒绝），保持 waiting_user_input 状态",
-							zap.String("invocationID", invocationID.String()),
-							zap.String("toolCallID", chunk.ToolID),
-							zap.String("content", chunk.Content))
-						break
+						// 保持 waiting_user_input 状态，用户响应后通过 --resume 恢复会话
+						logInfo("AskUserQuestion tool_result 收到（拒绝），设置 WaitingForUserInput=true，广播 question_ready 事件",
+												zap.String("invocationID", invocationID.String()),
+												zap.String("toolCallID", chunk.ToolID),
+												zap.String("content", chunk.Content))
+						
+						// 广播 question_ready 事件通知前端
+						es.broadcastQuestionReadyEvent(invocationID, agent, chunk.ToolID)
+							// 主动取消 CLI 进程，阻止模型继续调用工具
+							// CLI 会被取消，ExecutionContext 的 error 处理会检测 WaitingForUserInput 状态
+							// 并正确处理为"等待用户输入"而非"执行失败"（等待用户响应后 --resume）
+							// 设置标志位，在释放锁后取消 CLI 进程（避免死锁）
+							shouldCancel = true
+							cancelReason = "AskUserQuestion rejected, waiting for user input"
+							break
 					}
 				}
 			} else {
@@ -2134,8 +2269,14 @@ func (es *ExecutionService) broadcastChunk(threadID, invocationID uuid.UUID, chu
 			agent.LastQuestionToolID = chunk.ToolID
 		}
 		agent.ContentBlocksMu.Unlock()
-
-		// 增量持久化：将内容块写入数据库（后台执行支持）
+			// 在释放锁后检查是否需要取消 CLI 进程（避免死锁）
+			if shouldCancel && agent.CancelFunc != nil {
+				logInfo("Canceling CLI process after releasing locks",
+										zap.String("invocationID", invocationID.String()),
+										zap.String("reason", cancelReason))
+				agent.CancelFunc()
+			}
+			// 增量持久化：将内容块写入数据库（后台执行支持）
 		if es.contentBlockRepo != nil && len(agent.AccumulatedContentBlocks) > 0 {
 			lastBlock := agent.AccumulatedContentBlocks[len(agent.AccumulatedContentBlocks)-1]
 			// 转换为持久化模型
