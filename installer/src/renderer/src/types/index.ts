@@ -82,6 +82,16 @@ export interface ExistingConfig {
   serverPort?: number
 }
 
+// 运行中的Agent实例
+export interface RunningAgentInstance {
+  invocationId: string
+  agentName: string
+  projectName: string
+  threadTitle: string
+  startedAt: string
+  runningDurationSeconds: number
+}
+
 // Electron API 类型声明
 declare global {
   interface Window {
@@ -128,6 +138,7 @@ declare global {
       startService: () => Promise<{ success: boolean; error?: string }>
       stopService: () => Promise<{ success: boolean }>
       getServiceStatus: () => Promise<{ status: 'running' | 'stopped' }>
+      getRunningAgents: () => Promise<{ instances: RunningAgentInstance[] }>
 
       // 快捷操作
       openLogs: () => Promise<void>

@@ -46,6 +46,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   startService: () => ipcRenderer.invoke('start-service'),
   stopService: () => ipcRenderer.invoke('stop-service'),
   getServiceStatus: () => ipcRenderer.invoke('get-service-status'),
+  getRunningAgents: () => ipcRenderer.invoke('get-running-agents'),
 
   // 快捷操作
   openLogs: () => ipcRenderer.invoke('open-logs'),
