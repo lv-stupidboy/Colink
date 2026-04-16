@@ -799,15 +799,8 @@ const ThreadView: React.FC = () => {
         const input = data.payload.input as string | undefined;
         console.log('[agent_status] Received:', { status, invocId, agentName, agentId });
         updateAgentStatus(invocId, status, agentName, input);
-        // Agent 完成或中断时，如果有流式消息缓存，转为正式消息
-        // interrupted 状态：AskUserQuestion 等待用户输入，需要 finalize 流式消息
+        // Agent 完成或中断时清理工具事件
         if (status === 'completed' || status === 'failed' || status === 'interrupted') {
-          // 使用 getState() 避免闭包陷阱
-          const state = useAppStore.getState();
-          if (state.isStreaming && state.streamingInvocationId === invocId) {
-            finalizeStreamingMessage(invocId);
-          }
-          // 延迟清理工具事件
           clearToolEvents(invocId);
 
           // Agent 完成后预填入：设置上一个对话的 Agent 名称
@@ -1185,6 +1178,12 @@ const ThreadView: React.FC = () => {
 
   // Solo 模式发送消息（处理新任务命名）
   const handleSoloSend = useCallback(async (content: string) => {
+    // 用户发送新消息时，清除之前的阻塞项（开始新的交互）
+    const state = useAppStore.getState();
+    if (state.blockingItems.length > 0) {
+      state.blockingItems.forEach(b => removeBlockingItem(b.id));
+    }
+
     // 如果是新任务，先创建 thread
     if (soloNewTaskPending) {
       try {
@@ -1569,6 +1568,12 @@ const ThreadView: React.FC = () => {
    */
   const handleSend = useCallback(async (content: string) => {
     if (!content.trim()) return;
+
+    // 用户发送新消息时，清除之前的阻塞项（开始新的交互）
+    const state = useAppStore.getState();
+    if (state.blockingItems.length > 0) {
+      state.blockingItems.forEach(b => removeBlockingItem(b.id));
+    }
 
     // 清除累积的通知计数（开始新一轮任务）
     clearPendingNotifications();

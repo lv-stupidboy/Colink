@@ -535,7 +535,7 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 	}
 
 	cliDuration := time.Since(cliStart)
-	logInfo("[PERF] CLI execution completed", zap.Duration("duration", cliDuration), zap.String("invocationID", invocation.ID.String()))
+	logInfo("[PERF] CLI execution completed", zap.Duration("duration", cliDuration), zap.String("invocationID", invocation.ID.String()), zap.Bool("hasResult", result != nil), zap.String("resultSessionId", func() string { if result != nil { return result.SessionID } else { return "nil_result" } }()), zap.Bool("hasError", err != nil))
 
 	if err != nil {
 			// 检查是否因 AskUserQuestion 等待用户输入而取消
@@ -642,15 +642,18 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 		es.csMu.Unlock()
 		// 同时保存到 invocation 对象（持久化到数据库用于问题定位）
 		invocation.SessionID = result.SessionID
+		logInfo("Session ID assigned to invocation", zap.String("invocationID", invocation.ID.String()), zap.String("sessionId", result.SessionID))
 		// 记录成功会话（通过 sessionRecorder）
 		if globalSessionRecorder != nil {
 			globalSessionRecorder.RecordSuccessfulSession(req.ThreadID.String(), config.ID.String(), result.SessionID)
 		}
 		logInfo("Session ID saved for future resume and persistence", zap.String("sessionKey", sessionKey), zap.String("sessionId", result.SessionID))
+	} else {
+		logWarn("Session ID not saved: result nil or empty sessionId", zap.Bool("hasResult", result != nil), zap.String("sessionId", func() string { if result != nil { return result.SessionID } else { return "nil" } }()))
 	}
 
 	output := outputBuilder.String()
-	logInfo("Execution completed", zap.Int("outputLength", len(output)))
+	logInfo("Execution completed", zap.Int("outputLength", len(output)), zap.String("invocationID", invocation.ID.String()), zap.String("invocationSessionId", invocation.SessionID))
 
 	// 更新调用记录
 	invocation.Status = model.InvocationStatusCompleted
@@ -658,6 +661,8 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 	invocation.CompletedAt = timePtr(time.Now())
 	if err := es.invocationRepo.Update(ctx, invocation); err != nil {
 		logError("Failed to update invocation", zap.Error(err))
+	} else {
+		logInfo("Invocation updated successfully", zap.String("invocationID", invocation.ID.String()), zap.String("status", string(invocation.Status)), zap.String("sessionId", invocation.SessionID))
 	}
 
 	// 获取累积的内容块

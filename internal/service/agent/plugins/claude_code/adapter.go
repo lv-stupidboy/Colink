@@ -237,13 +237,21 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execut
 		}
 	}()
 
+	// 在后台调用 cmd.Wait()，这样当进程结束时 stdout 会被关闭
+	// 这是打破循环依赖的关键：stdout 关闭 -> scanner 结束 -> lineChan 关闭 -> 主循环退出
+	cmdWaitDone := make(chan error, 1)
+	go func() {
+		cmdWaitDone <- cmd.Wait()
+	}()
+
 	// 使用 goroutine + channel 读取 stdout，配合 select 监听 ctx.Done()
 	// 这样可以在 context 取消时立即退出，不需要等待 scanner.Scan() 返回
 	lineChan := make(chan string, 100)
-	
+
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		defer close(lineChan) // 确保 lineChan 在 scanner 结束时关闭，避免主 goroutine 永久阻塞
 		scanner := bufio.NewScanner(stdout)
 		scanner.Buffer(make([]byte, 1024*1024), 10*1024*1024)
 		for scanner.Scan() {
@@ -258,14 +266,20 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execut
 		if err := scanner.Err(); err != nil {
 			logInfo("ExecuteWithStream: scanner error", zap.Error(err))
 		}
+		logInfo("ExecuteWithStream: scanner goroutine finished, closed lineChan")
 	}()
 	
 	// 主 goroutine 处理行数据，使用 select 监听多个 channel
+	// 添加超时机制防止永久阻塞（如果 CLI 进程结束但 stdout 未正确关闭）
 	lineCount := 0
 	chunkCount := 0
 	firstLineReceived := false
 	processLines := true
-	
+	cmdWaitErr := error(nil) // 存储 cmd.Wait() 的结果
+	cmdWaitReceived := false // 标记是否已收到 cmd.Wait 结果
+	lineTimeout := time.NewTimer(30 * time.Second) // 30秒无新输出则检查进程状态
+	defer lineTimeout.Stop()
+
 	for processLines {
 		select {
 		case line, ok := <-lineChan:
@@ -274,6 +288,8 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execut
 				processLines = false
 				break
 			}
+			// 有输出，重置超时
+			lineTimeout.Reset(30 * time.Second)
 			if line == "" {
 				continue
 			}
@@ -293,6 +309,54 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execut
 					chunkCount++
 					logInfo("ExecuteWithStream: calling onChunk", zap.Int("chunkNum", chunkCount), zap.String("type", string(chunk.Type)))
 					onChunk(chunk)
+				}
+			}
+		case <-lineTimeout.C:
+			// 超时：检查进程是否已结束
+			if cmd.Process == nil {
+				logInfo("ExecuteWithStream: timeout, process already nil, exiting loop")
+				processLines = false
+				break
+			}
+			// 尝试检查进程状态（非阻塞）
+			// 如果进程已退出，强制退出循环
+			logInfo("ExecuteWithStream: timeout waiting for output, checking process state")
+		case waitErr := <-cmdWaitDone:
+			// 进程已结束，stdout 应该被关闭了
+			cmdWaitErr = waitErr
+			cmdWaitReceived = true
+			// 等待 scanner goroutine 处理剩余数据并关闭 lineChan
+			logInfo("ExecuteWithStream: process finished, waiting for remaining output", zap.Error(waitErr))
+			// 继续处理剩余的输出直到 lineChan 关闭
+			// 设置一个短超时等待剩余数据
+			remainingTimeout := time.NewTimer(2 * time.Second)
+			for {
+				select {
+				case line, ok := <-lineChan:
+					if !ok {
+						logInfo("ExecuteWithStream: lineChan closed after process end")
+						processLines = false
+						break
+					}
+					if line == "" {
+						continue
+					}
+					lineCount++
+					chunks := parseStreamJSONLine(line, onChunk != nil)
+					for _, chunk := range chunks {
+						if onChunk != nil {
+							chunkCount++
+							onChunk(chunk)
+						}
+					}
+				case <-remainingTimeout.C:
+					logInfo("ExecuteWithStream: timeout waiting for remaining output after process end")
+					processLines = false
+					break
+				}
+				if !processLines {
+					remainingTimeout.Stop()
+					break
 				}
 			}
 		case <-ctx.Done():
@@ -323,7 +387,18 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execut
 		// 不影响后续处理
 	}
 
-	if err := cmd.Wait(); err != nil {
+	// 获取 cmd.Wait 结果（如果主循环中已收到则直接使用，否则等待）
+	if !cmdWaitReceived {
+		// 主循环通过 lineChan 关闭退出，进程可能还在运行或刚刚结束
+		select {
+		case cmdWaitErr = <-cmdWaitDone:
+			cmdWaitReceived = true
+		case <-time.After(1 * time.Second):
+			logInfo("ExecuteWithStream: timeout waiting for cmd.Wait result")
+		}
+	}
+
+	if cmdWaitErr != nil {
 		// 获取模型名称
 		modelName := ""
 		if a.baseAgent != nil {
@@ -331,7 +406,7 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execut
 		}
 		// 详细记录执行失败信息
 		logError("Claude: Execution failed",
-			zap.Error(err),
+			zap.Error(cmdWaitErr),
 			zap.String("cliPath", a.cliPath),
 			zap.String("workDir", cmd.Dir),
 			zap.String("configDir", req.ConfigDir),
@@ -343,7 +418,7 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execut
 		if stderrOutput.Len() > 0 {
 			return &agent.ExecutionResult{SessionID: sessionID}, fmt.Errorf("CLI error: %s", stderrOutput.String())
 		}
-		return &agent.ExecutionResult{SessionID: sessionID}, fmt.Errorf("CLI execution failed: %w", err)
+		return &agent.ExecutionResult{SessionID: sessionID}, fmt.Errorf("CLI execution failed: %w", cmdWaitErr)
 	}
 
 	logInfo("[PERF] CLI total execution", zap.Duration("duration", time.Since(cliStartTime)))
