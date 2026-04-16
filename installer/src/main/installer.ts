@@ -397,11 +397,15 @@ export async function copyApplicationFiles(
 
 // 复制启动器文件到目标目录
 // 从 resources/launcher/ 目录复制完整的启动器
+// 使用原子替换策略：先备份、再复制到临时位置、验证后替换、失败回滚
 export async function copyLauncherFiles(
   sourceDir: string,
   destDir: string,
   onProgress?: (progress: number) => void
 ): Promise<{ success: boolean; error?: string }> {
+  const fs = require('original-fs')
+  const tmpDir = join(tmpdir(), 'colink-upgrade-' + Date.now())
+
   try {
     const resourcesDir = process.resourcesPath
     const launcherSrcDir = join(resourcesDir, 'launcher')
@@ -410,73 +414,169 @@ export async function copyLauncherFiles(
       return { success: false, error: `启动器目录不存在: ${launcherSrcDir}` }
     }
 
-    const fs = require('original-fs')
-
     const entries = fs.readdirSync(launcherSrcDir, { withFileTypes: true })
     if (entries.length === 0) {
       return { success: false, error: `启动器目录为空: ${launcherSrcDir}` }
     }
+
+    // ========== Step 1: 备份关键文件 ==========
+    const criticalFiles = ['Colink.exe', 'ISDP.exe']  // 关键的可执行文件
+    const backupDir = join(tmpDir, 'backup')
+    fs.mkdirSync(backupDir, { recursive: true })
+
+    const backedUpFiles: string[] = []
+    for (const criticalFile of criticalFiles) {
+      const oldPath = join(destDir, criticalFile)
+      if (fs.existsSync(oldPath)) {
+        const backupPath = join(backupDir, criticalFile)
+        try {
+          fs.copyFileSync(oldPath, backupPath)
+          backedUpFiles.push(criticalFile)
+          console.log(`[Copy] Backed up: ${criticalFile}`)
+        } catch (backupErr) {
+          console.warn(`[Copy] Backup failed for ${criticalFile}:`, backupErr)
+          // 备份失败不阻止升级，但记录下来
+        }
+      }
+    }
+
+    // ========== Step 2: 复制到临时目录（避免直接覆盖） ==========
+    const stagingDir = join(tmpDir, 'staging')
+    fs.mkdirSync(stagingDir, { recursive: true })
 
     let copiedFiles = 0
     const totalFiles = entries.length
 
     for (const entry of entries) {
       const srcPath = join(launcherSrcDir, entry.name)
-      const destPath = join(destDir, entry.name)
+      const stagingPath = join(stagingDir, entry.name)
 
       try {
         const fileStat = fs.statSync(srcPath)
 
-        // 特殊处理 resources 目录，因为包含 asar 文件
+        // 特殊处理 resources 目录
         if (fileStat.isDirectory() && entry.name === 'resources') {
-          fs.mkdirSync(destPath, { recursive: true })
-
+          fs.mkdirSync(stagingPath, { recursive: true })
           const resourcesEntries = fs.readdirSync(srcPath, { withFileTypes: true })
           for (const resEntry of resourcesEntries) {
             const resSrcPath = join(srcPath, resEntry.name)
-            const resDestPath = join(destPath, resEntry.name)
+            const resStagingPath = join(stagingPath, resEntry.name)
 
             if (resEntry.name.endsWith('.asar')) {
-              if (fs.existsSync(resDestPath)) {
-                fs.rmSync(resDestPath, { force: true })
-              }
-              fs.copyFileSync(resSrcPath, resDestPath)
+              fs.copyFileSync(resSrcPath, resStagingPath)
             } else if (fs.statSync(resSrcPath).isDirectory()) {
-              fs.cpSync(resSrcPath, resDestPath, { recursive: true })
+              fs.cpSync(resSrcPath, resStagingPath, { recursive: true })
             } else {
-              fs.copyFileSync(resSrcPath, resDestPath)
+              fs.copyFileSync(resSrcPath, resStagingPath)
             }
           }
         } else if (fileStat.isDirectory()) {
-          if (fs.existsSync(destPath)) {
-            fs.rmSync(destPath, { recursive: true, force: true })
-          }
-          fs.cpSync(srcPath, destPath, { recursive: true })
+          fs.cpSync(srcPath, stagingPath, { recursive: true })
         } else {
-          if (fs.existsSync(destPath)) {
-            fs.rmSync(destPath, { force: true })
-          }
-          fs.copyFileSync(srcPath, destPath)
+          fs.copyFileSync(srcPath, stagingPath)
         }
         copiedFiles++
-        onProgress?.(Math.round((copiedFiles / totalFiles) * 100))
+        onProgress?.(Math.round((copiedFiles / totalFiles) * 50))  // 复制进度 50%
       } catch (copyError) {
-        console.error(`[Copy] Failed to copy ${entry.name}:`, copyError)
+        console.error(`[Copy] Failed to stage ${entry.name}:`, copyError)
         // 继续复制其他文件
       }
     }
 
-    // 验证关键文件
+    // ========== Step 3: 验证临时目录中的关键文件 ==========
+    const stagingExe = join(stagingDir, 'Colink.exe')
+    if (!fs.existsSync(stagingExe)) {
+      // 验证失败，尝试从备份恢复
+      await rollbackFromBackup(backupDir, destDir, backedUpFiles, fs)
+      return { success: false, error: '启动器可执行文件复制失败: Colink.exe 未成功复制到临时目录' }
+    }
+
+    // ========== Step 4: 从临时目录替换到目标目录 ==========
+    for (const entry of entries) {
+      const stagingPath = join(stagingDir, entry.name)
+      const destPath = join(destDir, entry.name)
+
+      if (!fs.existsSync(stagingPath)) {
+        continue  // 跳过未成功复制的文件
+      }
+
+      try {
+        const fileStat = fs.statSync(stagingPath)
+
+        if (fileStat.isDirectory()) {
+          // 目录：先删除旧的，再复制新的
+          if (fs.existsSync(destPath)) {
+            fs.rmSync(destPath, { recursive: true, force: true })
+          }
+          fs.cpSync(stagingPath, destPath, { recursive: true })
+        } else {
+          // 文件：先删除旧的，再复制新的
+          if (fs.existsSync(destPath)) {
+            fs.rmSync(destPath, { force: true })
+          }
+          fs.copyFileSync(stagingPath, destPath)
+        }
+        copiedFiles++
+        onProgress?.(Math.round(50 + (copiedFiles / totalFiles) * 50))  // 替换进度 50%
+      } catch (replaceError) {
+        console.error(`[Copy] Failed to replace ${entry.name}:`, replaceError)
+        // 如果是关键文件失败，尝试回滚
+        if (entry.name === 'Colink.exe' || entry.name === 'ISDP.exe') {
+          await rollbackFromBackup(backupDir, destDir, backedUpFiles, fs)
+          return { success: false, error: `替换关键文件失败: ${entry.name} - ${replaceError}` }
+        }
+      }
+    }
+
+    // ========== Step 5: 最终验证 ==========
     const exeDest = join(destDir, 'Colink.exe')
     if (!fs.existsSync(exeDest)) {
-      return { success: false, error: '启动器可执行文件复制失败: Colink.exe 不存在' }
+      await rollbackFromBackup(backupDir, destDir, backedUpFiles, fs)
+      return { success: false, error: '启动器可执行文件替换失败: Colink.exe 不存在' }
     }
+
+    // 成功！清理临时目录
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true })
+    } catch {}
 
     onProgress?.(100)
     return { success: true }
   } catch (error) {
     console.error('[Copy] Error:', error)
+    // 尝试回滚
+    try {
+      const backupDir = join(tmpDir, 'backup')
+      const fs = require('original-fs')
+      const backedUpFiles = fs.existsSync(backupDir) ? fs.readdirSync(backupDir) : []
+      await rollbackFromBackup(backupDir, destDir, backedUpFiles, fs)
+    } catch {}
     return { success: false, error: error instanceof Error ? error.message : '复制失败' }
+  }
+}
+
+// 从备份回滚
+async function rollbackFromBackup(
+  backupDir: string,
+  destDir: string,
+  backedUpFiles: string[],
+  fs: any
+): Promise<void> {
+  console.log('[Copy] Rolling back from backup...')
+  for (const file of backedUpFiles) {
+    const backupPath = join(backupDir, file)
+    const destPath = join(destDir, file)
+    try {
+      if (fs.existsSync(backupPath)) {
+        if (fs.existsSync(destPath)) {
+          fs.rmSync(destPath, { force: true })
+        }
+        fs.copyFileSync(backupPath, destPath)
+        console.log(`[Copy] Restored: ${file}`)
+      }
+    } catch (restoreErr) {
+      console.error(`[Copy] Failed to restore ${file}:`, restoreErr)
+    }
   }
 }
 
