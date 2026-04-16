@@ -3,7 +3,6 @@ import { promisify } from 'util'
 import { createWriteStream, existsSync, unlinkSync, rmSync, readdirSync, mkdirSync, writeFileSync, copyFileSync, readFileSync, statSync, renameSync } from 'fs'
 import { join, dirname, basename } from 'path'
 import { BrowserWindow } from 'electron'
-import { tmpdir } from 'os'
 import { https } from 'follow-redirects'
 import YAML from 'yaml'
 
@@ -452,8 +451,10 @@ export async function copyLauncherFiles(
     const fs = require('original-fs')
 
     // ========== 统一的原子替换策略 ==========
-    // Step 1: 在系统临时目录创建 staging（避免放在目标目录内）
-    const stagingDir = join(tmpdir(), 'colink-staging-' + Date.now())
+    // Step 1: 在目标目录的父目录创建 staging（确保同盘，Windows rename 才是原子操作）
+    // 例如：目标 D:\Colink，staging 在 D:\.colink-staging-xxx
+    const destParent = dirname(destDir)
+    const stagingDir = join(destParent, '.colink-staging-' + Date.now())
 
     // 原子复制单个文件：先复制到 .tmp，再 rename
     const atomicCopyFile = (src: string, dest: string) => {
