@@ -395,16 +395,8 @@ export async function copyLauncherFiles(
     const resourcesDir = process.resourcesPath
     const launcherSrcDir = join(resourcesDir, 'launcher')
 
-    // 检测是否在临时目录运行（可能是 ZIP 内直接运行）
-    const exePath = process.execPath
-    const isTempRun = exePath.includes('\\Temp\\') || exePath.includes('/tmp/') || exePath.includes('AppData\\Local\\Temp')
-
     if (!existsSync(launcherSrcDir)) {
-      // 提供详细的诊断信息
-      const diagInfo = isTempRun
-        ? '\n\n⚠️ 检测到您可能直接在 ZIP 文件内运行安装程序。\n请先完整解压 ZIP 文件，然后运行解压后的 Colink Setup.exe。'
-        : `\n\n当前 resourcesPath: ${resourcesDir}\nexe 所在目录: ${exePath}`
-      return { success: false, error: `启动器目录不存在: ${launcherSrcDir}${diagInfo}` }
+      return { success: false, error: `启动器目录不存在: ${launcherSrcDir}` }
     }
 
     const fs = require('original-fs')
@@ -466,9 +458,7 @@ export async function copyLauncherFiles(
     // 验证关键文件
     const exeDest = join(destDir, 'Colink.exe')
     if (!fs.existsSync(exeDest)) {
-      // 提供详细诊断信息
-      const diagInfo = `源目录: ${launcherSrcDir}\n目标目录: ${destDir}\n已复制文件数: ${copiedFiles}/${totalFiles}\nresourcesPath: ${process.resourcesPath}`
-      return { success: false, error: `启动器可执行文件复制失败: Colink.exe 不存在\n\n${diagInfo}` }
+      return { success: false, error: '启动器可执行文件复制失败: Colink.exe 不存在' }
     }
 
     onProgress?.(100)
