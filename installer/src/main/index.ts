@@ -124,7 +124,7 @@ function createWindow() {
     event.preventDefault()
     const canClose = await showCloseConfirm(mainWindow!, {
       checkServiceRunning: () => serviceManager?.getStatus() === 'running',
-      stopService: async () => { await stopAllProcesses() }
+      stopService: async () => { await stopServiceProcess() }
     })
 
     if (canClose) {
@@ -142,8 +142,24 @@ function initServiceManager() {
   }
 }
 
-// 停止所有相关进程
-async function stopAllProcesses(): Promise<void> {
+// 停止后端服务进程（用于启动器页面"停止服务"按钮）
+async function stopServiceProcess(): Promise<void> {
+  // 停止服务管理器
+  if (serviceManager) {
+    await serviceManager.stop()
+    serviceManager = null
+  }
+
+  // 强制结束服务进程
+  try {
+    execSync('taskkill /f /im colink-server.exe 2>nul', { encoding: 'utf8' })
+  } catch {
+    // 忽略错误
+  }
+}
+
+// 停止所有相关进程（用于卸载流程）
+async function stopAllProcessesForUninstall(): Promise<void> {
   // 停止服务管理器
   if (serviceManager) {
     await serviceManager.stop()
@@ -196,7 +212,7 @@ ipcMain.handle('check-old-isdp', async () => {
 
 ipcMain.handle('uninstall-old-isdp', async () => {
   // 先停止所有进程
-  await stopAllProcesses()
+  await stopAllProcessesForUninstall()
   return uninstallOldISDP()
 })
 
@@ -461,7 +477,7 @@ ipcMain.handle('start-service', async () => {
 })
 
 ipcMain.handle('stop-service', async () => {
-  await stopAllProcesses()
+  await stopServiceProcess()
   return { success: true }
 })
 
@@ -574,7 +590,7 @@ ipcMain.handle('uninstall', async (_event, keepData: boolean) => {
 
   try {
     // 停止所有进程
-    await stopAllProcesses()
+    await stopAllProcessesForUninstall()
 
     // 删除注册表
     deleteRegistry()
