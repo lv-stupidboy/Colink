@@ -440,6 +440,45 @@ async function cleanZombieFiles(
       }
     }
 
+    // 方式2.5: 停止可能锁定文件的 Windows 服务后删除
+    if (!deleted) {
+      try {
+        // Windows Search 索引服务可能锁定 exe 文件
+        execSync('net stop "Windows Search" 2>nul', { encoding: 'utf8' })
+        await new Promise(resolve => setTimeout(resolve, 2000))
+        fs.rmSync(filePath, { force: true })
+        execSync('net start "Windows Search" 2>nul', { encoding: 'utf8' })
+        if (!fs.existsSync(filePath)) {
+          deleted = true
+          cleanedFiles.push(fileName)
+          console.log(`[ZombieClean] Stop-service+delete success: ${fileName}`)
+          continue
+        }
+      } catch (e) {
+        // 确保恢复服务
+        try { execSync('net start "Windows Search" 2>nul', { encoding: 'utf8' }) } catch {}
+        console.warn(`[ZombieClean] Stop-service+delete failed: ${fileName}`, e)
+      }
+    }
+
+    // 方式2.6: 创建空文件覆盖后删除
+    if (!deleted) {
+      try {
+        const tmpPath = filePath + '.tmp'
+        fs.writeFileSync(tmpPath, '')  // 创建空文件
+        execSync(`move /y "${tmpPath}" "${filePath}"`, { encoding: 'utf8' })
+        fs.rmSync(filePath, { force: true })
+        if (!fs.existsSync(filePath)) {
+          deleted = true
+          cleanedFiles.push(fileName)
+          console.log(`[ZombieClean] Overwrite+delete success: ${fileName}`)
+          continue
+        }
+      } catch (e) {
+        console.warn(`[ZombieClean] Overwrite+delete failed: ${fileName}`, e)
+      }
+    }
+
     // 方式3: 注册 RunOnce，重启后删除
     if (!deleted) {
       try {
