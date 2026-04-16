@@ -1,7 +1,6 @@
 import { exec, spawn, execSync } from 'child_process'
 import { promisify } from 'util'
-import { copyFile, mkdir, writeFile, readFile, unlink, stat } from 'fs/promises'
-import { createWriteStream, existsSync, unlinkSync, rmSync, cpSync, readdirSync } from 'fs'
+import { createWriteStream, existsSync, unlinkSync, rmSync, readdirSync, mkdirSync, writeFileSync, copyFileSync, readFileSync, statSync } from 'fs'
 import { join, dirname, basename } from 'path'
 import { BrowserWindow } from 'electron'
 import { tmpdir } from 'os'
@@ -9,6 +8,14 @@ import { https } from 'follow-redirects'
 import YAML from 'yaml'
 
 const execAsync = promisify(exec)
+
+// 使用 promisify 包装 fs 函数，避免 fs/promises 在 Electron 打包时被替换为 original-fs/promises 导致错误
+const fsMkdir = promisify(mkdirSync)
+const fsWriteFile = promisify(writeFileSync)
+const fsCopyFile = promisify(copyFileSync)
+const fsReadFile = promisify(readFileSync)
+const fsUnlink = promisify(unlinkSync)
+const fsStat = promisify(statSync)
 
 // ==================== 依赖检测与安装 ====================
 
@@ -100,7 +107,7 @@ export async function runDatabaseMigration(
     }
 
     // 创建数据库目录（首次安装时需要）
-    await mkdir(dirname(dbPath), { recursive: true })
+    await fsMkdir(dirname(dbPath), { recursive: true })
 
     // 执行 migrate up（首次安装和升级都使用 up 命令）
     // migrate 工具会自动处理数据库不存在的情况
@@ -231,8 +238,8 @@ export async function writeConfigFile(
   yamlContent: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    await mkdir(dirname(configPath), { recursive: true })
-    await writeFile(configPath, yamlContent, 'utf-8')
+    await fsMkdir(dirname(configPath), { recursive: true })
+    await fsWriteFile(configPath, yamlContent, 'utf-8')
     console.log('[Config] Written successfully')
     return { success: true }
   } catch (error) {
@@ -314,7 +321,7 @@ export async function copyApplicationFiles(
   onProgress?: (progress: number) => void
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    await mkdir(destDir, { recursive: true })
+    await fsMkdir(destDir, { recursive: true })
 
     const resourcesDir = process.resourcesPath
 
@@ -336,7 +343,7 @@ export async function copyApplicationFiles(
       if (existsSync(serverDest)) {
         await forceDelete(serverDest)
       }
-      await copyFile(serverSrc, serverDest)
+      await fsCopyFile(serverSrc, serverDest)
     } else {
       console.warn('[Copy] colink-server.exe not found')
     }
@@ -355,17 +362,17 @@ export async function copyApplicationFiles(
     }
 
     // 创建数据目录
-    await mkdir(join(destDir, 'data', 'configs'), { recursive: true })
-    await mkdir(join(destDir, 'data', 'logs'), { recursive: true })
-    await mkdir(join(destDir, 'data', 'agent-assets'), { recursive: true })
-    await mkdir(join(destDir, 'data', 'agent-configs'), { recursive: true })
-    await mkdir(join(destDir, 'data', 'repos'), { recursive: true })
+    await fsMkdir(join(destDir, 'data', 'configs'), { recursive: true })
+    await fsMkdir(join(destDir, 'data', 'logs'), { recursive: true })
+    await fsMkdir(join(destDir, 'data', 'agent-assets'), { recursive: true })
+    await fsMkdir(join(destDir, 'data', 'agent-configs'), { recursive: true })
+    await fsMkdir(join(destDir, 'data', 'repos'), { recursive: true })
 
     // 复制配置模板（用于升级时配置合并）
     const templateSrc = join(runtimeDir, 'data', 'configs', 'config.yaml.example')
     const templateDest = join(destDir, 'data', 'configs', 'config.yaml.example')
     if (existsSync(templateSrc)) {
-      await copyFile(templateSrc, templateDest)
+      await fsCopyFile(templateSrc, templateDest)
       console.log('[Copy] Config template copied')
     }
 
@@ -373,7 +380,7 @@ export async function copyApplicationFiles(
     const iconSrc = join(resourcesDir, 'icon.ico')
     const iconDest = join(destDir, 'icon.ico')
     if (existsSync(iconSrc)) {
-      await copyFile(iconSrc, iconDest)
+      await fsCopyFile(iconSrc, iconDest)
     }
 
     onProgress?.(100)
@@ -512,7 +519,7 @@ export async function generateConfigPreview(params: {
     let baseYaml: any = {}
 
     if (templatePath) {
-      const templateContent = await readFile(templatePath, 'utf-8')
+      const templateContent = await fsReadFile(templatePath, 'utf-8')
       baseYaml = YAML.parse(templateContent)
     }
 
@@ -520,7 +527,7 @@ export async function generateConfigPreview(params: {
     if (params.installDir) {
       const configPath = join(params.installDir, 'data', 'configs', 'config.yaml')
       if (existsSync(configPath)) {
-        const userContent = await readFile(configPath, 'utf-8')
+        const userContent = await fsReadFile(configPath, 'utf-8')
         const userYaml = YAML.parse(userContent)
         baseYaml = mergeObjects(userYaml, baseYaml)
       }
@@ -623,7 +630,7 @@ export async function readExistingConfig(installDir: string): Promise<{
       return { success: false, error: '配置文件不存在' }
     }
 
-    const content = await readFile(configPath, 'utf-8')
+    const content = await fsReadFile(configPath, 'utf-8')
     const parsed = YAML.parse(content)
 
     // 保留 MySQL 配置信息供切换回来时使用
@@ -665,7 +672,7 @@ oShellLink.Save
 WScript.Echo "OK"`
 
     const vbsPath = join(process.env.TEMP || '.', 'create_shortcut.vbs')
-    await writeFile(vbsPath, vbsContent, 'utf-8')
+    await fsWriteFile(vbsPath, vbsContent, 'utf-8')
     await execAsync(`cscript //nologo "${vbsPath}"`)
     try { unlinkSync(vbsPath) } catch {}
 
@@ -691,7 +698,7 @@ oShellLink.Save
 WScript.Echo "OK"`
 
     const vbsPath = join(process.env.TEMP || '.', 'create_startmenu_shortcut.vbs')
-    await writeFile(vbsPath, vbsContent, 'utf-8')
+    await fsWriteFile(vbsPath, vbsContent, 'utf-8')
     await execAsync(`cscript //nologo "${vbsPath}"`)
     try { unlinkSync(vbsPath) } catch {}
 
@@ -874,7 +881,7 @@ export async function runInstallation(
       }
 
       // 创建数据库目录
-      await mkdir(dirname(dbPath), { recursive: true })
+      await fsMkdir(dirname(dbPath), { recursive: true })
 
       if (versionsToRun.length === 0) {
         sendProgress('migration', 'success', 100, '无需迁移', 'SQLite 数据库已是最新')
