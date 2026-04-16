@@ -237,43 +237,24 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execut
 		}
 	}()
 
-	// 使用 goroutine + channel 读取 stdout，配合 select 监听 ctx.Done()
-	// 这样可以在 context 取消时立即退出，不需要等待 scanner.Scan() 返回
-	lineChan := make(chan string, 100)
-	
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		scanner := bufio.NewScanner(stdout)
 		scanner.Buffer(make([]byte, 1024*1024), 10*1024*1024)
+		lineCount := 0
+		chunkCount := 0
+		firstLineReceived := false
 		for scanner.Scan() {
-			line := scanner.Text()
+			// 检查 context 是否已取消（取消后停止处理输出）
 			select {
-			case lineChan <- line:
 			case <-ctx.Done():
-				logInfo("ExecuteWithStream: context cancelled during scan")
+				logInfo("ExecuteWithStream: context cancelled, stopping output processing")
 				return
+			default:
 			}
-		}
-		if err := scanner.Err(); err != nil {
-			logInfo("ExecuteWithStream: scanner error", zap.Error(err))
-		}
-	}()
-	
-	// 主 goroutine 处理行数据，使用 select 监听多个 channel
-	lineCount := 0
-	chunkCount := 0
-	firstLineReceived := false
-	processLines := true
-	
-	for processLines {
-		select {
-		case line, ok := <-lineChan:
-			if !ok {
-				// lineChan 关闭，scanner 结束
-				processLines = false
-				break
-			}
+
+			line := scanner.Text()
 			if line == "" {
 				continue
 			}
@@ -283,10 +264,11 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execut
 				firstLineReceived = true
 				logInfo("[PERF] CLI first line received", zap.Duration("duration", time.Since(cliStartTime)), zap.Int("lineNum", lineCount))
 			}
-			// 调试：打印每行原始输出（前5行或包含工具相关内容）
-			if lineCount <= 5 || strings.Contains(line, "tool_use") || strings.Contains(line, "AskUserQuestion") || strings.Contains(line, "input_json") {
-				logInfo("ExecuteWithStream: received line", zap.Int("lineNum", lineCount), zap.String("line", line[:min(500, len(line))]))
-			}
+			// 调试：打印每行原始输出
+				// 调试：打印每行原始输出（前5行或包含工具相关内容）
+				if lineCount <= 5 || strings.Contains(line, "tool_use") || strings.Contains(line, "AskUserQuestion") || strings.Contains(line, "input_json") {
+					logInfo("ExecuteWithStream: received line", zap.Int("lineNum", lineCount), zap.String("line", line[:min(500, len(line))]))
+				}
 			chunks := parseStreamJSONLine(line, onChunk != nil)
 			for _, chunk := range chunks {
 				if onChunk != nil {
@@ -295,33 +277,11 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execut
 					onChunk(chunk)
 				}
 			}
-		case <-ctx.Done():
-			logInfo("ExecuteWithStream: context cancelled, stopping output processing")
-			processLines = false
-			// 不等待 scanner goroutine，wg.Wait() 会在后面等待
 		}
-	}
-	logInfo("ExecuteWithStream: stdout processing complete", zap.Int("lines", lineCount), zap.Int("chunks", chunkCount))
-
-	// 如果 context 已取消，不等待 scanner goroutine（它可能阻塞在已关闭的 stdout 上）
-	// 使用带超时的等待，避免永久阻塞
-	waitCtx, waitCancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer waitCancel()
-	
-	waitDone := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(waitDone)
+		logInfo("ExecuteWithStream: stdout scan complete", zap.Int("lines", lineCount), zap.Int("chunks", chunkCount))
 	}()
-	
-	select {
-	case <-waitDone:
-		logInfo("ExecuteWithStream: scanner goroutine completed normally")
-	case <-waitCtx.Done():
-		logInfo("ExecuteWithStream: scanner goroutine timeout, proceeding without waiting")
-		// scanner goroutine 可能阻塞在 scanner.Scan() 上，但 stdout 最终会被关闭
-		// 不影响后续处理
-	}
+
+	wg.Wait()
 
 	if err := cmd.Wait(); err != nil {
 		// 获取模型名称

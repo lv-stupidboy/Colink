@@ -444,18 +444,18 @@ export const useAppStore = create<AppState & AppActions>()(
 
     updateAgentStatus: (invocationId, status, agentName?: string, input?: string) => {
       set((state) => {
-        if (status === 'completed' || status === 'failed' || status === 'cancelled' || status === 'interrupted') {
+        if (status === 'completed' || status === 'failed' || status === 'cancelled') {
           // 找到完成的 agent 并移到历史列表
           const completedAgent = state.activeAgents.find((a) => a.id === invocationId);
 
-          // 对于 cancelled/interrupted 状态，保留已输出的内容（转成临时消息）
+          // 对于 cancelled 状态，保留已输出的内容（转成临时消息）
           // 只有 completed/failed 才清理流式状态
-          const isCancelledOrInterrupted = status === 'cancelled' || status === 'interrupted';
+          const isCancelled = status === 'cancelled';
           const isCurrentStreaming = state.streamingInvocationId === invocationId;
 
-          // 如果取消/中断且有流式内容，创建一个临时消息保留这些内容
+          // 如果取消且有流式内容，创建一个临时消息保留这些内容
           let newMessages = state.messages;
-          if (isCancelledOrInterrupted && isCurrentStreaming && state.streamingContentBlocks.length > 0) {
+          if (isCancelled && isCurrentStreaming && state.streamingContentBlocks.length > 0) {
             const tempMessage: Message = {
               id: `agent-${invocationId}`,
               threadId: state.currentThread?.id || '',
@@ -469,8 +469,7 @@ export const useAppStore = create<AppState & AppActions>()(
               messageType: 'text',
               metadata: {
                 agentName: state.streamingAgentName,
-                cancelled: status === 'cancelled',
-                interrupted: status === 'interrupted',
+                cancelled: true,
               },
               createdAt: new Date().toISOString(),
             };
@@ -486,13 +485,13 @@ export const useAppStore = create<AppState & AppActions>()(
                 ...state.completedAgents.filter((a) => a.id !== invocationId),
                 {
                   ...completedAgent,
-                  status: status as 'completed' | 'failed' | 'cancelled' | 'interrupted',
+                  status: status as 'completed' | 'failed' | 'cancelled',
                   completedAt: new Date().toISOString(),
                 },
               ]
             : state.completedAgents;
 
-          // 重置流式状态（但 cancelled/interrupted 不清空 contentBlocks，因为已转为消息）
+          // 重置流式状态（但 cancelled 不清空 contentBlocks，因为已转为消息）
           return {
             messages: newMessages,
             activeAgents: state.activeAgents.filter((a) => a.id !== invocationId),

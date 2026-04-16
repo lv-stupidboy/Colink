@@ -799,9 +799,8 @@ const ThreadView: React.FC = () => {
         const input = data.payload.input as string | undefined;
         console.log('[agent_status] Received:', { status, invocId, agentName, agentId });
         updateAgentStatus(invocId, status, agentName, input);
-        // Agent 完成或中断时，如果有流式消息缓存，转为正式消息
-        // interrupted 状态：AskUserQuestion 等待用户输入，需要 finalize 流式消息
-        if (status === 'completed' || status === 'failed' || status === 'interrupted') {
+        // Agent 完成时，如果有流式消息缓存，转为正式消息
+        if (status === 'completed' || status === 'failed') {
           // 使用 getState() 避免闭包陷阱
           const state = useAppStore.getState();
           if (state.isStreaming && state.streamingInvocationId === invocId) {
@@ -811,7 +810,7 @@ const ThreadView: React.FC = () => {
           clearToolEvents(invocId);
 
           // Agent 完成后预填入：设置上一个对话的 Agent 名称
-          // 只在 completed 状态且非调试模式下预填入（interrupted 不预填入，用户需要回答问题）
+          // 只在 completed 状态且非调试模式下预填入
           if (status === 'completed' && !isDebugMode && agentName) {
             setPrefilledMention(agentName);
           }
