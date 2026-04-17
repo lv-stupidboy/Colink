@@ -603,9 +603,9 @@ ipcMain.handle('uninstall', async (_event, keepData: boolean) => {
     try { if (existsSync(oldDesktopPath)) rmSync(oldDesktopPath) } catch {}
     try { if (existsSync(oldStartMenuPath)) rmSync(oldStartMenuPath) } catch {}
 
-    // 白名单模式删除目录（只保留 data）
+    // 白名单模式删除目录（保留 data、resources、backup）
     const dir = installed.installDir
-    const whitelist = keepData ? ['data'] : []
+    const whitelist = keepData ? ['data', 'resources', 'backup'] : ['resources', 'backup']
     const entries = readdirSync(dir, { withFileTypes: true })
     const entriesToDelete = entries.filter(e => !whitelist.includes(e.name))
 
