@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Tabs, Card, Empty, Spin, Badge } from 'antd';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Tabs, Card, Empty, Spin, Badge, message } from 'antd';
 import { FileTextOutlined } from '@ant-design/icons';
 import HumanTaskCard from '@/components/HumanTaskCard';
 import TaskExecuteModal from '@/components/HumanTaskCard/TaskExecuteModal';
@@ -12,21 +12,22 @@ const MyTasks: React.FC = () => {
   const [activeTab, setActiveTab] = useState<HumanTaskStatus>('pending');
   const [executeTask, setExecuteTask] = useState<HumanTask | null>(null);
 
-  const loadTasks = async (status?: HumanTaskStatus) => {
+  const loadTasks = useCallback(async (status?: HumanTaskStatus) => {
     setLoading(true);
     try {
       const data = await api.humanTasks.list(status);
       setTasks(data);
     } catch (err) {
       console.error('Failed to load tasks:', err);
+      message.error('加载任务失败，请稍后重试');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     loadTasks(activeTab);
-  }, [activeTab]);
+  }, [activeTab, loadTasks]);
 
   const handleExecute = (task: HumanTask) => {
     setExecuteTask(task);
@@ -36,8 +37,6 @@ const MyTasks: React.FC = () => {
     loadTasks(activeTab);
     setExecuteTask(null);
   };
-
-  const filteredTasks = tasks.filter((t) => t.status === activeTab);
 
   const tabItems = [
     {
@@ -83,11 +82,11 @@ const MyTasks: React.FC = () => {
 
       {loading ? (
         <Spin style={{ display: 'block', margin: '20px auto' }} />
-      ) : filteredTasks.length === 0 ? (
+      ) : tasks.length === 0 ? (
         <Empty description="暂无任务" />
       ) : (
         <div>
-          {filteredTasks.map((task) => (
+          {tasks.map((task) => (
             <HumanTaskCard
               key={task.id}
               task={task}
