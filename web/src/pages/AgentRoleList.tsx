@@ -3,7 +3,7 @@ import { Table, Button, Card, Modal, Form, Input, Select, message, Space, Tag, T
 import { PlusOutlined, EditOutlined, DeleteOutlined, RobotOutlined, BugOutlined, CopyOutlined, CrownOutlined, UserOutlined, ExclamationCircleOutlined, EyeOutlined, SettingOutlined, BookOutlined, ApiOutlined, CodeOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '@/api/client';
-import type { AgentConfig, BaseAgent, Skill, Subagent, Command, Rule, Settings, BatchGenerateResult, BatchUpdateResult } from '@/types';
+import type { AgentConfig, BaseAgent, Skill, Subagent, Command, Rule, Settings, BatchGenerateResult, BatchUpdateResult, GenerateResultItem } from '@/types';
 
 const { Title, Text } = Typography;
 
@@ -364,8 +364,16 @@ const AgentRoleList: React.FC = () => {
           setBatchResultVisible(true);
           setSelectedRowKeys([]);
           loadConfigs();
-        } catch (error) {
-          message.error('批量生成失败');
+        } catch (error: any) {
+          const errorData = error.response?.data;
+          if (errorData?.error) {
+            Modal.error({
+              title: '批量生成失败',
+              content: errorData.error,
+            });
+          } else {
+            message.error('批量生成失败');
+          }
         } finally {
           setBatchGenerateLoading(false);
         }
@@ -392,8 +400,16 @@ const AgentRoleList: React.FC = () => {
       setSelectedRowKeys([]);
       setTargetBaseAgentId('');
       loadConfigs();
-    } catch (error) {
-      message.error('批量修改失败');
+    } catch (error: any) {
+      const errorData = error.response?.data;
+      if (errorData?.error) {
+        Modal.error({
+          title: '批量修改失败',
+          content: errorData.error,
+        });
+      } else {
+        message.error('批量修改失败');
+      }
     } finally {
       setBatchUpdateLoading(false);
     }
@@ -708,12 +724,14 @@ const AgentRoleList: React.FC = () => {
               <>
                 <Button
                   icon={<EditOutlined />}
+                  aria-label={`批量修改基础Agent，已选择${selectedRowKeys.length}项`}
                   onClick={() => setBatchUpdateVisible(true)}
                 >
                   批量修改基础Agent ({selectedRowKeys.length})
                 </Button>
                 <Button
                   icon={<SettingOutlined />}
+                  aria-label={`批量生成配置，已选择${selectedRowKeys.length}项`}
                   onClick={handleBatchGenerateConfig}
                   loading={batchGenerateLoading}
                 >
@@ -722,6 +740,7 @@ const AgentRoleList: React.FC = () => {
                 <Button
                   danger
                   icon={<DeleteOutlined />}
+                  aria-label={`批量删除，已选择${selectedRowKeys.length}项`}
                   loading={batchDeleteLoading}
                   onClick={handleBatchDelete}
                 >
@@ -1191,7 +1210,7 @@ const AgentRoleList: React.FC = () => {
                   {
                     title: '生成数量',
                     key: 'counts',
-                    render: (_: unknown, record: any) => (
+                    render: (_: unknown, record: GenerateResultItem) => (
                       <span>
                         Skills: {record.skillsCount}, Commands: {record.commandsCount},
                         Subagents: {record.subagentsCount}, Rules: {record.rulesCount},
