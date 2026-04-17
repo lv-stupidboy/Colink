@@ -40,7 +40,7 @@ export default function App() {
     installMode: 'auto',
     dependencies: [],
     database: { type: 'sqlite', host: '', port: 3306, database: 'isdp', username: 'root', password: '' },
-    serverPort: 8080,
+    serverPort: 26305,
     createShortcut: true,
     launchNow: true,
     keepData: true,

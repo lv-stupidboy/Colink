@@ -822,7 +822,7 @@ export async function readExistingConfig(installDir: string): Promise<{
           username: mysqlConfig.username || 'root',
           password: mysqlConfig.password || ''
         },
-        serverPort: parsed?.server?.port || 8080
+        serverPort: parsed?.server?.port || 26305
       }
     }
   } catch (error) {
