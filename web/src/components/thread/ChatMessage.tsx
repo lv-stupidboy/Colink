@@ -3,9 +3,11 @@ import React, { memo } from 'react';
 import { Tag, Button, Tooltip, Alert, Card, Space } from 'antd';
 import { StopOutlined, ReloadOutlined, FileTextOutlined, ExclamationCircleOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import type { Message, AgentConfig, AgentRole, MessageRole, ReviewIssue, ToolEvent, MessageContentBlock } from '@/types';
+import type { HumanTask, HumanTaskType, HumanTaskStatus } from '@/types';
 import type { FileChange } from '@/types/content';
 import { getAgentStyle, AGENT_STYLES, USER_MESSAGE_STYLE, SYSTEM_MESSAGE_STYLE } from '@/config/agentStyles';
 import { ReviewReport } from '@/components/ReviewReport';
+import HumanTaskCard from '@/components/HumanTaskCard';
 import MessageContentRenderer from './ContentBlock/MessageContentRenderer';
 import { ReplyPill } from './ContentBlock/ReplyPill';
 import { WhisperBadge } from './ContentBlock/WhisperBadge';
@@ -51,9 +53,9 @@ function getStyleByRole(role: MessageRole, agentRole?: AgentRole) {
     case 'system':
       return SYSTEM_MESSAGE_STYLE;
     case 'agent':
-      return agentRole ? getAgentStyle(agentRole) : AGENT_STYLES.custom;
+      return agentRole ? getAgentStyle(agentRole) : AGENT_STYLES.agent;
     default:
-      return AGENT_STYLES.custom;
+      return AGENT_STYLES.agent;
   }
 }
 
@@ -65,14 +67,8 @@ function getRoleDisplayName(role: MessageRole, agentRole?: AgentRole): string {
   if (role === 'system') return '系统';
   if (agentRole) {
     const roleLabels: Record<AgentRole, string> = {
-      requirement: '需求分析师',
-      architect: '架构师',
-      developer: '开发者',
-      reviewer: '评审者',
-      testengineer: '测试工程师',
-      devops: '运维工程师',
-      fullstack_engineer: '全栈工程师',
-      custom: '自定义',
+      agent: 'AI代理',
+      human: '人工',
     };
     return roleLabels[agentRole] || agentRole;
   }
@@ -173,6 +169,39 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
   const timestamp = message.createdAt
     ? new Date(message.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
     : '';
+
+  // 检查是否是人工任务卡片消息（通过 metadata.type 判断）
+  if (message.metadata?.type === 'human_task') {
+    const task: HumanTask = {
+      id: message.metadata.taskId as string,
+      threadId: message.threadId,
+      roleConfigId: message.metadata.roleConfigId as string || '',
+      roleName: message.metadata.roleName as string,
+      taskType: message.metadata.taskType as HumanTaskType,
+      taskContent: message.content,
+      expectedOutput: message.metadata.expectedOutput as string,
+      sourceAgentId: message.metadata.sourceAgentId as string || '',
+      sourceAgentName: message.metadata.sourceAgentName as string,
+      status: message.metadata.status as HumanTaskStatus,
+      createdAt: message.createdAt,
+      updatedAt: message.createdAt,
+    };
+
+    return (
+      <div style={{ marginBottom: '16px' }}>
+        <HumanTaskCard
+          task={task}
+          onExecute={() => {
+            // TODO: 打开执行任务模态框 - 需要状态管理支持
+            // 目前用户可以到 /tasks 页面执行任务
+          }}
+          onViewContext={() => {
+            // TODO: 滚动到来源 Agent 的消息
+          }}
+        />
+      </div>
+    );
+  }
 
   // 系统消息特殊渲染
   if (isSystem) {
