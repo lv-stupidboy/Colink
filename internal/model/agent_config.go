@@ -8,10 +8,17 @@ import (
 
 // ========== Agent Config Models ==========
 
-// AgentRole Agent角色类型
+// AgentRole 角色大类
 type AgentRole string
 
 const (
+	// AgentRoleAgent Agent 角色（CLI 执行）
+	AgentRoleAgent AgentRole = "agent"
+	// AgentRoleHuman 人角色（任务卡片）
+	AgentRoleHuman AgentRole = "human"
+
+	// ========== 以下为旧角色类型常量（向后兼容，已弃用） ==========
+	// Deprecated: 已简化为 agent/human 大类，现有数据已迁移为 agent
 	AgentRoleRequirement       AgentRole = "requirement"
 	AgentRoleArchitect         AgentRole = "architect"
 	AgentRoleDeveloper         AgentRole = "developer"
@@ -21,6 +28,37 @@ const (
 	AgentRoleFullstackEngineer AgentRole = "fullstack_engineer" // 全栈工程师
 	AgentRoleCustom            AgentRole = "custom"             // 自定义角色
 )
+
+// IsAgentRole 判断是否为 Agent 类型角色（包括旧角色类型的兼容判断）
+func (r AgentRole) IsAgentRole() bool {
+	switch r {
+	case AgentRoleAgent:
+		return true
+	// 旧角色类型全部视为 Agent 角色
+	case AgentRoleRequirement, AgentRoleArchitect, AgentRoleDeveloper,
+		AgentRoleReviewer, AgentRoleTestEngineer, AgentRoleDevOps,
+		AgentRoleFullstackEngineer, AgentRoleCustom:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsHumanRole 判断是否为 Human 类型角色
+func (r AgentRole) IsHumanRole() bool {
+	return r == AgentRoleHuman
+}
+
+// NormalizeRole 将旧角色类型标准化为新的大类
+func (r AgentRole) NormalizeRole() AgentRole {
+	if r.IsAgentRole() {
+		return AgentRoleAgent
+	}
+	if r.IsHumanRole() {
+		return AgentRoleHuman
+	}
+	return r
+}
 
 // AgentConfig Agent配置模型（保留兼容性，现已改名为AgentRole）
 // 建议使用AgentRole别名
