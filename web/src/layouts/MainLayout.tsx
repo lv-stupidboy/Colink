@@ -20,6 +20,7 @@ import {
   ContainerOutlined,
   ToolOutlined,
   TeamOutlined,
+  FileTextOutlined,
 } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import ThemeSwitcher from '@/components/ThemeSwitcher';
@@ -95,6 +96,11 @@ const MainLayout: React.FC = () => {
    * 导航菜单配置
    */
   const menuItems: MenuProps['items'] = [
+    {
+      key: '/tasks',
+      icon: <FileTextOutlined />,
+      label: '我的任务',
+    },
     {
       key: '/dashboard',
       icon: <DashboardOutlined />,
@@ -220,6 +226,7 @@ const MainLayout: React.FC = () => {
   // 获取当前选中的菜单项
   const getSelectedKey = () => {
     const path = location.pathname;
+    if (path.startsWith('/tasks')) return '/tasks';
     if (path.startsWith('/projects')) return '/projects';
     if (path.startsWith('/threads')) return '/projects';
     if (path.startsWith('/registries')) return '/registries';
