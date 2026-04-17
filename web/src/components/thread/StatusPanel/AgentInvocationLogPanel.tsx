@@ -151,7 +151,8 @@ export const AgentInvocationLogPanel: React.FC = () => {
           <div className="invocation-list">
             {selectedAgent.invocations.map((inv) => {
               const isPromptExpanded = expandedPrompt === inv.id;
-              const hasFullPrompt = inv.fullPrompt && inv.fullPrompt.length > 0;
+              const displayContent = inv.fullPrompt || inv.input || '';
+              const hasContent = displayContent.length > 0;
 
               return (
                 <div key={inv.id} className="invocation-record">
@@ -166,10 +167,8 @@ export const AgentInvocationLogPanel: React.FC = () => {
                   </div>
                   <div className="invocation-input">
                     <div className="invocation-input-header">
-                      <span className="invocation-input-label">
-                        {hasFullPrompt ? '完整提示词' : '用户输入'}
-                      </span>
-                      {hasFullPrompt && (
+                      <span className="invocation-input-label">完整提示词</span>
+                      {hasContent && (
                         <>
                           <span
                             className="invocation-input-expand"
@@ -183,7 +182,7 @@ export const AgentInvocationLogPanel: React.FC = () => {
                           </span>
                           <span
                             className={`invocation-input-copy ${copiedId === inv.id ? 'copied' : ''}`}
-                            onClick={(e) => handleCopy(e, inv.id, inv.fullPrompt || inv.input || '')}
+                            onClick={(e) => handleCopy(e, inv.id, displayContent)}
                             title={copiedId === inv.id ? '已复制' : '复制内容'}
                           >
                             {copiedId === inv.id ? <CheckOutlined /> : <CopyOutlined />}
@@ -192,9 +191,9 @@ export const AgentInvocationLogPanel: React.FC = () => {
                       )}
                     </div>
                     <pre className={isPromptExpanded ? 'expanded' : ''}>
-                      {hasFullPrompt
-                        ? (isPromptExpanded ? inv.fullPrompt : inv.fullPrompt?.slice(0, 300) + (inv.fullPrompt && inv.fullPrompt.length > 300 ? '...' : ''))
-                        : (inv.input || '（无输入内容）')}
+                      {hasContent
+                        ? (isPromptExpanded ? displayContent : displayContent.slice(0, 300) + (displayContent.length > 300 ? '...' : ''))
+                        : '（无内容）'}
                     </pre>
                   </div>
                 </div>
