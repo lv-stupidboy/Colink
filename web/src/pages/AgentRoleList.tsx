@@ -1146,7 +1146,8 @@ const AgentRoleList: React.FC = () => {
               .map(a => <li key={a.id}>{a.name}</li>)}
           </ul>
         </div>
-        <Form.Item label="目标基础Agent">
+        <div style={{ marginBottom: 8 }}>
+          <label style={{ display: 'block', marginBottom: 4 }}>目标基础Agent</label>
           <Select
             placeholder="选择基础Agent"
             value={targetBaseAgentId}
@@ -1159,7 +1160,7 @@ const AgentRoleList: React.FC = () => {
               </Select.Option>
             ))}
           </Select>
-        </Form.Item>
+        </div>
       </Modal>
 
       {/* 批量生成配置结果弹窗 */}
