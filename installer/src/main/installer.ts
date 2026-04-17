@@ -476,8 +476,9 @@ export async function uninstallOldVersion(
     try { if (existsSync(startMenuPath)) rmSync(startMenuPath) } catch {}
     onProgress?.(20)
 
-    // 白名单模式：保留 data 和 resources 目录
-    const whitelist = ['data', 'resources']
+    // 白名单模式：保留 data、resources 和 backup 目录
+    // backup 目录可能是上次升级遗留的，或本次刚创建的，都不需要移动
+    const whitelist = ['data', 'resources', 'backup']
     const entries = readdirSync(installDir, { withFileTypes: true })
     const entriesToMove = entries.filter(e => !whitelist.includes(e.name))
 
