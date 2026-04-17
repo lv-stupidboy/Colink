@@ -138,7 +138,7 @@ class APIClient {
           result = Array.isArray(result) ? transformThreads(result) : transformThread(result);
         } else if (url.includes('/messages')) {
           result = Array.isArray(result) ? transformMessages(result) : transformMessage(result);
-        } else if (url.includes('/agents') && !url.includes('/config/')) {
+        } else if (url.includes('/agents') && !url.includes('/config/') && !url.includes('/batch-')) {
           result = Array.isArray(result) ? transformAgentConfigs(result) : transformAgentConfig(result);
         } else if (url.includes('/invocations')) {
           result = Array.isArray(result) ? transformAgentInvocations(result) : transformAgentInvocation(result);
