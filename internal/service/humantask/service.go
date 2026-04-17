@@ -414,11 +414,13 @@ func (s *Service) triggerDownstream(ctx context.Context, task *model.HumanTask) 
 			// 执行 A2A 触发（如果设置了触发函数）
 			if s.a2aTrigger != nil {
 				go func() {
-					// 异步触发下游 Agent
-					triggerCtx := context.Background()
+					// 异步触发下游 Agent，设置 5 分钟超时
+					triggerCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+					defer cancel()
+
 					if err := s.a2aTrigger(triggerCtx, task.ThreadID, targetAgentID, triggerContent, task.RoleConfigID); err != nil {
 						// 记录错误但不影响任务完成
-						println("[WARN] Failed to trigger downstream agent:", err.Error())
+						fmt.Printf("[triggerDownstream] Failed to trigger downstream agent: %v\n", err)
 					}
 				}()
 			}
