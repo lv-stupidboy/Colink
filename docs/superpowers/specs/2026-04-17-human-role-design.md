@@ -637,8 +637,8 @@ type Transition struct {
 | `internal/service/a2a/a2a_trigger.go` | 增加 Role 判断分支 |
 | `internal/service/a2a/queue_processor.go` | 增加 CreateHumanTask |
 | `internal/api/human_task_handler.go` | 新增接口 |
-| `sql-change/v1.3.0/sqlite/00003_human_tasks.sql` | 新增表 |
-| `sql-change/v1.3.0/sqlite/00004_role_migration.sql` | 数据迁移 |
+| `sql-change/v1.2.2/sqlite/00003_human_tasks.sql` | 新增表 |
+| `sql-change/v1.2.2/sqlite/00004_role_migration.sql` | 数据迁移 |
 
 ### 前端
 

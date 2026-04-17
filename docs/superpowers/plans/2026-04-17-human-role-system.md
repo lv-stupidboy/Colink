@@ -20,8 +20,8 @@
 | `internal/repo/human_task.go` | HumanTaskRepository 数据访问层 |
 | `internal/service/humantask/service.go` | HumanTaskService 业务逻辑（创建、提交、流转） |
 | `internal/api/human_task_handler.go` | HTTP API 处理器 |
-| `sql-change/v1.3.0/sqlite/00003_human_tasks.sql` | 数据库表创建 |
-| `sql-change/v1.3.0/sqlite/00004_role_migration.sql` | Role 字段值迁移 |
+| `sql-change/v1.2.2/sqlite/00003_human_tasks.sql` | 数据库表创建 |
+| `sql-change/v1.2.2/sqlite/00004_role_migration.sql` | Role 字段值迁移 |
 | `web/src/types/humanTask.ts` | HumanTask TypeScript 类型定义 |
 | `web/src/pages/MyTasks/index.tsx` | 任务中心页面 |
 | `web/src/components/HumanTaskCard/index.tsx` | 任务卡片组件 |
@@ -45,7 +45,7 @@
 ## Task 1: 数据库表创建
 
 **Files:**
-- Create: `sql-change/v1.3.0/sqlite/00003_human_tasks.sql`
+- Create: `sql-change/v1.2.2/sqlite/00003_human_tasks.sql`
 
 - [ ] **Step 1: 创建 human_tasks 表 SQL 文件**
 
@@ -89,7 +89,7 @@ DROP TABLE IF EXISTS human_tasks;
 - [ ] **Step 2: 提交 SQL 文件**
 
 ```bash
-git add sql-change/v1.3.0/sqlite/00003_human_tasks.sql
+git add sql-change/v1.2.2/sqlite/00003_human_tasks.sql
 git commit -m "feat: human_tasks 表结构"
 ```
 
@@ -98,7 +98,7 @@ git commit -m "feat: human_tasks 表结构"
 ## Task 2: Role 字段值迁移
 
 **Files:**
-- Create: `sql-change/v1.3.0/sqlite/00004_role_migration.sql`
+- Create: `sql-change/v1.2.2/sqlite/00004_role_migration.sql`
 
 - [ ] **Step 1: 创建 Role 字段迁移 SQL**
 
@@ -123,7 +123,7 @@ WHERE role IN ('requirement', 'architect', 'developer', 'reviewer', 'testenginee
 - [ ] **Step 2: 提交迁移文件**
 
 ```bash
-git add sql-change/v1.3.0/sqlite/00004_role_migration.sql
+git add sql-change/v1.2.2/sqlite/00004_role_migration.sql
 git commit -m "feat: agent_configs Role 字段迁移"
 ```
 
