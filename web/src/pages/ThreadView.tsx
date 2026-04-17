@@ -422,10 +422,6 @@ const ThreadView: React.FC = () => {
         // 加载 Agent 配置
         api.agents.get(agentId).then((config: AgentConfig) => {
           setDebugAgentConfig(config);
-          // 全栈工程师角色自动进入 Solo 模式
-          if (config.role === 'fullstack_engineer') {
-            setSoloMode(true);
-          }
         }).catch(err => {
           message.error('加载 Agent 配置失败');
           console.error(err);
@@ -447,10 +443,6 @@ const ThreadView: React.FC = () => {
         // 加载 Agent 配置
         api.agents.get(agentId).then((config: AgentConfig) => {
           setDebugAgentConfig(config);
-          // 全栈工程师角色自动进入 Solo 模式
-          if (config.role === 'fullstack_engineer') {
-            setSoloMode(true);
-          }
         }).catch(err => {
           message.error('加载 Agent 配置失败');
           console.error(err);
@@ -1321,7 +1313,7 @@ const ThreadView: React.FC = () => {
 
     try {
       // 重新触发该 Agent，让它重新处理
-      await spawnAgent('custom', '请重新处理上一次的任务', agentId);
+      await spawnAgent('agent', '请重新处理上一次的任务', agentId);
       message.info('已重新触发 Agent');
     } catch (error) {
       message.error('重试失败');
@@ -1683,7 +1675,7 @@ const ThreadView: React.FC = () => {
       );
       if (agentByName) {
         await sendMessage(content, true);
-        await spawnAgent('custom', input, agentByName.id);
+        await spawnAgent('agent', input, agentByName.id);
         return;
       }
 

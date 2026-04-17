@@ -55,6 +55,10 @@ import type {
   SettingsListQuery,
   SettingsListResponse,
   AgentSettingsResponse,
+  HumanTask,
+  HumanTaskStatus,
+  SubmitHumanTaskRequest,
+  SubmitHumanTaskResponse,
 } from '@/types';
 import {
   transformProjects,
@@ -714,6 +718,22 @@ class APIClient {
       const response = await this.client.get('/system/version');
       return response.data;
     },
+  };
+
+  // HumanTask API
+  humanTasks = {
+    list: (status?: HumanTaskStatus): Promise<HumanTask[]> => {
+      const url = status ? `/human-tasks?status=${status}` : '/human-tasks';
+      return this.request(url, 'GET');
+    },
+    get: (id: string): Promise<HumanTask> =>
+      this.request(`/human-tasks/${id}`, 'GET'),
+    submit: (id: string, data: SubmitHumanTaskRequest): Promise<SubmitHumanTaskResponse> =>
+      this.request(`/human-tasks/${id}/submit`, 'POST', data),
+    start: (id: string): Promise<{ message: string }> =>
+      this.request(`/human-tasks/${id}/start`, 'PUT'),
+    reject: (id: string): Promise<{ message: string }> =>
+      this.request(`/human-tasks/${id}/reject`, 'PUT'),
   };
 }
 

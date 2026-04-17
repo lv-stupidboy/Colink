@@ -55,7 +55,7 @@ export const InputArea: React.FC<InputAreaProps> = memo(({
 
       if (selectedAgentId) {
         onSend(content, true);
-        onSpawnAgent('custom', input, selectedAgentId);
+        onSpawnAgent('agent', input, selectedAgentId);
         setSelectedAgentId(null);
         return;
       }
@@ -66,7 +66,7 @@ export const InputArea: React.FC<InputAreaProps> = memo(({
       );
       if (agentByName) {
         onSend(content, true);
-        onSpawnAgent('custom', input, agentByName.id);
+        onSpawnAgent('agent', input, agentByName.id);
         setSelectedAgentId(null);
         return;
       }

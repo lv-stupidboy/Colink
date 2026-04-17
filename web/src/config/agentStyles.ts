@@ -17,40 +17,13 @@ export interface AgentStyleConfig {
  * 不同角色有不同的圆角样式，统一白色背景
  */
 export const AGENT_STYLES: Record<AgentRole, AgentStyleConfig> = {
-  requirement: {
+  agent: {
     radius: 'rounded-2xl rounded-bl-sm',
     color: '#1890ff',
   },
-  architect: {
+  human: {
     radius: 'rounded-2xl rounded-br-sm',
-    font: 'font-mono',
-    color: '#722ed1',
-  },
-  developer: {
-    radius: 'rounded-2xl rounded-tr-sm',
     color: '#52c41a',
-  },
-  reviewer: {
-    radius: 'rounded-lg rounded-tl-sm',
-    font: 'font-mono',
-    color: '#faad14',
-  },
-  testengineer: {
-    radius: 'rounded-2xl rounded-bl-md',
-    color: '#eb2f96',
-  },
-  devops: {
-    radius: 'rounded-xl rounded-tr-md',
-    font: 'font-mono',
-    color: '#13c2c2',
-  },
-  fullstack_engineer: {
-    radius: 'rounded-2xl rounded-br-md',
-    color: '#2f54eb',
-  },
-  custom: {
-    radius: 'rounded-xl',
-    color: '#595959',
   },
 };
 
@@ -60,7 +33,7 @@ export const AGENT_STYLES: Record<AgentRole, AgentStyleConfig> = {
  * @returns Agent 样式配置
  */
 export function getAgentStyle(role: AgentRole): AgentStyleConfig {
-  return AGENT_STYLES[role] || AGENT_STYLES.custom;
+  return AGENT_STYLES[role] || AGENT_STYLES.agent;
 }
 
 /**
