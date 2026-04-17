@@ -313,22 +313,6 @@ export async function killAllProcesses(): Promise<void> {
   await new Promise(resolve => setTimeout(resolve, 1500))
 }
 
-// 带重试的强制删除
-async function forceDelete(path: string, retries: number = 5): Promise<boolean> {
-  for (let i = 0; i < retries; i++) {
-    try {
-      if (!existsSync(path)) return true
-      rmSync(path, { recursive: true, force: true })
-      return true
-    } catch (e) {
-      console.warn(`[Delete] Attempt ${i + 1} failed:`, e)
-      await new Promise(resolve => setTimeout(resolve, 300 * (i + 1)))
-    }
-  }
-  console.error('[Delete] All retries failed for:', path)
-  return false
-}
-
 export async function copyApplicationFiles(
   srcDir: string,
   destDir: string,
