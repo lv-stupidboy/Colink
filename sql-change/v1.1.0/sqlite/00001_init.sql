@@ -44,7 +44,6 @@ CREATE TABLE IF NOT EXISTS agent_invocations (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     process_id TEXT DEFAULT NULL,
     full_prompt TEXT,
-    session_id TEXT DEFAULT NULL,
     input_tokens INTEGER DEFAULT 0,
     output_tokens INTEGER DEFAULT 0,
     cache_read_tokens INTEGER DEFAULT 0,
