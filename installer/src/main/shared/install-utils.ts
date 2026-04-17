@@ -4,7 +4,6 @@ import { existsSync, readdirSync } from 'fs'
 
 /**
  * 检测已安装的 Colink 版本
- * 注意：避免使用 readdirSync 以防止 Windows 文件系统建立关联锁定
  */
 export function getInstalledVersion(): { installed: boolean; installDir?: string; version?: string; hasData?: boolean } {
   try {
@@ -24,8 +23,7 @@ export function getInstalledVersion(): { installed: boolean; installDir?: string
     if (match) {
       const dir = match[1].trim()
       const dataDir = join(dir, 'data')
-      // 只检查目录存在性，不读取内容，避免锁定关联
-      const hasData = existsSync(dataDir)
+      const hasData = existsSync(dataDir) && readdirSync(dataDir).length > 0
 
       // 从注册表读取已安装版本
       let version: string | undefined
