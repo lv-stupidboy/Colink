@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Modal, Input, Button, Upload, Space, message } from 'antd';
 import { UploadOutlined } from '@ant-design/icons';
 import type { HumanTask, SubmitHumanTaskRequest } from '@/types';
@@ -20,6 +20,14 @@ const TaskExecuteModal: React.FC<TaskExecuteModalProps> = ({
   const [outputContent, setOutputContent] = useState('');
   const [outputFiles, setOutputFiles] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // Modal 关闭时重置状态
+  useEffect(() => {
+    if (!visible) {
+      setOutputContent('');
+      setOutputFiles([]);
+    }
+  }, [visible]);
 
   const handleSubmit = async () => {
     if (!outputContent.trim()) {

@@ -58,7 +58,7 @@ const HumanTaskCard: React.FC<HumanTaskCardProps> = ({
         <Space direction="vertical" size="small" style={{ width: '100%' }}>
           <Space>
             <FileTextOutlined />
-            <Text strong>{task.roleName}: {task.taskContent.slice(0, 50)}...</Text>
+            <Text strong>{task.roleName}: {task.taskContent.length > 50 ? task.taskContent.slice(0, 50) + '...' : task.taskContent}</Text>
           </Space>
           <Space split={<Text type="secondary">|</Text>}>
             <Text type="secondary">来源: @{task.sourceAgentName}</Text>
