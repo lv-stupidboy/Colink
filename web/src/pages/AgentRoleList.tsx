@@ -200,6 +200,8 @@ const AgentRoleList: React.FC = () => {
   const handleCreate = () => {
     setEditingConfig(null);
     form.resetFields();
+    // 默认角色类型为 agent
+    form.setFieldsValue({ role: 'agent' });
     setSelectedSkillIds([]);
     setSelectedSubagentIds([]);
     setSelectedCommandIds([]);
@@ -409,9 +411,20 @@ const AgentRoleList: React.FC = () => {
       width: 150,
       render: (name: string, record: AgentConfig) => (
         <Space>
-          {record.isSystem ? <CrownOutlined style={{ color: '#faad14' }} /> : <RobotOutlined />}
+          {record.isSystem ? <CrownOutlined style={{ color: '#faad14' }} /> : (record.role === 'human' ? <UserOutlined /> : <RobotOutlined />)}
           <span>{name}</span>
         </Space>
+      ),
+    },
+    {
+      title: '角色类型',
+      dataIndex: 'role',
+      key: 'role',
+      width: 100,
+      render: (role: string) => (
+        <Tag color={role === 'human' ? 'purple' : 'blue'}>
+          {role === 'human' ? '人角色' : 'Agent'}
+        </Tag>
       ),
     },
     {
@@ -419,7 +432,8 @@ const AgentRoleList: React.FC = () => {
       dataIndex: 'baseAgentId',
       key: 'baseAgentId',
       width: 120,
-      render: (baseAgentId: string) => {
+      render: (baseAgentId: string, record: AgentConfig) => {
+        if (record.role === 'human') return <Tag color="default">无</Tag>;
         const agent = baseAgents.find(a => a.id === baseAgentId);
         return agent ? (
           <Tag color={agent.type === 'claude_code' ? 'blue' : 'green'}>
@@ -613,21 +627,189 @@ const AgentRoleList: React.FC = () => {
           initialValues={{}}
         >
           <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入名称' }]}>
-            <Input placeholder="Agent角色名称" />
+            <Input placeholder="角色名称" />
           </Form.Item>
 
-          <Form.Item name="baseAgentId" label="基础Agent">
-            <Select placeholder="选择基础Agent" allowClear>
-              {baseAgents.map(agent => (
-                <Select.Option key={agent.id} value={agent.id}>
-                  {agent.name} ({agent.type === 'claude_code' ? 'Claude Code' : 'OpenCode'})
-                </Select.Option>
-              ))}
+          <Form.Item name="role" label="角色类型" rules={[{ required: true, message: '请选择角色类型' }]}>
+            <Select placeholder="选择角色类型">
+              <Select.Option value="agent">Agent（CLI 执行）</Select.Option>
+              <Select.Option value="human">人角色（任务卡片）</Select.Option>
             </Select>
           </Form.Item>
 
+          {/* 仅 Agent 角色显示以下字段 */}
+          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.role !== cur.role}>
+            {({ getFieldValue }) => {
+              const role = getFieldValue('role');
+              if (role !== 'agent') return null;
+              return (
+                <>
+                  <Form.Item name="baseAgentId" label="基础Agent">
+                    <Select placeholder="选择基础Agent" allowClear>
+                      {baseAgents.map(agent => (
+                        <Select.Option key={agent.id} value={agent.id}>
+                          {agent.name} ({agent.type === 'claude_code' ? 'Claude Code' : 'OpenCode'})
+                        </Select.Option>
+                      ))}
+                    </Select>
+                  </Form.Item>
+
+                  <Form.Item label="绑定 Skills">
+                    <Select
+                      mode="multiple"
+                      placeholder="选择要绑定的 Skills"
+                      value={selectedSkillIds}
+                      onChange={setSelectedSkillIds}
+                      style={{ width: '100%' }}
+                      optionLabelProp="label"
+                      showSearch
+                      filterOption={(input, option) =>
+                        (option?.label as string)?.toLowerCase().includes(input.toLowerCase()) ||
+                        (option?.desc as string)?.toLowerCase().includes(input.toLowerCase())
+                      }
+                      options={skills.map(s => ({
+                        label: s.name,
+                        value: s.id,
+                        desc: s.description || '暂无描述',
+                      }))}
+                      optionRender={(option) => (
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <span style={{ fontWeight: 500 }}>{option.label}</span>
+                          <span style={{ fontSize: 12, color: '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 400 }}>
+                            {option.data?.desc}
+                          </span>
+                        </div>
+                      )}
+                    />
+                  </Form.Item>
+
+                  <Form.Item label="绑定 Subagents">
+                    <Select
+                      mode="multiple"
+                      placeholder="选择要绑定的 Subagents"
+                      value={selectedSubagentIds}
+                      onChange={setSelectedSubagentIds}
+                      style={{ width: '100%' }}
+                      optionLabelProp="label"
+                      showSearch
+                      filterOption={(input, option) =>
+                        (option?.label as string)?.toLowerCase().includes(input.toLowerCase()) ||
+                        (option?.desc as string)?.toLowerCase().includes(input.toLowerCase())
+                      }
+                      options={subagents.map(s => ({
+                        label: s.name,
+                        value: s.id,
+                        desc: s.description || '暂无描述',
+                      }))}
+                      optionRender={(option) => (
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <span style={{ fontWeight: 500 }}>{option.label}</span>
+                          <span style={{ fontSize: 12, color: '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 400 }}>
+                            {option.data?.desc}
+                          </span>
+                        </div>
+                      )}
+                    />
+                  </Form.Item>
+
+                  <Form.Item label="绑定 Commands">
+                    <Select
+                      mode="multiple"
+                      placeholder="选择要绑定的 Commands"
+                      value={selectedCommandIds}
+                      onChange={setSelectedCommandIds}
+                      style={{ width: '100%' }}
+                      optionLabelProp="label"
+                      showSearch
+                      filterOption={(input, option) =>
+                        (option?.label as string)?.toLowerCase().includes(input.toLowerCase()) ||
+                        (option?.desc as string)?.toLowerCase().includes(input.toLowerCase())
+                      }
+                      options={commands.map(c => ({
+                        label: c.name,
+                        value: c.id,
+                        desc: c.description || '暂无描述',
+                      }))}
+                      optionRender={(option) => (
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <span style={{ fontWeight: 500 }}>{option.label}</span>
+                          <span style={{ fontSize: 12, color: '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 400 }}>
+                            {option.data?.desc}
+                          </span>
+                        </div>
+                      )}
+                    />
+                  </Form.Item>
+
+                  <Form.Item label="绑定 Rules">
+                    <div style={{ marginBottom: 8 }}>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        Rules（默认全选，可取消）：
+                      </Text>
+                      <Select
+                        mode="multiple"
+                        placeholder="选择 Rules"
+                        value={selectedRuleIds}
+                        onChange={setSelectedRuleIds}
+                        style={{ width: '100%', marginTop: 4 }}
+                        optionLabelProp="label"
+                        showSearch
+                        filterOption={(input, option) =>
+                          (option?.label as string)?.toLowerCase().includes(input.toLowerCase()) ||
+                          (option?.desc as string)?.toLowerCase().includes(input.toLowerCase())
+                        }
+                        options={rules.map(r => ({
+                          label: r.name,
+                          value: r.id,
+                          desc: r.description || '暂无描述',
+                        }))}
+                        optionRender={(option) => (
+                          <div style={{ display: 'flex', flexDirection: 'column' }}>
+                            <span style={{ fontWeight: 500 }}>{option.label}</span>
+                            <span style={{ fontSize: 12, color: '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 400 }}>
+                              {option.data.desc}
+                            </span>
+                          </div>
+                        )}
+                      />
+                    </div>
+                  </Form.Item>
+
+                  <Form.Item label="绑定 Settings">
+                    <Select
+                      mode="multiple"
+                      placeholder="选择要绑定的 Settings（配置目录）"
+                      value={selectedSettingsIds}
+                      onChange={setSelectedSettingsIds}
+                      style={{ width: '100%' }}
+                      optionLabelProp="label"
+                      showSearch
+                      filterOption={(input, option) =>
+                        (option?.label as string)?.toLowerCase().includes(input.toLowerCase()) ||
+                        (option?.desc as string)?.toLowerCase().includes(input.toLowerCase())
+                      }
+                      options={settings.map(s => ({
+                        label: s.name,
+                        value: s.id,
+                        desc: s.description || '暂无描述',
+                      }))}
+                      optionRender={(option) => (
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <span style={{ fontWeight: 500 }}>{option.label}</span>
+                          <span style={{ fontSize: 12, color: '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 400 }}>
+                            {option.data?.desc}
+                          </span>
+                        </div>
+                      )}
+                    />
+                  </Form.Item>
+                </>
+              );
+            }}
+          </Form.Item>
+
           <Form.Item name="description" label="描述">
-            <Input.TextArea rows={2} placeholder="Agent角色描述" />
+            <Input.TextArea rows={2} placeholder="角色描述" />
           </Form.Item>
 
           <Form.Item name="mentionPatterns" label="触发模式" extra="设置 @mention 触发模式，用户可通过这些模式唤起该角色。新建时默认为 @+名称">
@@ -639,158 +821,19 @@ const AgentRoleList: React.FC = () => {
             />
           </Form.Item>
 
-          <Form.Item name="systemPrompt" label="系统提示词" rules={[{ required: true, message: '请输入系统提示词' }]}>
-            <Input.TextArea rows={8} placeholder="系统提示词，定义Agent的行为和能力" />
-          </Form.Item>
-
-          <Form.Item label="绑定 Skills">
-            <Select
-              mode="multiple"
-              placeholder="选择要绑定的 Skills"
-              value={selectedSkillIds}
-              onChange={setSelectedSkillIds}
-              style={{ width: '100%' }}
-              optionLabelProp="label"
-              showSearch
-              filterOption={(input, option) =>
-                (option?.label as string)?.toLowerCase().includes(input.toLowerCase()) ||
-                (option?.desc as string)?.toLowerCase().includes(input.toLowerCase())
-              }
-              options={skills.map(s => ({
-                label: s.name,
-                value: s.id,
-                desc: s.description || '暂无描述',
-              }))}
-              optionRender={(option) => (
-                <div style={{ display: 'flex', flexDirection: 'column' }}>
-                  <span style={{ fontWeight: 500 }}>{option.label}</span>
-                  <span style={{ fontSize: 12, color: '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 400 }}>
-                    {option.data?.desc}
-                  </span>
-                </div>
-              )}
-            />
-          </Form.Item>
-
-          <Form.Item label="绑定 Subagents">
-            <Select
-              mode="multiple"
-              placeholder="选择要绑定的 Subagents"
-              value={selectedSubagentIds}
-              onChange={setSelectedSubagentIds}
-              style={{ width: '100%' }}
-              optionLabelProp="label"
-              showSearch
-              filterOption={(input, option) =>
-                (option?.label as string)?.toLowerCase().includes(input.toLowerCase()) ||
-                (option?.desc as string)?.toLowerCase().includes(input.toLowerCase())
-              }
-              options={subagents.map(s => ({
-                label: s.name,
-                value: s.id,
-                desc: s.description || '暂无描述',
-              }))}
-              optionRender={(option) => (
-                <div style={{ display: 'flex', flexDirection: 'column' }}>
-                  <span style={{ fontWeight: 500 }}>{option.label}</span>
-                  <span style={{ fontSize: 12, color: '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 400 }}>
-                    {option.data?.desc}
-                  </span>
-                </div>
-              )}
-            />
-          </Form.Item>
-
-          <Form.Item label="绑定 Commands">
-            <Select
-              mode="multiple"
-              placeholder="选择要绑定的 Commands"
-              value={selectedCommandIds}
-              onChange={setSelectedCommandIds}
-              style={{ width: '100%' }}
-              optionLabelProp="label"
-              showSearch
-              filterOption={(input, option) =>
-                (option?.label as string)?.toLowerCase().includes(input.toLowerCase()) ||
-                (option?.desc as string)?.toLowerCase().includes(input.toLowerCase())
-              }
-              options={commands.map(c => ({
-                label: c.name,
-                value: c.id,
-                desc: c.description || '暂无描述',
-              }))}
-              optionRender={(option) => (
-                <div style={{ display: 'flex', flexDirection: 'column' }}>
-                  <span style={{ fontWeight: 500 }}>{option.label}</span>
-                  <span style={{ fontSize: 12, color: '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 400 }}>
-                    {option.data?.desc}
-                  </span>
-                </div>
-              )}
-            />
-          </Form.Item>
-
-          <Form.Item label="绑定 Rules">
-            <div style={{ marginBottom: 8 }}>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                Rules（默认全选，可取消）：
-              </Text>
-              <Select
-                mode="multiple"
-                placeholder="选择 Rules"
-                value={selectedRuleIds}
-                onChange={setSelectedRuleIds}
-                style={{ width: '100%', marginTop: 4 }}
-                optionLabelProp="label"
-                showSearch
-                filterOption={(input, option) =>
-                  (option?.label as string)?.toLowerCase().includes(input.toLowerCase()) ||
-                  (option?.desc as string)?.toLowerCase().includes(input.toLowerCase())
-                }
-                options={rules.map(r => ({
-                  label: r.name,
-                  value: r.id,
-                  desc: r.description || '暂无描述',
-                }))}
-                optionRender={(option) => (
-                  <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <span style={{ fontWeight: 500 }}>{option.label}</span>
-                    <span style={{ fontSize: 12, color: '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 400 }}>
-                      {option.data.desc}
-                    </span>
-                  </div>
-                )}
-              />
-            </div>
-          </Form.Item>
-
-          <Form.Item label="绑定 Settings">
-            <Select
-              mode="multiple"
-              placeholder="选择要绑定的 Settings（配置目录）"
-              value={selectedSettingsIds}
-              onChange={setSelectedSettingsIds}
-              style={{ width: '100%' }}
-              optionLabelProp="label"
-              showSearch
-              filterOption={(input, option) =>
-                (option?.label as string)?.toLowerCase().includes(input.toLowerCase()) ||
-                (option?.desc as string)?.toLowerCase().includes(input.toLowerCase())
-              }
-              options={settings.map(s => ({
-                label: s.name,
-                value: s.id,
-                desc: s.description || '暂无描述',
-              }))}
-              optionRender={(option) => (
-                <div style={{ display: 'flex', flexDirection: 'column' }}>
-                  <span style={{ fontWeight: 500 }}>{option.label}</span>
-                  <span style={{ fontSize: 12, color: '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 400 }}>
-                    {option.data?.desc}
-                  </span>
-                </div>
-              )}
-            />
+          {/* 系统提示词根据角色类型显示不同提示 */}
+          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.role !== cur.role}>
+            {({ getFieldValue }) => {
+              const role = getFieldValue('role');
+              const placeholder = role === 'human'
+                ? '职责和交付物描述。\n推荐格式：\n职责：[角色职责]\n交付物：[期望交付物格式]'
+                : '系统提示词，定义Agent的行为和能力';
+              return (
+                <Form.Item name="systemPrompt" label={role === 'human' ? '职责与交付物' : '系统提示词'} rules={[{ required: true, message: '请输入内容' }]}>
+                  <Input.TextArea rows={8} placeholder={placeholder} />
+                </Form.Item>
+              );
+            }}
           </Form.Item>
         </Form>
       </Modal>
