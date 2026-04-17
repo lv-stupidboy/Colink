@@ -24,6 +24,7 @@ type AgentHandler struct {
 	agentSubagentBindingRepo *repo.AgentSubagentBindingRepository
 	agentCommandBindingRepo  *repo.AgentCommandBindingRepository
 	agentRuleBindingRepo     *repo.AgentRuleBindingRepository
+	agentSettingsBindingRepo *repo.AgentSettingsBindingRepository
 }
 
 // NewAgentHandler 创建处理器
@@ -38,6 +39,7 @@ func NewAgentHandler(
 	agentSubagentBindingRepo *repo.AgentSubagentBindingRepository,
 	agentCommandBindingRepo *repo.AgentCommandBindingRepository,
 	agentRuleBindingRepo *repo.AgentRuleBindingRepository,
+	agentSettingsBindingRepo *repo.AgentSettingsBindingRepository,
 ) *AgentHandler {
 	return &AgentHandler{
 		configSvc:                configSvc,
@@ -50,6 +52,7 @@ func NewAgentHandler(
 		agentSubagentBindingRepo: agentSubagentBindingRepo,
 		agentCommandBindingRepo:  agentCommandBindingRepo,
 		agentRuleBindingRepo:     agentRuleBindingRepo,
+		agentSettingsBindingRepo: agentSettingsBindingRepo,
 	}
 }
 
@@ -161,6 +164,115 @@ func (h *AgentHandler) Delete(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	c.Status(http.StatusNoContent)
+}
+
+// BatchDeleteRequest 批量删除请求
+type BatchDeleteRequest struct {
+	IDs []string `json:"ids" binding:"required"`
+}
+
+// ReferencedAgentInfo 被引用的Agent信息
+type ReferencedAgentInfo struct {
+	ID            string   `json:"id"`
+	Name          string   `json:"name"`
+	WorkflowNames []string `json:"workflowNames"`
+}
+
+// BatchDelete 批量删除配置
+func (h *AgentHandler) BatchDelete(c *gin.Context) {
+	var req BatchDeleteRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if len(req.IDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ids is required"})
+		return
+	}
+
+	ctx := c.Request.Context()
+	var referencedAgents []ReferencedAgentInfo
+	var validIDs []uuid.UUID
+
+	// 1. 解析并验证所有 ID，检查系统角色和引用状态
+	for _, idStr := range req.IDs {
+		id, err := uuid.Parse(idStr)
+		if err != nil {
+			continue // 忽略无效 ID
+		}
+
+		// 获取配置检查是否为系统角色
+		config, err := h.configSvc.GetByID(ctx, id)
+		if err != nil {
+			continue // 忽略不存在的 ID
+		}
+
+		if config.IsSystem {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":            "系统预置角色不可删除",
+				"hasSystemAgent":   true,
+				"systemAgentName":  config.Name,
+			})
+			return
+		}
+
+		// 检查工作流引用
+		templates, err := h.workflowRepo.FindByAgentID(ctx, id)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check references"})
+			return
+		}
+
+		if len(templates) > 0 {
+			var names []string
+			for _, t := range templates {
+				names = append(names, t.Name)
+			}
+			referencedAgents = append(referencedAgents, ReferencedAgentInfo{
+				ID:            idStr,
+				Name:          config.Name,
+				WorkflowNames: names,
+			})
+		} else {
+			validIDs = append(validIDs, id)
+		}
+	}
+
+	// 2. 任一有引用则拒绝整个操作
+	if len(referencedAgents) > 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":            "部分Agent被工作流引用，无法删除",
+			"referencedAgents": referencedAgents,
+		})
+		return
+	}
+
+	// 3. 执行批量删除
+	for _, id := range validIDs {
+		if err := h.configSvc.Delete(ctx, id); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		// 清理绑定关系
+		if h.agentSkillBindingRepo != nil {
+			h.agentSkillBindingRepo.DeleteByAgentRoleID(ctx, id)
+		}
+		if h.agentSubagentBindingRepo != nil {
+			h.agentSubagentBindingRepo.DeleteByAgentRoleID(ctx, id)
+		}
+		if h.agentCommandBindingRepo != nil {
+			h.agentCommandBindingRepo.DeleteByAgentRoleID(ctx, id)
+		}
+		if h.agentRuleBindingRepo != nil {
+			h.agentRuleBindingRepo.DeleteByAgentRoleID(ctx, id)
+		}
+		if h.agentSettingsBindingRepo != nil {
+			h.agentSettingsBindingRepo.DeleteByAgentRoleID(ctx, id)
+		}
+	}
+
 	c.Status(http.StatusNoContent)
 }
 
@@ -473,6 +585,7 @@ func (h *AgentHandler) RegisterRoutes(r *gin.RouterGroup) {
 		agents.PUT("/:id", h.Update)
 		agents.DELETE("/:id", h.Delete)
 		agents.POST("/:id/refs", h.CheckReferences)
+		agents.POST("/batch-delete", h.BatchDelete)
 		agents.POST("/:id/copy", h.Copy)
 		agents.POST("/:id/debug", h.Debug)
 	}

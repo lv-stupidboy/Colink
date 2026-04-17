@@ -490,7 +490,7 @@ func main() {
 	messageHandler.RegisterRoutes(v1)
 
 	agentHandler := api.NewAgentHandler(configService, baseAgentService, orchestrator, threadRepo, debugThreadMgr, workflowRepo,
-		agentSkillBindingRepo, agentSubagentBindingRepo, agentCommandBindingRepo, agentRuleBindingRepo)
+		agentSkillBindingRepo, agentSubagentBindingRepo, agentCommandBindingRepo, agentRuleBindingRepo, agentSettingsBindingRepo)
 	agentHandler.RegisterRoutes(v1)
 
 	// 基础Agent Handler
