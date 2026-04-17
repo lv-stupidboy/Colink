@@ -2748,15 +2748,81 @@ func (es *ExecutionService) GetInvocationStatus(ctx context.Context, invocationI
 func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, threadID uuid.UUID, userMessage string) error {
 	logInfo("SpawnAgentForUserMessage 被调用", zap.String("threadID", threadID.String()), zap.String("userMessage", userMessage))
 
-	// 解析用户消息中的 @mentions
+	// 获取Thread信息（先获取，用于确定 workflow 范围）
+	thread, err := es.threadRepo.FindByID(ctx, threadID)
+	if err != nil {
+		return fmt.Errorf("failed to get thread: %w", err)
+	}
+
+	// 获取项目路径和工作流模板（提前获取，用于限定 @mention 解析范围）
+	var projectPath string
+	var workflowTemplateID *uuid.UUID
+	if es.projectRepo != nil {
+		project, err := es.projectRepo.GetByThreadID(ctx, threadID)
+		if err == nil && project != nil {
+			projectPath = project.LocalPath
+			// 优先使用 Project 的工作流模板
+			if project.WorkflowTemplateID != nil {
+				workflowTemplateID = project.WorkflowTemplateID
+			}
+		}
+	}
+	// 如果 Project 没有工作流模板，使用 Thread 的
+	if workflowTemplateID == nil && thread.WorkflowTemplateID != nil {
+		workflowTemplateID = thread.WorkflowTemplateID
+	}
+
+	// 获取 workflow 范围内的 agents，用于限定 @mention 解析
+	var workflowAgents []*model.AgentRoleConfig
+	if workflowTemplateID != nil && es.workflowRepo != nil {
+		workflow, err := es.workflowRepo.FindByID(ctx, *workflowTemplateID)
+		if err == nil && workflow != nil && len(workflow.AgentIDs) > 0 {
+			var agentIDStrs []string
+			if json.Unmarshal(workflow.AgentIDs, &agentIDStrs) == nil {
+				for _, idStr := range agentIDStrs {
+					agentUUID, err := uuid.Parse(idStr)
+					if err != nil {
+						continue
+					}
+					config, err := es.configSvc.GetByID(ctx, agentUUID)
+					if err == nil && config != nil {
+						workflowAgents = append(workflowAgents, config)
+					}
+				}
+			}
+			logInfo("SpawnAgentForUserMessage: 获取到 workflow agents",
+				zap.Int("count", len(workflowAgents)),
+				zap.Strings("agentNames", func() []string {
+					names := make([]string, len(workflowAgents))
+					for i, a := range workflowAgents {
+						names[i] = a.Name
+					}
+					return names
+				}()))
+		}
+	}
+
+	// 解析用户消息中的 @mentions（限定在 workflow agents 范围内）
 	var mentionedAgentIDs []string
 	if es.mentionParser != nil {
-		mentionedIDs, err := es.mentionParser.Parse(ctx, userMessage, "")
-		if err != nil {
-			logError("SpawnAgentForUserMessage: 解析 @mentions 失败", zap.Error(err))
+		if len(workflowAgents) > 0 {
+			// 使用 ParseForAgents 限定范围
+			mentionedIDs, err := es.mentionParser.ParseForAgents(ctx, userMessage, "", workflowAgents)
+			if err != nil {
+				logError("SpawnAgentForUserMessage: 解析 @mentions 失败", zap.Error(err))
+			} else {
+				mentionedAgentIDs = mentionedIDs
+				logInfo("SpawnAgentForUserMessage: 解析到 @mentions（限定 workflow 范围）", zap.Strings("agentIDs", mentionedAgentIDs))
+			}
 		} else {
-			mentionedAgentIDs = mentionedIDs
-			logInfo("SpawnAgentForUserMessage: 解析到 @mentions", zap.Strings("agentIDs", mentionedAgentIDs))
+			// 没有 workflow 时，使用全局解析（向后兼容）
+			mentionedIDs, err := es.mentionParser.Parse(ctx, userMessage, "")
+			if err != nil {
+				logError("SpawnAgentForUserMessage: 解析 @mentions 失败", zap.Error(err))
+			} else {
+				mentionedAgentIDs = mentionedIDs
+				logInfo("SpawnAgentForUserMessage: 解析到 @mentions（全局范围）", zap.Strings("agentIDs", mentionedAgentIDs))
+			}
 		}
 	}
 
@@ -2826,29 +2892,6 @@ func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, thread
 		logInfo("SpawnAgentForUserMessage: 无活动 Agent 已清理，继续执行")
 	}
 
-	// 获取Thread信息
-	thread, err := es.threadRepo.FindByID(ctx, threadID)
-	if err != nil {
-		return fmt.Errorf("failed to get thread: %w", err)
-	}
-
-	// 获取项目路径和工作流模板
-	var projectPath string
-	var workflowTemplateID *uuid.UUID
-	if es.projectRepo != nil {
-		project, err := es.projectRepo.GetByThreadID(ctx, threadID)
-		if err == nil && project != nil {
-			projectPath = project.LocalPath
-			// 优先使用 Project 的工作流模板
-			if project.WorkflowTemplateID != nil {
-				workflowTemplateID = project.WorkflowTemplateID
-			}
-		}
-	}
-	// 如果 Project 没有工作流模板，使用 Thread 的
-	if workflowTemplateID == nil && thread.WorkflowTemplateID != nil {
-		workflowTemplateID = thread.WorkflowTemplateID
-	}
 
 	logInfo("SpawnAgentForUserMessage: 工作流模板查找结果",
 		zap.Any("workflowTemplateID", workflowTemplateID),
