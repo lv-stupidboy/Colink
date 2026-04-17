@@ -286,13 +286,13 @@ func main() {
 		logger,
 	)
 
-		// 创建 HumanTask Service
-		humanTaskSvc := humantask.NewService(
-			humanTaskRepo, messageRepo, threadRepo, workflowRepo, agentConfigRepo,
-			wsHub,
-		)
+	// 创建 HumanTask Service
+	humanTaskSvc := humantask.NewService(
+		humanTaskRepo, messageRepo, threadRepo, workflowRepo, agentConfigRepo,
+		wsHub,
+	)
 
-		// 初始化 UseCountUpdater（技能使用次数统计）
+	// 初始化 UseCountUpdater（技能使用次数统计）
 	useCountUpdater := skill.NewUseCountUpdater(skillRepo, projectRepo, agentSkillBindingRepo)
 	useCountUpdater.SetWorkflowService(workflowService)
 	useCountUpdater.SetLogger(logger)
@@ -305,20 +305,20 @@ func main() {
 	useCountUpdater.Start(updateInterval)
 	defer useCountUpdater.Stop()
 
-		// 启动 Reporter（数据上报，如果配置启用）
-		if cfg.Reporter.Enabled {
-			reporterCfg := reporter.Config{
-				Enabled:       cfg.Reporter.Enabled,
-				Endpoint:      cfg.Reporter.Endpoint,
-				Interval:      cfg.Reporter.GetInterval(),
-				RetryTimes:    cfg.Reporter.RetryTimes,
-				RetryInterval: cfg.Reporter.GetRetryInterval(),
-			}
-			usageReporter := reporter.NewReporter(db, reporterCfg, Version)
-			usageReporter.SetLogger(logger)
-			usageReporter.Start()
-			defer usageReporter.Stop()
+	// 启动 Reporter（数据上报，如果配置启用）
+	if cfg.Reporter.Enabled {
+		reporterCfg := reporter.Config{
+			Enabled:       cfg.Reporter.Enabled,
+			Endpoint:      cfg.Reporter.Endpoint,
+			Interval:      cfg.Reporter.GetInterval(),
+			RetryTimes:    cfg.Reporter.RetryTimes,
+			RetryInterval: cfg.Reporter.GetRetryInterval(),
 		}
+		usageReporter := reporter.NewReporter(db, reporterCfg, Version)
+		usageReporter.SetLogger(logger)
+		usageReporter.Start()
+		defer usageReporter.Stop()
+	}
 
 	// 初始化适配器
 	// 默认适配器设为 nil，在执行时根据 AgentRoleConfig.BaseAgentID 动态创建适配器

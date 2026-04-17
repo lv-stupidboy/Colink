@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/service/humantask"
@@ -99,7 +100,12 @@ func (h *HumanTaskHandler) Submit(c *gin.Context) {
 
 	resp, err := h.svc.Submit(c.Request.Context(), id, &req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "not in") || strings.Contains(errMsg, "not found") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": errMsg})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": errMsg})
 		return
 	}
 
@@ -116,7 +122,12 @@ func (h *HumanTaskHandler) Start(c *gin.Context) {
 	}
 
 	if err := h.svc.Start(c.Request.Context(), id); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "not in") || strings.Contains(errMsg, "not found") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": errMsg})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": errMsg})
 		return
 	}
 
@@ -133,7 +144,12 @@ func (h *HumanTaskHandler) Reject(c *gin.Context) {
 	}
 
 	if err := h.svc.Reject(c.Request.Context(), id); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "not in") || strings.Contains(errMsg, "not found") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": errMsg})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": errMsg})
 		return
 	}
 
