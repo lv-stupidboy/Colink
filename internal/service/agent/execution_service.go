@@ -1170,11 +1170,11 @@ func (es *ExecutionService) buildContextLayers(ctx context.Context, threadID uui
 	layers.Layer0 = es.buildDynamicSystemPromptFromContext(tc, config)
 
 	// Layer 1: Thread历史 - 根据会话策略决定是否传递
-	// A2A 机制下，无论是跨角色还是同角色，都不需要传递历史消息：
-	// - 跨角色（SessionStrategyNew）：CLI 使用新会话，历史不相关
-	// - 同角色（SessionStrategyResume）：CLI --resume 自动恢复历史，无需重复传递
-	if req != nil && (req.SessionStrategy == SessionStrategyNew || req.SessionStrategy == SessionStrategyResume) {
-		layers.Layer1 = "" // A2A 调用不传递历史
+	// A2A resume 调用：不传递历史，CLI --resume 会自动恢复会话上下文
+	// A2A new 调用：传递历史，新会话需要历史上下文来理解当前状态
+	// 非 A2A 调用（用户直接触发）：传递历史
+	if req != nil && req.SessionStrategy == SessionStrategyResume {
+		layers.Layer1 = "" // A2A resume 调用不传递历史（CLI会自动恢复）
 	} else {
 		// 非 A2A 调用（用户直接触发）：使用结构化提取而非完整历史
 		messages, err := es.msgRepo.FindByThreadID(ctx, threadID, 100)
