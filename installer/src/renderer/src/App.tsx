@@ -69,20 +69,9 @@ export default function App() {
       // 首先检测是否是 Launcher 模式
       const isLauncher = await window.electronAPI.isLauncherMode()
       if (isLauncher) {
-        // Launcher 模式，检测安装状态
+        // Launcher 模式，显示简化控制面板
         const result = await window.electronAPI.checkInstalled()
         setInstalledVersion(result)
-
-        // 如果已卸载，关闭 Launcher 窗口
-        if (!result.installed) {
-          Modal.info({
-            title: 'Colink 已卸载',
-            content: '请使用 Setup.exe 重新安装 Colink',
-            onOk: () => window.electronAPI.closeWindow()
-          })
-          return
-        }
-
         setMode('launcher')
         updateServiceStatus()
         return
