@@ -55,6 +55,8 @@ import type {
   SettingsListQuery,
   SettingsListResponse,
   AgentSettingsResponse,
+  BatchGenerateResult,
+  BatchUpdateResult,
 } from '@/types';
 import {
   transformProjects,
@@ -327,6 +329,18 @@ class APIClient {
     // 批量删除
     batchDelete: (ids: string[]): Promise<void> =>
       this.request('/agents/batch-delete', 'POST', { ids }),
+    // 批量生成配置
+    batchGenerateConfig: (agentIds: string[], cliType?: string): Promise<BatchGenerateResult> =>
+      this.request('/agents/batch-generate-config', 'POST', {
+        agentIds,
+        cliType: cliType || 'claude_code',
+      }),
+    // 批量修改基础Agent
+    batchUpdateBaseAgent: (agentIds: string[], baseAgentId: string): Promise<BatchUpdateResult> =>
+      this.request('/agents/batch-update-base-agent', 'POST', {
+        agentIds,
+        baseAgentId,
+      }),
   };
 
   // 基础Agent API

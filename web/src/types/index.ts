@@ -1102,3 +1102,41 @@ export interface ImportDetail {
 
 // 内容类型
 export * from './content';
+
+// ========== 批量操作相关类型 ==========
+
+// 批量生成配置结果
+export interface BatchGenerateResult {
+  total: number;
+  success: number;
+  failed: number;
+  results: GenerateResultItem[];
+}
+
+export interface GenerateResultItem {
+  agentId: string;
+  agentName: string;
+  status: 'success' | 'failed';
+  skillsCount: number;
+  commandsCount: number;
+  subagentsCount: number;
+  rulesCount: number;
+  settingsCount: number;
+  error?: string;
+}
+
+// 批量修改基础Agent结果
+export interface BatchUpdateResult {
+  total: number;
+  success: number;
+  failed: number;
+  results: UpdateResultItem[];
+}
+
+export interface UpdateResultItem {
+  agentId: string;
+  agentName: string;
+  baseAgentName: string;
+  status: 'success' | 'failed';
+  error?: string;
+}
