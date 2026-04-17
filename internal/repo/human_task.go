@@ -63,7 +63,10 @@ func (r *HumanTaskRepository) Create(ctx context.Context, task *model.HumanTask)
 		task.CreatedAt,
 		task.UpdatedAt,
 	)
-	return err
+	if err != nil {
+		return fmt.Errorf("failed to create human task: %w", err)
+	}
+	return nil
 }
 
 // FindByID 根据ID查找人工任务
@@ -91,7 +94,7 @@ func (r *HumanTaskRepository) FindByID(ctx context.Context, id uuid.UUID) (*mode
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, nil
+			return nil, fmt.Errorf("human task not found: %w", err)
 		}
 		return nil, fmt.Errorf("failed to find human task: %w", err)
 	}
@@ -211,7 +214,20 @@ func (r *HumanTaskRepository) Update(ctx context.Context, task *model.HumanTask)
 		task.UpdatedAt,
 		task.ID.String(),
 	)
-	return err
+	if err != nil {
+		return fmt.Errorf("failed to update human task: %w", err)
+	}
+	return nil
+}
+
+// Delete 删除人工任务
+func (r *HumanTaskRepository) Delete(ctx context.Context, id uuid.UUID) error {
+	query := `DELETE FROM human_tasks WHERE id = ?`
+	_, err := r.DB().ExecContext(ctx, query, id.String())
+	if err != nil {
+		return fmt.Errorf("failed to delete human task: %w", err)
+	}
+	return nil
 }
 
 // scanTasks 扫描多行数据
