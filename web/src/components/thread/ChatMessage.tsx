@@ -172,35 +172,58 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
 
   // 检查是否是人工任务卡片消息（通过 metadata.type 判断）
   if (message.metadata?.type === 'human_task') {
-    const task: HumanTask = {
-      id: message.metadata.taskId as string,
-      threadId: message.threadId,
-      roleConfigId: message.metadata.roleConfigId as string || '',
-      roleName: message.metadata.roleName as string,
-      taskType: message.metadata.taskType as HumanTaskType,
-      taskContent: message.content,
-      expectedOutput: message.metadata.expectedOutput as string,
-      sourceAgentId: message.metadata.sourceAgentId as string || '',
-      sourceAgentName: message.metadata.sourceAgentName as string,
-      status: message.metadata.status as HumanTaskStatus,
-      createdAt: message.createdAt,
-      updatedAt: message.createdAt,
-    };
+    const metadata = message.metadata;
 
-    return (
-      <div style={{ marginBottom: '16px' }}>
-        <HumanTaskCard
-          task={task}
-          onExecute={() => {
-            // TODO: 打开执行任务模态框 - 需要状态管理支持
-            // 目前用户可以到 /tasks 页面执行任务
-          }}
-          onViewContext={() => {
-            // TODO: 滚动到来源 Agent 的消息
-          }}
-        />
-      </div>
-    );
+    // 验证必需字段是否存在
+    if (!metadata.taskId || !metadata.roleName || !metadata.taskType ||
+        !metadata.status || !metadata.sourceAgentName) {
+      console.warn('Invalid human_task metadata - missing required fields:', metadata);
+      // 继续渲染普通消息，而不是返回 null
+    } else {
+      // 验证枚举值是否有效
+      const validTaskTypes: HumanTaskType[] = ['task_dispatch', 'review', 'confirm'];
+      const validStatuses: HumanTaskStatus[] = ['pending', 'in_progress', 'completed', 'rejected', 'failed'];
+
+      const taskType = metadata.taskType as HumanTaskType;
+      const status = metadata.status as HumanTaskStatus;
+
+      if (!validTaskTypes.includes(taskType)) {
+        console.warn('Invalid human_task taskType:', metadata.taskType);
+      } else if (!validStatuses.includes(status)) {
+        console.warn('Invalid human_task status:', metadata.status);
+      } else {
+        // 所有验证通过，安全地构建 task 对象
+        const task: HumanTask = {
+          id: metadata.taskId as string,
+          threadId: message.threadId,
+          roleConfigId: (metadata.roleConfigId as string) || '',
+          roleName: metadata.roleName as string,
+          taskType: taskType,
+          taskContent: message.content,
+          expectedOutput: (metadata.expectedOutput as string) || '',
+          sourceAgentId: (metadata.sourceAgentId as string) || '',
+          sourceAgentName: metadata.sourceAgentName as string,
+          status: status,
+          createdAt: message.createdAt,
+          updatedAt: message.createdAt,
+        };
+
+        return (
+          <div style={{ marginBottom: '16px' }}>
+            <HumanTaskCard
+              task={task}
+              onExecute={() => {
+                // TODO: 打开执行任务模态框 - 需要状态管理支持
+                // 目前用户可以到 /tasks 页面执行任务
+              }}
+              onViewContext={() => {
+                // TODO: 滚动到来源 Agent 的消息
+              }}
+            />
+          </div>
+        );
+      }
+    }
   }
 
   // 系统消息特殊渲染
