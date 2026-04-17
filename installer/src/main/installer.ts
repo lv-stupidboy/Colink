@@ -476,32 +476,64 @@ export async function uninstallOldVersion(
     try { if (existsSync(startMenuPath)) rmSync(startMenuPath) } catch {}
     onProgress?.(20)
 
-    // 白名单模式：只保留 data 目录，其余全部删除
-    const whitelist = ['data']  // 保留的目录/文件
+    // 白名单模式：保留 data 和 resources 目录
+    const whitelist = ['data', 'resources']
     const entries = readdirSync(installDir, { withFileTypes: true })
-    const entriesToDelete = entries.filter(e => !whitelist.includes(e.name))
+    const entriesToMove = entries.filter(e => !whitelist.includes(e.name))
 
-    const totalEntries = entriesToDelete.length
-    let deletedCount = 0
-    const failedEntries: string[] = []
-
-    for (const entry of entriesToDelete) {
-      const path = join(installDir, entry.name)
-      sendProgress(`删除 ${entry.name}...`)
+    // 清理上次升级遗留的 backup 目录
+    const backupDir = join(installDir, 'backup')
+    if (existsSync(backupDir)) {
+      sendProgress('清理 backup 目录...')
       try {
-        rmSync(path, { recursive: true, force: true })
-        deletedCount++
+        rmSync(backupDir, { recursive: true, force: true })
       } catch (e) {
-        console.error(`[UninstallOld] Failed to delete:`, path, e)
-        failedEntries.push(entry.name)
+        console.warn('[UninstallOld] Failed to clean backup:', e)
+        // backup 清理失败不阻止升级，继续尝试
       }
-      onProgress?.(Math.round(20 + ((deletedCount + failedEntries.length) / totalEntries) * 70))
     }
 
-    // 如果有删除失败的，报错
+    // 如果没有需要移动的内容，直接返回成功
+    if (entriesToMove.length === 0) {
+      sendProgress('无需清理', '安装目录只有白名单内容')
+      onProgress?.(100)
+      return { success: true }
+    }
+
+    // 创建 backup 目录
+    mkdirSync(backupDir, { recursive: true })
+
+    // 将非白名单内容移动到 backup 目录（替代删除，避免锁定）
+    const totalEntries = entriesToMove.length
+    let movedCount = 0
+    const failedEntries: string[] = []
+
+    for (const entry of entriesToMove) {
+      const srcPath = join(installDir, entry.name)
+      const destPath = join(backupDir, entry.name)
+      sendProgress(`移动 ${entry.name} 到 backup...`)
+      try {
+        // 使用 renameSync 移动（比删除更不容易触发锁定问题）
+        renameSync(srcPath, destPath)
+        movedCount++
+      } catch (e) {
+        console.error(`[UninstallOld] Failed to move:`, srcPath, e)
+        // 移动失败时尝试删除
+        try {
+          rmSync(srcPath, { recursive: true, force: true })
+          movedCount++
+          console.log('[UninstallOld] Deleted instead:', entry.name)
+        } catch (deleteError) {
+          failedEntries.push(entry.name)
+        }
+      }
+      onProgress?.(Math.round(20 + ((movedCount + failedEntries.length) / totalEntries) * 70))
+    }
+
+    // 如果有失败的，报错
     if (failedEntries.length > 0) {
-      const errorMsg = `以下文件删除失败：${failedEntries.join(', ')}\n请手动关闭相关程序后重试`
-      sendProgress('删除失败', errorMsg)
+      const errorMsg = `以下文件处理失败：${failedEntries.join(', ')}\n请手动关闭相关程序后重试`
+      sendProgress('处理失败', errorMsg)
       return { success: false, error: errorMsg }
     }
 
@@ -510,7 +542,7 @@ export async function uninstallOldVersion(
     deleteRegistry()
     onProgress?.(95)
 
-    sendProgress('老版本已清理', '数据目录已保留')
+    sendProgress('老版本已清理', 'data 和 resources 目录已保留，旧文件已移至 backup')
     onProgress?.(100)
 
     return { success: true }
