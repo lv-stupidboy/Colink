@@ -6,17 +6,21 @@ import (
 	"sync"
 
 	"github.com/anthropic/isdp/internal/model"
+	"github.com/anthropic/isdp/internal/repo"
 	"github.com/anthropic/isdp/internal/service/agent"
+	"github.com/anthropic/isdp/internal/service/humantask"
 	"github.com/anthropic/isdp/internal/ws"
 	"github.com/google/uuid"
 )
 
 // A2ATriggerDeps A2A 触发依赖
 type A2ATriggerDeps struct {
-	Registry     *InvocationRegistry
-	Orchestrator *agent.Orchestrator
-	WSHub        *ws.Hub
-	Queue        *InvocationQueue
+	Registry        *InvocationRegistry
+	Orchestrator    *agent.Orchestrator
+	WSHub           *ws.Hub
+	Queue           *InvocationQueue
+	HumanTaskSvc    *humantask.Service      // 人角色任务服务
+	AgentConfigRepo *repo.AgentConfigRepository // Agent配置仓库
 }
 
 // A2ATriggerOptions A2A 触发选项
@@ -52,6 +56,51 @@ func EnqueueA2ATargets(ctx context.Context, deps *A2ATriggerDeps, opts *A2ATrigg
 	// 如果有队列，使用队列模式
 	if deps.Queue != nil {
 		for _, catID := range opts.TargetCats {
+			// 解析 catID 为 UUID
+			roleConfigID, err := uuid.Parse(catID)
+			if err != nil {
+				// 无效的 UUID，跳过
+				continue
+			}
+
+			// 检查角色类型
+			if deps.AgentConfigRepo != nil {
+				roleConfig, err := deps.AgentConfigRepo.FindByID(ctx, roleConfigID)
+				if err != nil {
+					// 配置不存在，跳过
+					continue
+				}
+
+				// 如果是人角色，创建人工任务而非入队
+				if roleConfig.Role.IsHumanRole() {
+					if deps.HumanTaskSvc != nil {
+						// 获取调用者名称
+						callerName := opts.CallerCatID
+						if opts.CallerCatID != "" {
+							if callerID, err := uuid.Parse(opts.CallerCatID); err == nil {
+								if callerConfig, err := deps.AgentConfigRepo.FindByID(ctx, callerID); err == nil {
+									callerName = callerConfig.Name
+								}
+							}
+						}
+
+						// 创建人工任务
+						var sourceInvocationID uuid.UUID
+						if opts.ParentInvocationID != nil {
+							sourceInvocationID = *opts.ParentInvocationID
+						}
+						_, createErr := deps.HumanTaskSvc.CreateTask(ctx, opts.ThreadID, roleConfigID, opts.Content, sourceInvocationID, callerName)
+						if createErr != nil {
+							// 记录错误但继续处理其他目标
+							fmt.Printf("[EnqueueA2ATargets] Failed to create human task: %v\n", createErr)
+						} else {
+							enqueued = append(enqueued, catID)
+						}
+					}
+					continue
+				}
+			}
+
 			// 深度限制检查
 			currentDepth := deps.Queue.CountAgentEntriesForThread(opts.ThreadID.String())
 			if currentDepth >= MaxA2ADepth {
@@ -100,6 +149,51 @@ func EnqueueA2ATargets(ctx context.Context, deps *A2ATriggerDeps, opts *A2ATrigg
 
 	// 无队列时直接触发
 	for _, catID := range opts.TargetCats {
+		// 解析 catID 为 UUID
+		roleConfigID, err := uuid.Parse(catID)
+		if err != nil {
+			// 无效的 UUID，跳过
+			continue
+		}
+
+		// 检查角色类型
+		if deps.AgentConfigRepo != nil {
+			roleConfig, err := deps.AgentConfigRepo.FindByID(ctx, roleConfigID)
+			if err != nil {
+				// 配置不存在，跳过
+				continue
+			}
+
+			// 如果是人角色，创建人工任务而非触发 Agent
+			if roleConfig.Role.IsHumanRole() {
+				if deps.HumanTaskSvc != nil {
+					// 获取调用者名称
+					callerName := opts.CallerCatID
+					if opts.CallerCatID != "" {
+						if callerID, err := uuid.Parse(opts.CallerCatID); err == nil {
+							if callerConfig, err := deps.AgentConfigRepo.FindByID(ctx, callerID); err == nil {
+								callerName = callerConfig.Name
+							}
+						}
+					}
+
+					// 创建人工任务
+					var sourceInvocationID uuid.UUID
+					if opts.ParentInvocationID != nil {
+						sourceInvocationID = *opts.ParentInvocationID
+					}
+					_, createErr := deps.HumanTaskSvc.CreateTask(ctx, opts.ThreadID, roleConfigID, opts.Content, sourceInvocationID, callerName)
+					if createErr != nil {
+						// 记录错误但继续处理其他目标
+						fmt.Printf("[EnqueueA2ATargets] Failed to create human task: %v\n", createErr)
+					} else {
+						enqueued = append(enqueued, catID)
+					}
+				}
+				continue
+			}
+		}
+
 		// 检查 slot 是否被占用
 		if deps.Registry.HasActiveSlot(opts.ThreadID, catID) {
 			continue
