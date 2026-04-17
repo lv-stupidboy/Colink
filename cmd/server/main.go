@@ -19,6 +19,7 @@ import (
 	"github.com/anthropic/isdp/internal/service/assetpackage"
 	"github.com/anthropic/isdp/internal/service/command"
 	"github.com/anthropic/isdp/internal/service/configgen"
+	"github.com/anthropic/isdp/internal/service/humantask"
 	"github.com/anthropic/isdp/internal/service/im"
 	"github.com/anthropic/isdp/internal/service/knowledge"
 	"github.com/anthropic/isdp/internal/service/mention"
@@ -186,6 +187,8 @@ func main() {
 	agentSettingsBindingRepo := repo.NewAgentSettingsBindingRepository(db, dbType)
 	// 后台执行支持：内容块持久化
 	contentBlockRepo := repo.NewContentBlockRepository(db, dbType)
+	// HumanTask Repository
+	humanTaskRepo := repo.NewHumanTaskRepository(db, dbType)
 
 	// 初始化Services
 	projectService := project.NewService(projectRepo, workflowRepo)
@@ -283,7 +286,13 @@ func main() {
 		logger,
 	)
 
-	// 初始化 UseCountUpdater（技能使用次数统计）
+		// 创建 HumanTask Service
+		humanTaskSvc := humantask.NewService(
+			humanTaskRepo, messageRepo, threadRepo, workflowRepo, agentConfigRepo,
+			wsHub,
+		)
+
+		// 初始化 UseCountUpdater（技能使用次数统计）
 	useCountUpdater := skill.NewUseCountUpdater(skillRepo, projectRepo, agentSkillBindingRepo)
 	useCountUpdater.SetWorkflowService(workflowService)
 	useCountUpdater.SetLogger(logger)
@@ -560,6 +569,10 @@ func main() {
 		sandboxHandler := api.NewSandboxHandler(sandboxService)
 		sandboxHandler.RegisterRoutes(v1)
 	}
+
+	// HumanTask Handler
+	humanTaskHandler := api.NewHumanTaskHandler(humanTaskSvc)
+	humanTaskHandler.RegisterRoutes(v1)
 
 	// 前端静态文件服务
 	router.Static("/assets", "./web/assets")
