@@ -425,7 +425,7 @@ function getPackageVersion(): string {
     // 优先从 VERSION 文件读取
     const versionPath = isDev
       ? join(__dirname, '../../VERSION')
-      : join(process.resourcesPath, 'runtime/VERSION')
+      : join(process.resourcesPath, '../packages/VERSION')
 
     if (existsSync(versionPath)) {
       const content = require('fs').readFileSync(versionPath, 'utf-8')

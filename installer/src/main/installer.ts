@@ -99,8 +99,8 @@ export async function runDatabaseMigration(
   mainWindow?: BrowserWindow
 ): Promise<MigrationResult> {
   try {
-    // migrate.exe 位于安装包资源目录的 tools 目录
-    const migrateTool = join(process.resourcesPath, 'runtime', 'tools', 'migrate.exe')
+    // migrate.exe 位于 packages/runtime/tools 目录
+    const migrateTool = join(process.resourcesPath, '..', 'packages', 'runtime', 'tools', 'migrate.exe')
 
     // 如果工具不存在，跳过迁移
     if (!existsSync(migrateTool)) {
@@ -343,7 +343,9 @@ export async function copyApplicationFiles(
       return { success: false, error: `资源目录不存在: ${resourcesDir}` }
     }
 
-    const runtimeDir = join(resourcesDir, 'runtime')
+    // packages 目录与 resources 并列
+    const packagesDir = join(resourcesDir, '..', 'packages')
+    const runtimeDir = join(packagesDir, 'runtime')
 
     if (!existsSync(runtimeDir)) {
       return { success: false, error: `运行时目录不存在: ${runtimeDir}` }
@@ -528,7 +530,8 @@ export async function copyLauncherFiles(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const resourcesDir = process.resourcesPath
-    const launcherSrcDir = join(resourcesDir, 'launcher')
+    // packages 目录与 resources 并列
+    const launcherSrcDir = join(resourcesDir, '..', 'packages', 'launcher')
 
     if (!existsSync(launcherSrcDir)) {
       return { success: false, error: `启动器目录不存在: ${launcherSrcDir}` }
@@ -729,8 +732,8 @@ export async function generateConfigPreview(params: {
 
 // 查找配置模板文件（支持开发模式和打包模式）
 function findConfigTemplate(): string | null {
-  // 打包后：从 resources 目录读取
-  const packagedPath = join(process.resourcesPath, 'runtime', 'data', 'configs', 'config.yaml.example')
+  // 打包后：从 packages/runtime/data/configs 目录读取
+  const packagedPath = join(process.resourcesPath, '..', 'packages', 'runtime', 'data', 'configs', 'config.yaml.example')
   console.log('[ConfigTemplate] Checking packaged path:', packagedPath, 'exists:', existsSync(packagedPath))
   if (existsSync(packagedPath)) {
     return packagedPath
@@ -741,8 +744,8 @@ function findConfigTemplate(): string | null {
   const devPaths = [
     // installer/out/main/ -> isdp/configs/
     join(__dirname, '../../../configs/config.yaml.example'),
-    // installer/out/main/ -> installer/resources/runtime/data/configs/
-    join(__dirname, '../../resources/runtime/data/configs/config.yaml.example'),
+    // installer/out/main/ -> installer/packages/runtime/data/configs/
+    join(__dirname, '../../packages/runtime/data/configs/config.yaml.example'),
   ]
 
   for (const p of devPaths) {
@@ -987,8 +990,8 @@ export async function runInstallation(
     }
     sendProgress('copy', 'success', 100, '文件复制完成', `已复制所有文件到 ${config.installDir}`)
 
-    // sql-change 从安装包资源目录读取，不复制到用户安装目录
-    const sqlChangeDir = join(process.resourcesPath, 'runtime', 'data', 'sql-change')
+    // sql-change 从 packages/runtime/data 目录读取，不复制到用户安装目录
+    const sqlChangeDir = join(process.resourcesPath, '..', 'packages', 'runtime', 'data', 'sql-change')
 
     // Step 1.5: 检测数据库变更（仅升级安装，根据数据库类型检测对应目录）
     let dbChanges: Array<{ version: string; files: string[] }> = []

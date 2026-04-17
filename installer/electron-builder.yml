@@ -21,30 +21,30 @@ files:
   - "!**/resources/**"
 
 extraResources:
-  # 图标
+  # Setup 必要文件（直接放在 resources 下）
   - from: "build/icon.ico"
     to: "icon.ico"
-  # 安装器配置
   - from: "resources/installer-config.json"
     to: "installer-config.json"
-  # 版本号文件
+
+  # 新版本程序文件（放在 packages 目录下，与 resources 并列）
   - from: "../VERSION"
-    to: "runtime/VERSION"
-  # 后端服务（从 bin 目录读取构建产物）
+    to: "../packages/VERSION"
+  # 后端服务
   - from: "../bin/colink-server.exe"
-    to: "runtime/colink-server.exe"
-  # 迁移工具（从 bin 目录读取构建产物）
+    to: "../packages/runtime/colink-server.exe"
+  # 迁移工具
   - from: "../bin/migrate.exe"
-    to: "runtime/tools/migrate.exe"
-  # SQL 变更脚本（初始化和版本迁移）
+    to: "../packages/runtime/tools/migrate.exe"
+  # SQL 变更脚本
   - from: "../sql-change"
-    to: "runtime/data/sql-change"
-  # 前端静态文件（从 Go 项目的 web 目录读取）
+    to: "../packages/runtime/data/sql-change"
+  # 前端静态文件
   - from: "../web/dist"
-    to: "runtime/web"
-  # 配置模板（用于升级时配置合并）
+    to: "../packages/runtime/web"
+  # 配置模板
   - from: "../configs/config.yaml.example"
-    to: "runtime/data/configs/config.yaml.example"
-  # 启动器（从 release/launcher/win-unpacked/ 复制）
+    to: "../packages/runtime/data/configs/config.yaml.example"
+  # 启动器
   - from: "release/launcher/win-unpacked"
-    to: "launcher"
+    to: "../packages/launcher"
