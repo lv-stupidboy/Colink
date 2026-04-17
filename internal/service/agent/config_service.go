@@ -13,6 +13,7 @@ import (
 )
 
 // ConfigGenerator 配置生成器接口（避免循环导入）
+// 实现者需要在调用方包中创建adapter
 type ConfigGenerator interface {
 	GenerateAgentConfig(ctx context.Context, agentId uuid.UUID, cliType string) (skillsCount, commandsCount, subagentsCount, rulesCount, settingsCount int, err error)
 }
