@@ -518,22 +518,15 @@ export async function uninstallOldVersion(
         movedCount++
       } catch (e) {
         console.error(`[UninstallOld] Failed to move:`, srcPath, e)
-        // 移动失败时尝试删除
-        try {
-          rmSync(srcPath, { recursive: true, force: true })
-          movedCount++
-          console.log('[UninstallOld] Deleted instead:', entry.name)
-        } catch (deleteError) {
-          failedEntries.push(entry.name)
-        }
+        failedEntries.push(entry.name)
       }
       onProgress?.(Math.round(20 + ((movedCount + failedEntries.length) / totalEntries) * 70))
     }
 
     // 如果有失败的，报错
     if (failedEntries.length > 0) {
-      const errorMsg = `以下文件处理失败：${failedEntries.join(', ')}\n请手动关闭相关程序后重试`
-      sendProgress('处理失败', errorMsg)
+      const errorMsg = `以下文件移动失败：${failedEntries.join(', ')}\n请手动关闭相关程序后重试`
+      sendProgress('移动失败', errorMsg)
       return { success: false, error: errorMsg }
     }
 
