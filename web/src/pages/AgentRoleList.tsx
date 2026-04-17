@@ -62,6 +62,9 @@ const AgentRoleList: React.FC = () => {
   // 分页状态
   const [systemPageSize, setSystemPageSize] = useState(5);
   const [customPageSize, setCustomPageSize] = useState(5);
+  // 批量删除相关状态
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+  const [batchDeleteLoading, setBatchDeleteLoading] = useState(false);
 
   useEffect(() => {
     loadConfigs();
@@ -258,6 +261,70 @@ const AgentRoleList: React.FC = () => {
           }
         } finally {
           setDeleteLoading(null);
+        }
+      },
+    });
+  };
+
+  // 批量删除
+  const handleBatchDelete = () => {
+    if (selectedRowKeys.length === 0) return;
+
+    // 获取选中项的名称列表
+    const selectedNames = customAgents
+      .filter(a => selectedRowKeys.includes(a.id))
+      .map(a => a.name);
+
+    Modal.confirm({
+      title: '批量删除确认',
+      icon: <ExclamationCircleOutlined />,
+      content: (
+        <div>
+          <p>确定要删除以下 {selectedRowKeys.length} 个 Agent 角色吗？此操作不可恢复。</p>
+          <ul style={{ marginTop: 8, paddingLeft: 20, maxHeight: 200, overflow: 'auto' }}>
+            {selectedNames.map(name => <li key={name}>{name}</li>)}
+          </ul>
+        </div>
+      ),
+      okText: '确认删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        setBatchDeleteLoading(true);
+        try {
+          await api.agents.batchDelete(selectedRowKeys as string[]);
+          message.success(`成功删除 ${selectedRowKeys.length} 个 Agent 角色`);
+          setSelectedRowKeys([]);
+          loadConfigs();
+        } catch (error: any) {
+          const errorData = error.response?.data;
+          if (errorData?.referencedAgents) {
+            Modal.error({
+              title: '无法删除',
+              content: (
+                <div>
+                  <p>以下 Agent 角色被团队引用，无法删除：</p>
+                  <ul style={{ marginTop: 8, paddingLeft: 20 }}>
+                    {errorData.referencedAgents.map((agent: any) => (
+                      <li key={agent.id}>
+                        <strong>{agent.name}</strong> - 被 {agent.workflowNames.join('、')} 引用
+                      </li>
+                    ))}
+                  </ul>
+                  <p style={{ marginTop: 8 }}>请先从团队中移除这些 Agent，再进行删除。</p>
+                </div>
+              ),
+            });
+          } else if (errorData?.hasSystemAgent) {
+            Modal.error({
+              title: '无法删除',
+              content: <p>系统预置角色「{errorData.systemAgentName}」不可删除</p>,
+            });
+          } else {
+            message.error('批量删除失败');
+          }
+        } finally {
+          setBatchDeleteLoading(false);
         }
       },
     });
@@ -567,9 +634,21 @@ const AgentRoleList: React.FC = () => {
           </Space>
         }
         extra={
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-            新建角色
-          </Button>
+          <Space>
+            {selectedRowKeys.length > 0 && (
+              <Button
+                danger
+                icon={<DeleteOutlined />}
+                loading={batchDeleteLoading}
+                onClick={handleBatchDelete}
+              >
+                批量删除 ({selectedRowKeys.length})
+              </Button>
+            )}
+            <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
+              新建角色
+            </Button>
+          </Space>
         }
       >
         {customAgents.length === 0 ? (
@@ -585,6 +664,13 @@ const AgentRoleList: React.FC = () => {
             columns={columns}
             rowKey="id"
             loading={loading}
+            rowSelection={{
+              selectedRowKeys,
+              onChange: setSelectedRowKeys,
+              getCheckboxProps: (record: AgentConfig) => ({
+                disabled: record.isSystem,
+              }),
+            }}
             pagination={{
               pageSize: customPageSize,
               showSizeChanger: true,
