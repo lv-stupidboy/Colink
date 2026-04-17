@@ -191,7 +191,7 @@ func main() {
 	projectService := project.NewService(projectRepo, workflowRepo)
 	threadService := thread.NewService(threadRepo, projectRepo, workflowRepo)
 	messageService := message.NewService(messageRepo, wsHub)
-	configService := agent.NewConfigService(agentConfigRepo)
+	configService := agent.NewConfigService(agentConfigRepo, baseAgentRepo)
 	baseAgentService := agent.NewBaseAgentService(baseAgentRepo)
 	workflowEngine := agent.NewWorkflowEngine(threadRepo, messageRepo, configService)
 	workflowService := workflow.NewService(workflowRepo)

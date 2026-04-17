@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -18,16 +19,18 @@ type ConfigGenerator interface {
 
 // ConfigService Agent配置服务
 type ConfigService struct {
-	repo    *repo.AgentConfigRepository
-	cache   map[uuid.UUID]*model.AgentRoleConfig
-	cacheMu sync.RWMutex
+	repo          *repo.AgentConfigRepository
+	baseAgentRepo *repo.BaseAgentRepository
+	cache         map[uuid.UUID]*model.AgentRoleConfig
+	cacheMu       sync.RWMutex
 }
 
 // NewConfigService 创建配置服务
-func NewConfigService(repo *repo.AgentConfigRepository) *ConfigService {
+func NewConfigService(repo *repo.AgentConfigRepository, baseAgentRepo *repo.BaseAgentRepository) *ConfigService {
 	return &ConfigService{
-		repo:  repo,
-		cache: make(map[uuid.UUID]*model.AgentRoleConfig),
+		repo:          repo,
+		baseAgentRepo: baseAgentRepo,
+		cache:         make(map[uuid.UUID]*model.AgentRoleConfig),
 	}
 }
 
@@ -228,5 +231,57 @@ func (s *ConfigService) BatchGenerateConfig(ctx context.Context,
 	}
 
 	wg.Wait()
+	return result, nil
+}
+
+// BatchUpdateBaseAgent 批量修改基础Agent
+func (s *ConfigService) BatchUpdateBaseAgent(ctx context.Context,
+	agentIds []uuid.UUID, baseAgentId uuid.UUID) (*model.BatchUpdateResult, error) {
+
+	// 验证目标BaseAgent存在
+	baseAgent, err := s.baseAgentRepo.FindByID(ctx, baseAgentId)
+	if err != nil {
+		return nil, fmt.Errorf("目标基础Agent不存在")
+	}
+
+	result := &model.BatchUpdateResult{
+		Total:   len(agentIds),
+		Results: make([]model.UpdateResultItem, len(agentIds)),
+	}
+
+	for i, id := range agentIds {
+		item := &model.UpdateResultItem{AgentId: id}
+
+		config, err := s.GetByID(ctx, id)
+		if err != nil {
+			item.Status = "failed"
+			item.Error = "Agent不存在"
+		} else {
+			item.AgentName = config.Name
+			config.BaseAgentID = baseAgentId
+			config.UpdatedAt = time.Now()
+
+			if err := s.repo.Update(ctx, config); err != nil {
+				item.Status = "failed"
+				item.Error = err.Error()
+			} else {
+				item.Status = "success"
+				item.BaseAgentName = baseAgent.Name
+
+				// 更新缓存
+				s.cacheMu.Lock()
+				s.cache[id] = config
+				s.cacheMu.Unlock()
+			}
+		}
+
+		result.Results[i] = *item
+		if item.Status == "success" {
+			result.Success++
+		} else {
+			result.Failed++
+		}
+	}
+
 	return result, nil
 }
