@@ -99,8 +99,8 @@ export async function runDatabaseMigration(
   mainWindow?: BrowserWindow
 ): Promise<MigrationResult> {
   try {
-    // migrate.exe 位于安装包资源目录的 tools 目录
-    const migrateTool = join(process.resourcesPath, 'runtime', 'tools', 'migrate.exe')
+    // migrate.exe 位于 packages/runtime/tools 目录
+    const migrateTool = join(process.resourcesPath, '..', 'packages', 'runtime', 'tools', 'migrate.exe')
 
     // 如果工具不存在，跳过迁移
     if (!existsSync(migrateTool)) {
@@ -313,22 +313,6 @@ export async function killAllProcesses(): Promise<void> {
   await new Promise(resolve => setTimeout(resolve, 1500))
 }
 
-// 带重试的强制删除
-async function forceDelete(path: string, retries: number = 5): Promise<boolean> {
-  for (let i = 0; i < retries; i++) {
-    try {
-      if (!existsSync(path)) return true
-      rmSync(path, { recursive: true, force: true })
-      return true
-    } catch (e) {
-      console.warn(`[Delete] Attempt ${i + 1} failed:`, e)
-      await new Promise(resolve => setTimeout(resolve, 300 * (i + 1)))
-    }
-  }
-  console.error('[Delete] All retries failed for:', path)
-  return false
-}
-
 export async function copyApplicationFiles(
   srcDir: string,
   destDir: string,
@@ -343,7 +327,9 @@ export async function copyApplicationFiles(
       return { success: false, error: `资源目录不存在: ${resourcesDir}` }
     }
 
-    const runtimeDir = join(resourcesDir, 'runtime')
+    // packages 目录与 resources 并列
+    const packagesDir = join(resourcesDir, '..', 'packages')
+    const runtimeDir = join(packagesDir, 'runtime')
 
     if (!existsSync(runtimeDir)) {
       return { success: false, error: `运行时目录不存在: ${runtimeDir}` }
@@ -474,33 +460,58 @@ export async function uninstallOldVersion(
     try { if (existsSync(startMenuPath)) rmSync(startMenuPath) } catch {}
     onProgress?.(20)
 
-    // 白名单模式：只保留 data 和 resources 目录，其余全部删除
-    // resources 保留是因为 Setup.exe 可能锁定同名目录，后续复制会覆盖
-    const whitelist = ['data', 'resources']  // 保留的目录/文件
+    // 白名单模式：保留 data、resources 和 backup 目录
+    // backup 目录可能是上次升级遗留的，或本次刚创建的，都不需要移动
+    const whitelist = ['data', 'resources', 'backup']
     const entries = readdirSync(installDir, { withFileTypes: true })
-    const entriesToDelete = entries.filter(e => !whitelist.includes(e.name))
+    const entriesToMove = entries.filter(e => !whitelist.includes(e.name))
 
-    const totalEntries = entriesToDelete.length
-    let deletedCount = 0
-    const failedEntries: string[] = []
-
-    for (const entry of entriesToDelete) {
-      const path = join(installDir, entry.name)
-      sendProgress(`删除 ${entry.name}...`)
+    // 清理上次升级遗留的 backup 目录
+    const backupDir = join(installDir, 'backup')
+    if (existsSync(backupDir)) {
+      sendProgress('清理 backup 目录...')
       try {
-        rmSync(path, { recursive: true, force: true })
-        deletedCount++
+        rmSync(backupDir, { recursive: true, force: true })
       } catch (e) {
-        console.error(`[UninstallOld] Failed to delete:`, path, e)
-        failedEntries.push(entry.name)
+        console.warn('[UninstallOld] Failed to clean backup:', e)
+        // backup 清理失败不阻止升级，继续尝试
       }
-      onProgress?.(Math.round(20 + ((deletedCount + failedEntries.length) / totalEntries) * 70))
     }
 
-    // 如果有删除失败的，报错
+    // 如果没有需要移动的内容，直接返回成功
+    if (entriesToMove.length === 0) {
+      sendProgress('无需清理', '安装目录只有白名单内容')
+      onProgress?.(100)
+      return { success: true }
+    }
+
+    // 创建 backup 目录
+    mkdirSync(backupDir, { recursive: true })
+
+    // 将非白名单内容移动到 backup 目录（替代删除，避免锁定）
+    const totalEntries = entriesToMove.length
+    let movedCount = 0
+    const failedEntries: string[] = []
+
+    for (const entry of entriesToMove) {
+      const srcPath = join(installDir, entry.name)
+      const destPath = join(backupDir, entry.name)
+      sendProgress(`移动 ${entry.name} 到 backup...`)
+      try {
+        // 使用 renameSync 移动（比删除更不容易触发锁定问题）
+        renameSync(srcPath, destPath)
+        movedCount++
+      } catch (e) {
+        console.error(`[UninstallOld] Failed to move:`, srcPath, e)
+        failedEntries.push(entry.name)
+      }
+      onProgress?.(Math.round(20 + ((movedCount + failedEntries.length) / totalEntries) * 70))
+    }
+
+    // 如果有失败的，报错
     if (failedEntries.length > 0) {
-      const errorMsg = `以下文件删除失败：${failedEntries.join(', ')}\n请手动关闭相关程序后重试`
-      sendProgress('删除失败', errorMsg)
+      const errorMsg = `以下文件移动失败：${failedEntries.join(', ')}\n请手动关闭相关程序后重试`
+      sendProgress('移动失败', errorMsg)
       return { success: false, error: errorMsg }
     }
 
@@ -509,7 +520,7 @@ export async function uninstallOldVersion(
     deleteRegistry()
     onProgress?.(95)
 
-    sendProgress('老版本已清理', '数据目录已保留')
+    sendProgress('老版本已清理', 'data 和 resources 目录已保留，旧文件已移至 backup')
     onProgress?.(100)
 
     return { success: true }
@@ -529,7 +540,8 @@ export async function copyLauncherFiles(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const resourcesDir = process.resourcesPath
-    const launcherSrcDir = join(resourcesDir, 'launcher')
+    // packages 目录与 resources 并列
+    const launcherSrcDir = join(resourcesDir, '..', 'packages', 'launcher')
 
     if (!existsSync(launcherSrcDir)) {
       return { success: false, error: `启动器目录不存在: ${launcherSrcDir}` }
@@ -730,8 +742,8 @@ export async function generateConfigPreview(params: {
 
 // 查找配置模板文件（支持开发模式和打包模式）
 function findConfigTemplate(): string | null {
-  // 打包后：从 resources 目录读取
-  const packagedPath = join(process.resourcesPath, 'runtime', 'data', 'configs', 'config.yaml.example')
+  // 打包后：从 packages/runtime/data/configs 目录读取
+  const packagedPath = join(process.resourcesPath, '..', 'packages', 'runtime', 'data', 'configs', 'config.yaml.example')
   console.log('[ConfigTemplate] Checking packaged path:', packagedPath, 'exists:', existsSync(packagedPath))
   if (existsSync(packagedPath)) {
     return packagedPath
@@ -742,8 +754,8 @@ function findConfigTemplate(): string | null {
   const devPaths = [
     // installer/out/main/ -> isdp/configs/
     join(__dirname, '../../../configs/config.yaml.example'),
-    // installer/out/main/ -> installer/resources/runtime/data/configs/
-    join(__dirname, '../../resources/runtime/data/configs/config.yaml.example'),
+    // installer/out/main/ -> installer/packages/runtime/data/configs/
+    join(__dirname, '../../packages/runtime/data/configs/config.yaml.example'),
   ]
 
   for (const p of devPaths) {
@@ -988,8 +1000,8 @@ export async function runInstallation(
     }
     sendProgress('copy', 'success', 100, '文件复制完成', `已复制所有文件到 ${config.installDir}`)
 
-    // sql-change 从安装包资源目录读取，不复制到用户安装目录
-    const sqlChangeDir = join(process.resourcesPath, 'runtime', 'data', 'sql-change')
+    // sql-change 从 packages/runtime/data 目录读取，不复制到用户安装目录
+    const sqlChangeDir = join(process.resourcesPath, '..', 'packages', 'runtime', 'data', 'sql-change')
 
     // Step 1.5: 检测数据库变更（仅升级安装，根据数据库类型检测对应目录）
     let dbChanges: Array<{ version: string; files: string[] }> = []

@@ -21,10 +21,10 @@ interface StepProgress {
   endTime?: number
 }
 
-// 完整的安装步骤定义
-const INSTALL_STEPS = [
-  { key: 'uninstall', label: '卸载老版本', description: '清理老版本程序文件，保留数据目录' },
-  { key: 'copy', label: '复制文件', description: '复制应用程序文件到安装目录' },
+// 升级安装步骤（有备份步骤）
+const UPGRADE_STEPS = [
+  { key: 'uninstall', label: '备份老版本', description: '将老版本程序文件移至 backup 目录' },
+  { key: 'copy', label: '复制新版本', description: '复制新版本程序文件到安装目录' },
   { key: 'dbcheck', label: '检测数据库变更', description: '检查是否需要执行数据库迁移' },
   { key: 'migration', label: '数据库迁移', description: '执行 SQLite 数据库迁移脚本' },
   { key: 'claude', label: '安装 Claude CLI', description: '安装 Anthropic Claude CLI 工具' },
@@ -34,9 +34,27 @@ const INSTALL_STEPS = [
   { key: 'registry', label: '写入注册表', description: '注册安装信息到系统' },
 ]
 
+// 首次安装步骤（无备份步骤，但有数据库初始化）
+const INSTALL_STEPS = [
+  { key: 'copy', label: '复制文件', description: '复制应用程序文件到安装目录' },
+  { key: 'dbcheck', label: '检测数据库变更', description: '检查数据库初始化脚本' },
+  { key: 'migration', label: '数据库初始化', description: '执行数据库初始化脚本' },
+  { key: 'claude', label: '安装 Claude CLI', description: '安装 Anthropic Claude CLI 工具' },
+  { key: 'opencode', label: '安装 OpenCode', description: '安装 OpenCode 工具' },
+  { key: 'config', label: '生成配置文件', description: '创建默认配置文件' },
+  { key: 'shortcut', label: '创建快捷方式', description: '创建桌面和开始菜单快捷方式' },
+  { key: 'registry', label: '写入注册表', description: '注册安装信息到系统' },
+]
+
+// 合并所有步骤定义（用于查找步骤详情）
+const ALL_STEPS = [...UPGRADE_STEPS, ...INSTALL_STEPS.filter(s => !UPGRADE_STEPS.find(u => u.key === s.key))]
+
 export default function Installing({ config, onComplete, isUpgrade }: InstallingProps) {
+  // 根据 isUpgrade 选择步骤列表
+  const currentSteps = isUpgrade ? UPGRADE_STEPS : INSTALL_STEPS
+
   const [steps, setSteps] = useState<StepProgress[]>(
-    INSTALL_STEPS.map(s => ({
+    currentSteps.map(s => ({
       step: s.key,
       label: s.label,
       status: 'pending',
@@ -293,7 +311,7 @@ export default function Installing({ config, onComplete, isUpgrade }: Installing
       {/* 步骤列表 */}
       <div style={{ flex: 1, overflow: 'auto' }}>
         {steps.map((step, index) => {
-          const stepDef = INSTALL_STEPS.find(s => s.key === step.step)
+          const stepDef = ALL_STEPS.find(s => s.key === step.step)
           const isExpanded = expandedSteps.includes(step.step)
           const hasDetails = step.details || step.message || step.status === 'failed'
 
