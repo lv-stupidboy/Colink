@@ -57,7 +57,14 @@ func (r AgentRole) NormalizeRole() AgentRole {
 	if r.IsHumanRole() {
 		return AgentRoleHuman
 	}
-	return r
+	// 未知角色返回默认值 AgentRoleAgent，保证数据一致性
+	return AgentRoleAgent
+}
+
+// IsValid 判断角色值是否有效
+func (r AgentRole) IsValid() bool {
+	return r == AgentRoleAgent || r == AgentRoleHuman ||
+		r.IsAgentRole() // 旧角色类型也视为有效
 }
 
 // AgentConfig Agent配置模型（保留兼容性，现已改名为AgentRole）
