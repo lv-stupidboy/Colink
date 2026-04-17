@@ -1189,7 +1189,7 @@ const AgentRoleList: React.FC = () => {
               style={{ marginBottom: 16 }}
               showIcon
             />
-            {batchResultData.results.length > 0 && (
+            {(batchResultData.results?.length ?? 0) > 0 && (
               <Table
                 dataSource={batchResultData.results}
                 columns={[
@@ -1261,7 +1261,7 @@ const AgentRoleList: React.FC = () => {
               style={{ marginBottom: 16 }}
               showIcon
             />
-            {batchUpdateResultData.results.length > 0 && (
+            {(batchUpdateResultData.results?.length ?? 0) > 0 && (
               <Table
                 dataSource={batchUpdateResultData.results}
                 columns={[
