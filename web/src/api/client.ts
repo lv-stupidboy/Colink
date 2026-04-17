@@ -324,6 +324,9 @@ class APIClient {
     // AskUserQuestion 答案提交（通过 stdin 发送给 CLI）
     submitQuestionAnswer: (threadId: string, toolCallId: string, answer: string): Promise<{ status: string }> =>
       this.request(`/agents/question/${threadId}/answer`, 'POST', { toolCallId, answer }),
+    // 批量删除
+    batchDelete: (ids: string[]): Promise<void> =>
+      this.request('/agents/batch-delete', 'POST', { ids }),
   };
 
   // 基础Agent API
