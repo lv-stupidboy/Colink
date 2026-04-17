@@ -3,7 +3,7 @@ import { Table, Button, Card, Modal, Form, Input, Select, message, Space, Tag, T
 import { PlusOutlined, EditOutlined, DeleteOutlined, RobotOutlined, BugOutlined, CopyOutlined, CrownOutlined, UserOutlined, ExclamationCircleOutlined, EyeOutlined, SettingOutlined, BookOutlined, ApiOutlined, CodeOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '@/api/client';
-import type { AgentConfig, BaseAgent, Skill, Subagent, Command, Rule, Settings } from '@/types';
+import type { AgentConfig, BaseAgent, Skill, Subagent, Command, Rule, Settings, BatchGenerateResult, BatchUpdateResult, GenerateResultItem } from '@/types';
 
 const { Title, Text } = Typography;
 
@@ -62,6 +62,19 @@ const AgentRoleList: React.FC = () => {
   // 分页状态
   const [systemPageSize, setSystemPageSize] = useState(5);
   const [customPageSize, setCustomPageSize] = useState(5);
+  // 批量删除相关状态
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+  const [batchDeleteLoading, setBatchDeleteLoading] = useState(false);
+  // 批量生成配置相关状态
+  const [batchGenerateLoading, setBatchGenerateLoading] = useState(false);
+  const [batchResultVisible, setBatchResultVisible] = useState(false);
+  const [batchResultData, setBatchResultData] = useState<BatchGenerateResult | null>(null);
+  // 批量修改基础Agent相关状态
+  const [batchUpdateVisible, setBatchUpdateVisible] = useState(false);
+  const [batchUpdateLoading, setBatchUpdateLoading] = useState(false);
+  const [batchUpdateResultVisible, setBatchUpdateResultVisible] = useState(false);
+  const [batchUpdateResultData, setBatchUpdateResultData] = useState<BatchUpdateResult | null>(null);
+  const [targetBaseAgentId, setTargetBaseAgentId] = useState<string>('');
 
   useEffect(() => {
     loadConfigs();
@@ -261,6 +274,145 @@ const AgentRoleList: React.FC = () => {
         }
       },
     });
+  };
+
+  // 批量删除
+  const handleBatchDelete = () => {
+    if (selectedRowKeys.length === 0) return;
+
+    // 获取选中项的名称列表
+    const selectedNames = customAgents
+      .filter(a => selectedRowKeys.includes(a.id))
+      .map(a => a.name);
+
+    Modal.confirm({
+      title: '批量删除确认',
+      icon: <ExclamationCircleOutlined />,
+      content: (
+        <div>
+          <p>确定要删除以下 {selectedRowKeys.length} 个 Agent 角色吗？此操作不可恢复。</p>
+          <ul style={{ marginTop: 8, paddingLeft: 20, maxHeight: 200, overflow: 'auto' }}>
+            {selectedNames.map(name => <li key={name}>{name}</li>)}
+          </ul>
+        </div>
+      ),
+      okText: '确认删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        setBatchDeleteLoading(true);
+        try {
+          await api.agents.batchDelete(selectedRowKeys as string[]);
+          message.success(`成功删除 ${selectedRowKeys.length} 个 Agent 角色`);
+          setSelectedRowKeys([]);
+          loadConfigs();
+        } catch (error: any) {
+          const errorData = error.response?.data;
+          if (errorData?.referencedAgents) {
+            Modal.error({
+              title: '无法删除',
+              content: (
+                <div>
+                  <p>以下 Agent 角色被团队引用，无法删除：</p>
+                  <ul style={{ marginTop: 8, paddingLeft: 20 }}>
+                    {errorData.referencedAgents.map((agent: any) => (
+                      <li key={agent.id}>
+                        <strong>{agent.name}</strong> - 被 {agent.workflowNames.join('、')} 引用
+                      </li>
+                    ))}
+                  </ul>
+                  <p style={{ marginTop: 8 }}>请先从团队中移除这些 Agent，再进行删除。</p>
+                </div>
+              ),
+            });
+          } else if (errorData?.hasSystemAgent) {
+            Modal.error({
+              title: '无法删除',
+              content: <p>系统预置角色「{errorData.systemAgentName}」不可删除</p>,
+            });
+          } else {
+            message.error('批量删除失败');
+          }
+        } finally {
+          setBatchDeleteLoading(false);
+        }
+      },
+    });
+  };
+
+  // 批量生成配置
+  const handleBatchGenerateConfig = () => {
+    if (selectedRowKeys.length === 0) return;
+
+    Modal.confirm({
+      title: '批量生成配置',
+      icon: <ExclamationCircleOutlined />,
+      content: (
+        <div>
+          <p>确定为选中的 {selectedRowKeys.length} 个 Agent 生成配置？</p>
+          <p style={{ color: '#faad14' }}>已有配置将被覆盖。</p>
+        </div>
+      ),
+      okText: '确认生成',
+      okType: 'primary',
+      cancelText: '取消',
+      onOk: async () => {
+        setBatchGenerateLoading(true);
+        try {
+          const result = await api.agents.batchGenerateConfig(selectedRowKeys as string[]);
+          setBatchResultData(result);
+          setBatchResultVisible(true);
+          setSelectedRowKeys([]);
+          loadConfigs();
+        } catch (error: any) {
+          const errorData = error.response?.data;
+          if (errorData?.error) {
+            Modal.error({
+              title: '批量生成失败',
+              content: errorData.error,
+            });
+          } else {
+            message.error('批量生成失败');
+          }
+        } finally {
+          setBatchGenerateLoading(false);
+        }
+      },
+    });
+  };
+
+  // 批量修改基础Agent
+  const handleBatchUpdateBaseAgent = async () => {
+    if (!targetBaseAgentId) {
+      message.warning('请选择目标基础Agent');
+      return;
+    }
+
+    setBatchUpdateLoading(true);
+    try {
+      const result = await api.agents.batchUpdateBaseAgent(
+        selectedRowKeys as string[],
+        targetBaseAgentId
+      );
+      setBatchUpdateResultData(result);
+      setBatchUpdateVisible(false);
+      setBatchUpdateResultVisible(true);
+      setSelectedRowKeys([]);
+      setTargetBaseAgentId('');
+      loadConfigs();
+    } catch (error: any) {
+      const errorData = error.response?.data;
+      if (errorData?.error) {
+        Modal.error({
+          title: '批量修改失败',
+          content: errorData.error,
+        });
+      } else {
+        message.error('批量修改失败');
+      }
+    } finally {
+      setBatchUpdateLoading(false);
+    }
   };
 
   const handleSubmit = async (values: Partial<AgentConfig>) => {
@@ -567,9 +719,39 @@ const AgentRoleList: React.FC = () => {
           </Space>
         }
         extra={
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-            新建角色
-          </Button>
+          <Space>
+            {selectedRowKeys.length > 0 && (
+              <>
+                <Button
+                  icon={<EditOutlined />}
+                  aria-label={`批量修改基础Agent，已选择${selectedRowKeys.length}项`}
+                  onClick={() => setBatchUpdateVisible(true)}
+                >
+                  批量修改基础Agent ({selectedRowKeys.length})
+                </Button>
+                <Button
+                  icon={<SettingOutlined />}
+                  aria-label={`批量生成配置，已选择${selectedRowKeys.length}项`}
+                  onClick={handleBatchGenerateConfig}
+                  loading={batchGenerateLoading}
+                >
+                  批量生成配置 ({selectedRowKeys.length})
+                </Button>
+                <Button
+                  danger
+                  icon={<DeleteOutlined />}
+                  aria-label={`批量删除，已选择${selectedRowKeys.length}项`}
+                  loading={batchDeleteLoading}
+                  onClick={handleBatchDelete}
+                >
+                  批量删除 ({selectedRowKeys.length})
+                </Button>
+              </>
+            )}
+            <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
+              新建角色
+            </Button>
+          </Space>
         }
       >
         {customAgents.length === 0 ? (
@@ -585,6 +767,13 @@ const AgentRoleList: React.FC = () => {
             columns={columns}
             rowKey="id"
             loading={loading}
+            rowSelection={{
+              selectedRowKeys,
+              onChange: setSelectedRowKeys,
+              getCheckboxProps: (record: AgentConfig) => ({
+                disabled: record.isSystem,
+              }),
+            }}
             pagination={{
               pageSize: customPageSize,
               showSizeChanger: true,
@@ -934,6 +1123,182 @@ const AgentRoleList: React.FC = () => {
             />
           </div>
         ) : null}
+      </Modal>
+
+      {/* 批量修改基础Agent选择弹窗 */}
+      <Modal
+        title="批量修改基础Agent"
+        open={batchUpdateVisible}
+        onCancel={() => {
+          setBatchUpdateVisible(false);
+          setTargetBaseAgentId('');
+        }}
+        onOk={handleBatchUpdateBaseAgent}
+        okText="确认修改"
+        cancelText="取消"
+        confirmLoading={batchUpdateLoading}
+      >
+        <div style={{ marginBottom: 16 }}>
+          <p>将为选中的 {selectedRowKeys.length} 个 Agent 角色修改基础Agent：</p>
+          <ul style={{ marginTop: 8, paddingLeft: 20, maxHeight: 150, overflow: 'auto' }}>
+            {customAgents
+              .filter(a => selectedRowKeys.includes(a.id))
+              .map(a => <li key={a.id}>{a.name}</li>)}
+          </ul>
+        </div>
+        <div style={{ marginBottom: 8 }}>
+          <label style={{ display: 'block', marginBottom: 4 }}>目标基础Agent</label>
+          <Select
+            placeholder="选择基础Agent"
+            value={targetBaseAgentId}
+            onChange={setTargetBaseAgentId}
+            style={{ width: '100%' }}
+          >
+            {baseAgents.map(agent => (
+              <Select.Option key={agent.id} value={agent.id}>
+                {agent.name} ({agent.type === 'claude_code' ? 'Claude Code' : 'OpenCode'})
+              </Select.Option>
+            ))}
+          </Select>
+        </div>
+      </Modal>
+
+      {/* 批量生成配置结果弹窗 */}
+      <Modal
+        title="批量生成配置结果"
+        open={batchResultVisible}
+        onCancel={() => {
+          setBatchResultVisible(false);
+          setBatchResultData(null);
+        }}
+        footer={[
+          <Button key="close" onClick={() => {
+            setBatchResultVisible(false);
+            setBatchResultData(null);
+          }}>
+            关闭
+          </Button>,
+        ]}
+        width={600}
+      >
+        {batchResultData && (
+          <div>
+            <Alert
+              type={batchResultData.failed > 0 ? 'warning' : 'success'}
+              message={`成功 ${batchResultData.success} 个，失败 ${batchResultData.failed} 个`}
+              style={{ marginBottom: 16 }}
+              showIcon
+            />
+            {(batchResultData.results?.length ?? 0) > 0 && (
+              <Table
+                dataSource={batchResultData.results}
+                columns={[
+                  {
+                    title: 'Agent名称',
+                    dataIndex: 'agentName',
+                    key: 'agentName',
+                  },
+                  {
+                    title: '状态',
+                    dataIndex: 'status',
+                    key: 'status',
+                    render: (status: string) => (
+                      <Tag color={status === 'success' ? 'green' : 'red'}>
+                        {status === 'success' ? '成功' : '失败'}
+                      </Tag>
+                    ),
+                  },
+                  {
+                    title: '生成数量',
+                    key: 'counts',
+                    render: (_: unknown, record: GenerateResultItem) => (
+                      <span>
+                        Skills: {record.skillsCount}, Commands: {record.commandsCount},
+                        Subagents: {record.subagentsCount}, Rules: {record.rulesCount},
+                        Settings: {record.settingsCount}
+                      </span>
+                    ),
+                  },
+                  {
+                    title: '错误信息',
+                    dataIndex: 'error',
+                    key: 'error',
+                    render: (error?: string) => error ? <Text type="danger">{error}</Text> : '-',
+                  },
+                ]}
+                rowKey="agentId"
+                pagination={false}
+                size="small"
+              />
+            )}
+          </div>
+        )}
+      </Modal>
+
+      {/* 批量修改基础Agent结果弹窗 */}
+      <Modal
+        title="批量修改基础Agent结果"
+        open={batchUpdateResultVisible}
+        onCancel={() => {
+          setBatchUpdateResultVisible(false);
+          setBatchUpdateResultData(null);
+        }}
+        footer={[
+          <Button key="close" onClick={() => {
+            setBatchUpdateResultVisible(false);
+            setBatchUpdateResultData(null);
+          }}>
+            关闭
+          </Button>,
+        ]}
+        width={500}
+      >
+        {batchUpdateResultData && (
+          <div>
+            <Alert
+              type={batchUpdateResultData.failed > 0 ? 'warning' : 'success'}
+              message={`成功 ${batchUpdateResultData.success} 个，失败 ${batchUpdateResultData.failed} 个`}
+              style={{ marginBottom: 16 }}
+              showIcon
+            />
+            {(batchUpdateResultData.results?.length ?? 0) > 0 && (
+              <Table
+                dataSource={batchUpdateResultData.results}
+                columns={[
+                  {
+                    title: 'Agent名称',
+                    dataIndex: 'agentName',
+                    key: 'agentName',
+                  },
+                  {
+                    title: '基础Agent',
+                    dataIndex: 'baseAgentName',
+                    key: 'baseAgentName',
+                  },
+                  {
+                    title: '状态',
+                    dataIndex: 'status',
+                    key: 'status',
+                    render: (status: string) => (
+                      <Tag color={status === 'success' ? 'green' : 'red'}>
+                        {status === 'success' ? '成功' : '失败'}
+                      </Tag>
+                    ),
+                  },
+                  {
+                    title: '错误信息',
+                    dataIndex: 'error',
+                    key: 'error',
+                    render: (error?: string) => error ? <Text type="danger">{error}</Text> : '-',
+                  },
+                ]}
+                rowKey="agentId"
+                pagination={false}
+                size="small"
+              />
+            )}
+          </div>
+        )}
       </Modal>
     </div>
   );

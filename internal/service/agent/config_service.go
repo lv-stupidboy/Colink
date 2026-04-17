@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -11,18 +12,26 @@ import (
 	"github.com/google/uuid"
 )
 
+// ConfigGenerator 配置生成器接口（避免循环导入）
+// 实现者需要在调用方包中创建adapter
+type ConfigGenerator interface {
+	GenerateAgentConfig(ctx context.Context, agentId uuid.UUID, cliType string) (skillsCount, commandsCount, subagentsCount, rulesCount, settingsCount int, err error)
+}
+
 // ConfigService Agent配置服务
 type ConfigService struct {
-	repo    *repo.AgentConfigRepository
-	cache   map[uuid.UUID]*model.AgentRoleConfig
-	cacheMu sync.RWMutex
+	repo          *repo.AgentConfigRepository
+	baseAgentRepo *repo.BaseAgentRepository
+	cache         map[uuid.UUID]*model.AgentRoleConfig
+	cacheMu       sync.RWMutex
 }
 
 // NewConfigService 创建配置服务
-func NewConfigService(repo *repo.AgentConfigRepository) *ConfigService {
+func NewConfigService(repo *repo.AgentConfigRepository, baseAgentRepo *repo.BaseAgentRepository) *ConfigService {
 	return &ConfigService{
-		repo:  repo,
-		cache: make(map[uuid.UUID]*model.AgentRoleConfig),
+		repo:          repo,
+		baseAgentRepo: baseAgentRepo,
+		cache:         make(map[uuid.UUID]*model.AgentRoleConfig),
 	}
 }
 
@@ -160,3 +169,120 @@ func (s *ConfigService) List(ctx context.Context) ([]*model.AgentRoleConfig, err
 var (
 	ErrConfigNotFound = errors.New("agent config not found")
 )
+
+// BatchGenerateConfig 批量生成配置
+func (s *ConfigService) BatchGenerateConfig(ctx context.Context,
+	agentIds []uuid.UUID, cliType string, generator ConfigGenerator) (*model.BatchGenerateResult, error) {
+
+	result := &model.BatchGenerateResult{
+		Total:   len(agentIds),
+		Results: make([]model.GenerateResultItem, len(agentIds)),
+	}
+
+	if cliType == "" {
+		cliType = "claude_code"
+	}
+
+	// 使用worker pool限制并发数
+	const maxWorkers = 5
+	sem := make(chan struct{}, maxWorkers)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+
+	for i, id := range agentIds {
+		wg.Add(1)
+		sem <- struct{}{} // 获取信号量
+
+		go func(idx int, agentId uuid.UUID) {
+			defer wg.Done()
+			defer func() { <-sem }() // 释放信号量
+
+			item := &model.GenerateResultItem{AgentId: agentId}
+
+			config, err := s.GetByID(ctx, agentId)
+			if err != nil {
+				item.Status = "failed"
+				item.Error = "Agent不存在"
+			} else {
+				item.AgentName = config.Name
+				// 调用配置生成器生成配置
+				skillsCount, commandsCount, subagentsCount, rulesCount, settingsCount, err := generator.GenerateAgentConfig(ctx, agentId, cliType)
+				if err != nil {
+					item.Status = "failed"
+					item.Error = err.Error()
+				} else {
+					item.Status = "success"
+					item.SkillsCount = skillsCount
+					item.CommandsCount = commandsCount
+					item.SubagentsCount = subagentsCount
+					item.RulesCount = rulesCount
+					item.SettingsCount = settingsCount
+				}
+			}
+
+			mu.Lock()
+			result.Results[idx] = *item
+			if item.Status == "success" {
+				result.Success++
+			} else {
+				result.Failed++
+			}
+			mu.Unlock()
+		}(i, id)
+	}
+
+	wg.Wait()
+	return result, nil
+}
+
+// BatchUpdateBaseAgent 批量修改基础Agent
+func (s *ConfigService) BatchUpdateBaseAgent(ctx context.Context,
+	agentIds []uuid.UUID, baseAgentId uuid.UUID) (*model.BatchUpdateResult, error) {
+
+	// 验证目标BaseAgent存在
+	baseAgent, err := s.baseAgentRepo.FindByID(ctx, baseAgentId)
+	if err != nil {
+		return nil, fmt.Errorf("目标基础Agent不存在")
+	}
+
+	result := &model.BatchUpdateResult{
+		Total:   len(agentIds),
+		Results: make([]model.UpdateResultItem, len(agentIds)),
+	}
+
+	for i, id := range agentIds {
+		item := &model.UpdateResultItem{AgentId: id}
+
+		config, err := s.GetByID(ctx, id)
+		if err != nil {
+			item.Status = "failed"
+			item.Error = "Agent不存在"
+		} else {
+			item.AgentName = config.Name
+			config.BaseAgentID = baseAgentId
+			config.UpdatedAt = time.Now()
+
+			if err := s.repo.Update(ctx, config); err != nil {
+				item.Status = "failed"
+				item.Error = err.Error()
+			} else {
+				item.Status = "success"
+				item.BaseAgentName = baseAgent.Name
+
+				// 更新缓存
+				s.cacheMu.Lock()
+				s.cache[id] = config
+				s.cacheMu.Unlock()
+			}
+		}
+
+		result.Results[i] = *item
+		if item.Status == "success" {
+			result.Success++
+		} else {
+			result.Failed++
+		}
+	}
+
+	return result, nil
+}

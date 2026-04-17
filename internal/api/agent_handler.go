@@ -1,29 +1,61 @@
 package api
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
 	"github.com/anthropic/isdp/internal/service/agent"
+	"github.com/anthropic/isdp/internal/service/configgen"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
+// configGenAdapter wraps configgen.Service to implement agent.ConfigGenerator
+type configGenAdapter struct {
+	service *configgen.Service
+}
+
+// newConfigGenAdapter creates a new adapter
+func newConfigGenAdapter(service *configgen.Service) *configGenAdapter {
+	return &configGenAdapter{service: service}
+}
+
+// GenerateAgentConfig implements agent.ConfigGenerator interface
+func (a *configGenAdapter) GenerateAgentConfig(ctx context.Context, agentId uuid.UUID, cliType string) (
+	skillsCount, commandsCount, subagentsCount, rulesCount, settingsCount int, err error) {
+
+	req := &configgen.GenerateAgentConfigRequest{
+		AgentRoleID:   agentId,
+		BaseAgentType: cliType,
+		CleanExisting: true,
+	}
+	result, err := a.service.GenerateAgentConfig(ctx, req)
+	if err != nil {
+		return 0, 0, 0, 0, 0, err
+	}
+	return result.SkillsCount, result.CommandsCount, result.SubagentsCount,
+		result.RulesCount, result.SettingsCount, nil
+}
+
 // AgentHandler Agent配置API处理器
 type AgentHandler struct {
-	configSvc       *agent.ConfigService
-	baseAgentSvc    *agent.BaseAgentService
-	orchestrator    *agent.Orchestrator
-	threadRepo      *repo.ThreadRepository
-	debugThreadMgr  *agent.DebugThreadManager // 调试线程管理器
-	workflowRepo    *repo.WorkflowTemplateRepository
+	configSvc                *agent.ConfigService
+	baseAgentSvc             *agent.BaseAgentService
+	orchestrator             *agent.Orchestrator
+	threadRepo               *repo.ThreadRepository
+	debugThreadMgr           *agent.DebugThreadManager // 调试线程管理器
+	workflowRepo             *repo.WorkflowTemplateRepository
+	configGenService         *configgen.Service        // 配置生成服务
 	// 绑定关系 repository
 	agentSkillBindingRepo    *repo.AgentSkillBindingRepository
 	agentSubagentBindingRepo *repo.AgentSubagentBindingRepository
 	agentCommandBindingRepo  *repo.AgentCommandBindingRepository
 	agentRuleBindingRepo     *repo.AgentRuleBindingRepository
+	agentSettingsBindingRepo *repo.AgentSettingsBindingRepository
 }
 
 // NewAgentHandler 创建处理器
@@ -34,10 +66,12 @@ func NewAgentHandler(
 	threadRepo *repo.ThreadRepository,
 	debugThreadMgr *agent.DebugThreadManager, // 新增
 	workflowRepo *repo.WorkflowTemplateRepository,
+	configGenService *configgen.Service, // 配置生成服务
 	agentSkillBindingRepo *repo.AgentSkillBindingRepository,
 	agentSubagentBindingRepo *repo.AgentSubagentBindingRepository,
 	agentCommandBindingRepo *repo.AgentCommandBindingRepository,
 	agentRuleBindingRepo *repo.AgentRuleBindingRepository,
+	agentSettingsBindingRepo *repo.AgentSettingsBindingRepository,
 ) *AgentHandler {
 	return &AgentHandler{
 		configSvc:                configSvc,
@@ -46,10 +80,12 @@ func NewAgentHandler(
 		threadRepo:               threadRepo,
 		debugThreadMgr:           debugThreadMgr,
 		workflowRepo:             workflowRepo,
+		configGenService:         configGenService,
 		agentSkillBindingRepo:    agentSkillBindingRepo,
 		agentSubagentBindingRepo: agentSubagentBindingRepo,
 		agentCommandBindingRepo:  agentCommandBindingRepo,
 		agentRuleBindingRepo:     agentRuleBindingRepo,
+		agentSettingsBindingRepo: agentSettingsBindingRepo,
 	}
 }
 
@@ -161,6 +197,115 @@ func (h *AgentHandler) Delete(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	c.Status(http.StatusNoContent)
+}
+
+// BatchDeleteRequest 批量删除请求
+type BatchDeleteRequest struct {
+	IDs []string `json:"ids" binding:"required"`
+}
+
+// ReferencedAgentInfo 被引用的Agent信息
+type ReferencedAgentInfo struct {
+	ID            string   `json:"id"`
+	Name          string   `json:"name"`
+	WorkflowNames []string `json:"workflowNames"`
+}
+
+// BatchDelete 批量删除配置
+func (h *AgentHandler) BatchDelete(c *gin.Context) {
+	var req BatchDeleteRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if len(req.IDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ids is required"})
+		return
+	}
+
+	ctx := c.Request.Context()
+	var referencedAgents []ReferencedAgentInfo
+	var validIDs []uuid.UUID
+
+	// 1. 解析并验证所有 ID，检查系统角色和引用状态
+	for _, idStr := range req.IDs {
+		id, err := uuid.Parse(idStr)
+		if err != nil {
+			continue // 忽略无效 ID
+		}
+
+		// 获取配置检查是否为系统角色
+		config, err := h.configSvc.GetByID(ctx, id)
+		if err != nil {
+			continue // 忽略不存在的 ID
+		}
+
+		if config.IsSystem {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":            "系统预置角色不可删除",
+				"hasSystemAgent":   true,
+				"systemAgentName":  config.Name,
+			})
+			return
+		}
+
+		// 检查工作流引用
+		templates, err := h.workflowRepo.FindByAgentID(ctx, id)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check references"})
+			return
+		}
+
+		if len(templates) > 0 {
+			var names []string
+			for _, t := range templates {
+				names = append(names, t.Name)
+			}
+			referencedAgents = append(referencedAgents, ReferencedAgentInfo{
+				ID:            idStr,
+				Name:          config.Name,
+				WorkflowNames: names,
+			})
+		} else {
+			validIDs = append(validIDs, id)
+		}
+	}
+
+	// 2. 任一有引用则拒绝整个操作
+	if len(referencedAgents) > 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":            "部分Agent被工作流引用，无法删除",
+			"referencedAgents": referencedAgents,
+		})
+		return
+	}
+
+	// 3. 执行批量删除
+	for _, id := range validIDs {
+		if err := h.configSvc.Delete(ctx, id); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		// 清理绑定关系
+		if h.agentSkillBindingRepo != nil {
+			h.agentSkillBindingRepo.DeleteByAgentRoleID(ctx, id)
+		}
+		if h.agentSubagentBindingRepo != nil {
+			h.agentSubagentBindingRepo.DeleteByAgentRoleID(ctx, id)
+		}
+		if h.agentCommandBindingRepo != nil {
+			h.agentCommandBindingRepo.DeleteByAgentRoleID(ctx, id)
+		}
+		if h.agentRuleBindingRepo != nil {
+			h.agentRuleBindingRepo.DeleteByAgentRoleID(ctx, id)
+		}
+		if h.agentSettingsBindingRepo != nil {
+			h.agentSettingsBindingRepo.DeleteByAgentRoleID(ctx, id)
+		}
+	}
+
 	c.Status(http.StatusNoContent)
 }
 
@@ -458,6 +603,83 @@ func (h *AgentHandler) SubmitQuestionAnswer(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "success"})
 }
 
+// BatchGenerateConfig 批量生成配置
+func (h *AgentHandler) BatchGenerateConfig(c *gin.Context) {
+	var req model.BatchGenerateConfigRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 解析UUID
+	agentIds := make([]uuid.UUID, len(req.AgentIds))
+	for i, idStr := range req.AgentIds {
+		id, err := uuid.Parse(idStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("无效的Agent ID: %s", idStr)})
+			return
+		}
+		agentIds[i] = id
+	}
+
+	cliType := req.CliType
+	if cliType == "" {
+		cliType = "claude_code"
+	}
+
+	// 验证 cliType
+	validTypes := map[string]bool{"claude_code": true, "open_code": true, "open_code_acp": true}
+	if !validTypes[cliType] {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cliType 必须是 claude_code、open_code 或 open_code_acp"})
+		return
+	}
+
+	// 创建adapter
+	adapter := newConfigGenAdapter(h.configGenService)
+
+	result, err := h.configSvc.BatchGenerateConfig(c.Request.Context(), agentIds, cliType, adapter)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
+// BatchUpdateBaseAgent 批量修改基础Agent
+func (h *AgentHandler) BatchUpdateBaseAgent(c *gin.Context) {
+	var req model.BatchUpdateBaseAgentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 解析UUID
+	agentIds := make([]uuid.UUID, len(req.AgentIds))
+	for i, idStr := range req.AgentIds {
+		id, err := uuid.Parse(idStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("无效的Agent ID: %s", idStr)})
+			return
+		}
+		agentIds[i] = id
+	}
+
+	baseAgentId, err := uuid.Parse(req.BaseAgentId)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的基础Agent ID"})
+		return
+	}
+
+	result, err := h.configSvc.BatchUpdateBaseAgent(c.Request.Context(), agentIds, baseAgentId)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
 // RegisterRoutes 注册路由
 func (h *AgentHandler) RegisterRoutes(r *gin.RouterGroup) {
 	agents := r.Group("/agents")
@@ -469,10 +691,13 @@ func (h *AgentHandler) RegisterRoutes(r *gin.RouterGroup) {
 		agents.POST("/debug/thread", h.CreateDebugThread) // 预创建调试Thread
 		agents.POST("/debug/:threadId/continue", h.ContinueDebug)
 		agents.POST("/question/:threadId/answer", h.SubmitQuestionAnswer) // AskUserQuestion 答案提交
+		agents.POST("/batch-generate-config", h.BatchGenerateConfig)      // 批量生成配置
+		agents.POST("/batch-update-base-agent", h.BatchUpdateBaseAgent)   // 批量修改基础Agent
 		agents.GET("/:id", h.Get)
 		agents.PUT("/:id", h.Update)
 		agents.DELETE("/:id", h.Delete)
 		agents.POST("/:id/refs", h.CheckReferences)
+		agents.POST("/batch-delete", h.BatchDelete)
 		agents.POST("/:id/copy", h.Copy)
 		agents.POST("/:id/debug", h.Debug)
 	}

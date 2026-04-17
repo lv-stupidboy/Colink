@@ -191,7 +191,7 @@ func main() {
 	projectService := project.NewService(projectRepo, workflowRepo)
 	threadService := thread.NewService(threadRepo, projectRepo, workflowRepo)
 	messageService := message.NewService(messageRepo, wsHub)
-	configService := agent.NewConfigService(agentConfigRepo)
+	configService := agent.NewConfigService(agentConfigRepo, baseAgentRepo)
 	baseAgentService := agent.NewBaseAgentService(baseAgentRepo)
 	workflowEngine := agent.NewWorkflowEngine(threadRepo, messageRepo, configService)
 	workflowService := workflow.NewService(workflowRepo)
@@ -489,8 +489,8 @@ func main() {
 	messageHandler := api.NewMessageHandler(messageService)
 	messageHandler.RegisterRoutes(v1)
 
-	agentHandler := api.NewAgentHandler(configService, baseAgentService, orchestrator, threadRepo, debugThreadMgr, workflowRepo,
-		agentSkillBindingRepo, agentSubagentBindingRepo, agentCommandBindingRepo, agentRuleBindingRepo)
+	agentHandler := api.NewAgentHandler(configService, baseAgentService, orchestrator, threadRepo, debugThreadMgr, workflowRepo, configGenService,
+		agentSkillBindingRepo, agentSubagentBindingRepo, agentCommandBindingRepo, agentRuleBindingRepo, agentSettingsBindingRepo)
 	agentHandler.RegisterRoutes(v1)
 
 	// 基础Agent Handler

@@ -55,6 +55,8 @@ import type {
   SettingsListQuery,
   SettingsListResponse,
   AgentSettingsResponse,
+  BatchGenerateResult,
+  BatchUpdateResult,
 } from '@/types';
 import {
   transformProjects,
@@ -136,7 +138,7 @@ class APIClient {
           result = Array.isArray(result) ? transformThreads(result) : transformThread(result);
         } else if (url.includes('/messages')) {
           result = Array.isArray(result) ? transformMessages(result) : transformMessage(result);
-        } else if (url.includes('/agents') && !url.includes('/config/')) {
+        } else if (url.includes('/agents') && !url.includes('/config/') && !url.includes('/batch-')) {
           result = Array.isArray(result) ? transformAgentConfigs(result) : transformAgentConfig(result);
         } else if (url.includes('/invocations')) {
           result = Array.isArray(result) ? transformAgentInvocations(result) : transformAgentInvocation(result);
@@ -324,6 +326,21 @@ class APIClient {
     // AskUserQuestion 答案提交（通过 stdin 发送给 CLI）
     submitQuestionAnswer: (threadId: string, toolCallId: string, answer: string): Promise<{ status: string }> =>
       this.request(`/agents/question/${threadId}/answer`, 'POST', { toolCallId, answer }),
+    // 批量删除
+    batchDelete: (ids: string[]): Promise<void> =>
+      this.request('/agents/batch-delete', 'POST', { ids }),
+    // 批量生成配置
+    batchGenerateConfig: (agentIds: string[], cliType?: string): Promise<BatchGenerateResult> =>
+      this.request('/agents/batch-generate-config', 'POST', {
+        agentIds,
+        cliType: cliType || 'claude_code',
+      }),
+    // 批量修改基础Agent
+    batchUpdateBaseAgent: (agentIds: string[], baseAgentId: string): Promise<BatchUpdateResult> =>
+      this.request('/agents/batch-update-base-agent', 'POST', {
+        agentIds,
+        baseAgentId,
+      }),
   };
 
   // 基础Agent API

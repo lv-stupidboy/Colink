@@ -288,16 +288,19 @@ const QuestionBlockComponent: React.FC<QuestionBlockComponentProps> = memo(({ bl
   // 检查所有问题是否已回答
   const allQuestionsAnswered = safeQuestions.every((q, i) => isQuestionAnswered(i, q.multiSelect));
 
-  // 处理单选点击（选择即回答）
+  // 处理单选点击
+  // 交互规则：
+  // - 单个问题：选择即提交（保持原有行为）
+  // - 多个问题：选择后不自动提交，需等待所有问题回答完毕后点击确认按钮
   const handleSingleSelect = useCallback((questionIndex: number, value: string) => {
-    console.log('[QuestionBlock] handleSingleSelect:', { questionIndex, value, isInteractionDisabled, hasOnSubmit: !!onSubmit });
+    console.log('[QuestionBlock] handleSingleSelect:', { questionIndex, value, isInteractionDisabled, hasOnSubmit: !!onSubmit, questionsCount: safeQuestions.length });
     if (isInteractionDisabled) return;
     if (!onSubmit) {
       console.log('[QuestionBlock] No onSubmit callback');
       return;
     }
 
-    // 先更新 localAnswers 以立即显示选中状态（在提交过程中也能高亮）
+    // 先更新 localAnswers 以立即显示选中状态
     setLocalAnswers(prev => ({ ...prev, [questionIndex]: value }));
 
     // 检查是否需要自定义输入的选项
@@ -308,13 +311,14 @@ const QuestionBlockComponent: React.FC<QuestionBlockComponentProps> = memo(({ bl
     if (needsCustomInput) {
       // 需要自定义输入：保持选中状态，等待用户输入
       // localAnswers 已更新，显示选中高亮
-    } else {
-      // 直接提交，设置提交中状态以禁用后续点击
-      console.log('[QuestionBlock] Calling onSubmit');
+    } else if (safeQuestions.length === 1) {
+      // 单个问题：选择即提交（原有行为）
+      console.log('[QuestionBlock] Single question, calling onSubmit immediately');
       setIsSubmitting(true);
       onSubmit({ [questionIndex]: value });
     }
-  }, [isInteractionDisabled, onSubmit]);
+    // 多个问题：不自动提交，等待确认按钮
+  }, [isInteractionDisabled, onSubmit, safeQuestions.length]);
 
   // 处理多选变化
   const handleMultiSelectChange = useCallback((questionIndex: number, values: string[]) => {
@@ -353,6 +357,12 @@ const QuestionBlockComponent: React.FC<QuestionBlockComponentProps> = memo(({ bl
            label.includes('其他') ||
            label.includes('自定义');
   };
+
+  // 确认提交按钮显示条件：
+  // - 有多个问题（无论单选还是多选）：需回答所有问题后点击确认
+  // - 只有一个多选问题：需回答后点击确认
+  // - 只有一个单选问题：选择即提交，无需确认按钮
+  const needsSubmitButton = safeQuestions.length > 1 || safeQuestions.some(q => q.multiSelect);
 
   return (
     <div className="question-block-wrapper" style={{ marginTop: 8 }}>
@@ -590,8 +600,8 @@ const QuestionBlockComponent: React.FC<QuestionBlockComponentProps> = memo(({ bl
             );
           })}
 
-          {/* 多选确认按钮（仅多选且有未提交时显示） */}
-          {!isSubmitted && safeQuestions.some(q => q.multiSelect) && allQuestionsAnswered && (
+          {/* 确认提交按钮：多个问题或有多选问题时需要点击确认 */}
+          {!isSubmitted && needsSubmitButton && allQuestionsAnswered && (
             <div style={{ marginTop: 16, textAlign: 'right' }}>
               <Button
                 type="primary"
