@@ -34,9 +34,11 @@ const UPGRADE_STEPS = [
   { key: 'registry', label: '写入注册表', description: '注册安装信息到系统' },
 ]
 
-// 首次安装步骤（无备份步骤）
+// 首次安装步骤（无备份步骤，但有数据库初始化）
 const INSTALL_STEPS = [
   { key: 'copy', label: '复制文件', description: '复制应用程序文件到安装目录' },
+  { key: 'dbcheck', label: '检测数据库变更', description: '检查数据库初始化脚本' },
+  { key: 'migration', label: '数据库初始化', description: '执行数据库初始化脚本' },
   { key: 'claude', label: '安装 Claude CLI', description: '安装 Anthropic Claude CLI 工具' },
   { key: 'opencode', label: '安装 OpenCode', description: '安装 OpenCode 工具' },
   { key: 'config', label: '生成配置文件', description: '创建默认配置文件' },
