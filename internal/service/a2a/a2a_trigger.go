@@ -40,6 +40,51 @@ type A2AResult struct {
 	Fallback bool     // 是否使用了 fallback 模式
 }
 
+// handleHumanRoleTask 处理人类角色任务创建
+// 当目标是人类角色时，创建人工任务而非触发 Agent
+// 返回: (是否处理, 入队的ID)
+func handleHumanRoleTask(ctx context.Context, deps *A2ATriggerDeps, opts *A2ATriggerOptions, roleConfigID uuid.UUID) (bool, string) {
+	// 检查依赖是否可用
+	if deps.AgentConfigRepo == nil || deps.HumanTaskSvc == nil {
+		return false, ""
+	}
+
+	// 获取角色配置
+	roleConfig, err := deps.AgentConfigRepo.FindByID(ctx, roleConfigID)
+	if err != nil {
+		return false, ""
+	}
+
+	// 检查是否是人类角色
+	if !roleConfig.Role.IsHumanRole() {
+		return false, ""
+	}
+
+	// 获取调用者名称
+	callerName := opts.CallerCatID
+	if opts.CallerCatID != "" {
+		if callerID, err := uuid.Parse(opts.CallerCatID); err == nil {
+			if callerConfig, err := deps.AgentConfigRepo.FindByID(ctx, callerID); err == nil {
+				callerName = callerConfig.Name
+			}
+		}
+	}
+
+	// 创建人工任务
+	var sourceInvocationID uuid.UUID
+	if opts.ParentInvocationID != nil {
+		sourceInvocationID = *opts.ParentInvocationID
+	}
+
+	_, createErr := deps.HumanTaskSvc.CreateTask(ctx, opts.ThreadID, roleConfigID, opts.Content, sourceInvocationID, callerName)
+	if createErr != nil {
+		fmt.Printf("[handleHumanRoleTask] Failed to create human task: %v\n", createErr)
+		return false, ""
+	}
+
+	return true, roleConfigID.String()
+}
+
 // EnqueueA2ATargets 将 @mentioned 的 Agent 加入工作队列
 //
 // 流程：
@@ -63,42 +108,10 @@ func EnqueueA2ATargets(ctx context.Context, deps *A2ATriggerDeps, opts *A2ATrigg
 				continue
 			}
 
-			// 检查角色类型
-			if deps.AgentConfigRepo != nil {
-				roleConfig, err := deps.AgentConfigRepo.FindByID(ctx, roleConfigID)
-				if err != nil {
-					// 配置不存在，跳过
-					continue
-				}
-
-				// 如果是人角色，创建人工任务而非入队
-				if roleConfig.Role.IsHumanRole() {
-					if deps.HumanTaskSvc != nil {
-						// 获取调用者名称
-						callerName := opts.CallerCatID
-						if opts.CallerCatID != "" {
-							if callerID, err := uuid.Parse(opts.CallerCatID); err == nil {
-								if callerConfig, err := deps.AgentConfigRepo.FindByID(ctx, callerID); err == nil {
-									callerName = callerConfig.Name
-								}
-							}
-						}
-
-						// 创建人工任务
-						var sourceInvocationID uuid.UUID
-						if opts.ParentInvocationID != nil {
-							sourceInvocationID = *opts.ParentInvocationID
-						}
-						_, createErr := deps.HumanTaskSvc.CreateTask(ctx, opts.ThreadID, roleConfigID, opts.Content, sourceInvocationID, callerName)
-						if createErr != nil {
-							// 记录错误但继续处理其他目标
-							fmt.Printf("[EnqueueA2ATargets] Failed to create human task: %v\n", createErr)
-						} else {
-							enqueued = append(enqueued, catID)
-						}
-					}
-					continue
-				}
+			// 检查是否是人类角色，如果是则创建人工任务
+			if handled, enqueuedID := handleHumanRoleTask(ctx, deps, opts, roleConfigID); handled {
+				enqueued = append(enqueued, enqueuedID)
+				continue
 			}
 
 			// 深度限制检查
@@ -156,42 +169,10 @@ func EnqueueA2ATargets(ctx context.Context, deps *A2ATriggerDeps, opts *A2ATrigg
 			continue
 		}
 
-		// 检查角色类型
-		if deps.AgentConfigRepo != nil {
-			roleConfig, err := deps.AgentConfigRepo.FindByID(ctx, roleConfigID)
-			if err != nil {
-				// 配置不存在，跳过
-				continue
-			}
-
-			// 如果是人角色，创建人工任务而非触发 Agent
-			if roleConfig.Role.IsHumanRole() {
-				if deps.HumanTaskSvc != nil {
-					// 获取调用者名称
-					callerName := opts.CallerCatID
-					if opts.CallerCatID != "" {
-						if callerID, err := uuid.Parse(opts.CallerCatID); err == nil {
-							if callerConfig, err := deps.AgentConfigRepo.FindByID(ctx, callerID); err == nil {
-								callerName = callerConfig.Name
-							}
-						}
-					}
-
-					// 创建人工任务
-					var sourceInvocationID uuid.UUID
-					if opts.ParentInvocationID != nil {
-						sourceInvocationID = *opts.ParentInvocationID
-					}
-					_, createErr := deps.HumanTaskSvc.CreateTask(ctx, opts.ThreadID, roleConfigID, opts.Content, sourceInvocationID, callerName)
-					if createErr != nil {
-						// 记录错误但继续处理其他目标
-						fmt.Printf("[EnqueueA2ATargets] Failed to create human task: %v\n", createErr)
-					} else {
-						enqueued = append(enqueued, catID)
-					}
-				}
-				continue
-			}
+		// 检查是否是人类角色，如果是则创建人工任务
+		if handled, enqueuedID := handleHumanRoleTask(ctx, deps, opts, roleConfigID); handled {
+			enqueued = append(enqueued, enqueuedID)
+			continue
 		}
 
 		// 检查 slot 是否被占用
