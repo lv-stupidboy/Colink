@@ -12,41 +12,22 @@ import (
 type HumanTaskStatus string
 
 const (
-	HumanTaskStatusPending    HumanTaskStatus = "pending"
-	HumanTaskStatusInProgress HumanTaskStatus = "in_progress"
-	HumanTaskStatusCompleted  HumanTaskStatus = "completed"
-	HumanTaskStatusRejected   HumanTaskStatus = "rejected"
-	HumanTaskStatusFailed     HumanTaskStatus = "failed"
+	HumanTaskStatusPending   HumanTaskStatus = "pending"
+	HumanTaskStatusCompleted HumanTaskStatus = "completed"
+	HumanTaskStatusCancelled HumanTaskStatus = "cancelled"
 )
 
-// HumanTaskType 任务类型
-type HumanTaskType string
-
-const (
-	HumanTaskTypeDispatch HumanTaskType = "task_dispatch" // 任务分发
-	HumanTaskTypeReview   HumanTaskType = "review"        // 审核决策
-	HumanTaskTypeConfirm  HumanTaskType = "confirm"       // 人工确认
-)
-
-// HumanTask 人工任务
+// HumanTask 人工任务（简化版）
 type HumanTask struct {
-	ID               uuid.UUID       `json:"id"`
-	ThreadID         uuid.UUID       `json:"threadId"`
-	RoleConfigID     uuid.UUID       `json:"roleConfigId"`
-	RoleName         string          `json:"roleName"`        // 角色名称
-	TaskType         HumanTaskType   `json:"taskType"`        // 任务类型
-	TaskContent      string          `json:"taskContent"`     // 任务描述
-	ExpectedOutput   string          `json:"expectedOutput"`  // 期望交付物
-	SourceAgentID    uuid.UUID       `json:"sourceAgentId"`   // 来源 Agent invocation ID
-	SourceAgentName  string          `json:"sourceAgentName"` // 来源 Agent 名称
-	Status           HumanTaskStatus `json:"status"`          // 任务状态
-	SubmittedAt      *time.Time      `json:"submittedAt"`     // 提交时间
-	SubmittedBy      string          `json:"submittedBy"`     // 提交人
-	OutputContent    string          `json:"outputContent"`   // 交付物内容
-	OutputFiles      []string        `json:"outputFiles"`     // 交付物文件路径
-	TargetAgentID    uuid.UUID       `json:"targetAgentId"`   // 下游目标 Agent ID
-	CreatedAt        time.Time       `json:"createdAt"`
-	UpdatedAt        time.Time        `json:"updatedAt"`
+	ID            uuid.UUID       `json:"id"`
+	ThreadID      uuid.UUID       `json:"threadId"`
+	InvocationID  uuid.UUID       `json:"invocationId"`   // 关联 invocation
+	AgentConfigID uuid.UUID       `json:"agentConfigId"`  // 等待用户的 Agent
+	AgentName     string          `json:"agentName"`      // Agent 名称
+	WaitReason    string          `json:"waitReason"`     // 等待原因（输出摘要）
+	Status        HumanTaskStatus `json:"status"`
+	CreatedAt     time.Time       `json:"createdAt"`
+	CompletedAt   *time.Time      `json:"completedAt"`
 }
 
 func (t *HumanTask) TableName() string {
@@ -61,9 +42,9 @@ type SubmitHumanTaskRequest struct {
 
 // SubmitHumanTaskResponse 提交响应
 type SubmitHumanTaskResponse struct {
-	Success    bool           `json:"success"`
-	NextAgent  *NextAgentInfo `json:"nextAgent,omitempty"`
-	Triggered  bool           `json:"triggered"`
+	Success   bool           `json:"success"`
+	NextAgent *NextAgentInfo `json:"nextAgent,omitempty"`
+	Triggered bool           `json:"triggered"`
 }
 
 // NextAgentInfo 下游 Agent 信息
