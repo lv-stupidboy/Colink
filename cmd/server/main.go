@@ -470,6 +470,10 @@ func main() {
 	projectHandler := api.NewProjectHandler(projectService)
 	projectHandler.RegisterRoutes(v1)
 
+	// Dashboard Handler（首页统计）
+	dashboardHandler := api.NewDashboardHandler(db)
+	dashboardHandler.RegisterRoutes(v1)
+
 	// 先注册 invocationHandler（包含 /threads/:id/invocations）
 	invocationHandler := api.NewInvocationHandler(orchestrator, mcpAuthService, projectRepo)
 	invocationHandler.RegisterRoutes(v1)
