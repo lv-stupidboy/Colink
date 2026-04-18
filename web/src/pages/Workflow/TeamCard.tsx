@@ -6,26 +6,22 @@ import {
   Popconfirm,
   Popover,
   Input,
-  Typography,
 } from 'antd';
 import {
   PlusOutlined,
   DeleteOutlined,
   TeamOutlined,
-  UserOutlined,
   CrownOutlined,
   EditOutlined,
   AppstoreOutlined,
   ShareAltOutlined,
+  RobotOutlined,
 } from '@ant-design/icons';
 import type { AgentConfig, Transition } from '@/types';
-import { AgentRoleLabels } from '@/types';
 import AgentAvatar from './AgentAvatar';
 import TeamRelationGraph from './TeamRelationGraph';
 import useAgentDragSort, { type TeamAgent } from './useAgentDragSort';
 import './Workflow.css';
-
-const { Text } = Typography;
 
 // Agent 触发配置
 interface AgentTrigger {
@@ -227,23 +223,23 @@ const TeamCard: React.FC<TeamCardProps> = ({
                 <div className="workflow-add-agent-popover">
                   <div className="workflow-add-agent-title">选择 Agent</div>
                   <div className="workflow-add-agent-list">
-                    {availableAgents.map(agent => (
-                      <div
-                        key={agent.id}
-                        className="workflow-add-agent-item"
-                        onClick={() => onAddAgent(agent.id)}
-                      >
-                        {agent.isSystem ? (
-                          <CrownOutlined style={{ color: '#faad14', marginRight: 8 }} />
-                        ) : (
-                          <UserOutlined style={{ marginRight: 8 }} />
-                        )}
-                        <span>{agent.name}</span>
-                        <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
-                          {AgentRoleLabels[agent.role] || agent.role}
-                        </Text>
-                      </div>
-                    ))}
+                    {availableAgents.map(agent => {
+                      const iconColor = agent.isSystem ? '#faad14' : 'var(--color-primary)';
+                      return (
+                        <div
+                          key={agent.id}
+                          className="workflow-add-agent-item"
+                          onClick={() => onAddAgent(agent.id)}
+                        >
+                          {agent.isSystem ? (
+                            <CrownOutlined style={{ color: iconColor, marginRight: 8 }} />
+                          ) : (
+                            <RobotOutlined style={{ color: iconColor, marginRight: 8 }} />
+                          )}
+                          <span>{agent.name}</span>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               }
