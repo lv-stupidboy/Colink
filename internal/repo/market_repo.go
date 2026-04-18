@@ -71,7 +71,7 @@ func (r *MarketRepository) List(ctx context.Context) ([]model.Market, error) {
 	}
 	defer rows.Close()
 
-	var markets []model.Market
+	markets := []model.Market{}
 	for rows.Next() {
 		var m model.Market
 		var idStr string
