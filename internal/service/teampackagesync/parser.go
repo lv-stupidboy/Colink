@@ -47,11 +47,3 @@ func CompareVersions(v1, v2 string) int {
 
 	return 0
 }
-
-// max returns the larger of two integers
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
