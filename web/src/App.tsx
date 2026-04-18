@@ -12,6 +12,9 @@ import SandboxPage from '@/pages/Sandbox';
 import SettingsLayout from '@/pages/Settings/Layout';
 import GeneralSettings from '@/pages/Settings/GeneralSettings';
 import BaseAgentSettings from '@/pages/Settings/BaseAgentSettings';
+import MarketLayout from '@/pages/Market/Layout';
+import MarketManagement from '@/pages/Market/MarketManagement';
+import TeamPackages from '@/pages/Market/TeamPackages';
 import WorkflowPage from '@/pages/Workflow';
 import SkillLibrary from '@/pages/SkillLibrary';
 import RegistryManagement from '@/pages/RegistryManagement';
@@ -21,7 +24,6 @@ import CommandList from '@/pages/CommandList';
 import RuleList from '@/pages/RuleList';
 import SettingsManagement from '@/pages/SettingsManagement';
 import AssetPackageManagement from '@/pages/AssetPackage';
-import TeamPackagePage from '@/pages/TeamPackage';
 import PlaceholderPage from '@/pages/PlaceholderPage';
 import { useThemeStore } from '@/store/themeStore';
 import '@/themes/themeVariables.css';
@@ -158,14 +160,21 @@ const App: React.FC = () => {
               <Route path="registries" element={<RegistryManagement />} />
               <Route path="knowledge" element={<Navigate to="/agents/knowledge" replace />} />
 
+              {/* 市场 - 二级菜单 */}
+              <Route path="market" element={<MarketLayout />}>
+                <Route index element={<Navigate to="management" replace />} />
+                <Route path="management" element={<MarketManagement />} />
+                <Route path="team-packages" element={<TeamPackages />} />
+              </Route>
+
               {/* 管理工具路由 - 作为 Agent团队的二级菜单 */}
-              <Route path="agents/team-packages" element={<TeamPackagePage />} />
+              <Route path="agents/team-packages" element={<Navigate to="/market/team-packages" replace />} />
               <Route path="agents/asset-packages" element={<AssetPackageManagement />} />
 
               {/* 旧路由重定向 */}
-              <Route path="management-tools/team-package" element={<Navigate to="/agents/team-packages" replace />} />
+              <Route path="management-tools/team-package" element={<Navigate to="/market/team-packages" replace />} />
               <Route path="management-tools/asset-package" element={<Navigate to="/agents/asset-packages" replace />} />
-              <Route path="team-packages" element={<Navigate to="/agents/team-packages" replace />} />
+              <Route path="team-packages" element={<Navigate to="/market/team-packages" replace />} />
               <Route path="asset-packages" element={<Navigate to="/agents/asset-packages" replace />} />
 
               {/* 设置页面 - 二级菜单 */}
