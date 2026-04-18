@@ -1195,3 +1195,48 @@ export interface ImportConfirm {
   overwrite?: boolean;
   skipExisting?: boolean;
 }
+
+// ========== Market 相关类型 ==========
+
+// Market 市场（插件源）
+export interface Market {
+  id: string;
+  name: string;
+  url: string;
+  branch: string;
+  enabled: boolean;
+  autoUpdate: boolean;
+  checkInterval: string;
+  lastSyncedAt?: string;
+  lastError?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// MarketPackage 市场包信息
+export interface MarketPackage {
+  name: string;
+  version: string;
+  description: string;
+  marketId: string;
+  marketName: string;
+  repository: string;
+  source: string;
+  localVersion?: string;
+  localStatus: 'new' | 'update' | 'latest';
+}
+
+// AddMarketRequest 添加市场请求
+export interface AddMarketRequest {
+  name: string;
+  url: string;
+  branch?: string;
+}
+
+// UpdateMarketRequest 更新市场请求
+export interface UpdateMarketRequest {
+  name?: string;
+  enabled?: boolean;
+  autoUpdate?: boolean;
+  checkInterval?: string;
+}

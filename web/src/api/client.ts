@@ -61,6 +61,10 @@ import type {
   UpdateCheckResult,
   TeamPackageVersion,
   ImportConfirm,
+  Market,
+  MarketPackage,
+  AddMarketRequest,
+  UpdateMarketRequest,
 } from '@/types';
 import {
   transformProjects,
@@ -684,10 +688,26 @@ class APIClient {
       this.request('/team-package-sync/remote', 'GET'),
     checkUpdates: (): Promise<UpdateCheckResult> =>
       this.request('/team-package-sync/check-update', 'GET'),
-    syncPackage: (packageName: string, confirm?: ImportConfirm): Promise<ImportResult> =>
-      this.request('/team-package-sync/sync', 'POST', { packageName, confirm }),
+    syncPackage: (packageName: string, confirm?: ImportConfirm, marketId?: string): Promise<ImportResult> =>
+      this.request('/team-package-sync/sync', 'POST', { packageName, confirm, marketId }),
     listLocalVersions: (): Promise<{ data: TeamPackageVersion[]; total: number }> =>
       this.request('/team-package-sync/local-versions', 'GET'),
+  };
+
+  // Market API
+  markets = {
+    list: (): Promise<{ data: Market[]; total: number }> =>
+      this.request('/markets', 'GET'),
+    add: (req: AddMarketRequest): Promise<Market> =>
+      this.request('/markets', 'POST', req),
+    update: (id: string, req: UpdateMarketRequest): Promise<Market> =>
+      this.request(`/markets/${id}`, 'PUT', req),
+    delete: (id: string): Promise<{ message: string }> =>
+      this.request(`/markets/${id}`, 'DELETE'),
+    refresh: (id: string): Promise<{ message: string; plugins: number }> =>
+      this.request(`/markets/${id}/refresh`, 'POST'),
+    getTeamPackages: (): Promise<{ data: MarketPackage[]; total: number }> =>
+      this.request('/markets/packages', 'GET'),
   };
 
   // Settings API
