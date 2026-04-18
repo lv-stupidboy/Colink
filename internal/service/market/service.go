@@ -167,7 +167,7 @@ func (s *Service) GetTeamPackages(ctx context.Context) ([]model.MarketPackage, e
 		localMap[v.Name] = v.Version
 	}
 
-	var packages []model.MarketPackage
+	packages := []model.MarketPackage{}
 
 	for _, market := range markets {
 		if !market.Enabled {
