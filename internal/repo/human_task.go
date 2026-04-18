@@ -313,5 +313,9 @@ func (r *HumanTaskRepository) scanTasks(rows *sql.Rows) ([]*model.HumanTask, err
 		tasks = append(tasks, task)
 	}
 
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating human task rows: %w", err)
+	}
+
 	return tasks, nil
 }
