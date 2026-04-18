@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Form, Switch, Typography, Space, Button, message, Alert, Tag } from 'antd';
+import { Card, Form, Switch, Typography, Space, Button, message, Alert, Tag, Select, Table, Spin } from 'antd';
 import {
   SettingOutlined,
   AlertOutlined,
   DesktopOutlined,
   SoundOutlined,
+  SyncOutlined,
+  CloudSyncOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons';
 import { useAppStore } from '@/store';
 import {
@@ -15,6 +18,8 @@ import {
   setNotificationSoundEnabled,
   playNotificationSound,
 } from '@/utils/systemNotification';
+import api from '@/api/client';
+import type { TeamPackageVersion, UpdateCheckResult } from '@/types';
 
 const { Title, Text } = Typography;
 
@@ -27,6 +32,15 @@ const GeneralSettings: React.FC = () => {
 
   // 系统通知权限状态
   const [notificationPermission, setNotificationPermission] = useState<'granted' | 'denied' | 'default' | 'unsupported'>('default');
+
+  // 团队包自动更新状态
+  const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(false);
+  const [checkInterval, setCheckInterval] = useState<string>('24h');
+  const [remoteRepoUrl, setRemoteRepoUrl] = useState<string>('');
+  const [localVersions, setLocalVersions] = useState<TeamPackageVersion[]>([]);
+  const [loadingVersions, setLoadingVersions] = useState(false);
+  const [checkingUpdates, setCheckingUpdates] = useState(false);
+  const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null);
 
   // 从 Store 获取阻塞提醒相关 actions
   const setBlockingReminderEnabled = useAppStore((state) => state.setBlockingReminderEnabled);
@@ -45,7 +59,35 @@ const GeneralSettings: React.FC = () => {
     } else {
       setNotificationPermission('unsupported');
     }
+
+    // 加载团队包自动更新配置
+    const autoUpdateStored = localStorage.getItem('isdp_team_package_auto_update');
+    setAutoUpdateEnabled(autoUpdateStored === 'true');
+
+    const intervalStored = localStorage.getItem('isdp_team_package_check_interval');
+    setCheckInterval(intervalStored || '24h');
+
+    // 加载远程仓库地址（从配置或默认值）
+    const repoUrlStored = localStorage.getItem('isdp_team_package_repo_url');
+    setRemoteRepoUrl(repoUrlStored || 'https://gitee.com/colink_1/team-packages');
+
+    // 加载本地版本列表
+    loadLocalVersions();
   }, []);
+
+  // 加载本地版本列表
+  const loadLocalVersions = async () => {
+    setLoadingVersions(true);
+    try {
+      const result = await api.teamPackages.listLocalVersions();
+      setLocalVersions(result.data || []);
+    } catch (error) {
+      console.error('Failed to load local versions:', error);
+      message.error('加载本地团队包版本失败');
+    } finally {
+      setLoadingVersions(false);
+    }
+  };
 
   // 实时保存阻塞提醒开关状态
   const handleReminderChange = (checked: boolean) => {
@@ -80,6 +122,39 @@ const GeneralSettings: React.FC = () => {
     } else {
       setNotificationPermission('denied');
       message.warning('系统通知权限被拒绝，请检查浏览器设置');
+    }
+  };
+
+  // 团队包自动更新开关变化
+  const handleAutoUpdateChange = (checked: boolean) => {
+    setAutoUpdateEnabled(checked);
+    localStorage.setItem('isdp_team_package_auto_update', String(checked));
+    message.success(checked ? '已开启团队包自动更新' : '已关闭团队包自动更新');
+  };
+
+  // 检查间隔变化
+  const handleCheckIntervalChange = (value: string) => {
+    setCheckInterval(value);
+    localStorage.setItem('isdp_team_package_check_interval', value);
+    message.success('检查间隔已更新');
+  };
+
+  // 手动检查更新
+  const handleCheckUpdate = async () => {
+    setCheckingUpdates(true);
+    try {
+      const result = await api.teamPackages.checkUpdates();
+      setUpdateResult(result);
+      if (result.hasUpdates) {
+        message.info(`发现 ${result.total} 个团队包有更新`);
+      } else {
+        message.success('所有团队包已是最新版本');
+      }
+    } catch (error) {
+      console.error('Failed to check updates:', error);
+      message.error('检查更新失败');
+    } finally {
+      setCheckingUpdates(false);
     }
   };
 
@@ -210,6 +285,153 @@ const GeneralSettings: React.FC = () => {
                 </Text>
               )}
             </Space>
+          </Form.Item>
+        </Form>
+      </Card>
+
+      {/* 团队包自动更新卡片 */}
+      <Card
+        title={
+          <Space>
+            <CloudSyncOutlined />
+            团队包自动更新
+          </Space>
+        }
+        style={{ marginBottom: 16 }}
+      >
+        <Form layout="vertical">
+          {/* 启用自动更新开关 */}
+          <Form.Item
+            label="启用自动更新"
+            tooltip="定期检查远程仓库的团队包更新并自动同步"
+          >
+            <Space>
+              <Switch
+                checked={autoUpdateEnabled}
+                onChange={handleAutoUpdateChange}
+                checkedChildren="开启"
+                unCheckedChildren="关闭"
+              />
+              <Text type="secondary">
+                {autoUpdateEnabled ? '自动检查并更新团队包' : '手动更新模式'}
+              </Text>
+            </Space>
+          </Form.Item>
+
+          {/* 检查间隔 */}
+          {autoUpdateEnabled && (
+            <Form.Item
+              label="检查间隔"
+              tooltip="自动检查更新的频率"
+            >
+              <Select
+                value={checkInterval}
+                onChange={handleCheckIntervalChange}
+                style={{ width: 200 }}
+                options={[
+                  { value: '12h', label: '每12小时' },
+                  { value: '24h', label: '每24小时' },
+                  { value: '7d', label: '每7天' },
+                ]}
+              />
+            </Form.Item>
+          )}
+
+          {/* 远程仓库地址 */}
+          <Form.Item
+            label="远程仓库地址"
+            tooltip="团队包同步的远程Git仓库地址"
+          >
+            <Text copyable style={{ fontFamily: 'monospace', fontSize: 13 }}>
+              {remoteRepoUrl}
+            </Text>
+          </Form.Item>
+
+          {/* 已导入团队包列表 */}
+          <Form.Item label="已导入团队包">
+            <Spin spinning={loadingVersions}>
+              <Table
+                dataSource={localVersions}
+                rowKey="packageName"
+                pagination={false}
+                size="small"
+                columns={[
+                  {
+                    title: '名称',
+                    dataIndex: 'packageName',
+                    key: 'packageName',
+                    ellipsis: true,
+                  },
+                  {
+                    title: '分类',
+                    dataIndex: 'category',
+                    key: 'category',
+                    render: () => <Tag color="blue">团队包</Tag>,
+                  },
+                  {
+                    title: '版本号',
+                    dataIndex: 'version',
+                    key: 'version',
+                    render: (version: string) => <Tag color="green">{version}</Tag>,
+                  },
+                  {
+                    title: '最后同步时间',
+                    dataIndex: 'installedAt',
+                    key: 'installedAt',
+                    render: (time: string) => {
+                      if (!time) return '-';
+                      const date = new Date(time);
+                      return date.toLocaleString('zh-CN', {
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      });
+                    },
+                  },
+                ]}
+                locale={{ emptyText: '暂无已导入的团队包' }}
+              />
+            </Spin>
+          </Form.Item>
+
+          {/* 手动检查更新按钮 */}
+          <Form.Item>
+            <Space>
+              <Button
+                type="primary"
+                icon={<SyncOutlined spin={checkingUpdates} />}
+                onClick={handleCheckUpdate}
+                loading={checkingUpdates}
+              >
+                手动检查更新
+              </Button>
+              <Button
+                icon={<ReloadOutlined />}
+                onClick={loadLocalVersions}
+                loading={loadingVersions}
+              >
+                刷新列表
+              </Button>
+            </Space>
+            {updateResult && updateResult.hasUpdates && (
+              <Alert
+                type="info"
+                message={`发现 ${updateResult.total} 个团队包有更新`}
+                description={
+                  <ul style={{ margin: 0, paddingLeft: 20 }}>
+                    {updateResult.updates.map((item) => (
+                      <li key={item.packageName}>
+                        {item.packageName}: {item.localVersion} → {item.remoteVersion}
+                      </li>
+                    ))}
+                  </ul>
+                }
+                showIcon
+                style={{ marginTop: 12 }}
+              />
+            )}
           </Form.Item>
         </Form>
       </Card>
