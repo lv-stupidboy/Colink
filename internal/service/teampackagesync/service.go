@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -331,95 +330,4 @@ func compareVersions(v1, v2 string) int {
 	}
 
 	return 0
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-// extractZip 解压 ZIP 文件（用于内部使用）
-func extractZip(zipReader io.Reader, dstDir string) error {
-	zipData, err := io.ReadAll(zipReader)
-	if err != nil {
-		return err
-	}
-
-	reader, err := zip.NewReader(bytes.NewReader(zipData), int64(len(zipData)))
-	if err != nil {
-		return err
-	}
-
-	const (
-		maxTotalSize = int64(500 * 1024 * 1024) // 500MB
-		maxFileCount = 1000
-		maxFileSize  = int64(100 * 1024 * 1024) // 100MB
-	)
-
-	var totalSize int64
-	fileCount := 0
-	cleanDstDir := filepath.Clean(dstDir)
-
-	for _, file := range reader.File {
-		fileCount++
-		if fileCount > maxFileCount {
-			return fmt.Errorf("ZIP file count exceeds limit (max %d files)", maxFileCount)
-		}
-
-		fileInfo := file.FileInfo()
-		fileSize := fileInfo.Size()
-		if fileSize > maxFileSize {
-			return fmt.Errorf("file %s exceeds size limit (max %d MB)", file.Name, maxFileSize/1024/1024)
-		}
-
-		totalSize += fileSize
-		if totalSize > maxTotalSize {
-			return fmt.Errorf("ZIP total size exceeds limit (max %d MB)", maxTotalSize/1024/1024)
-		}
-
-		dstPath := filepath.Join(dstDir, file.Name)
-		cleanPath := filepath.Clean(dstPath)
-		if !strings.HasPrefix(cleanPath, cleanDstDir+string(filepath.Separator)) {
-			if cleanPath != cleanDstDir {
-				return fmt.Errorf("path traversal attack detected: %s", file.Name)
-			}
-		}
-
-		if fileInfo.IsDir() {
-			if err := os.MkdirAll(cleanPath, 0755); err != nil {
-				return fmt.Errorf("create directory: %w", err)
-			}
-			continue
-		}
-
-		if err := os.MkdirAll(filepath.Dir(cleanPath), 0755); err != nil {
-			return fmt.Errorf("create parent directory: %w", err)
-		}
-
-		srcFile, err := file.Open()
-		if err != nil {
-			return fmt.Errorf("open ZIP entry: %w", err)
-		}
-
-		dstFile, err := os.Create(cleanPath)
-		if err != nil {
-			srcFile.Close()
-			return fmt.Errorf("create destination file: %w", err)
-		}
-
-		_, err = io.CopyN(dstFile, srcFile, maxFileSize+1)
-		dstFile.Close()
-		srcFile.Close()
-
-		if err != nil {
-			if err == io.EOF {
-				continue
-			}
-			return fmt.Errorf("extract file: %w", err)
-		}
-	}
-
-	return nil
 }

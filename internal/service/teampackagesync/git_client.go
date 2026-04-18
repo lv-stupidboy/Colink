@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -31,7 +30,7 @@ func NewGitClient(cfg config.TeamPackageSyncConfig, logger *zap.Logger) *GitClie
 // Clone clones the remote repo to a temp directory with --depth 1 for lightweight fetching
 func (g *GitClient) Clone(ctx context.Context) (string, error) {
 	// Create temp directory
-	tempDir, err := ioutil.TempDir("", "team-package-sync-")
+	tempDir, err := os.MkdirTemp("", "team-package-sync-")
 	if err != nil {
 		return "", fmt.Errorf("create temp dir: %w", err)
 	}
@@ -65,7 +64,7 @@ func (g *GitClient) GetPackageList(cloneDir string) (*RemotePackageList, error) 
 	list := &RemotePackageList{Categories: []RemotePackageCategory{}}
 
 	// Read root directory entries
-	entries, err := ioutil.ReadDir(cloneDir)
+	entries, err := os.ReadDir(cloneDir)
 	if err != nil {
 		return nil, fmt.Errorf("read clone dir: %w", err)
 	}
@@ -83,7 +82,7 @@ func (g *GitClient) GetPackageList(cloneDir string) (*RemotePackageList, error) 
 		}
 
 		// Read packages in category
-		pkgEntries, err := ioutil.ReadDir(categoryPath)
+		pkgEntries, err := os.ReadDir(categoryPath)
 		if err != nil {
 			g.logger.Warn("failed to read category dir",
 				zap.String("path", categoryPath),
@@ -138,7 +137,7 @@ func (g *GitClient) parsePackageJSON(pkgPath string) (*RemotePackage, error) {
 		return nil, fmt.Errorf("package.json too large: %d bytes (max 64KB)", info.Size())
 	}
 
-	data, err := ioutil.ReadFile(pkgFile)
+	data, err := os.ReadFile(pkgFile)
 	if err != nil {
 		return nil, fmt.Errorf("read package.json: %w", err)
 	}
