@@ -1,8 +1,8 @@
 -- +goose Up
 -- +goose StatementBegin
 CREATE TABLE IF NOT EXISTS team_package_versions (
-    id CHAR(36) PRIMARY KEY,
-    workflow_id CHAR(36) NOT NULL,
+    id VARCHAR(64) PRIMARY KEY,
+    workflow_id VARCHAR(64) NOT NULL,
     name VARCHAR(255) NOT NULL,
     category VARCHAR(255),
     version VARCHAR(50) NOT NULL,
