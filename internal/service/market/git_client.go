@@ -83,6 +83,11 @@ func (g *GitClient) Cleanup(cloneDir string) {
 	if cloneDir == "" {
 		return
 	}
-	os.RemoveAll(cloneDir)
-	g.logger.Info("market temp directory cleaned up", zap.String("path", cloneDir))
+	if err := os.RemoveAll(cloneDir); err != nil {
+		g.logger.Warn("failed to cleanup temp directory",
+			zap.String("path", cloneDir),
+			zap.Error(err))
+	} else {
+		g.logger.Info("market temp directory cleaned up", zap.String("path", cloneDir))
+	}
 }

@@ -3,6 +3,7 @@ package market
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -223,16 +224,44 @@ func (s *Service) GetTeamPackages(ctx context.Context) ([]model.MarketPackage, e
 	return packages, nil
 }
 
-// compareVersions 比较版本号
+// compareVersions 比较版本号（语义化版本）
 func compareVersions(v1, v2 string) int {
-	// 简单的语义化版本比较
-	if v1 == v2 {
-		return 0
+	// 解析版本号：major.minor.patch
+	v1Parts := parseVersionParts(v1)
+	v2Parts := parseVersionParts(v2)
+
+	for i := 0; i < 3; i++ {
+		if v1Parts[i] < v2Parts[i] {
+			return -1
+		}
+		if v1Parts[i] > v2Parts[i] {
+			return 1
+		}
 	}
-	if v1 < v2 {
-		return -1
+	return 0
+}
+
+// parseVersionParts 解析版本号为 [major, minor, patch]
+func parseVersionParts(v string) [3]int {
+	parts := strings.SplitN(v, ".", 3)
+	result := [3]int{}
+	for i, p := range parts {
+		if i >= 3 {
+			break
+		}
+		// 提取数字部分（处理类似 "1.0.0-beta" 的情况）
+		numStr := p
+		for j, c := range p {
+			if c < '0' || c > '9' {
+				numStr = p[:j]
+				break
+			}
+		}
+		if numStr != "" {
+			result[i], _ = strconv.Atoi(numStr)
+		}
 	}
-	return 1
+	return result
 }
 
 // StartAutoUpdateChecker 启动自动更新检查器
