@@ -1321,7 +1321,7 @@ func (s *Service) importRole(ctx context.Context, role model.TeamPackageRole, ov
 	agentConfig := &model.AgentRoleConfig{
 		ID:           originalID,
 		Name:         role.Name,
-		Role:         model.AgentRole(role.Role),
+		Role:         model.AgentRole(role.Role).NormalizeRole(),
 		Description:  role.Description,
 		SystemPrompt: role.SystemPrompt,
 		MaxTokens:    role.MaxTokens,
