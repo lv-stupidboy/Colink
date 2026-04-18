@@ -1157,15 +1157,22 @@ export interface RemotePackageInfo {
   name: string;
   version: string;
   description?: string;
+  path?: string;
+  category?: string; // 从 categories 结构中提取的分类名称
   author?: string;
-  updatedAt: string;
+  updatedAt?: string;
   downloadUrl?: string;
+}
+
+// RemotePackageCategory 远程包分类
+export interface RemotePackageCategory {
+  name: string;
+  packages: RemotePackageInfo[];
 }
 
 // RemotePackageList 远程包列表
 export interface RemotePackageList {
-  packages: RemotePackageInfo[];
-  total: number;
+  categories: RemotePackageCategory[];
 }
 
 // UpdateCheckItem 更新检查项
