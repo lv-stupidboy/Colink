@@ -251,20 +251,6 @@ func (s *ImportService) insertRecord(ctx context.Context, table string, columns 
 		values[i] = row[col]
 	}
 
-	// 兼容处理：agent_configs 表的 role 字段转换
-	if table == "agent_configs" {
-		for i, col := range columns {
-			if col == "role" {
-				// 将旧角色类型转换为 "agent"
-				if roleVal, ok := values[i].(string); ok {
-					if roleVal != "agent" && roleVal != "human" {
-						values[i] = "agent" // 旧值统一转为 agent
-					}
-				}
-			}
-		}
-	}
-
 	query := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", table, strings.Join(columns, ", "), placeholders)
 	_, err := s.db.ExecContext(ctx, query, values...)
 	return err
