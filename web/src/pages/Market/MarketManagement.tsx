@@ -13,6 +13,7 @@ const { Text } = Typography;
 const MarketManagement: React.FC = () => {
   const [markets, setMarkets] = useState<Market[]>([]);
   const [loading, setLoading] = useState(false);
+  const [refreshingAll, setRefreshingAll] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingMarket, setEditingMarket] = useState<Market | null>(null);
   const [form] = Form.useForm();
@@ -67,6 +68,25 @@ const MarketManagement: React.FC = () => {
       loadMarkets();
     } catch (error: any) {
       message.error(error.response?.data?.error || '刷新失败');
+    }
+  };
+
+  const handleRefreshAll = async () => {
+    setRefreshingAll(true);
+    try {
+      let totalPlugins = 0;
+      for (const market of markets) {
+        if (market.enabled) {
+          const result = await api.markets.refresh(market.id);
+          totalPlugins += result.plugins;
+        }
+      }
+      message.success(`已刷新所有市场，共解析到 ${totalPlugins} 个插件`);
+      loadMarkets();
+    } catch (error: any) {
+      message.error('刷新失败');
+    } finally {
+      setRefreshingAll(false);
     }
   };
 
@@ -202,9 +222,14 @@ const MarketManagement: React.FC = () => {
           </Space>
         }
         extra={
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
-            添加市场
-          </Button>
+          <Space>
+            <Button icon={<SyncOutlined />} onClick={handleRefreshAll} loading={refreshingAll}>
+              刷新全部
+            </Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
+              添加市场
+            </Button>
+          </Space>
         }
       >
         <Spin spinning={loading}>

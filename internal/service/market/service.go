@@ -174,10 +174,10 @@ func (s *Service) GetTeamPackages(ctx context.Context) ([]model.MarketPackage, e
 			continue
 		}
 
-		// 获取缓存数据，如果没有则刷新
+		// 新市场（从未同步）不使用缓存，必须刷新
 		marketplace := s.GetCachedMarketplace(market.ID)
-		if marketplace == nil {
-			// 尝试刷新（但不阻塞）
+		if marketplace == nil || market.LastSyncedAt == nil {
+			// 尝试刷新
 			mp, err := s.RefreshMarket(ctx, market.ID)
 			if err != nil {
 				s.logger.Warn("failed to refresh market",
