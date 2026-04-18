@@ -31,6 +31,7 @@ type PackageUpdateInfo struct {
 
 type SyncPackageRequest struct {
 	PackageName string                         `json:"packageName" binding:"required"`
+	MarketId    string                         `json:"marketId"` // 可选：指定从哪个市场同步
 	Confirm     *model.TeamPackageImportConfirm `json:"confirm"`
 }
 

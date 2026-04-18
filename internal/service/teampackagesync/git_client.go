@@ -15,22 +15,32 @@ import (
 
 // GitClient handles git operations for remote package repository
 type GitClient struct {
-	config config.TeamPackageSyncConfig
-	logger *zap.Logger
+	config   config.TeamPackageSyncConfig
+	basePath string // 数据根目录
+	logger   *zap.Logger
 }
 
 // NewGitClient creates a new GitClient instance
-func NewGitClient(cfg config.TeamPackageSyncConfig, logger *zap.Logger) *GitClient {
+func NewGitClient(cfg config.TeamPackageSyncConfig, basePath string, logger *zap.Logger) *GitClient {
 	return &GitClient{
-		config: cfg,
-		logger: logger,
+		config:   cfg,
+		basePath: basePath,
+		logger:   logger,
 	}
 }
 
 // Clone clones the remote repo to a temp directory with --depth 1 for lightweight fetching
 func (g *GitClient) Clone(ctx context.Context) (string, error) {
-	// Create temp directory
-	tempDir, err := os.MkdirTemp("", "team-package-sync-")
+	// 使用项目数据目录下的临时目录
+	tempBase := filepath.Join(g.basePath, g.config.TempDir)
+
+	// 确保临时目录存在
+	if err := os.MkdirAll(tempBase, 0755); err != nil {
+		return "", fmt.Errorf("create temp base dir: %w", err)
+	}
+
+	// 在临时目录下创建本次同步的子目录
+	tempDir, err := os.MkdirTemp(tempBase, "team-package-sync-")
 	if err != nil {
 		return "", fmt.Errorf("create temp dir: %w", err)
 	}

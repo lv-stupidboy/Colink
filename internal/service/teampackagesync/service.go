@@ -11,6 +11,7 @@ import (
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
+	"github.com/anthropic/isdp/internal/service/market"
 	"github.com/anthropic/isdp/internal/service/teampackage"
 	"github.com/anthropic/isdp/pkg/config"
 	"github.com/google/uuid"
@@ -22,6 +23,7 @@ type SyncService struct {
 	versionRepo    *repo.TeamPackageVersionRepository
 	workflowRepo   *repo.WorkflowTemplateRepository
 	teamPackageSvc *teampackage.Service
+	marketSvc      *market.Service // 市场服务
 	config         config.TeamPackageSyncConfig
 	gitClient      *GitClient
 	logger         *zap.Logger
@@ -32,15 +34,18 @@ func NewSyncService(
 	versionRepo *repo.TeamPackageVersionRepository,
 	workflowRepo *repo.WorkflowTemplateRepository,
 	teamPackageSvc *teampackage.Service,
+	marketSvc *market.Service, // 新增参数
 	cfg config.TeamPackageSyncConfig,
+	basePath string,
 	logger *zap.Logger,
 ) *SyncService {
 	return &SyncService{
 		versionRepo:    versionRepo,
 		workflowRepo:   workflowRepo,
 		teamPackageSvc: teamPackageSvc,
+		marketSvc:      marketSvc, // 新增
 		config:         cfg,
-		gitClient:      NewGitClient(cfg, logger),
+		gitClient:      NewGitClient(cfg, basePath, logger),
 		logger:         logger,
 	}
 }
@@ -143,6 +148,11 @@ func (s *SyncService) SyncPackage(ctx context.Context, packageName string, confi
 	var remotePkg *RemotePackage
 	for _, category := range remoteList.Categories {
 		for _, pkg := range category.Packages {
+			s.logger.Info("comparing packages",
+				zap.String("received", packageName),
+				zap.String("remote", pkg.Name),
+				zap.Int("receivedLen", len(packageName)),
+				zap.Int("remoteLen", len(pkg.Name)))
 			if pkg.Name == packageName {
 				remotePkg = &pkg
 				break
