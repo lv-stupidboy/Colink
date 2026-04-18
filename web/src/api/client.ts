@@ -57,6 +57,10 @@ import type {
   AgentSettingsResponse,
   BatchGenerateResult,
   BatchUpdateResult,
+  RemotePackageList,
+  UpdateCheckResult,
+  TeamPackageVersion,
+  ImportConfirm,
 } from '@/types';
 import {
   transformProjects,
@@ -675,6 +679,15 @@ class APIClient {
       });
       return response.data;
     },
+    // Team Package Sync methods
+    getRemotePackages: (): Promise<RemotePackageList> =>
+      this.request('/team-package-sync/remote', 'GET'),
+    checkUpdates: (): Promise<UpdateCheckResult> =>
+      this.request('/team-package-sync/check-update', 'GET'),
+    syncPackage: (packageName: string, confirm?: ImportConfirm): Promise<ImportResult> =>
+      this.request('/team-package-sync/sync', 'POST', { packageName, confirm }),
+    listLocalVersions: (): Promise<{ data: TeamPackageVersion[]; total: number }> =>
+      this.request('/team-package-sync/local-versions', 'GET'),
   };
 
   // Settings API

@@ -1140,3 +1140,51 @@ export interface UpdateResultItem {
   status: 'success' | 'failed';
   error?: string;
 }
+
+// ========== Team Package Sync 相关类型 ==========
+
+// TeamPackageVersion 团队包版本信息
+export interface TeamPackageVersion {
+  packageName: string;
+  version: string;
+  installedAt: string;
+  installedBy?: string;
+  workflowId?: string;
+}
+
+// RemotePackageInfo 远程包信息
+export interface RemotePackageInfo {
+  name: string;
+  version: string;
+  description?: string;
+  author?: string;
+  updatedAt: string;
+  downloadUrl?: string;
+}
+
+// RemotePackageList 远程包列表
+export interface RemotePackageList {
+  packages: RemotePackageInfo[];
+  total: number;
+}
+
+// UpdateCheckItem 更新检查项
+export interface UpdateCheckItem {
+  packageName: string;
+  localVersion: string;
+  remoteVersion: string;
+  hasUpdate: boolean;
+}
+
+// UpdateCheckResult 更新检查结果
+export interface UpdateCheckResult {
+  hasUpdates: boolean;
+  updates: UpdateCheckItem[];
+  total: number;
+}
+
+// ImportConfirm 导入确认配置
+export interface ImportConfirm {
+  overwrite?: boolean;
+  skipExisting?: boolean;
+}
