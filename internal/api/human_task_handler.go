@@ -2,7 +2,6 @@ package api
 
 import (
 	"net/http"
-	"strings"
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/service/humantask"
@@ -30,13 +29,11 @@ func (h *HumanTaskHandler) List(c *gin.Context) {
 	}
 
 	status := model.HumanTaskStatus(statusStr)
-	// 验证状态值是否有效
+	// 验证状态值是否有效（简化后只有三种状态）
 	validStatuses := []model.HumanTaskStatus{
 		model.HumanTaskStatusPending,
-		model.HumanTaskStatusInProgress,
 		model.HumanTaskStatusCompleted,
-		model.HumanTaskStatusRejected,
-		model.HumanTaskStatusFailed,
+		model.HumanTaskStatusCancelled,
 	}
 	isValid := false
 	for _, s := range validStatuses {
@@ -77,31 +74,18 @@ func (h *HumanTaskHandler) Get(c *gin.Context) {
 	c.JSON(http.StatusOK, task)
 }
 
-// Submit 提交交付物
-// POST /api/v1/human-tasks/:id/submit
-func (h *HumanTaskHandler) Submit(c *gin.Context) {
+// Complete 完成任务
+// PUT /api/v1/human-tasks/:id/complete
+func (h *HumanTaskHandler) Complete(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
 
-	var req model.SubmitHumanTaskRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	// 验证必填字段
-	if req.OutputContent == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "outputContent is required"})
-		return
-	}
-
-	resp, err := h.svc.Submit(c.Request.Context(), id, &req)
-	if err != nil {
+	if err := h.svc.Complete(c.Request.Context(), id); err != nil {
 		errMsg := err.Error()
-		if strings.Contains(errMsg, "not in") || strings.Contains(errMsg, "not found") {
+		if errMsg == "task is not in pending state" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": errMsg})
 			return
 		}
@@ -109,21 +93,21 @@ func (h *HumanTaskHandler) Submit(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, gin.H{"status": "completed"})
 }
 
-// Start 开始执行任务（更改状态为 in_progress）
-// PUT /api/v1/human-tasks/:id/start
-func (h *HumanTaskHandler) Start(c *gin.Context) {
+// Cancel 取消任务
+// PUT /api/v1/human-tasks/:id/cancel
+func (h *HumanTaskHandler) Cancel(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
 
-	if err := h.svc.Start(c.Request.Context(), id); err != nil {
+	if err := h.svc.CancelTask(c.Request.Context(), id); err != nil {
 		errMsg := err.Error()
-		if strings.Contains(errMsg, "not in") || strings.Contains(errMsg, "not found") {
+		if errMsg == "task is not in pending state" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": errMsg})
 			return
 		}
@@ -131,29 +115,19 @@ func (h *HumanTaskHandler) Start(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "in_progress"})
+	c.JSON(http.StatusOK, gin.H{"status": "cancelled"})
 }
 
-// Reject 拒绝任务
-// PUT /api/v1/human-tasks/:id/reject
-func (h *HumanTaskHandler) Reject(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
+// GetStats 获取任务统计
+// GET /api/v1/human-tasks/stats
+func (h *HumanTaskHandler) GetStats(c *gin.Context) {
+	stats, err := h.svc.GetStats(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	if err := h.svc.Reject(c.Request.Context(), id); err != nil {
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "not in") || strings.Contains(errMsg, "not found") {
-			c.JSON(http.StatusBadRequest, gin.H{"error": errMsg})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": errMsg})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"status": "rejected"})
+	c.JSON(http.StatusOK, stats)
 }
 
 // RegisterRoutes 注册路由
@@ -161,9 +135,9 @@ func (h *HumanTaskHandler) RegisterRoutes(r *gin.RouterGroup) {
 	humanTasks := r.Group("/human-tasks")
 	{
 		humanTasks.GET("", h.List)
+		humanTasks.GET("/stats", h.GetStats)
 		humanTasks.GET("/:id", h.Get)
-		humanTasks.POST("/:id/submit", h.Submit)
-		humanTasks.PUT("/:id/start", h.Start)
-		humanTasks.PUT("/:id/reject", h.Reject)
+		humanTasks.PUT("/:id/complete", h.Complete)
+		humanTasks.PUT("/:id/cancel", h.Cancel)
 	}
 }

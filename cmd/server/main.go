@@ -287,10 +287,7 @@ func main() {
 	)
 
 	// 创建 HumanTask Service
-	humanTaskSvc := humantask.NewService(
-		humanTaskRepo, messageRepo, threadRepo, workflowRepo, agentConfigRepo,
-		wsHub,
-	)
+	humanTaskSvc := humantask.NewService(humanTaskRepo, wsHub)
 
 	// 初始化 UseCountUpdater（技能使用次数统计）
 	useCountUpdater := skill.NewUseCountUpdater(skillRepo, projectRepo, agentSkillBindingRepo)
@@ -330,6 +327,7 @@ func main() {
 		invocationRepo, threadRepo, messageRepo,
 		configService, baseAgentService, baseAgentRepo, tracker, workflowEngine, workflowRepo, projectRepo, wsHub, defaultAdapter, mentionParser,
 		contentBlockRepo,
+		humanTaskSvc,
 	)
 
 	// 在Orchestrator中设置调试管理器
@@ -551,7 +549,7 @@ func main() {
 	teamPackageHandler.RegisterRoutes(v1)
 
 	// MCP Callback Handler
-	callbackHandler := api.NewCallbackHandler(invocationRegistry, mcpAuthService, messageService, messageRepo, wsHub, orchestrator, baseAgentRepo, invocationQueue, queueProcessor, mentionParser)
+	callbackHandler := api.NewCallbackHandler(invocationRegistry, mcpAuthService, messageService, messageRepo, wsHub, orchestrator, baseAgentRepo, invocationQueue, queueProcessor, mentionParser, humanTaskSvc, agentConfigRepo)
 	callbackHandler.RegisterRoutes(v1)
 
 	// WebSocket

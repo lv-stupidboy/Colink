@@ -40,18 +40,20 @@ type A2AResult struct {
 	Fallback bool     // 是否使用了 fallback 模式
 }
 
-// handleHumanRoleTask 处理人类角色任务创建
-// 当目标是人类角色时，创建人工任务而非触发 Agent
+// handleHumanRoleTask 处理人类角色
+// Human 角色不再通过 @mention 触发，任务由 ExecutionService 状态检测机制创建（waiting 状态检测）
 // 返回: (是否处理, 入队的ID)
 func handleHumanRoleTask(ctx context.Context, deps *A2ATriggerDeps, opts *A2ATriggerOptions, roleConfigID uuid.UUID) (bool, string) {
 	// 检查依赖是否可用
-	if deps.AgentConfigRepo == nil || deps.HumanTaskSvc == nil {
+	if deps.AgentConfigRepo == nil {
+		fmt.Printf("[A2A] handleHumanRoleTask: missing AgentConfigRepo\n")
 		return false, ""
 	}
 
 	// 获取角色配置
 	roleConfig, err := deps.AgentConfigRepo.FindByID(ctx, roleConfigID)
 	if err != nil {
+		fmt.Printf("[A2A] handleHumanRoleTask: failed to find role config %s: %v\n", roleConfigID.String(), err)
 		return false, ""
 	}
 
@@ -60,29 +62,10 @@ func handleHumanRoleTask(ctx context.Context, deps *A2ATriggerDeps, opts *A2ATri
 		return false, ""
 	}
 
-	// 获取调用者名称
-	callerName := opts.CallerCatID
-	if opts.CallerCatID != "" {
-		if callerID, err := uuid.Parse(opts.CallerCatID); err == nil {
-			if callerConfig, err := deps.AgentConfigRepo.FindByID(ctx, callerID); err == nil {
-				callerName = callerConfig.Name
-			}
-		}
-	}
-
-	// 创建人工任务
-	var sourceInvocationID uuid.UUID
-	if opts.ParentInvocationID != nil {
-		sourceInvocationID = *opts.ParentInvocationID
-	}
-
-	_, createErr := deps.HumanTaskSvc.CreateTask(ctx, opts.ThreadID, roleConfigID, opts.Content, sourceInvocationID, callerName)
-	if createErr != nil {
-		fmt.Printf("[handleHumanRoleTask] Failed to create human task: %v\n", createErr)
-		return false, ""
-	}
-
-	return true, roleConfigID.String()
+	// Human 角色不通过 @mention 触发，跳过
+	// Human 任务由 ExecutionService 在 Agent 进入 waiting 状态时创建
+	fmt.Printf("[A2A] handleHumanRoleTask: skipping human role %s (tasks created via waiting state detection)\n", roleConfig.Name)
+	return true, roleConfigID.String() // 返回 true 表示已处理（跳过 Agent 触发）
 }
 
 // EnqueueA2ATargets 将 @mentioned 的 Agent 加入工作队列

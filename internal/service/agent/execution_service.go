@@ -15,6 +15,7 @@ import (
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
+	"github.com/anthropic/isdp/internal/service/humantask"
 	"github.com/anthropic/isdp/internal/service/mention"
 	"github.com/anthropic/isdp/internal/ws"
 	"github.com/google/uuid"
@@ -123,6 +124,9 @@ type ExecutionService struct {
 	// Mention 解析器（支持动态 patterns）
 	mentionParser *mention.Parser
 
+	// Human 任务服务（用于 A2A 触发 Human 角色）
+	humanTaskSvc *humantask.Service
+
 	// 后台执行支持：内容块持久化
 	contentBlockRepo    *repo.ContentBlockRepository
 	contentBlockBuffer  []model.InvocationContentBlock // 缓冲区
@@ -166,6 +170,7 @@ func NewExecutionService(
 	defaultAdapter AgentAdapter,
 	mentionParser *mention.Parser,
 	contentBlockRepo *repo.ContentBlockRepository,
+	humanTaskSvc *humantask.Service,
 ) *ExecutionService {
 	es := &ExecutionService{
 		invocationRepo:     invocationRepo,
@@ -181,6 +186,7 @@ func NewExecutionService(
 		wsHub:              wsHub,
 		defaultAdapter:     defaultAdapter,
 		mentionParser:      mentionParser,
+		humanTaskSvc:       humanTaskSvc,
 		contentBlockRepo:   contentBlockRepo,
 		contentBlockBuffer: make([]model.InvocationContentBlock, 0, 20),
 		lastFlush:          time.Now(),
@@ -1841,6 +1847,12 @@ func (es *ExecutionService) checkSignalRouting(ctx context.Context, threadID uui
 
 	// ========== 2. 批量触发 Agent ==========
 	for _, targetConfig := range agentsToTrigger {
+		// Human 角色不再通过 @mention 触发
+		// Human 任务由 ExecutionService 状态检测机制创建（waiting 状态检测）
+		if targetConfig.Role.IsHumanRole() {
+			continue // 跳过 Human 角色的 Agent 触发流程
+		}
+
 		// 更新 A2A 上下文
 		es.a2aMu.Lock()
 		if a2aCtx.Depth >= MaxA2ADepth {
