@@ -732,6 +732,67 @@ class APIClient {
       return response.data;
     },
   };
+
+  // Dashboard API（首页统计）
+  dashboard = {
+    getStats: (): Promise<{
+      totalProjects: number;
+      activeThreads: number;
+      workflowTeams: number;
+      agentRoles: number;
+      todayAgentInteractions: Array<{
+        agentId: string;
+        agentName: string;
+        count: number;
+        isDefault: boolean;
+      }>;
+      todayWorkflowUsage: Array<{
+        workflowId: string;
+        workflowName: string;
+        count: number;
+        isSystem: boolean;
+      }>;
+      totalSkills: number;
+      totalCommands: number;
+      totalSubagents: number;
+      totalRules: number;
+    }> => this.request('/dashboard/stats', 'GET'),
+    getWorkflowsWithAssets: (): Promise<Array<{
+      id: string;
+      name: string;
+      description: string;
+      isSystem: boolean;
+      agentCount: number;
+      agents: Array<{
+        id: string;
+        name: string;
+        role: string;
+        skillsCount: number;
+        commandsCount: number;
+        subagentsCount: number;
+        rulesCount: number;
+      }>;
+      skills: number;
+      commands: number;
+      subagents: number;
+      rules: number;
+      totalAssets: number;
+      isActive: boolean;
+    }>> => this.request('/dashboard/workflows-with-assets', 'GET'),
+    getActiveThreads: (): Promise<Array<{
+      id: string;
+      projectId: string;
+      name: string;
+      status: string;
+      currentPhase: string;
+      currentAgentNames: string[];
+      workflowTemplateId: string;
+      createdAt: string;
+      updatedAt: string;
+      projectName: string;
+      workflowName: string;
+    }>> => this.request('/dashboard/active-threads', 'GET'),
+  };
 }
 
 export const api = new APIClient();
