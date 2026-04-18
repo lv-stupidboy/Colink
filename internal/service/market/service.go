@@ -174,19 +174,14 @@ func (s *Service) GetTeamPackages(ctx context.Context) ([]model.MarketPackage, e
 			continue
 		}
 
-		// 新市场（从未同步）不使用缓存，必须刷新
-		marketplace := s.GetCachedMarketplace(market.ID)
-		if marketplace == nil || market.LastSyncedAt == nil {
-			// 尝试刷新
-			mp, err := s.RefreshMarket(ctx, market.ID)
-			if err != nil {
-				s.logger.Warn("failed to refresh market",
-					zap.String("market", market.Name),
-					zap.Error(err),
-				)
-				continue
-			}
-			marketplace = mp
+		// 每次都刷新市场数据，不使用缓存
+		marketplace, err := s.RefreshMarket(ctx, market.ID)
+		if err != nil {
+			s.logger.Warn("failed to refresh market",
+				zap.String("market", market.Name),
+				zap.Error(err),
+			)
+			continue
 		}
 
 		// 只筛选 category=team 的包
