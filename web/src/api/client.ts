@@ -734,6 +734,12 @@ class APIClient {
       this.request(`/human-tasks/${id}/start`, 'PUT'),
     reject: (id: string): Promise<{ message: string }> =>
       this.request(`/human-tasks/${id}/reject`, 'PUT'),
+    complete: (id: string): Promise<{ status: string }> =>
+      this.request(`/human-tasks/${id}/complete`, 'POST'),
+    cancel: (id: string): Promise<{ status: string }> =>
+      this.request(`/human-tasks/${id}/cancel`, 'POST'),
+    stats: (): Promise<Record<string, number>> =>
+      this.request('/human-tasks/stats', 'GET'),
   };
 }
 

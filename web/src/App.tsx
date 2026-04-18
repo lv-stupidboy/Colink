@@ -23,7 +23,7 @@ import SettingsManagement from '@/pages/SettingsManagement';
 import AssetPackageManagement from '@/pages/AssetPackage';
 import TeamPackagePage from '@/pages/TeamPackage';
 import PlaceholderPage from '@/pages/PlaceholderPage';
-import MyTasks from '@/pages/MyTasks';
+import Tasks from '@/pages/Tasks';
 import { useThemeStore } from '@/store/themeStore';
 import '@/themes/themeVariables.css';
 
@@ -125,7 +125,7 @@ const App: React.FC = () => {
             <Route path="/" element={<MainLayout />}>
               <Route index element={<Dashboard />} />
               <Route path="dashboard" element={<Dashboard />} />
-              <Route path="tasks" element={<MyTasks />} />
+              <Route path="tasks" element={<Tasks />} />
 
               {/* 项目空间 - 按 PRD 要求的层级结构 */}
               <Route path="projects" element={<ProjectList />} />
