@@ -29,6 +29,7 @@ type Config struct {
 	Feishu      FeishuConfig      `mapstructure:"feishu"`
 	IM          IMConfig          `mapstructure:"im"`
 	Reporter    ReporterConfig    `mapstructure:"reporter"`
+	TeamPackageSync TeamPackageSyncConfig `mapstructure:"team_package_sync"`
 }
 
 // DataConfig 数据目录配置
@@ -293,6 +294,41 @@ func (c *ReporterConfig) GetRetryInterval() time.Duration {
 	return d
 }
 
+// TeamPackageSyncConfig 团队包同步配置
+type TeamPackageSyncConfig struct {
+	RemoteRepoURL     string `mapstructure:"remote_repo_url"`
+	AutoUpdateEnabled bool   `mapstructure:"auto_update_enabled"`
+	CheckInterval     string `mapstructure:"check_interval"`
+	Branch            string `mapstructure:"branch"`
+}
+
+// ApplyDefaults 设置团队包同步配置默认值
+func (c *TeamPackageSyncConfig) ApplyDefaults() {
+	if c.RemoteRepoURL == "" {
+		c.RemoteRepoURL = "https://gitee.com/colink_1/isdp.git"
+	}
+	if c.CheckInterval == "" {
+		c.CheckInterval = "24h"
+	}
+	if c.Branch == "" {
+		c.Branch = "main"
+	}
+}
+
+// GetCheckInterval 获取检查间隔（解析为 time.Duration）
+func (c *TeamPackageSyncConfig) GetCheckInterval() time.Duration {
+	d, err := time.ParseDuration(c.CheckInterval)
+	if err != nil {
+		return 24 * time.Hour
+	}
+	return d
+}
+
+// IsEnabled 返回是否启用团队包同步
+func (c *TeamPackageSyncConfig) IsEnabled() bool {
+	return c.AutoUpdateEnabled && c.RemoteRepoURL != ""
+}
+
 const (
 	EventModeWebhook  = "webhook"
 	EventModeListener = "listener"
@@ -476,6 +512,9 @@ func Load(configPath string) (*Config, error) {
 		cfg.IM.Platforms[i].ApplyDefaults()
 	}
 
+	// 应用团队包同步默认值
+	cfg.TeamPackageSync.ApplyDefaults()
+
 	// 验证必须的路径配置
 	if err := validateConfig(&cfg); err != nil {
 		return nil, err
@@ -570,4 +609,10 @@ func setDefaults() {
 
 	// IM 平台默认值（可选配置，默认为空数组）
 	// 具体平台配置通过 ApplyDefaults() 动态设置
+
+	// 团队包同步默认值
+	viper.SetDefault("team_package_sync.remote_repo_url", "https://gitee.com/colink_1/isdp.git")
+	viper.SetDefault("team_package_sync.auto_update_enabled", true)
+	viper.SetDefault("team_package_sync.check_interval", "24h")
+	viper.SetDefault("team_package_sync.branch", "main")
 }
