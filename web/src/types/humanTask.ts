@@ -1,42 +1,27 @@
-// 人工任务状态
-export type HumanTaskStatus = 'pending' | 'in_progress' | 'completed' | 'rejected' | 'failed';
+// 人工任务状态（简化版）
+export type HumanTaskStatus = 'pending' | 'completed' | 'cancelled';
 
-// 人工任务类型
-export type HumanTaskType = 'task_dispatch' | 'review' | 'confirm';
-
-// 人工任务
+// 人工任务（简化版）
 export interface HumanTask {
   id: string;
   threadId: string;
-  roleConfigId: string;
-  roleName: string;
-  taskType: HumanTaskType;
-  taskContent: string;
-  expectedOutput: string;
-  sourceAgentId: string;
-  sourceAgentName: string;
+  invocationId: string;      // 关联的 invocation ID
+  agentConfigId: string;     // Agent 角色配置 ID
+  agentName: string;         // Agent 名称
+  waitReason: string;        // 等待原因
   status: HumanTaskStatus;
-  submittedAt?: string;
-  submittedBy?: string;
-  outputContent?: string;
-  outputFiles?: string[];
-  targetAgentId?: string;
   createdAt: string;
-  updatedAt: string;
+  completedAt?: string;      // 完成时间
 }
 
-// 提交人工任务请求
+// 提交人工任务请求（简化版）
 export interface SubmitHumanTaskRequest {
   outputContent: string;
   outputFiles?: string[];
 }
 
-// 提交人工任务响应
+// 提交人工任务响应（简化版）
 export interface SubmitHumanTaskResponse {
   success: boolean;
-  nextAgent?: {
-    id: string;
-    name: string;
-  };
   triggered: boolean;
 }
