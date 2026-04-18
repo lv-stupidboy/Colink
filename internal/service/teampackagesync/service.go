@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/anthropic/isdp/internal/model"
@@ -94,7 +92,7 @@ func (s *SyncService) CheckUpdates(ctx context.Context) (*UpdateCheckResult, err
 		for _, remote := range category.Packages {
 			if local, exists := localMap[remote.Name]; exists {
 				// 比较版本
-				if compareVersions(local.Version, remote.Version) < 0 {
+				if CompareVersions(local.Version, remote.Version) < 0 {
 					result.NeedUpdate = append(result.NeedUpdate, PackageUpdateInfo{
 						Local:  local,
 						Remote: remote,
@@ -115,6 +113,15 @@ func (s *SyncService) CheckUpdates(ctx context.Context) (*UpdateCheckResult, err
 	}
 
 	return result, nil
+}
+
+// GetLocalVersions 获取本地版本记录列表
+func (s *SyncService) GetLocalVersions(ctx context.Context) ([]model.TeamPackageVersion, error) {
+	versions, err := s.versionRepo.ListAll(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list local versions: %w", err)
+	}
+	return versions, nil
 }
 
 // SyncPackage 同步指定的团队包
@@ -288,46 +295,4 @@ func (s *SyncService) updateVersionRecord(ctx context.Context, packageName strin
 	}
 
 	return s.versionRepo.Create(ctx, newVersion)
-}
-
-// compareVersions 比较语义版本号（返回 -1, 0, 1）
-func compareVersions(v1, v2 string) int {
-	// 处理空版本
-	if v1 == "" && v2 == "" {
-		return 0
-	}
-	if v1 == "" {
-		return -1
-	}
-	if v2 == "" {
-		return 1
-	}
-
-	// 移除可能的 'v' 前缀
-	v1 = strings.TrimPrefix(v1, "v")
-	v2 = strings.TrimPrefix(v2, "v")
-
-	parts1 := strings.Split(v1, ".")
-	parts2 := strings.Split(v2, ".")
-
-	maxLen := max(len(parts1), len(parts2))
-
-	for i := 0; i < maxLen; i++ {
-		var n1, n2 int
-		if i < len(parts1) {
-			n1, _ = strconv.Atoi(parts1[i])
-		}
-		if i < len(parts2) {
-			n2, _ = strconv.Atoi(parts2[i])
-		}
-
-		if n1 < n2 {
-			return -1
-		}
-		if n1 > n2 {
-			return 1
-		}
-	}
-
-	return 0
 }
