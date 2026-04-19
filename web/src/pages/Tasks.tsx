@@ -72,16 +72,6 @@ const Tasks: React.FC = () => {
     return date.toLocaleDateString();
   };
 
-  // 获取任务类型标签
-  const getTaskTypeTag = (taskType: string) => {
-    const typeMap: Record<string, { color: string; label: string }> = {
-      task_dispatch: { color: 'blue', label: '任务分发' },
-      review: { color: 'orange', label: '评审' },
-      confirm: { color: 'green', label: '确认' },
-    };
-    return typeMap[taskType] || { color: 'default', label: taskType };
-  };
-
   return (
     <div className="tasks-page" style={{ padding: 24, maxWidth: 800, margin: '0 auto' }}>
       <Title level={3}>
@@ -96,9 +86,7 @@ const Tasks: React.FC = () => {
       ) : (
         <List
           dataSource={tasks}
-          renderItem={(task) => {
-            const typeTag = getTaskTypeTag(task.taskType);
-            return (
+          renderItem={(task) => (
               <Card
                 style={{ marginBottom: 16 }}
                 hoverable
@@ -107,8 +95,7 @@ const Tasks: React.FC = () => {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <Space>
                     <RobotOutlined style={{ color: 'var(--color-primary)', fontSize: 20 }} />
-                    <Text strong>{task.roleName}</Text>
-                    <Tag color={typeTag.color}>{typeTag.label}</Tag>
+                    <Text strong>{task.agentName}</Text>
                     <Tag color="processing">等待处理</Tag>
                   </Space>
                   <Text type="secondary">
@@ -126,7 +113,7 @@ const Tasks: React.FC = () => {
                     whiteSpace: 'nowrap'
                   }}
                 >
-                  {task.taskContent || `${task.sourceAgentName} 分发的任务等待您的处理...`}
+                  {task.waitReason}
                 </Text>
                 <Button
                   type="primary"
@@ -140,8 +127,7 @@ const Tasks: React.FC = () => {
                   进入对话
                 </Button>
               </Card>
-            );
-          }}
+            )}
         />
       )}
     </div>
