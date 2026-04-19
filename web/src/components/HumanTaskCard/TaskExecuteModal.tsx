@@ -45,9 +45,6 @@ const TaskExecuteModal: React.FC<TaskExecuteModalProps> = ({
 
       if (result.success) {
         message.success('提交成功');
-        if (result.triggered && result.nextAgent) {
-          message.info(`已触发下游 Agent: ${result.nextAgent.name}`);
-        }
         onSuccess();
         onClose();
       }
@@ -60,7 +57,7 @@ const TaskExecuteModal: React.FC<TaskExecuteModalProps> = ({
 
   return (
     <Modal
-      title={`执行任务: ${task.roleName}`}
+      title={`执行任务: ${task.agentName}`}
       open={visible}
       onCancel={onClose}
       footer={[
@@ -73,9 +70,9 @@ const TaskExecuteModal: React.FC<TaskExecuteModalProps> = ({
     >
       <Space direction="vertical" size="middle" style={{ width: '100%' }}>
         <div>
-          <div style={{ marginBottom: 8 }}>任务描述:</div>
+          <div style={{ marginBottom: 8 }}>等待原因:</div>
           <div style={{ background: 'var(--bg-container)', padding: 12, borderRadius: 4 }}>
-            {task.taskContent}
+            {task.waitReason}
           </div>
         </div>
 

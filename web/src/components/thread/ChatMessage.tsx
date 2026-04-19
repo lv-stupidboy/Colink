@@ -3,7 +3,7 @@ import React, { memo } from 'react';
 import { Tag, Button, Tooltip, Alert, Card, Space, Avatar } from 'antd';
 import { StopOutlined, ReloadOutlined, FileTextOutlined, ExclamationCircleOutlined, ThunderboltOutlined, RobotOutlined, UserOutlined } from '@ant-design/icons';
 import type { Message, AgentConfig, AgentRole, MessageRole, ReviewIssue, ToolEvent, MessageContentBlock } from '@/types';
-import type { HumanTask, HumanTaskType, HumanTaskStatus } from '@/types';
+import type { HumanTask, HumanTaskStatus } from '@/types';
 import type { FileChange } from '@/types/content';
 import { getAgentStyle, AGENT_STYLES, USER_MESSAGE_STYLE, SYSTEM_MESSAGE_STYLE } from '@/config/agentStyles';
 import { ReviewReport } from '@/components/ReviewReport';
@@ -179,37 +179,28 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
     const metadata = message.metadata;
 
     // 验证必需字段是否存在
-    if (!metadata.taskId || !metadata.roleName || !metadata.taskType ||
-        !metadata.status || !metadata.sourceAgentName) {
+    if (!metadata.taskId || !metadata.agentName || !metadata.status) {
       console.warn('Invalid human_task metadata - missing required fields:', metadata);
       // 继续渲染普通消息，而不是返回 null
     } else {
       // 验证枚举值是否有效
-      const validTaskTypes: HumanTaskType[] = ['task_dispatch', 'review', 'confirm'];
-      const validStatuses: HumanTaskStatus[] = ['pending', 'in_progress', 'completed', 'rejected', 'failed'];
+      const validStatuses: HumanTaskStatus[] = ['pending', 'completed', 'cancelled'];
 
-      const taskType = metadata.taskType as HumanTaskType;
       const status = metadata.status as HumanTaskStatus;
 
-      if (!validTaskTypes.includes(taskType)) {
-        console.warn('Invalid human_task taskType:', metadata.taskType);
-      } else if (!validStatuses.includes(status)) {
+      if (!validStatuses.includes(status)) {
         console.warn('Invalid human_task status:', metadata.status);
       } else {
         // 所有验证通过，安全地构建 task 对象
         const task: HumanTask = {
           id: metadata.taskId as string,
           threadId: message.threadId,
-          roleConfigId: (metadata.roleConfigId as string) || '',
-          roleName: metadata.roleName as string,
-          taskType: taskType,
-          taskContent: message.content,
-          expectedOutput: (metadata.expectedOutput as string) || '',
-          sourceAgentId: (metadata.sourceAgentId as string) || '',
-          sourceAgentName: metadata.sourceAgentName as string,
+          invocationId: (metadata.invocationId as string) || '',
+          agentConfigId: (metadata.agentConfigId as string) || '',
+          agentName: metadata.agentName as string,
+          waitReason: message.content,
           status: status,
           createdAt: message.createdAt,
-          updatedAt: message.createdAt,
         };
 
         return (
@@ -219,9 +210,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
               onExecute={() => {
                 // TODO: 打开执行任务模态框 - 需要状态管理支持
                 // 目前用户可以到 /tasks 页面执行任务
-              }}
-              onViewContext={() => {
-                // TODO: 滚动到来源 Agent 的消息
               }}
             />
           </div>

@@ -84,9 +84,6 @@ const MyTasks: React.FC = () => {
               task={task}
               compact
               onExecute={() => handleExecute(task)}
-              onViewContext={() => {
-                // TODO: 跳转到 Thread 页面
-              }}
             />
           ))}
         </div>
