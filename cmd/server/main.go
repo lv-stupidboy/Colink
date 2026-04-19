@@ -194,7 +194,7 @@ func main() {
 	projectService := project.NewService(projectRepo, workflowRepo)
 	threadService := thread.NewService(threadRepo, projectRepo, workflowRepo)
 	messageService := message.NewService(messageRepo, wsHub)
-	configService := agent.NewConfigService(agentConfigRepo)
+	configService := agent.NewConfigService(agentConfigRepo, baseAgentRepo)
 	baseAgentService := agent.NewBaseAgentService(baseAgentRepo)
 	workflowEngine := agent.NewWorkflowEngine(threadRepo, messageRepo, configService)
 	workflowService := workflow.NewService(workflowRepo)
@@ -478,6 +478,10 @@ func main() {
 	projectHandler := api.NewProjectHandler(projectService)
 	projectHandler.RegisterRoutes(v1)
 
+	// Dashboard Handler（首页统计）
+	dashboardHandler := api.NewDashboardHandler(db)
+	dashboardHandler.RegisterRoutes(v1)
+
 	// 先注册 invocationHandler（包含 /threads/:id/invocations）
 	invocationHandler := api.NewInvocationHandler(orchestrator, mcpAuthService, projectRepo)
 	invocationHandler.RegisterRoutes(v1)
@@ -497,8 +501,8 @@ func main() {
 	messageHandler := api.NewMessageHandler(messageService)
 	messageHandler.RegisterRoutes(v1)
 
-	agentHandler := api.NewAgentHandler(configService, baseAgentService, orchestrator, threadRepo, debugThreadMgr, workflowRepo,
-		agentSkillBindingRepo, agentSubagentBindingRepo, agentCommandBindingRepo, agentRuleBindingRepo)
+	agentHandler := api.NewAgentHandler(configService, baseAgentService, orchestrator, threadRepo, debugThreadMgr, workflowRepo, configGenService,
+		agentSkillBindingRepo, agentSubagentBindingRepo, agentCommandBindingRepo, agentRuleBindingRepo, agentSettingsBindingRepo)
 	agentHandler.RegisterRoutes(v1)
 
 	// 基础Agent Handler

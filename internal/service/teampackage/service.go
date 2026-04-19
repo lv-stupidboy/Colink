@@ -665,6 +665,8 @@ func (s *Service) ImportConfirm(ctx context.Context, zipData []byte, confirm *mo
 	ruleNameToID := make(map[string]uuid.UUID)
 	settingsNameToID := make(map[string]uuid.UUID)
 	roleNameToID := make(map[string]uuid.UUID)
+	// 原始角色ID到新ID的映射（用于更新workflow的agentIds）
+	originalRoleIDToNewID := make(map[string]uuid.UUID)
 
 	// 导入资产
 	// 导入 Skills
@@ -858,9 +860,14 @@ func (s *Service) ImportConfirm(ctx context.Context, zipData []byte, confirm *mo
 	for _, roleItem := range manifest.Roles {
 		action := getRoleAction(confirm.RoleActions, roleItem.Name)
 		if action == "skip" {
-			existing, _ := s.agentRepo.FindByID(ctx, uuid.MustParse(roleItem.ID))
-			if existing != nil {
-				roleNameToID[roleItem.Name] = existing.ID
+			// 尝试解析原始ID，如果无效则跳过
+			originalID, err := uuid.Parse(roleItem.ID)
+			if err == nil {
+				existing, _ := s.agentRepo.FindByID(ctx, originalID)
+				if existing != nil {
+					roleNameToID[roleItem.Name] = existing.ID
+					originalRoleIDToNewID[roleItem.ID] = existing.ID
+				}
 			}
 			result.Skipped++
 			result.Details = append(result.Details, model.ImportDetail{
@@ -872,12 +879,13 @@ func (s *Service) ImportConfirm(ctx context.Context, zipData []byte, confirm *mo
 			continue
 		}
 
-		id, detail := s.importRole(ctx, roleItem, action == "overwrite")
+		id, originalIDStr, detail := s.importRole(ctx, roleItem, action == "overwrite")
 		result.Details = append(result.Details, detail)
 		switch detail.Status {
 		case "success":
 			result.Success++
 			roleNameToID[roleItem.Name] = id
+			originalRoleIDToNewID[originalIDStr] = id
 		case "skipped":
 			result.Skipped++
 			// 查找已存在的角色
@@ -885,6 +893,7 @@ func (s *Service) ImportConfirm(ctx context.Context, zipData []byte, confirm *mo
 			for _, agent := range agents {
 				if agent.Name == roleItem.Name {
 					roleNameToID[roleItem.Name] = agent.ID
+					originalRoleIDToNewID[originalIDStr] = agent.ID
 					break
 				}
 			}
@@ -964,7 +973,7 @@ func (s *Service) ImportConfirm(ctx context.Context, zipData []byte, confirm *mo
 
 	// 导入工作流
 	if confirm.WorkflowAction != "skip" {
-		_, detail := s.importWorkflow(ctx, manifest.Workflow, roleNameToID)
+		_, detail := s.importWorkflow(ctx, manifest.Workflow, originalRoleIDToNewID)
 		result.Details = append(result.Details, detail)
 		switch detail.Status {
 		case "success":
@@ -1282,69 +1291,84 @@ func (s *Service) importSettings(ctx context.Context, tempDir string, item model
 }
 
 // importRole 导入角色
-func (s *Service) importRole(ctx context.Context, role model.TeamPackageRole, overwrite bool) (uuid.UUID, model.ImportDetail) {
-	detail := model.ImportDetail{
-		AssetType: "role",
-		Name:      role.Name,
-	}
-
-	// 解析原始角色ID
-	originalID, err := uuid.Parse(role.ID)
-	if err != nil {
-		detail.Status = "failed"
-		detail.Message = fmt.Sprintf("无效的角色ID: %v", err)
-		return uuid.Nil, detail
-	}
-
-	// 按ID检查角色是否已存在（角色名称允许重复，所以按ID匹配）
-	existing, err := s.agentRepo.FindByID(ctx, originalID)
-	if err == nil && existing != nil {
-		if !overwrite {
-			detail.Status = "skipped"
-			detail.Message = "已存在相同ID的 Role"
-			return uuid.Nil, detail
+	// 返回值: 新ID, 原始ID字符串, 导入详情
+	// 当原始ID无效时，生成新的UUID，同时返回原始ID字符串用于映射更新
+	func (s *Service) importRole(ctx context.Context, role model.TeamPackageRole, overwrite bool) (uuid.UUID, string, model.ImportDetail) {
+		detail := model.ImportDetail{
+			AssetType: "role",
+			Name:      role.Name,
 		}
-		// 覆盖模式：先删除旧角色及其绑定关系
-		if err := s.deleteRoleBindings(ctx, existing.ID); err != nil {
-			s.logger.Warn("删除旧角色绑定关系失败", zap.Error(err))
+
+		// 尝试解析原始角色ID
+		originalIDStr := role.ID
+		originalID, err := uuid.Parse(originalIDStr)
+		var roleID uuid.UUID
+
+		if err != nil {
+			// 原始ID不是有效UUID，生成新的UUID
+			roleID = uuid.New()
+			s.logger.Info("角色ID不是有效UUID，生成新ID",
+				zap.String("originalID", originalIDStr),
+				zap.String("newID", roleID.String()),
+				zap.String("roleName", role.Name))
+		} else {
+			roleID = originalID
 		}
-		if err := s.agentRepo.Delete(ctx, existing.ID); err != nil {
+
+		// 如果原始ID是有效UUID，按ID检查角色是否已存在
+		if err == nil {
+			existing, existErr := s.agentRepo.FindByID(ctx, originalID)
+			if existErr == nil && existing != nil {
+				if !overwrite {
+					detail.Status = "skipped"
+					detail.Message = "已存在相同ID的 Role"
+					return existing.ID, originalIDStr, detail
+				}
+				// 覆盖模式：先删除旧角色及其绑定关系
+				if err := s.deleteRoleBindings(ctx, existing.ID); err != nil {
+					s.logger.Warn("删除旧角色绑定关系失败", zap.Error(err))
+				}
+				if err := s.agentRepo.Delete(ctx, existing.ID); err != nil {
+					detail.Status = "failed"
+					detail.Message = fmt.Sprintf("删除旧 Role 记录失败: %v", err)
+					return uuid.Nil, originalIDStr, detail
+				}
+			}
+		}
+
+		// 创建角色
+		now := time.Now()
+		agentConfig := &model.AgentRoleConfig{
+			ID:           roleID,
+			Name:         role.Name,
+			Role:         model.AgentRole(role.Role),
+			Description:  role.Description,
+			SystemPrompt: role.SystemPrompt,
+			MaxTokens:    role.MaxTokens,
+			Temperature:  role.Temperature,
+			IsDefault:    false,
+			IsSystem:     false,
+			MentionPatterns: role.MentionPatterns,
+			CreatedAt:    now,
+			UpdatedAt:    now,
+		}
+
+		if err := s.agentRepo.Create(ctx, agentConfig); err != nil {
 			detail.Status = "failed"
-			detail.Message = fmt.Sprintf("删除旧 Role 记录失败: %v", err)
-			return uuid.Nil, detail
+			detail.Message = fmt.Sprintf("创建 Role 记录失败: %v", err)
+			return uuid.Nil, originalIDStr, detail
 		}
+
+		detail.Status = "success"
+		if _, err := uuid.Parse(originalIDStr); err == nil {
+			detail.Message = "角色导入成功"
+		} else {
+			detail.Message = fmt.Sprintf("角色导入成功（原ID无效，已生成新ID: %s）", roleID.String())
+		}
+		return roleID, originalIDStr, detail
 	}
 
-
-	// 创建角色，使用原始ID
-	now := time.Now()
-	agentConfig := &model.AgentRoleConfig{
-		ID:           originalID,
-		Name:         role.Name,
-		Role:         model.AgentRole(role.Role).NormalizeRole(),
-		Description:  role.Description,
-		SystemPrompt: role.SystemPrompt,
-		MaxTokens:    role.MaxTokens,
-		Temperature:  role.Temperature,
-		IsDefault:    false,
-		IsSystem:     false,
-		MentionPatterns: role.MentionPatterns,
-		CreatedAt:    now,
-		UpdatedAt:    now,
-	}
-
-	if err := s.agentRepo.Create(ctx, agentConfig); err != nil {
-		detail.Status = "failed"
-		detail.Message = fmt.Sprintf("创建 Role 记录失败: %v", err)
-		return uuid.Nil, detail
-	}
-
-	detail.Status = "success"
-	return agentConfig.ID, detail
-}
-
-// importWorkflow 导入工作流
-func (s *Service) importWorkflow(ctx context.Context, wf model.TeamPackageWorkflow, roleNameToID map[string]uuid.UUID) (uuid.UUID, model.ImportDetail) {
+func (s *Service) importWorkflow(ctx context.Context, wf model.TeamPackageWorkflow, originalRoleIDToNewID map[string]uuid.UUID) (uuid.UUID, model.ImportDetail) {
 	detail := model.ImportDetail{
 		AssetType: "workflow",
 		Name:      wf.Name,
@@ -1362,9 +1386,44 @@ func (s *Service) importWorkflow(ctx context.Context, wf model.TeamPackageWorkfl
 		}
 	}
 
-	// 由于角色导入时保留了原始ID，直接使用manifest中的agentIds
-	agentIDsJSON, _ := json.Marshal(wf.AgentIDs)
-	transitionsJSON, _ := json.Marshal(wf.Transitions)
+	// 更新 agentIds 映射：将原始ID替换为导入后的新ID
+	updatedAgentIDs := make([]string, len(wf.AgentIDs))
+	for i, originalID := range wf.AgentIDs {
+		if newID, ok := originalRoleIDToNewID[originalID]; ok {
+			updatedAgentIDs[i] = newID.String()
+			s.logger.Info("更新 workflow agentId",
+				zap.String("originalID", originalID),
+				zap.String("newID", newID.String()))
+		} else {
+			// 如果没有映射，保留原始ID（可能是有效UUID）
+			updatedAgentIDs[i] = originalID
+		}
+	}
+
+	// 更新 transitions 中的 ID 映射
+	updatedTransitions := make([]model.Transition, len(wf.Transitions))
+	for i, t := range wf.Transitions {
+		updatedTransitions[i] = model.Transition{
+			Type:        t.Type,
+			TriggerHint: t.TriggerHint,
+			WaitFor:     t.WaitFor,
+		}
+		// 更新 fromAgentId
+		if newID, ok := originalRoleIDToNewID[t.FromAgentID]; ok {
+			updatedTransitions[i].FromAgentID = newID.String()
+		} else {
+			updatedTransitions[i].FromAgentID = t.FromAgentID
+		}
+		// 更新 toAgentId
+		if newID, ok := originalRoleIDToNewID[t.ToAgentID]; ok {
+			updatedTransitions[i].ToAgentID = newID.String()
+		} else {
+			updatedTransitions[i].ToAgentID = t.ToAgentID
+		}
+	}
+
+	agentIDsJSON, _ := json.Marshal(updatedAgentIDs)
+	transitionsJSON, _ := json.Marshal(updatedTransitions)
 	checkpointsJSON, _ := json.Marshal(wf.Checkpoints)
 
 	now := time.Now()
@@ -1390,9 +1449,8 @@ func (s *Service) importWorkflow(ctx context.Context, wf model.TeamPackageWorkfl
 
 	detail.Status = "success"
 	return workflow.ID, detail
-}
+	}
 
-// ========== 绑定关系创建辅助方法 ==========
 
 // deleteRoleBindings 删除角色的所有绑定关系
 func (s *Service) deleteRoleBindings(ctx context.Context, agentRoleID uuid.UUID) error {

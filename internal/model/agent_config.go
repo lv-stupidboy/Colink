@@ -146,3 +146,55 @@ type AgentWithConfig struct {
 	AgentRoleConfig
 	ConfigPath string `json:"configPath,omitempty"`
 }
+
+// ========== Batch Operation Models ==========
+
+// BatchGenerateConfigRequest 批量生成配置请求
+type BatchGenerateConfigRequest struct {
+	AgentIds []string `json:"agentIds" binding:"required"`
+	CliType  string   `json:"cliType"`
+}
+
+// BatchGenerateResult 批量生成配置结果
+type BatchGenerateResult struct {
+	Total   int                  `json:"total"`
+	Success int                  `json:"success"`
+	Failed  int                  `json:"failed"`
+	Results []GenerateResultItem `json:"results"`
+}
+
+// GenerateResultItem 单个Agent生成结果
+type GenerateResultItem struct {
+	AgentId        uuid.UUID `json:"agentId"`
+	AgentName      string    `json:"agentName"`
+	Status         string    `json:"status"`
+	SkillsCount    int       `json:"skillsCount"`
+	CommandsCount  int       `json:"commandsCount"`
+	SubagentsCount int       `json:"subagentsCount"`
+	RulesCount     int       `json:"rulesCount"`
+	SettingsCount  int       `json:"settingsCount"`
+	Error          string    `json:"error,omitempty"`
+}
+
+// BatchUpdateBaseAgentRequest 批量修改基础Agent请求
+type BatchUpdateBaseAgentRequest struct {
+	AgentIds    []string `json:"agentIds" binding:"required"`
+	BaseAgentId string   `json:"baseAgentId" binding:"required"`
+}
+
+// BatchUpdateResult 批量修改基础Agent结果
+type BatchUpdateResult struct {
+	Total   int               `json:"total"`
+	Success int               `json:"success"`
+	Failed  int               `json:"failed"`
+	Results []UpdateResultItem `json:"results"`
+}
+
+// UpdateResultItem 单个Agent修改结果
+type UpdateResultItem struct {
+	AgentId       uuid.UUID `json:"agentId"`
+	AgentName     string    `json:"agentName"`
+	BaseAgentName string    `json:"baseAgentName"`
+	Status        string    `json:"status"`
+	Error         string    `json:"error,omitempty"`
+}

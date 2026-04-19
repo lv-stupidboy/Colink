@@ -59,6 +59,8 @@ import type {
   HumanTaskStatus,
   SubmitHumanTaskRequest,
   SubmitHumanTaskResponse,
+  BatchGenerateResult,
+  BatchUpdateResult,
 } from '@/types';
 import {
   transformProjects,
@@ -140,7 +142,7 @@ class APIClient {
           result = Array.isArray(result) ? transformThreads(result) : transformThread(result);
         } else if (url.includes('/messages')) {
           result = Array.isArray(result) ? transformMessages(result) : transformMessage(result);
-        } else if (url.includes('/agents') && !url.includes('/config/')) {
+        } else if (url.includes('/agents') && !url.includes('/config/') && !url.includes('/batch-')) {
           result = Array.isArray(result) ? transformAgentConfigs(result) : transformAgentConfig(result);
         } else if (url.includes('/invocations')) {
           result = Array.isArray(result) ? transformAgentInvocations(result) : transformAgentInvocation(result);
@@ -325,6 +327,21 @@ class APIClient {
     // AskUserQuestion 答案提交（通过 stdin 发送给 CLI）
     submitQuestionAnswer: (threadId: string, toolCallId: string, answer: string): Promise<{ status: string }> =>
       this.request(`/agents/question/${threadId}/answer`, 'POST', { toolCallId, answer }),
+    // 批量删除
+    batchDelete: (ids: string[]): Promise<void> =>
+      this.request('/agents/batch-delete', 'POST', { ids }),
+    // 批量生成配置
+    batchGenerateConfig: (agentIds: string[], cliType?: string): Promise<BatchGenerateResult> =>
+      this.request('/agents/batch-generate-config', 'POST', {
+        agentIds,
+        cliType: cliType || 'claude_code',
+      }),
+    // 批量修改基础Agent
+    batchUpdateBaseAgent: (agentIds: string[], baseAgentId: string): Promise<BatchUpdateResult> =>
+      this.request('/agents/batch-update-base-agent', 'POST', {
+        agentIds,
+        baseAgentId,
+      }),
   };
 
   // HumanTask API（待办任务）
@@ -732,6 +749,67 @@ class APIClient {
       const response = await this.client.get('/system/version');
       return response.data;
     },
+  };
+
+  // Dashboard API（首页统计）
+  dashboard = {
+    getStats: (): Promise<{
+      totalProjects: number;
+      activeThreads: number;
+      workflowTeams: number;
+      agentRoles: number;
+      todayAgentInteractions: Array<{
+        agentId: string;
+        agentName: string;
+        count: number;
+        isDefault: boolean;
+      }>;
+      todayWorkflowUsage: Array<{
+        workflowId: string;
+        workflowName: string;
+        count: number;
+        isSystem: boolean;
+      }>;
+      totalSkills: number;
+      totalCommands: number;
+      totalSubagents: number;
+      totalRules: number;
+    }> => this.request('/dashboard/stats', 'GET'),
+    getWorkflowsWithAssets: (): Promise<Array<{
+      id: string;
+      name: string;
+      description: string;
+      isSystem: boolean;
+      agentCount: number;
+      agents: Array<{
+        id: string;
+        name: string;
+        role: string;
+        skillsCount: number;
+        commandsCount: number;
+        subagentsCount: number;
+        rulesCount: number;
+      }>;
+      skills: number;
+      commands: number;
+      subagents: number;
+      rules: number;
+      totalAssets: number;
+      isActive: boolean;
+    }>> => this.request('/dashboard/workflows-with-assets', 'GET'),
+    getActiveThreads: (): Promise<Array<{
+      id: string;
+      projectId: string;
+      name: string;
+      status: string;
+      currentPhase: string;
+      currentAgentNames: string[];
+      workflowTemplateId: string;
+      createdAt: string;
+      updatedAt: string;
+      projectName: string;
+      workflowName: string;
+    }>> => this.request('/dashboard/active-threads', 'GET'),
   };
 }
 
