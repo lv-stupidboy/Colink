@@ -39,7 +39,7 @@ import { useAppStore } from '@/store';
 import { useDebugThreadStore } from '@/store/debugThread';
 import type { Message, Artifact, ReviewIssue, MergeCheckResult, AgentConfig, ToolEvent, MessageContentBlock } from '@/types';
 import type { FileChange } from '@/types/content';
-import { AgentRoleLabels, ArtifactTypeLabels } from '@/types';
+import { ArtifactTypeLabels } from '@/types';
 import { ReviewReport } from '@/components/ReviewReport';
 import { RightPanel, TaskList, ThreadInput } from '@/components/thread';
 import { FilePreviewPanel } from '@/components/thread/FilePreviewPanel';
@@ -1487,7 +1487,7 @@ const ThreadView: React.FC = () => {
     id: agent.id,
     role: agent.role,
     name: agent.name,
-    label: `${agent.name} (${AgentRoleLabels[agent.role as keyof typeof AgentRoleLabels] || agent.role})`,
+    label: agent.name,
   }));
 
   // 阻塞通知触发：仅在所有 Agent 完成后显示（使用系统通知）
