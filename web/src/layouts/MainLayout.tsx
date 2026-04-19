@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Layout, Menu, Typography, Space, Tag } from 'antd';
+import { Layout, Menu, Typography, Space, Tag, Button, Tooltip } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   DashboardOutlined,
@@ -96,11 +96,6 @@ const MainLayout: React.FC = () => {
    * 导航菜单配置
    */
   const menuItems: MenuProps['items'] = [
-    {
-      key: '/tasks',
-      icon: <FileTextOutlined />,
-      label: '我的任务',
-    },
     {
       key: '/dashboard',
       icon: <DashboardOutlined />,
@@ -307,8 +302,17 @@ const MainLayout: React.FC = () => {
           <Title level={4} style={{ margin: 0, color: 'var(--text-primary)' }}>
             Colink - 多智能体协作平台
           </Title>
-          <Space size="small">
+          <Space size={2}>
             <Tag color="blue" style={{ margin: 0 }}>{version || '加载中...'}</Tag>
+            {/* 待办任务入口（弱化版） */}
+            <Button
+              type="text"
+              className="theme-switcher-btn"
+              icon={<FileTextOutlined />}
+              onClick={() => navigate('/tasks')}
+            >
+              待办
+            </Button>
             <ThemeSwitcher />
           </Space>
         </Header>
