@@ -95,26 +95,18 @@ const Tasks: React.FC = () => {
     navigate(`/threads/${threadId}`);
   };
 
-  // 修复时间格式化：正确处理 UTC 时间
+  // 时间格式化：直接显示具体时间（精确到秒）
   const formatTime = (dateStr: string) => {
     if (!dateStr) return '';
-    // UTC 时间格式：2026-04-19T14:33:03Z
-    // 需要正确解析 Z 结尾的 UTC 时间
     const date = new Date(dateStr);
     if (isNaN(date.getTime())) return dateStr;
-
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffSeconds = Math.floor(diffMs / 1000);
-    const diffMinutes = Math.floor(diffSeconds / 60);
-    const diffHours = Math.floor(diffMinutes / 60);
-    const diffDays = Math.floor(diffHours / 24);
-
-    if (diffSeconds < 60) return '刚刚';
-    if (diffMinutes < 60) return `${diffMinutes} 分钟前`;
-    if (diffHours < 24) return `${diffHours} 小时前`;
-    if (diffDays < 7) return `${diffDays} 天前`;
-    return date.toLocaleDateString('zh-CN');
+    return date.toLocaleString('zh-CN', {
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
   };
 
   // 状态标签颜色
