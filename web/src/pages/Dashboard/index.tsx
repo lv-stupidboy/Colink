@@ -13,7 +13,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import api from '@/api/client';
 import type { Project, Thread, WorkflowTemplate, AgentConfig } from '@/types';
-import { PhaseLabels, AgentRoleLabels } from '@/types';
+import { PhaseLabels } from '@/types';
 
 const { Title, Text } = Typography;
 
@@ -279,7 +279,7 @@ const Dashboard: React.FC = () => {
                 </Space>
                 <Space split={<span style={{ color: '#d9d9d9' }}>/</span>}>
                   <Text type="secondary">当前 Agent:</Text>
-                  <Tag>{AgentRoleLabels[thread.currentAgent as keyof typeof AgentRoleLabels] || thread.currentAgent}</Tag>
+                  <Tag>{thread.currentAgent}</Tag>
                 </Space>
               </Space>
             </Card>
