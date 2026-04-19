@@ -29,6 +29,7 @@ type Config struct {
 	Feishu      FeishuConfig      `mapstructure:"feishu"`
 	IM          IMConfig          `mapstructure:"im"`
 	Reporter    ReporterConfig    `mapstructure:"reporter"`
+	HumanTask   HumanTaskConfig   `mapstructure:"human_task"`
 }
 
 // DataConfig 数据目录配置
@@ -291,6 +292,14 @@ func (c *ReporterConfig) GetRetryInterval() time.Duration {
 		return 1 * time.Minute
 	}
 	return d
+}
+
+// HumanTaskConfig 待办任务配置
+type HumanTaskConfig struct {
+	// Enabled 是否启用待办任务自动创建，默认 false
+	// 当 Agent 等待用户输入（AskUserQuestion）时自动创建待办任务
+	// 用户回复后自动关闭对应的待办任务
+	Enabled bool `mapstructure:"enabled"`
 }
 
 const (

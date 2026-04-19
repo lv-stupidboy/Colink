@@ -328,6 +328,7 @@ func main() {
 		configService, baseAgentService, baseAgentRepo, tracker, workflowEngine, workflowRepo, projectRepo, wsHub, defaultAdapter, mentionParser,
 		contentBlockRepo,
 		humanTaskSvc,
+		cfg.HumanTask.Enabled,
 	)
 
 	// 在Orchestrator中设置调试管理器

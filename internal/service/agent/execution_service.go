@@ -125,7 +125,8 @@ type ExecutionService struct {
 	mentionParser *mention.Parser
 
 	// Human 任务服务（用于 A2A 触发 Human 角色）
-	humanTaskSvc *humantask.Service
+	humanTaskSvc      *humantask.Service
+	humanTaskEnabled  bool // 待办任务开关，控制自动创建和关闭
 
 	// 后台执行支持：内容块持久化
 	contentBlockRepo    *repo.ContentBlockRepository
@@ -171,6 +172,7 @@ func NewExecutionService(
 	mentionParser *mention.Parser,
 	contentBlockRepo *repo.ContentBlockRepository,
 	humanTaskSvc *humantask.Service,
+	humanTaskEnabled bool,
 ) *ExecutionService {
 	es := &ExecutionService{
 		invocationRepo:     invocationRepo,
@@ -187,6 +189,7 @@ func NewExecutionService(
 		defaultAdapter:     defaultAdapter,
 		mentionParser:      mentionParser,
 		humanTaskSvc:       humanTaskSvc,
+		humanTaskEnabled:   humanTaskEnabled,
 		contentBlockRepo:   contentBlockRepo,
 		contentBlockBuffer: make([]model.InvocationContentBlock, 0, 20),
 		lastFlush:          time.Now(),
@@ -2320,7 +2323,8 @@ func (es *ExecutionService) broadcastChunk(threadID, invocationID uuid.UUID, chu
 			agent.LastQuestionToolID = chunk.ToolID
 
 			// 创建待办任务（Agent 等待用户输入）
-			if es.humanTaskSvc != nil {
+			// 仅在开关开启时自动创建
+			if es.humanTaskEnabled && es.humanTaskSvc != nil {
 				// 提取等待原因：从 Questions 中获取第一个问题的摘要
 				waitReason := "Agent 等待您的输入"
 				if len(chunk.Questions) > 0 && chunk.Questions[0].Question != "" {
@@ -2542,8 +2546,8 @@ func (es *ExecutionService) SubmitQuestionAnswer(threadID uuid.UUID, toolCallID 
 			agent.WaitingForUserInput = false
 			agent.PendingQuestionID = ""
 
-			// 关闭关联的待办任务
-			if es.humanTaskSvc != nil {
+			// 关闭关联的待办任务（仅在开关开启时）
+			if es.humanTaskEnabled && es.humanTaskSvc != nil {
 				if err := es.humanTaskSvc.CompleteTaskFromReply(context.Background(), invocationID); err != nil {
 					logError("关闭待办任务失败", zap.Error(err))
 				} else {

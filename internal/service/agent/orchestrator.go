@@ -120,6 +120,7 @@ func NewOrchestrator(
 	mentionParser *mention.Parser,
 	contentBlockRepo *repo.ContentBlockRepository,
 	humanTaskSvc *humantask.Service,
+	humanTaskEnabled bool,
 ) *Orchestrator {
 	o := &Orchestrator{
 		invocationRepo:   invocationRepo,
@@ -156,6 +157,7 @@ func NewOrchestrator(
 		mentionParser,
 		contentBlockRepo,
 		humanTaskSvc,
+		humanTaskEnabled,
 	)
 
 	return o
