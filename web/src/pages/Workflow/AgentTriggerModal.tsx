@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, Form, Select, Input, Button, Empty, Typography } from 'antd';
-import { PlusOutlined, DeleteOutlined } from '@ant-design/icons';
+import { Modal, Form, Select, Input, Button, Empty, Typography, Space } from 'antd';
+import { PlusOutlined, DeleteOutlined, RobotOutlined, CrownOutlined } from '@ant-design/icons';
 import type { AgentConfig } from '@/types';
 
 const { Text } = Typography;
@@ -91,7 +91,16 @@ const AgentTriggerModal: React.FC<AgentTriggerModalProps> = ({
 
   return (
     <Modal
-      title={`配置触发规则：${agent.config.name}`}
+      title={
+        <Space>
+          {agent.config.isSystem ? (
+            <CrownOutlined style={{ color: '#faad14' }} />
+          ) : (
+            <RobotOutlined style={{ color: 'var(--color-primary)' }} />
+          )}
+          <span>配置触发规则：{agent.config.name}</span>
+        </Space>
+      }
       open={visible}
       onCancel={onClose}
       onOk={handleSave}
