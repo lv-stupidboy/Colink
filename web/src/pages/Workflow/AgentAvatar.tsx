@@ -1,7 +1,7 @@
 // web/src/pages/Workflow/AgentAvatar.tsx
 import React from 'react';
-import { Button } from 'antd';
-import { UserOutlined, CrownOutlined, DeleteOutlined, HolderOutlined } from '@ant-design/icons';
+import { Button, Tooltip } from 'antd';
+import { CrownOutlined, DeleteOutlined, HolderOutlined, RobotOutlined } from '@ant-design/icons';
 import type { TeamAgent } from './useAgentDragSort';
 
 interface AgentAvatarProps {
@@ -29,6 +29,14 @@ const AgentAvatar: React.FC<AgentAvatarProps> = ({
   isDragOver,
   disabled = false,
 }) => {
+  const tooltipContent = (
+    <div style={{ textAlign: 'left', whiteSpace: 'nowrap' }}>
+      <div>角色名称：{agent.config.name}</div>
+    </div>
+  );
+
+  const avatarClassName = 'workflow-agent-avatar agent';
+
   const handleDragStart = (e: React.DragEvent) => {
     e.dataTransfer.effectAllowed = 'move';
     onDragStart(index);
@@ -66,16 +74,20 @@ const AgentAvatar: React.FC<AgentAvatarProps> = ({
       )}
 
       {/* Agent 头像 */}
-      <div className="workflow-agent-avatar" onClick={() => onClick(agent, index)}>
-        {agent.config.isSystem ? (
-          <CrownOutlined className="workflow-agent-icon system" />
-        ) : (
-          <UserOutlined className="workflow-agent-icon" />
-        )}
-      </div>
+      <Tooltip title={tooltipContent} placement="top">
+        <div className={avatarClassName} onClick={() => onClick(agent, index)}>
+          {agent.config.isSystem ? (
+            <CrownOutlined className="workflow-agent-icon" />
+          ) : (
+            <RobotOutlined className="workflow-agent-icon" />
+          )}
+        </div>
+      </Tooltip>
 
       {/* Agent 名称 */}
-      <div className="workflow-agent-name">{agent.config.name}</div>
+      <Tooltip title={tooltipContent} placement="bottom">
+        <div className="workflow-agent-name">{agent.config.name}</div>
+      </Tooltip>
 
       {/* 删除按钮 */}
       {!disabled && (
