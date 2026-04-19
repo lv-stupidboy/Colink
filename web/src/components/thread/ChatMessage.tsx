@@ -1,7 +1,7 @@
 // isdp/web/src/components/thread/ChatMessage.tsx
 import React, { memo } from 'react';
-import { Tag, Button, Tooltip, Alert, Card, Space } from 'antd';
-import { StopOutlined, ReloadOutlined, FileTextOutlined, ExclamationCircleOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { Tag, Button, Tooltip, Alert, Card, Space, Avatar } from 'antd';
+import { StopOutlined, ReloadOutlined, FileTextOutlined, ExclamationCircleOutlined, ThunderboltOutlined, RobotOutlined, UserOutlined } from '@ant-design/icons';
 import type { Message, AgentConfig, AgentRole, MessageRole, ReviewIssue, ToolEvent, MessageContentBlock } from '@/types';
 import type { HumanTask, HumanTaskType, HumanTaskStatus } from '@/types';
 import type { FileChange } from '@/types/content';
@@ -67,8 +67,8 @@ function getRoleDisplayName(role: MessageRole, agentRole?: AgentRole): string {
   if (role === 'system') return '系统';
   if (agentRole) {
     const roleLabels: Record<AgentRole, string> = {
-      agent: 'AI代理',
-      human: '人工',
+      agent: 'Agent',
+      human: 'Human',
     };
     return roleLabels[agentRole] || agentRole;
   }
@@ -145,6 +145,10 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
 
   const styleConfig = getStyleByRole(message.role, agentRole);
   const roleDisplay = getRoleDisplayName(message.role, agentRole);
+
+  // 头像图标和颜色：Agent 统一使用 RobotOutlined + color-primary
+  const avatarIcon = isUser ? null : <RobotOutlined />;
+  const avatarColor = isUser ? '#52c41a' : 'var(--color-primary)';
 
   // 统一使用 contentBlocks，如果没有则从 content 转换
   const contentBlocks: MessageContentBlock[] = message.contentBlocks && message.contentBlocks.length > 0
@@ -264,25 +268,15 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
       }}
     >
       {/* 消息头像/图标 */}
-      <div
-        className="chat-message-avatar"
+      <Avatar
+        size={36}
+        icon={isUser ? <UserOutlined /> : avatarIcon}
         style={{
-          width: '36px',
-          height: '36px',
-          borderRadius: '50%',
-          backgroundColor: isUser ? '#52c41a' : styleConfig.color,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: '#fff',
-          fontSize: '14px',
-          fontWeight: 500,
+          backgroundColor: avatarColor,
           marginLeft: isUser ? '12px' : 0,
           marginRight: isUser ? 0 : '12px',
         }}
-      >
-        {isUser ? 'U' : roleDisplay.slice(0, 2)}
-      </div>
+      />
 
       {/* 消息主体 */}
       <div
