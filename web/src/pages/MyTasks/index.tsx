@@ -48,20 +48,12 @@ const MyTasks: React.FC = () => {
       ),
     },
     {
-      key: 'in_progress',
-      label: (
-        <Badge count={tasks.filter((t) => t.status === 'in_progress').length} offset={[10, 0]}>
-          <span>进行中</span>
-        </Badge>
-      ),
-    },
-    {
       key: 'completed',
       label: '已完成',
     },
     {
-      key: 'rejected',
-      label: '已拒绝',
+      key: 'cancelled',
+      label: '已取消',
     },
   ];
 
