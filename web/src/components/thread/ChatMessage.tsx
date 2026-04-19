@@ -295,15 +295,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
             >
               {agentConfig?.name || message.agentName || roleDisplay}
             </span>
-            <span
-              className="chat-message-role"
-              style={{
-                color: '#8c8c8c',
-                fontSize: '12px',
-              }}
-            >
-              {roleDisplay}
-            </span>
             {timestamp && (
               <span
                 className="chat-message-time"

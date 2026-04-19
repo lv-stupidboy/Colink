@@ -29,11 +29,7 @@ const AgentAvatar: React.FC<AgentAvatarProps> = ({
   isDragOver,
   disabled = false,
 }) => {
-  const tooltipContent = (
-    <div style={{ textAlign: 'left', whiteSpace: 'nowrap' }}>
-      <div>角色名称：{agent.config.name}</div>
-    </div>
-  );
+  const tooltipContent = agent.config.name;
 
   const avatarClassName = 'workflow-agent-avatar agent';
 
