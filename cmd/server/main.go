@@ -287,7 +287,7 @@ func main() {
 	)
 
 	// 创建 HumanTask Service
-	humanTaskSvc := humantask.NewService(humanTaskRepo, wsHub)
+	humanTaskSvc := humantask.NewService(humanTaskRepo, threadRepo, projectRepo, wsHub)
 
 	// 初始化 UseCountUpdater（技能使用次数统计）
 	useCountUpdater := skill.NewUseCountUpdater(skillRepo, projectRepo, agentSkillBindingRepo)

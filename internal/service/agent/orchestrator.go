@@ -11,6 +11,7 @@ import (
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
+	"github.com/anthropic/isdp/internal/service/humantask"
 	"github.com/anthropic/isdp/internal/service/mention"
 	"github.com/anthropic/isdp/internal/ws"
 	"github.com/google/uuid"
@@ -118,6 +119,7 @@ func NewOrchestrator(
 	defaultAdapter AgentAdapter,
 	mentionParser *mention.Parser,
 	contentBlockRepo *repo.ContentBlockRepository,
+	humanTaskSvc *humantask.Service,
 ) *Orchestrator {
 	o := &Orchestrator{
 		invocationRepo:   invocationRepo,
@@ -153,6 +155,7 @@ func NewOrchestrator(
 		defaultAdapter,
 		mentionParser,
 		contentBlockRepo,
+		humanTaskSvc,
 	)
 
 	return o

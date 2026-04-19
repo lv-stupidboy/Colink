@@ -71,10 +71,10 @@ func (s *ConfigService) GetDefaultByRole(ctx context.Context, role model.AgentRo
 
 // Create 创建配置
 func (s *ConfigService) Create(ctx context.Context, req *model.CreateAgentRequest) (*model.AgentRoleConfig, error) {
-	// 角色必须由调用方指定
+	// 角色必须由调用方指定，默认为 agent
 	role := req.Role
 	if role == "" {
-		role = model.AgentRole("custom")
+		role = model.AgentRoleAgent
 	}
 
 	config := &model.AgentRoleConfig{
@@ -110,10 +110,10 @@ func (s *ConfigService) Update(ctx context.Context, id uuid.UUID, req *model.Cre
 		return nil, err
 	}
 
-	// 角色必须由调用方指定
+	// 角色必须由调用方指定，默认为 agent
 	role := req.Role
 	if role == "" {
-		role = model.AgentRole("custom")
+		role = model.AgentRoleAgent
 	}
 
 	config.Name = req.Name

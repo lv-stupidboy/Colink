@@ -27,13 +27,19 @@ func (r *HumanTaskRepository) Create(ctx context.Context, task *model.HumanTask)
 	query := `
 		INSERT INTO human_tasks (
 			id, thread_id, invocation_id, agent_config_id, agent_name,
-			wait_reason, status, created_at, completed_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			wait_reason, status, created_at, completed_at,
+			project_id, project_name, thread_name
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	var completedAt interface{}
 	if task.CompletedAt != nil {
 		completedAt = task.CompletedAt.Format("2006-01-02 15:04:05")
+	}
+
+	var projectID interface{}
+	if task.ProjectID != uuid.Nil {
+		projectID = task.ProjectID.String()
 	}
 
 	_, err := r.DB().ExecContext(ctx, query,
@@ -46,6 +52,9 @@ func (r *HumanTaskRepository) Create(ctx context.Context, task *model.HumanTask)
 		task.Status,
 		task.CreatedAt.Format("2006-01-02 15:04:05"),
 		completedAt,
+		projectID,
+		task.ProjectName,
+		task.ThreadName,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create human task: %w", err)
@@ -57,7 +66,8 @@ func (r *HumanTaskRepository) Create(ctx context.Context, task *model.HumanTask)
 func (r *HumanTaskRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.HumanTask, error) {
 	query := `
 		SELECT id, thread_id, invocation_id, agent_config_id, agent_name,
-			wait_reason, status, created_at, completed_at
+			wait_reason, status, created_at, completed_at,
+			project_id, project_name, thread_name
 		FROM human_tasks WHERE id = ?
 	`
 
@@ -66,11 +76,14 @@ func (r *HumanTaskRepository) FindByID(ctx context.Context, id uuid.UUID) (*mode
 	var agentName, waitReason sql.NullString
 	var createdAt SQLiteTimeScanner
 	var completedAt sql.NullString
+	var projectIDStr sql.NullString
+	var projectName, threadName sql.NullString
 
 	err := r.DB().QueryRowContext(ctx, query, id.String()).Scan(
 		&idStr, &threadIDStr, &invocationIDStr, &agentConfigIDStr,
 		&agentName, &waitReason, &task.Status,
 		&createdAt, &completedAt,
+		&projectIDStr, &projectName, &threadName,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -90,6 +103,15 @@ func (r *HumanTaskRepository) FindByID(ctx context.Context, id uuid.UUID) (*mode
 	if waitReason.Valid {
 		task.WaitReason = waitReason.String
 	}
+	if projectIDStr.Valid {
+		task.ProjectID, _ = uuid.Parse(projectIDStr.String)
+	}
+	if projectName.Valid {
+		task.ProjectName = projectName.String
+	}
+	if threadName.Valid {
+		task.ThreadName = threadName.String
+	}
 
 	task.CreatedAt = createdAt.Time
 
@@ -107,7 +129,8 @@ func (r *HumanTaskRepository) FindByID(ctx context.Context, id uuid.UUID) (*mode
 func (r *HumanTaskRepository) FindByInvocation(ctx context.Context, invocationID uuid.UUID) (*model.HumanTask, error) {
 	query := `
 		SELECT id, thread_id, invocation_id, agent_config_id, agent_name,
-			wait_reason, status, created_at, completed_at
+			wait_reason, status, created_at, completed_at,
+			project_id, project_name, thread_name
 		FROM human_tasks
 		WHERE invocation_id = ? AND status = 'pending'
 		LIMIT 1
@@ -118,11 +141,14 @@ func (r *HumanTaskRepository) FindByInvocation(ctx context.Context, invocationID
 	var agentName, waitReason sql.NullString
 	var createdAt SQLiteTimeScanner
 	var completedAt sql.NullString
+	var projectIDStr sql.NullString
+	var projectName, threadName sql.NullString
 
 	err := r.DB().QueryRowContext(ctx, query, invocationID.String()).Scan(
 		&idStr, &threadIDStr, &invocationIDStr, &agentConfigIDStr,
 		&agentName, &waitReason, &task.Status,
 		&createdAt, &completedAt,
+		&projectIDStr, &projectName, &threadName,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -142,6 +168,15 @@ func (r *HumanTaskRepository) FindByInvocation(ctx context.Context, invocationID
 	if waitReason.Valid {
 		task.WaitReason = waitReason.String
 	}
+	if projectIDStr.Valid {
+		task.ProjectID, _ = uuid.Parse(projectIDStr.String)
+	}
+	if projectName.Valid {
+		task.ProjectName = projectName.String
+	}
+	if threadName.Valid {
+		task.ThreadName = threadName.String
+	}
 
 	task.CreatedAt = createdAt.Time
 
@@ -159,7 +194,8 @@ func (r *HumanTaskRepository) FindByInvocation(ctx context.Context, invocationID
 func (r *HumanTaskRepository) ListByThread(ctx context.Context, threadID uuid.UUID) ([]*model.HumanTask, error) {
 	query := `
 		SELECT id, thread_id, invocation_id, agent_config_id, agent_name,
-			wait_reason, status, created_at, completed_at
+			wait_reason, status, created_at, completed_at,
+			project_id, project_name, thread_name
 		FROM human_tasks WHERE thread_id = ? ORDER BY created_at DESC
 	`
 
@@ -176,7 +212,8 @@ func (r *HumanTaskRepository) ListByThread(ctx context.Context, threadID uuid.UU
 func (r *HumanTaskRepository) ListByStatus(ctx context.Context, status model.HumanTaskStatus) ([]*model.HumanTask, error) {
 	query := `
 		SELECT id, thread_id, invocation_id, agent_config_id, agent_name,
-			wait_reason, status, created_at, completed_at
+			wait_reason, status, created_at, completed_at,
+			project_id, project_name, thread_name
 		FROM human_tasks WHERE status = ? ORDER BY created_at DESC
 	`
 
@@ -279,11 +316,14 @@ func (r *HumanTaskRepository) scanTasks(rows *sql.Rows) ([]*model.HumanTask, err
 		var agentName, waitReason sql.NullString
 		var createdAt SQLiteTimeScanner
 		var completedAt sql.NullString
+		var projectIDStr sql.NullString
+		var projectName, threadName sql.NullString
 
 		err := rows.Scan(
 			&idStr, &threadIDStr, &invocationIDStr, &agentConfigIDStr,
 			&agentName, &waitReason, &task.Status,
 			&createdAt, &completedAt,
+			&projectIDStr, &projectName, &threadName,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan human task: %w", err)
@@ -299,6 +339,15 @@ func (r *HumanTaskRepository) scanTasks(rows *sql.Rows) ([]*model.HumanTask, err
 		}
 		if waitReason.Valid {
 			task.WaitReason = waitReason.String
+		}
+		if projectIDStr.Valid {
+			task.ProjectID, _ = uuid.Parse(projectIDStr.String)
+		}
+		if projectName.Valid {
+			task.ProjectName = projectName.String
+		}
+		if threadName.Valid {
+			task.ThreadName = threadName.String
 		}
 
 		task.CreatedAt = createdAt.Time

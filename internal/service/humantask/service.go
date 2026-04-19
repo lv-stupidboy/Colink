@@ -13,18 +13,24 @@ import (
 
 // Service HumanTask 服务
 type Service struct {
-	taskRepo *repo.HumanTaskRepository
-	wsHub    *ws.Hub
+	taskRepo    *repo.HumanTaskRepository
+	threadRepo  *repo.ThreadRepository
+	projectRepo *repo.ProjectRepository
+	wsHub       *ws.Hub
 }
 
 // NewService 创建 HumanTask 服务
 func NewService(
 	taskRepo *repo.HumanTaskRepository,
+	threadRepo *repo.ThreadRepository,
+	projectRepo *repo.ProjectRepository,
 	wsHub *ws.Hub,
 ) *Service {
 	return &Service{
-		taskRepo: taskRepo,
-		wsHub:    wsHub,
+		taskRepo:    taskRepo,
+		threadRepo:  threadRepo,
+		projectRepo: projectRepo,
+		wsHub:       wsHub,
 	}
 }
 
@@ -43,6 +49,24 @@ func (s *Service) CreateTaskFromWaiting(
 		return existing, nil // 已存在，直接返回
 	}
 
+	// 获取 Thread 信息
+	var projectName, threadName string
+	var projectID uuid.UUID
+	if s.threadRepo != nil {
+		thread, err := s.threadRepo.FindByID(ctx, threadID)
+		if err == nil && thread != nil {
+			threadName = thread.Name
+			projectID = thread.ProjectID
+			// 获取 Project 信息
+			if s.projectRepo != nil && projectID != uuid.Nil {
+				project, err := s.projectRepo.FindByID(ctx, projectID)
+				if err == nil && project != nil {
+					projectName = project.Name
+				}
+			}
+		}
+	}
+
 	task := &model.HumanTask{
 		ID:            uuid.New(),
 		ThreadID:      threadID,
@@ -50,6 +74,9 @@ func (s *Service) CreateTaskFromWaiting(
 		AgentConfigID: agentConfigID,
 		AgentName:     agentName,
 		WaitReason:    waitReason,
+		ProjectID:     projectID,
+		ProjectName:   projectName,
+		ThreadName:    threadName,
 		Status:        model.HumanTaskStatusPending,
 		CreatedAt:     time.Now(),
 	}
@@ -78,6 +105,10 @@ func (s *Service) broadcastTaskCreated(task *model.HumanTask) {
 				"agentName":    task.AgentName,
 				"waitReason":   task.WaitReason,
 				"status":       string(task.Status),
+				"projectId":    task.ProjectID.String(),
+				"projectName":  task.ProjectName,
+				"threadName":   task.ThreadName,
+				"createdAt":    task.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 			},
 		})
 	}

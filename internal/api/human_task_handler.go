@@ -118,6 +118,23 @@ func (h *HumanTaskHandler) Cancel(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "cancelled"})
 }
 
+// CompleteByInvocation 根据 invocationId 完成待办任务
+// PUT /api/v1/human-tasks/invocation/:invocationId/complete
+func (h *HumanTaskHandler) CompleteByInvocation(c *gin.Context) {
+	invocationID, err := uuid.Parse(c.Param("invocationId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid invocation id"})
+		return
+	}
+
+	if err := h.svc.CompleteTaskFromReply(c.Request.Context(), invocationID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "completed"})
+}
+
 // GetStats 获取任务统计
 // GET /api/v1/human-tasks/stats
 func (h *HumanTaskHandler) GetStats(c *gin.Context) {
@@ -136,6 +153,7 @@ func (h *HumanTaskHandler) RegisterRoutes(r *gin.RouterGroup) {
 	{
 		humanTasks.GET("", h.List)
 		humanTasks.GET("/stats", h.GetStats)
+		humanTasks.PUT("/invocation/:invocationId/complete", h.CompleteByInvocation)
 		humanTasks.GET("/:id", h.Get)
 		humanTasks.PUT("/:id/complete", h.Complete)
 		humanTasks.PUT("/:id/cancel", h.Cancel)

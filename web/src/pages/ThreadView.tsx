@@ -1574,6 +1574,7 @@ const ThreadView: React.FC = () => {
       });
 
       const agentName = (questionBlock as any)?.agentName || '';
+      const invocationIdFromBlock = (questionBlock as any)?.invocationId || invocationId;
 
       // 将答案转换为自然语言消息格式
       // 对于多选，将多个答案合并为一个字符串
@@ -1619,8 +1620,16 @@ const ThreadView: React.FC = () => {
       // MessageContentRenderer 会根据 status === 'success' 自动保留渲染
 
       // 发送用户消息（通过 WebSocket），这会触发 SpawnAgentForUserMessage
-      // 后端会解析 @mention，使用 resume 策略调用正确的 Agent
+      // 后端会解析 @mention，使用 resume 筢略调用正确的 Agent
       await sendMessage(userResponseMessage);
+
+      // 调用 API 关闭待办任务（使用 invocationId）
+      try {
+        await api.humanTasks.completeByInvocation(invocationIdFromBlock);
+        console.log('[handleInlineQuestionSubmit] 待办任务已关闭, invocationId:', invocationIdFromBlock);
+      } catch (e) {
+        console.warn('[handleInlineQuestionSubmit] 关闭待办任务失败:', e);
+      }
 
       message.success('答案已提交，Agent 正在处理...');
     } catch (error) {
@@ -1917,7 +1926,7 @@ const ThreadView: React.FC = () => {
                   <Tooltip title={fileSidebarVisible ? '隐藏文件树' : '显示文件树'}>
                     <Button icon={fileSidebarVisible ? <MenuFoldOutlined /> : <MenuUnfoldOutlined />} onClick={() => setFileSidebarVisible(!fileSidebarVisible)} size="small" />
                   </Tooltip>
-                  <Button icon={<ArrowLeftOutlined />} onClick={() => isDebugMode ? navigate('/agents') : navigate(`/projects/${projectId}`)} size="small">
+                  <Button icon={<ArrowLeftOutlined />} onClick={() => isDebugMode ? navigate('/agents') : navigate(`/projects/${projectId || currentThread?.projectId}`)} size="small">
                     {isDebugMode ? '返回 Agent 列表' : '返回项目'}
                   </Button>
                   <Tag color={wsConnected ? 'green' : 'red'}>{wsConnected ? '已连接' : '未连接'}</Tag>

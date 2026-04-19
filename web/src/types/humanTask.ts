@@ -9,6 +9,9 @@ export interface HumanTask {
   agentConfigId: string;     // Agent 角色配置 ID
   agentName: string;         // Agent 名称
   waitReason: string;        // 等待原因
+  projectId: string;         // 项目 ID
+  projectName: string;       // 项目名称
+  threadName: string;        // 任务名称（Thread 名称）
   status: HumanTaskStatus;
   createdAt: string;
   completedAt?: string;      // 完成时间

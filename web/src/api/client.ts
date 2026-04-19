@@ -169,9 +169,6 @@ class APIClient {
 
       return result as T;
     } catch (error: any) {
-      console.error('[DEBUG] API error:', error);
-      console.error('[DEBUG] Error response:', error.response?.data);
-      console.error('[DEBUG] Error status:', error.response?.status);
       if (error.response?.status === 401) {
         localStorage.removeItem('token');
         window.location.href = '/login';
@@ -330,6 +327,24 @@ class APIClient {
       this.request(`/agents/question/${threadId}/answer`, 'POST', { toolCallId, answer }),
   };
 
+  // HumanTask API（待办任务）
+  humanTasks = {
+    list: (status?: HumanTaskStatus): Promise<HumanTask[]> =>
+      this.request(`/human-tasks${status ? `?status=${status}` : ''}`, 'GET'),
+    get: (id: string): Promise<HumanTask> =>
+      this.request(`/human-tasks/${id}`, 'GET'),
+    complete: (id: string): Promise<{ status: string }> =>
+      this.request(`/human-tasks/${id}/complete`, 'PUT'),
+    cancel: (id: string): Promise<{ status: string }> =>
+      this.request(`/human-tasks/${id}/cancel`, 'PUT'),
+    // 根据 invocationId 关闭待办任务（用于 AskUserQuestion 回答后）
+    completeByInvocation: (invocationId: string): Promise<{ status: string }> =>
+      this.request(`/human-tasks/invocation/${invocationId}/complete`, 'PUT'),
+    // 提交任务执行结果（用于 TaskExecuteModal）
+    submit: (id: string, data: SubmitHumanTaskRequest): Promise<SubmitHumanTaskResponse> =>
+      this.request(`/human-tasks/${id}/submit`, 'POST', data),
+  };
+
   // 基础Agent API
   baseAgents = {
     list: (): Promise<BaseAgent[]> => this.request('/base-agents', 'GET'),
@@ -354,7 +369,6 @@ class APIClient {
     get: (id: string): Promise<AgentInvocation> => this.request(`/invocations/${id}`, 'GET'),
     spawn: (threadId: string, role: string, input: string, configId?: string): Promise<AgentInvocation> => {
       const payload = { role, input, configId };
-      console.log('[DEBUG] spawn request payload:', payload);
       return this.request(`/threads/${threadId}/invocations`, 'POST', payload);
     },
     cancel: (id: string): Promise<void> => this.request(`/invocations/${id}/cancel`, 'POST'),
@@ -718,28 +732,6 @@ class APIClient {
       const response = await this.client.get('/system/version');
       return response.data;
     },
-  };
-
-  // HumanTask API
-  humanTasks = {
-    list: (status?: HumanTaskStatus): Promise<HumanTask[]> => {
-      const url = status ? `/human-tasks?status=${status}` : '/human-tasks';
-      return this.request(url, 'GET');
-    },
-    get: (id: string): Promise<HumanTask> =>
-      this.request(`/human-tasks/${id}`, 'GET'),
-    submit: (id: string, data: SubmitHumanTaskRequest): Promise<SubmitHumanTaskResponse> =>
-      this.request(`/human-tasks/${id}/submit`, 'POST', data),
-    start: (id: string): Promise<{ message: string }> =>
-      this.request(`/human-tasks/${id}/start`, 'PUT'),
-    reject: (id: string): Promise<{ message: string }> =>
-      this.request(`/human-tasks/${id}/reject`, 'PUT'),
-    complete: (id: string): Promise<{ status: string }> =>
-      this.request(`/human-tasks/${id}/complete`, 'POST'),
-    cancel: (id: string): Promise<{ status: string }> =>
-      this.request(`/human-tasks/${id}/cancel`, 'POST'),
-    stats: (): Promise<Record<string, number>> =>
-      this.request('/human-tasks/stats', 'GET'),
   };
 }
 

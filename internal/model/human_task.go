@@ -25,6 +25,9 @@ type HumanTask struct {
 	AgentConfigID uuid.UUID       `json:"agentConfigId"`  // 等待用户的 Agent
 	AgentName     string          `json:"agentName"`      // Agent 名称
 	WaitReason    string          `json:"waitReason"`     // 等待原因（输出摘要）
+	ProjectID     uuid.UUID       `json:"projectId"`      // 项目 ID
+	ProjectName   string          `json:"projectName"`    // 项目名称
+	ThreadName    string          `json:"threadName"`     // 任务名称（Thread 名称）
 	Status        HumanTaskStatus `json:"status"`
 	CreatedAt     time.Time       `json:"createdAt"`
 	CompletedAt   *time.Time      `json:"completedAt"`

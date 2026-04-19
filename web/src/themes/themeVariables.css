@@ -15,6 +15,11 @@
   --color-primary-border: #34d399;
   --color-primary-light: #ecfdf5;
 
+  /* Human角色颜色 - 玫红色系，与绿色对比协调 */
+  --human-color: #ec4899;
+  --human-color-hover: #db2777;
+  --human-color-shadow: rgba(236, 72, 153, 0.4);
+
   /* 背景色 */
   --bg-base: #f0fdf4;
   --bg-container: #ffffff;
@@ -65,6 +70,11 @@
   --color-primary-border: #60a5fa;
   --color-primary-light: #eff6ff;
 
+  /* Human角色颜色 - 紫色系，与蓝色协调 */
+  --human-color: #8b5cf6;
+  --human-color-hover: #7c3aed;
+  --human-color-shadow: rgba(139, 92, 246, 0.4);
+
   --bg-base: #f8fafc;
   --bg-container: #ffffff;
   --bg-elevated: #ffffff;
@@ -103,6 +113,11 @@
   --color-primary-bg-hover: #ddd6fe;
   --color-primary-border: #a78bfa;
   --color-primary-light: #f5f3ff;
+
+  /* Human角色颜色 - 深紫色系，与主题紫色区分 */
+  --human-color: #6d28d9;
+  --human-color-hover: #5b21b6;
+  --human-color-shadow: rgba(109, 40, 217, 0.4);
 
   --bg-base: #f5f3ff;
   --bg-container: #ffffff;
@@ -143,6 +158,11 @@
   --color-primary-border: #f472b6;
   --color-primary-light: #fdf2f8;
 
+  /* Human角色颜色 - 紫色系，与粉色协调 */
+  --human-color: #a855f7;
+  --human-color-hover: #9333ea;
+  --human-color-shadow: rgba(168, 85, 247, 0.4);
+
   --bg-base: #fdf2f8;
   --bg-container: #ffffff;
   --bg-elevated: #ffffff;
@@ -181,6 +201,11 @@
   --color-primary-bg-hover: #065f46;
   --color-primary-border: #10b981;
   --color-primary-light: #022c22;
+
+  /* Human角色颜色 - 亮紫色，深色背景下更醒目 */
+  --human-color: #a855f7;
+  --human-color-hover: #9333ea;
+  --human-color-shadow: rgba(168, 85, 247, 0.5);
 
   --bg-base: #0f172a;
   --bg-container: #1e293b;
@@ -225,6 +250,11 @@
   --color-primary-bg-hover: #bae6fd;
   --color-primary-border: #38bdf8;
   --color-primary-light: #f0f9ff;
+
+  /* Human角色颜色 - 紫色系，与青色协调 */
+  --human-color: #8b5cf6;
+  --human-color-hover: #7c3aed;
+  --human-color-shadow: rgba(139, 92, 246, 0.4);
 
   --bg-base: #f0f9ff;
   --bg-container: #ffffff;

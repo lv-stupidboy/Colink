@@ -199,6 +199,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
           agentConfigId: (metadata.agentConfigId as string) || '',
           agentName: metadata.agentName as string,
           waitReason: message.content,
+          projectId: (metadata.projectId as string) || '',
+          projectName: (metadata.projectName as string) || '',
+          threadName: (metadata.threadName as string) || '',
           status: status,
           createdAt: message.createdAt,
         };
