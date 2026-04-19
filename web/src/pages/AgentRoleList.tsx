@@ -624,6 +624,16 @@ const AgentRoleList: React.FC = () => {
             <Input.TextArea rows={2} placeholder="角色描述" />
           </Form.Item>
 
+          <Form.Item name="baseAgentId" label="基础Agent">
+            <Select placeholder="选择基础Agent" allowClear>
+              {baseAgents.map(agent => (
+                <Select.Option key={agent.id} value={agent.id}>
+                  {agent.name} ({agent.type === 'claude_code' ? 'Claude Code' : 'OpenCode'})
+                </Select.Option>
+              ))}
+            </Select>
+          </Form.Item>
+
           <Form.Item name="mentionPatterns" label="触发模式" extra="设置 @mention 触发模式，用户可通过这些模式唤起该角色。新建时默认为 @+名称">
             <Select
               mode="tags"
@@ -635,16 +645,6 @@ const AgentRoleList: React.FC = () => {
 
           <Form.Item name="systemPrompt" label="系统提示词" rules={[{ required: true, message: '请输入系统提示词' }]}>
             <Input.TextArea rows={8} placeholder="系统提示词，定义Agent的行为和能力" />
-          </Form.Item>
-
-          <Form.Item name="baseAgentId" label="基础Agent">
-            <Select placeholder="选择基础Agent" allowClear>
-              {baseAgents.map(agent => (
-                <Select.Option key={agent.id} value={agent.id}>
-                  {agent.name} ({agent.type === 'claude_code' ? 'Claude Code' : 'OpenCode'})
-                </Select.Option>
-              ))}
-            </Select>
           </Form.Item>
 
           <Form.Item label="绑定 Skills">
