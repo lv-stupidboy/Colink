@@ -135,16 +135,12 @@ export const InputArea: React.FC<InputAreaProps> = memo(({
     if (mentionListVisible && filteredAgents.length > 0) {
       if (e.key === 'ArrowUp') {
         e.preventDefault();
-        setHighlightedIndex(prev =>
-          prev > 0 ? prev - 1 : filteredAgents.length - 1
-        );
+        setHighlightedIndex(prev => prev > 0 ? prev - 1 : filteredAgents.length - 1);
         return;
       }
       if (e.key === 'ArrowDown') {
         e.preventDefault();
-        setHighlightedIndex(prev =>
-          prev < filteredAgents.length - 1 ? prev + 1 : 0
-        );
+        setHighlightedIndex(prev => prev < filteredAgents.length - 1 ? prev + 1 : 0);
         return;
       }
       if (e.key === 'Enter' && !e.shiftKey) {
@@ -211,24 +207,28 @@ export const InputArea: React.FC<InputAreaProps> = memo(({
                 <List
                   size="small"
                   dataSource={filteredAgents}
-                  renderItem={(opt, index) => (
-                    <List.Item
-                      className="mention-list-item"
-                      style={{
-                        cursor: 'pointer',
-                        padding: '8px 12px',
-                        backgroundColor: index === highlightedIndex ? 'var(--color-primary-opacity-10)' : 'transparent',
-                        borderRadius: '4px',
-                      }}
-                      onClick={() => selectMention(opt.id, opt.role as AgentRole, opt.name)}
-                      onMouseEnter={() => setHighlightedIndex(index)}
-                    >
-                      <Space>
-                        <Avatar size="small" icon={<RobotOutlined />} />
-                        <span>{opt.label}</span>
-                      </Space>
-                    </List.Item>
-                  )}
+                  renderItem={(opt, index) => {
+                    const isHighlighted = index === highlightedIndex;
+
+                    return (
+                      <List.Item
+                        className="mention-list-item"
+                        style={{
+                          cursor: 'pointer',
+                          padding: '8px 12px',
+                          backgroundColor: isHighlighted ? 'var(--color-primary-opacity-10)' : 'transparent',
+                          borderRadius: '4px',
+                        }}
+                        onClick={() => selectMention(opt.id, opt.role as AgentRole, opt.name)}
+                        onMouseEnter={() => setHighlightedIndex(index)}
+                      >
+                        <Space>
+                          <Avatar size="small" icon={<RobotOutlined />} />
+                          <span>{opt.label}</span>
+                        </Space>
+                      </List.Item>
+                    );
+                  }}
                 />
               )}
             </div>
