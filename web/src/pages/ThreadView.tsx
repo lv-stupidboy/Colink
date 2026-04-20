@@ -812,8 +812,8 @@ const ThreadView: React.FC = () => {
         const input = data.payload.input as string | undefined;
         console.log('[agent_status] Received:', { status, invocId, agentName, agentId });
         updateAgentStatus(invocId, status, agentName, input);
-        // Agent 完成或中断时清理工具事件
-        if (status === 'completed' || status === 'failed' || status === 'interrupted') {
+        // Agent 完成或中断时清理工具事件（包括 cancelled）
+        if (status === 'completed' || status === 'failed' || status === 'interrupted' || status === 'cancelled') {
           clearToolEvents(invocId);
 
           // Agent 完成后预填入：设置上一个对话的 Agent 名称

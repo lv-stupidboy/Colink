@@ -210,6 +210,7 @@ interface WorkflowWithAssets {
   subagents: number;
   rules: number;
   totalAssets: number;
+  updatedAt?: string;
 }
 
 const Dashboard: React.FC = () => {

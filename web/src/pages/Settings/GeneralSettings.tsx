@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Form, Switch, Typography, Space, Button, message, Alert, Tag, Select } from 'antd';
+import { Card, Form, Switch, Typography, Space, Button, message, Alert, Tag } from 'antd';
 import {
   SettingOutlined,
   AlertOutlined,
   DesktopOutlined,
   SoundOutlined,
-  CloudSyncOutlined,
 } from '@ant-design/icons';
 import { useAppStore } from '@/store';
 import {
@@ -29,11 +28,6 @@ const GeneralSettings: React.FC = () => {
   // 系统通知权限状态
   const [notificationPermission, setNotificationPermission] = useState<'granted' | 'denied' | 'default' | 'unsupported'>('default');
 
-  // 团队包自动更新状态
-  const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(false);
-  const [checkInterval, setCheckInterval] = useState<string>('24h');
-  const [remoteRepoUrl, setRemoteRepoUrl] = useState<string>('');
-
   // 从 Store 获取阻塞提醒相关 actions
   const setBlockingReminderEnabled = useAppStore((state) => state.setBlockingReminderEnabled);
 
@@ -51,17 +45,6 @@ const GeneralSettings: React.FC = () => {
     } else {
       setNotificationPermission('unsupported');
     }
-
-    // 加载团队包自动更新配置
-    const autoUpdateStored = localStorage.getItem('isdp_team_package_auto_update');
-    setAutoUpdateEnabled(autoUpdateStored === 'true');
-
-    const intervalStored = localStorage.getItem('isdp_team_package_check_interval');
-    setCheckInterval(intervalStored || '24h');
-
-    // 加载远程仓库地址（从配置或默认值）
-    const repoUrlStored = localStorage.getItem('isdp_team_package_repo_url');
-    setRemoteRepoUrl(repoUrlStored || 'https://gitee.com/colink_1/team-packages');
   }, []);
 
   // 实时保存阻塞提醒开关状态
@@ -98,20 +81,6 @@ const GeneralSettings: React.FC = () => {
       setNotificationPermission('denied');
       message.warning('系统通知权限被拒绝，请检查浏览器设置');
     }
-  };
-
-  // 团队包自动更新开关变化
-  const handleAutoUpdateChange = (checked: boolean) => {
-    setAutoUpdateEnabled(checked);
-    localStorage.setItem('isdp_team_package_auto_update', String(checked));
-    message.success(checked ? '已开启团队包自动更新' : '已关闭团队包自动更新');
-  };
-
-  // 检查间隔变化
-  const handleCheckIntervalChange = (value: string) => {
-    setCheckInterval(value);
-    localStorage.setItem('isdp_team_package_check_interval', value);
-    message.success('更新间隔已更新');
   };
 
   return (
@@ -241,66 +210,6 @@ const GeneralSettings: React.FC = () => {
                 </Text>
               )}
             </Space>
-          </Form.Item>
-        </Form>
-      </Card>
-
-      {/* 团队包自动更新卡片 */}
-      <Card
-        title={
-          <Space>
-            <CloudSyncOutlined />
-            团队包自动更新
-          </Space>
-        }
-        style={{ marginBottom: 16 }}
-      >
-        <Form layout="vertical">
-          {/* 启用自动更新开关 */}
-          <Form.Item
-            label="启用自动更新"
-            tooltip="定期检查远程仓库的团队包更新并自动同步"
-          >
-            <Space>
-              <Switch
-                checked={autoUpdateEnabled}
-                onChange={handleAutoUpdateChange}
-                checkedChildren="开启"
-                unCheckedChildren="关闭"
-              />
-              <Text type="secondary">
-                {autoUpdateEnabled ? '自动检查并更新团队包' : '手动更新模式'}
-              </Text>
-            </Space>
-          </Form.Item>
-
-          {/* 检查间隔 */}
-          {autoUpdateEnabled && (
-            <Form.Item
-              label="更新间隔"
-              tooltip="自动检查更新的频率"
-            >
-              <Select
-                value={checkInterval}
-                onChange={handleCheckIntervalChange}
-                style={{ width: 200 }}
-                options={[
-                  { value: '12h', label: '每12小时' },
-                  { value: '24h', label: '每24小时' },
-                  { value: '7d', label: '每7天' },
-                ]}
-              />
-            </Form.Item>
-          )}
-
-          {/* 远程仓库地址 */}
-          <Form.Item
-            label="远程地址"
-            tooltip="团队包同步的远程Git仓库地址"
-          >
-            <Text copyable style={{ fontFamily: 'monospace', fontSize: 13 }}>
-              {remoteRepoUrl}
-            </Text>
           </Form.Item>
         </Form>
       </Card>

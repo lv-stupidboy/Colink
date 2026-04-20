@@ -69,6 +69,7 @@ import type {
   MarketPackage,
   AddMarketRequest,
   UpdateMarketRequest,
+  PackagePreviewResponse,
 } from '@/types';
 import {
   transformProjects,

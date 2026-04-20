@@ -1214,6 +1214,7 @@ export interface MarketPackage {
   source: string;
   localVersion?: string;
   localStatus: 'new' | 'update' | 'latest';
+  lastImportedAt?: string;
 }
 
 // PackagePreviewResponse 团队包预览响应

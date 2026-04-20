@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import {
   Card, Table, Button, Space, Tag, message, Spin, Modal,
-  Descriptions, Collapse, Typography, Divider
+  Descriptions, Collapse, Typography, Divider, Progress
 } from 'antd';
 import {
-  CloudDownloadOutlined, SyncOutlined, ShopOutlined
+  CloudDownloadOutlined, ShopOutlined, CheckSquareOutlined
 } from '@ant-design/icons';
 import api from '@/api/client';
 import type { MarketPackage, PackagePreviewResponse } from '@/types';
@@ -14,11 +14,17 @@ const { Title, Text } = Typography;
 const TeamPackages: React.FC = () => {
   const [packages, setPackages] = useState<MarketPackage[]>([]);
   const [loading, setLoading] = useState(false);
-  const [refreshingAll, setRefreshingAll] = useState(false);
   const [syncingPackage, setSyncingPackage] = useState<string | null>(null);
   const [previewingPackage, setPreviewingPackage] = useState<string | null>(null);
   const [previewData, setPreviewData] = useState<PackagePreviewResponse | null>(null);
   const [previewModalVisible, setPreviewModalVisible] = useState(false);
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+  const [batchImporting, setBatchImporting] = useState(false);
+  const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0, success: 0, failed: 0 });
+  const [batchResults, setBatchResults] = useState<Array<{ name: string; status: 'success' | 'failed'; error?: string }>>([]);
+  const [batchModalVisible, setBatchModalVisible] = useState(false);
+  const [confirmModalVisible, setConfirmModalVisible] = useState(false);
+  const [pendingImportPackages, setPendingImportPackages] = useState<MarketPackage[]>([]);
 
   useEffect(() => {
     loadPackages();
@@ -29,28 +35,11 @@ const TeamPackages: React.FC = () => {
     try {
       const result = await api.markets.getTeamPackages();
       setPackages(result.data);
+      setSelectedRowKeys([]);
     } catch (error: any) {
       message.error(error.response?.data?.error || '加载团队包列表失败');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleRefreshAll = async () => {
-    setRefreshingAll(true);
-    try {
-      const markets = await api.markets.list();
-      for (const market of markets.data) {
-        if (market.enabled) {
-          await api.markets.refresh(market.id);
-        }
-      }
-      message.success('所有市场已刷新');
-      loadPackages();
-    } catch (error: any) {
-      message.error('刷新失败');
-    } finally {
-      setRefreshingAll(false);
     }
   };
 
@@ -79,6 +68,53 @@ const TeamPackages: React.FC = () => {
     } finally {
       setSyncingPackage(null);
     }
+  };
+
+  // 点击批量导入按钮 -> 显示确认弹框
+  const handleBatchImportClick = () => {
+    if (selectedRowKeys.length === 0) {
+      message.warning('请先选择要导入的团队包');
+      return;
+    }
+
+    const toImport = packages.filter(pkg =>
+      selectedRowKeys.includes(`${pkg.marketId}-${pkg.name}`)
+    );
+    setPendingImportPackages(toImport);
+    setConfirmModalVisible(true);
+  };
+
+  // 确认后执行批量导入
+  const handleBatchImportConfirm = async () => {
+    setConfirmModalVisible(false);
+    setBatchImporting(true);
+    setBatchProgress({ current: 0, total: pendingImportPackages.length, success: 0, failed: 0 });
+    setBatchResults([]);
+    setBatchModalVisible(true);
+
+    const results: Array<{ name: string; status: 'success' | 'failed'; error?: string }> = [];
+
+    for (let i = 0; i < pendingImportPackages.length; i++) {
+      const pkg = pendingImportPackages[i];
+      setBatchProgress(prev => ({ ...prev, current: i + 1 }));
+
+      try {
+        await api.teamPackages.syncPackage(pkg.name, undefined, pkg.marketId);
+        results.push({ name: pkg.name, status: 'success' });
+        setBatchProgress(prev => ({ ...prev, success: prev.success + 1 }));
+      } catch (error: any) {
+        const errorMsg = error.response?.data?.error || '导入失败';
+        results.push({ name: pkg.name, status: 'failed', error: errorMsg });
+        setBatchProgress(prev => ({ ...prev, failed: prev.failed + 1 }));
+      }
+    }
+
+    setBatchResults(results);
+    setBatchImporting(false);
+    setSelectedRowKeys([]);
+    setPendingImportPackages([]);
+
+    loadPackages();
   };
 
   const getStatusTag = (status: string) => {
@@ -127,6 +163,13 @@ const TeamPackages: React.FC = () => {
       key: 'localStatus',
       width: 100,
       render: getStatusTag,
+    },
+    {
+      title: '最近导入',
+      dataIndex: 'lastImportedAt',
+      key: 'lastImportedAt',
+      width: 150,
+      render: (v?: string) => v ? new Date(v).toLocaleString() : '-',
     },
     {
       title: '操作',
@@ -316,13 +359,24 @@ const TeamPackages: React.FC = () => {
         title={
           <Space>
             <ShopOutlined />
-            <span>远程团队包</span>
+            <span>团队包</span>
           </Space>
         }
         extra={
-          <Button icon={<SyncOutlined />} onClick={handleRefreshAll} loading={refreshingAll}>
-            刷新全部市场
-          </Button>
+          <Space>
+            <Text type="secondary">
+              已选 {selectedRowKeys.length} 项
+            </Text>
+            <Button
+              type="primary"
+              icon={<CheckSquareOutlined />}
+              onClick={handleBatchImportClick}
+              disabled={selectedRowKeys.length === 0 || batchImporting}
+              loading={batchImporting}
+            >
+              批量导入
+            </Button>
+          </Space>
         }
       >
         <Spin spinning={loading}>
@@ -331,9 +385,95 @@ const TeamPackages: React.FC = () => {
             columns={columns}
             rowKey={(record) => `${record.marketId}-${record.name}`}
             pagination={{ pageSize: 20 }}
+            rowSelection={{
+              selectedRowKeys,
+              onChange: setSelectedRowKeys,
+            }}
           />
         </Spin>
       </Card>
+
+      {/* 批量导入进度/结果弹框 */}
+      <Modal
+        title="批量导入"
+        open={batchModalVisible}
+        onCancel={() => {
+          if (!batchImporting) {
+            setBatchModalVisible(false);
+            setBatchResults([]);
+          }
+        }}
+        footer={batchImporting ? null : [
+          <Button key="close" onClick={() => {
+            setBatchModalVisible(false);
+            setBatchResults([]);
+          }}>
+            关闭
+          </Button>,
+        ]}
+        width={500}
+      >
+        {batchImporting ? (
+          <div>
+            <Progress
+              percent={Math.round(batchProgress.current / batchProgress.total * 100)}
+              status="active"
+              format={() => `${batchProgress.current}/${batchProgress.total}`}
+            />
+            <Text type="secondary" style={{ marginTop: 8 }}>
+              成功: {batchProgress.success} | 失败: {batchProgress.failed}
+            </Text>
+          </div>
+        ) : (
+          <div>
+            <div style={{ marginBottom: 12 }}>
+              <Text strong>导入结果</Text>
+              <Text type="secondary" style={{ marginLeft: 12 }}>
+                成功 {batchProgress.success} 个，失败 {batchProgress.failed} 个
+              </Text>
+            </div>
+            <Space direction="vertical" size="small" style={{ width: '100%' }}>
+              {batchResults.map((result, idx) => (
+                <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Tag color={result.status === 'success' ? 'green' : 'red'}>
+                    {result.status === 'success' ? '成功' : '失败'}
+                  </Tag>
+                  <Text>{result.name}</Text>
+                  {result.error && (
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      ({result.error})
+                    </Text>
+                  )}
+                </div>
+              ))}
+            </Space>
+          </div>
+        )}
+      </Modal>
+
+      {/* 批量导入确认弹框 */}
+      <Modal
+        title="确认批量导入"
+        open={confirmModalVisible}
+        onCancel={() => setConfirmModalVisible(false)}
+        onOk={handleBatchImportConfirm}
+        okText="确认导入"
+        cancelText="取消"
+        width={500}
+      >
+        <Text>将导入以下 {pendingImportPackages.length} 个团队包：</Text>
+        <div style={{ marginTop: 12, maxHeight: 200, overflow: 'auto' }}>
+          {pendingImportPackages.map((pkg, idx) => (
+            <div key={idx} style={{ padding: '4px 0' }}>
+              <Text>{pkg.name}</Text>
+              <Tag color="blue" style={{ marginLeft: 8 }}>{pkg.version}</Tag>
+              <Tag color={pkg.localStatus === 'new' ? 'blue' : pkg.localStatus === 'update' ? 'orange' : 'green'} style={{ marginLeft: 4 }}>
+                {pkg.localStatus === 'new' ? '未导入' : pkg.localStatus === 'update' ? '待更新' : '已导入'}
+              </Tag>
+            </div>
+          ))}
+        </div>
+      </Modal>
 
       {renderPreviewModal()}
     </div>

@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Card, Table, Button, Space, Modal, Form, Input, Switch, Tag, message, Popconfirm, Typography, Spin, Tooltip
+  Card, Table, Button, Space, Modal, Form, Input, Switch, Tag, message, Popconfirm, Typography, Spin
 } from 'antd';
 import {
-  PlusOutlined, EditOutlined, DeleteOutlined, SyncOutlined, ShopOutlined, QuestionCircleOutlined
+  PlusOutlined, EditOutlined, DeleteOutlined, ShopOutlined
 } from '@ant-design/icons';
 import api from '@/api/client';
 import type { Market, AddMarketRequest } from '@/types';
@@ -60,7 +60,6 @@ const cronExamples = [
 const MarketManagement: React.FC = () => {
   const [markets, setMarkets] = useState<Market[]>([]);
   const [loading, setLoading] = useState(false);
-  const [refreshingAll, setRefreshingAll] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingMarket, setEditingMarket] = useState<Market | null>(null);
   const [cronModalVisible, setCronModalVisible] = useState(false);
@@ -108,35 +107,6 @@ const MarketManagement: React.FC = () => {
       loadMarkets();
     } catch (error: any) {
       message.error(error.response?.data?.error || '删除失败');
-    }
-  };
-
-  const handleRefresh = async (id: string) => {
-    try {
-      const result = await api.markets.refresh(id);
-      message.success(`市场刷新成功，解析到 ${result.plugins} 个插件`);
-      loadMarkets();
-    } catch (error: any) {
-      message.error(error.response?.data?.error || '刷新失败');
-    }
-  };
-
-  const handleRefreshAll = async () => {
-    setRefreshingAll(true);
-    try {
-      let totalPlugins = 0;
-      for (const market of markets) {
-        if (market.enabled) {
-          const result = await api.markets.refresh(market.id);
-          totalPlugins += result.plugins;
-        }
-      }
-      message.success(`已刷新所有市场，共解析到 ${totalPlugins} 个插件`);
-      loadMarkets();
-    } catch (error: any) {
-      message.error('刷新失败');
-    } finally {
-      setRefreshingAll(false);
     }
   };
 
@@ -273,7 +243,7 @@ const MarketManagement: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      width: 260,
+      width: 200,
       render: (_: any, record: Market) => (
         <Space size="small">
           <Space size={4}>
@@ -286,14 +256,6 @@ const MarketManagement: React.FC = () => {
               {record.enabled ? '启用' : '禁用'}
             </Text>
           </Space>
-          <Button
-            size="small"
-            icon={<SyncOutlined />}
-            onClick={() => handleRefresh(record.id)}
-            disabled={!record.enabled}
-          >
-            刷新
-          </Button>
           <Button
             size="small"
             icon={<EditOutlined />}
@@ -320,14 +282,9 @@ const MarketManagement: React.FC = () => {
           </Space>
         }
         extra={
-          <Space>
-            <Button icon={<SyncOutlined />} onClick={handleRefreshAll} loading={refreshingAll}>
-              刷新全部
-            </Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
-              添加市场
-            </Button>
-          </Space>
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
+            添加市场
+          </Button>
         }
       >
         <Spin spinning={loading}>
