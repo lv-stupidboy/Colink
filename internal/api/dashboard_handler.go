@@ -70,6 +70,7 @@ type WorkflowWithAssets struct {
 	Rules       int         `json:"rules"`
 	TotalAssets int         `json:"totalAssets"`
 	IsActive    bool        `json:"isActive"`
+	UpdatedAt   string      `json:"updatedAt"`
 }
 
 // AgentInfo 角色信息（包含资产统计和名称列表）
@@ -246,7 +247,7 @@ func (h *DashboardHandler) queryTodayWorkflowUsage(ctx context.Context) []Workfl
 func (h *DashboardHandler) queryWorkflowsWithAssets(ctx context.Context) []WorkflowWithAssets {
 	// Step 1: 查询所有 workflow 基本信息
 	query := `
-		SELECT wt.id, wt.name, wt.description, wt.is_system, wt.agent_ids
+		SELECT wt.id, wt.name, wt.description, wt.is_system, wt.agent_ids, wt.updated_at
 		FROM workflow_templates wt
 		ORDER BY wt.is_system DESC, wt.updated_at DESC
 	`
@@ -264,7 +265,7 @@ func (h *DashboardHandler) queryWorkflowsWithAssets(ctx context.Context) []Workf
 	for rows.Next() {
 		var w WorkflowWithAssets
 		var agentIdsBytes []byte
-		if err := rows.Scan(&w.ID, &w.Name, &w.Description, &w.IsSystem, &agentIdsBytes); err != nil {
+		if err := rows.Scan(&w.ID, &w.Name, &w.Description, &w.IsSystem, &agentIdsBytes, &w.UpdatedAt); err != nil {
 			continue
 		}
 

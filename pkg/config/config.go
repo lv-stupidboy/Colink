@@ -30,6 +30,8 @@ type Config struct {
 	IM          IMConfig          `mapstructure:"im"`
 	Reporter    ReporterConfig    `mapstructure:"reporter"`
 	HumanTask   HumanTaskConfig   `mapstructure:"human_task"`
+	// TeamPackageSyncConfig 团队包同步配置（仅保留临时目录配置）
+	TeamPackageSync TeamPackageSyncConfig `mapstructure:"team_package_sync"`
 }
 
 // DataConfig 数据目录配置
@@ -302,6 +304,18 @@ type HumanTaskConfig struct {
 	Enabled bool `mapstructure:"enabled"`
 }
 
+// TeamPackageSyncConfig 团队包同步配置
+type TeamPackageSyncConfig struct {
+	TempDir string `mapstructure:"temp_dir"` // 临时目录路径，相对于 base_path
+}
+
+// ApplyDefaults 设置团队包同步配置默认值
+func (c *TeamPackageSyncConfig) ApplyDefaults() {
+	if c.TempDir == "" {
+		c.TempDir = "temp" // 默认在 base_path 下创建 temp 目录
+	}
+}
+
 const (
 	EventModeWebhook  = "webhook"
 	EventModeListener = "listener"
@@ -484,6 +498,9 @@ func Load(configPath string) (*Config, error) {
 	for i := range cfg.IM.Platforms {
 		cfg.IM.Platforms[i].ApplyDefaults()
 	}
+
+	// 应用团队包同步默认值
+	cfg.TeamPackageSync.ApplyDefaults()
 
 	// 验证必须的路径配置
 	if err := validateConfig(&cfg); err != nil {

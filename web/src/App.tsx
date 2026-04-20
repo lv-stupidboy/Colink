@@ -12,6 +12,10 @@ import SandboxPage from '@/pages/Sandbox';
 import SettingsLayout from '@/pages/Settings/Layout';
 import GeneralSettings from '@/pages/Settings/GeneralSettings';
 import BaseAgentSettings from '@/pages/Settings/BaseAgentSettings';
+import MarketLayout from '@/pages/Market/Layout';
+import MarketManagement from '@/pages/Market/MarketManagement';
+import TeamPackages from '@/pages/Market/TeamPackages';
+import TeamPackageManagement from '@/pages/TeamPackage';
 import WorkflowPage from '@/pages/Workflow';
 import SkillLibrary from '@/pages/SkillLibrary';
 import RegistryManagement from '@/pages/RegistryManagement';
@@ -21,7 +25,6 @@ import CommandList from '@/pages/CommandList';
 import RuleList from '@/pages/RuleList';
 import SettingsManagement from '@/pages/SettingsManagement';
 import AssetPackageManagement from '@/pages/AssetPackage';
-import TeamPackagePage from '@/pages/TeamPackage';
 import PlaceholderPage from '@/pages/PlaceholderPage';
 import Tasks from '@/pages/Tasks';
 import { useThemeStore } from '@/store/themeStore';
@@ -160,8 +163,15 @@ const App: React.FC = () => {
               <Route path="registries" element={<RegistryManagement />} />
               <Route path="knowledge" element={<Navigate to="/agents/knowledge" replace />} />
 
+              {/* 市场 - 二级菜单 */}
+              <Route path="market" element={<MarketLayout />}>
+                <Route index element={<Navigate to="management" replace />} />
+                <Route path="management" element={<MarketManagement />} />
+                <Route path="team-packages" element={<TeamPackages />} />
+              </Route>
+
               {/* 管理工具路由 - 作为 Agent团队的二级菜单 */}
-              <Route path="agents/team-packages" element={<TeamPackagePage />} />
+              <Route path="agents/team-packages" element={<TeamPackageManagement />} />
               <Route path="agents/asset-packages" element={<AssetPackageManagement />} />
 
               {/* 旧路由重定向 */}

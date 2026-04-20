@@ -1130,3 +1130,130 @@ export interface UpdateResultItem {
   status: 'success' | 'failed';
   error?: string;
 }
+
+// ========== Team Package Sync 相关类型 ==========
+
+// TeamPackageVersion 团队包版本信息
+export interface TeamPackageVersion {
+  packageName: string;
+  version: string;
+  installedAt: string;
+  installedBy?: string;
+  workflowId?: string;
+}
+
+// RemotePackageInfo 远程包信息
+export interface RemotePackageInfo {
+  name: string;
+  version: string;
+  description?: string;
+  path?: string;
+  category?: string; // 从 categories 结构中提取的分类名称
+  author?: string;
+  updatedAt?: string;
+  downloadUrl?: string;
+}
+
+// RemotePackageCategory 远程包分类
+export interface RemotePackageCategory {
+  name: string;
+  packages: RemotePackageInfo[];
+}
+
+// RemotePackageList 远程包列表
+export interface RemotePackageList {
+  categories: RemotePackageCategory[];
+}
+
+// UpdateCheckItem 更新检查项
+export interface UpdateCheckItem {
+  packageName: string;
+  localVersion: string;
+  remoteVersion: string;
+  hasUpdate: boolean;
+}
+
+// UpdateCheckResult 更新检查结果
+export interface UpdateCheckResult {
+  hasUpdates: boolean;
+  updates: UpdateCheckItem[];
+  total: number;
+}
+
+// ImportConfirm 导入确认配置
+export interface ImportConfirm {
+  overwrite?: boolean;
+  skipExisting?: boolean;
+}
+
+// ========== Market 相关类型 ==========
+
+// Market 市场（插件源）
+export interface Market {
+  id: string;
+  name: string;
+  url: string;
+  branch: string;
+  enabled: boolean;
+  autoUpdate: boolean;
+  checkInterval: string;
+  lastSyncedAt?: string;
+  lastError?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// MarketPackage 市场包信息
+export interface MarketPackage {
+  name: string;
+  version: string;
+  description: string;
+  marketId: string;
+  marketName: string;
+  repository: string;
+  source: string;
+  localVersion?: string;
+  localStatus: 'new' | 'update' | 'latest';
+  lastImportedAt?: string;
+}
+
+// PackagePreviewResponse 团队包预览响应
+export interface PackagePreviewResponse {
+  packageName: string;
+  version: string;
+  description: string;
+  workflow: {
+    name: string;
+    description: string;
+  };
+  roles: Array<{
+    name: string;
+    role: string;
+    description: string;
+    assets: string[]; // 如 "Skill: xxx", "Command: xxx"
+  }>;
+  assets: {
+    skills: Array<{ name: string; description: string }>;
+    commands: Array<{ name: string; description: string }>;
+    subagents: Array<{ name: string; description: string }>;
+    rules: Array<{ name: string; description: string }>;
+    settings: Array<{ name: string; description: string }>;
+  };
+}
+
+// AddMarketRequest 添加市场请求
+export interface AddMarketRequest {
+  name: string;
+  url: string;
+  branch?: string;
+}
+
+// UpdateMarketRequest 更新市场请求
+export interface UpdateMarketRequest {
+  name?: string;
+  url?: string;
+  branch?: string;
+  enabled?: boolean;
+  autoUpdate?: boolean;
+  checkInterval?: string;
+}

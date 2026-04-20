@@ -14,6 +14,7 @@ import (
 	"github.com/anthropic/isdp/internal/middleware"
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
+	"github.com/anthropic/isdp/internal/reporter"
 	"github.com/anthropic/isdp/internal/service/a2a"
 	"github.com/anthropic/isdp/internal/service/agent"
 	"github.com/anthropic/isdp/internal/service/assetpackage"
@@ -22,6 +23,7 @@ import (
 	"github.com/anthropic/isdp/internal/service/humantask"
 	"github.com/anthropic/isdp/internal/service/im"
 	"github.com/anthropic/isdp/internal/service/knowledge"
+	"github.com/anthropic/isdp/internal/service/market"
 	"github.com/anthropic/isdp/internal/service/mention"
 	"github.com/anthropic/isdp/internal/service/merge"
 	"github.com/anthropic/isdp/internal/service/message"
@@ -32,10 +34,10 @@ import (
 	"github.com/anthropic/isdp/internal/service/skill"
 	"github.com/anthropic/isdp/internal/service/subagent"
 	"github.com/anthropic/isdp/internal/service/teampackage"
+	"github.com/anthropic/isdp/internal/service/teampackagesync"
 	"github.com/anthropic/isdp/internal/service/thread"
 	"github.com/anthropic/isdp/internal/service/workflow"
 	"github.com/anthropic/isdp/internal/ws"
-	"github.com/anthropic/isdp/internal/reporter"
 	"github.com/anthropic/isdp/pkg/config"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -99,10 +101,6 @@ func findConfigPath() string {
 }
 
 func main() {
-	// 设置 Windows 控制台 UTF-8 编码，解决中文乱码问题
-	os.Stdout.WriteString("\x1b[?65001h")
-	os.Stderr.WriteString("\x1b[?65001h")
-
 	// 确定配置文件路径，按优先级查找
 	configPath := findConfigPath()
 
@@ -169,6 +167,7 @@ func main() {
 	sandboxRepo := repo.NewSandboxRepository(db, dbType)
 	reviewRepo := repo.NewReviewRepository(artifactRepo)
 	workflowRepo := repo.NewWorkflowTemplateRepository(db, dbType)
+	teamPackageVersionRepo := repo.NewTeamPackageVersionRepository(db, dbType)
 	skillRepo := repo.NewSkillRepository(db, dbType)
 	agentSkillBindingRepo := repo.NewAgentSkillBindingRepository(db, dbType)
 	registryRepo := repo.NewSkillRegistryRepository(db, dbType)
@@ -289,6 +288,18 @@ func main() {
 	// 创建 HumanTask Service
 	humanTaskSvc := humantask.NewService(humanTaskRepo, threadRepo, projectRepo, wsHub)
 
+	// 初始化 MarketRepository
+	marketRepo := repo.NewMarketRepository(db, dbType)
+
+	// 初始化 MarketService
+	marketSvc := market.NewService(marketRepo, teamPackageVersionRepo, cfg.Data.BasePath+"/temp", logger)
+
+	// 创建 TeamPackageSync Service
+	teamPackageSyncSvc := teampackagesync.NewSyncService(
+		teamPackageVersionRepo, workflowRepo, teamPackageSvc, marketSvc,
+		cfg.TeamPackageSync, cfg.Data.BasePath, logger,
+	)
+
 	// 初始化 UseCountUpdater（技能使用次数统计）
 	useCountUpdater := skill.NewUseCountUpdater(skillRepo, projectRepo, agentSkillBindingRepo)
 	useCountUpdater.SetWorkflowService(workflowService)
@@ -316,6 +327,17 @@ func main() {
 		usageReporter.Start()
 		defer usageReporter.Stop()
 	}
+
+	// 启动 TeamPackageSync Checker（团队包同步检查，自动检查所有启用自动更新的市场）
+	syncChecker := teampackagesync.NewSyncChecker(
+		teamPackageSyncSvc,
+		marketRepo,
+		teamPackageVersionRepo,
+		24*time.Hour, // 默认 24 小时检查间隔
+		logger,
+	)
+	syncChecker.Start()
+	defer syncChecker.Stop()
 
 	// 初始化适配器
 	// 默认适配器设为 nil，在执行时根据 AgentRoleConfig.BaseAgentID 动态创建适配器
@@ -458,8 +480,8 @@ func main() {
 	// 版本信息 API（供前端动态获取，避免浏览器缓存问题）
 	router.GET("/api/v1/system/version", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
-			"version":      Version,
-			"baseVersion":  extractBaseVersion(Version),
+			"version":     Version,
+			"baseVersion": extractBaseVersion(Version),
 		})
 	})
 
@@ -552,6 +574,14 @@ func main() {
 	// TeamPackage Handler
 	teamPackageHandler := api.NewTeamPackageHandler(teamPackageSvc)
 	teamPackageHandler.RegisterRoutes(v1)
+
+	// TeamPackageSync Handler
+	teamPackageSyncHandler := api.NewTeamPackageSyncHandler(teamPackageSyncSvc, logger)
+	teamPackageSyncHandler.RegisterRoutes(v1)
+
+	// Market Handler
+	marketHandler := api.NewMarketHandler(marketSvc, logger)
+	marketHandler.RegisterRoutes(v1)
 
 	// MCP Callback Handler
 	callbackHandler := api.NewCallbackHandler(invocationRegistry, mcpAuthService, messageService, messageRepo, wsHub, orchestrator, baseAgentRepo, invocationQueue, queueProcessor, mentionParser, humanTaskSvc, agentConfigRepo)

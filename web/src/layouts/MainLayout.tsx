@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Layout, Menu, Typography, Space, Tag, Button, Tooltip } from 'antd';
+import { Layout, Menu, Typography, Space, Tag, Button } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   DashboardOutlined,
@@ -21,6 +21,7 @@ import {
   ToolOutlined,
   TeamOutlined,
   FileTextOutlined,
+  ShopOutlined,
 } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import ThemeSwitcher from '@/components/ThemeSwitcher';
@@ -73,6 +74,9 @@ const MainLayout: React.FC = () => {
     const path = location.pathname;
     if (path.startsWith('/settings') || path.startsWith('/registries')) {
       setOpenKeys(['settings']);
+    } else if (path.startsWith('/market')) {
+      // 市场路径
+      setOpenKeys(['market']);
     } else if (path.startsWith('/agents')) {
       // Agent团队下的路径，需要展开到三级菜单
       if (path.startsWith('/agents/commands') || path.startsWith('/agents/subagents') ||
@@ -80,7 +84,7 @@ const MainLayout: React.FC = () => {
           path.startsWith('/agents/settings') ||
           path.startsWith('/agents/plugins')) {
         setOpenKeys(['agents', 'assets']);
-      } else if (path.startsWith('/agents/team-packages') || path.startsWith('/agents/asset-packages')) {
+      } else if (path.startsWith('/agents/asset-packages')) {
         setOpenKeys(['agents', 'management-tools']);
       } else {
         setOpenKeys(['agents']);
@@ -178,6 +182,23 @@ const MainLayout: React.FC = () => {
       ],
     },
     {
+      key: 'market',
+      icon: <ShopOutlined />,
+      label: '市场',
+      children: [
+        {
+          key: '/market/management',
+          icon: <ShopOutlined />,
+          label: '市场管理',
+        },
+        {
+          key: '/market/team-packages',
+          icon: <TeamOutlined />,
+          label: '团队包',
+        },
+      ],
+    },
+    {
       key: 'settings',
       icon: <SettingOutlined />,
       label: '设置',
@@ -227,6 +248,10 @@ const MainLayout: React.FC = () => {
     if (path.startsWith('/registries')) return '/registries';
     if (path.startsWith('/sandbox')) return '/sandbox';
     if (path === '/workflow') return '/workflow';
+    // 市场子菜单路由
+    if (path.startsWith('/market/management')) return '/market/management';
+    if (path.startsWith('/market/team-packages')) return '/market/team-packages';
+    if (path.startsWith('/market')) return '/market/management'; // /market 重定向到 /market/management
     // Agent 团队子菜单路由
     if (path.startsWith('/agents/team-packages')) return '/agents/team-packages';
     if (path.startsWith('/agents/asset-packages')) return '/agents/asset-packages';
