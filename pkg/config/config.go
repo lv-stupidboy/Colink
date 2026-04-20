@@ -300,6 +300,7 @@ type TeamPackageSyncConfig struct {
 	AutoUpdateEnabled bool   `mapstructure:"auto_update_enabled"`
 	CheckInterval     string `mapstructure:"check_interval"`
 	Branch            string `mapstructure:"branch"`
+	TempDir           string `mapstructure:"temp_dir"` // 临时目录路径，相对于 base_path
 }
 
 // ApplyDefaults 设置团队包同步配置默认值
@@ -312,6 +313,9 @@ func (c *TeamPackageSyncConfig) ApplyDefaults() {
 	}
 	if c.Branch == "" {
 		c.Branch = "main"
+	}
+	if c.TempDir == "" {
+		c.TempDir = "temp" // 默认在 base_path 下创建 temp 目录
 	}
 }
 

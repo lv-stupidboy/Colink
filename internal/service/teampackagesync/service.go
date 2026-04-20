@@ -4,9 +4,11 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/anthropic/isdp/internal/model"
@@ -130,47 +132,118 @@ func (s *SyncService) GetLocalVersions(ctx context.Context) ([]model.TeamPackage
 }
 
 // SyncPackage 同步指定的团队包
-func (s *SyncService) SyncPackage(ctx context.Context, packageName string, confirm *model.TeamPackageImportConfirm) (*model.ImportResult, error) {
-	// 克隆仓库
-	cloneDir, err := s.gitClient.Clone(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("clone repo: %w", err)
-	}
-	defer s.gitClient.Cleanup(cloneDir)
-
-	// 获取远程包列表
-	remoteList, err := s.gitClient.GetPackageList(cloneDir)
-	if err != nil {
-		return nil, fmt.Errorf("get package list: %w", err)
-	}
-
-	// 查找指定的包
+func (s *SyncService) SyncPackage(ctx context.Context, packageName string, marketId string, confirm *model.TeamPackageImportConfirm) (*model.ImportResult, error) {
 	var remotePkg *RemotePackage
-	for _, category := range remoteList.Categories {
-		for _, pkg := range category.Packages {
-			s.logger.Info("comparing packages",
-				zap.String("received", packageName),
-				zap.String("remote", pkg.Name),
-				zap.Int("receivedLen", len(packageName)),
-				zap.Int("remoteLen", len(pkg.Name)))
-			if pkg.Name == packageName {
-				remotePkg = &pkg
+	var packageCloneDir string
+
+	// 如果指定了 marketId，从市场获取包
+	if marketId != "" && s.marketSvc != nil {
+		marketUUID, err := uuid.Parse(marketId)
+		if err != nil {
+			return nil, fmt.Errorf("invalid market id: %w", err)
+		}
+
+		market, err := s.marketSvc.GetMarketByID(ctx, marketUUID)
+		if err != nil {
+			return nil, fmt.Errorf("get market: %w", err)
+		}
+		if market == nil {
+			return nil, fmt.Errorf("market not found: %s", marketId)
+		}
+
+		// 克隆市场仓库获取 marketplace.json
+		marketCloneDir, err := s.gitClient.CloneFromURL(ctx, market.URL, market.Branch)
+		if err != nil {
+			return nil, fmt.Errorf("clone market repo: %w", err)
+		}
+		defer s.gitClient.Cleanup(marketCloneDir)
+
+		// 解析 marketplace.json
+		marketplace, err := s.parseMarketplaceJSON(marketCloneDir)
+		if err != nil {
+			return nil, fmt.Errorf("parse marketplace.json: %w", err)
+		}
+
+		// 查找指定的包
+		for _, plugin := range marketplace.Plugins {
+			if strings.ToLower(plugin.Category) == "team" && plugin.Name == packageName {
+				remotePkg = &RemotePackage{
+					Name:        plugin.Name,
+					Version:     plugin.Version,
+					Description: plugin.Description,
+					Path:        "", // 将在克隆后设置
+					Repository:  plugin.Repository,
+					Source:      plugin.Source,
+				}
 				break
 			}
 		}
-		if remotePkg != nil {
-			break
-		}
-	}
 
-	if remotePkg == nil {
-		return nil, fmt.Errorf("package not found: %s", packageName)
+		if remotePkg == nil {
+			return nil, fmt.Errorf("package not found in marketplace: %s", packageName)
+		}
+
+		// 克隆包仓库
+		packageCloneDir, err = s.gitClient.CloneFromURL(ctx, remotePkg.Repository, "master")
+		if err != nil {
+			return nil, fmt.Errorf("clone package repo: %w", err)
+		}
+		defer s.gitClient.Cleanup(packageCloneDir)
+
+		// 设置包的实际路径
+		remotePkg.Path = filepath.Join(packageCloneDir, remotePkg.Source)
+	} else {
+		// 使用默认配置的仓库
+		cloneDir, err := s.gitClient.Clone(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("clone repo: %w", err)
+		}
+		defer s.gitClient.Cleanup(cloneDir)
+
+		// 获取远程包列表
+		remoteList, err := s.gitClient.GetPackageList(cloneDir)
+		if err != nil {
+			return nil, fmt.Errorf("get package list: %w", err)
+		}
+
+		// 查找指定的包
+		for _, category := range remoteList.Categories {
+			for _, pkg := range category.Packages {
+				s.logger.Info("comparing packages",
+					zap.String("received", packageName),
+					zap.String("remote", pkg.Name))
+				if pkg.Name == packageName {
+					remotePkg = &pkg
+					break
+				}
+			}
+			if remotePkg != nil {
+				break
+			}
+		}
+
+		if remotePkg == nil {
+			return nil, fmt.Errorf("package not found: %s", packageName)
+		}
 	}
 
 	// 将目录转换为 zip 数据
 	zipData, err := s.createZipFromDir(remotePkg.Path)
 	if err != nil {
 		return nil, fmt.Errorf("create zip: %w", err)
+	}
+
+	// 如果 confirm 为空，创建一个默认的（全部覆盖导入）
+	if confirm == nil {
+		confirm = &model.TeamPackageImportConfirm{
+			Mode:           "overwrite",
+			WorkflowAction: "overwrite",
+			AssetActions: []model.TeamPackageAssetAction{
+				{AssetType: "skill", Name: "*", Action: "overwrite"},
+				{AssetType: "command", Name: "*", Action: "overwrite"},
+				{AssetType: "rule", Name: "*", Action: "overwrite"},
+			},
+		}
 	}
 
 	// 调用现有的 ImportConfirm 方法（零侵入复用）
@@ -305,4 +378,21 @@ func (s *SyncService) updateVersionRecord(ctx context.Context, packageName strin
 	}
 
 	return s.versionRepo.Create(ctx, newVersion)
+}
+
+// parseMarketplaceJSON 解析 marketplace.json 文件
+func (s *SyncService) parseMarketplaceJSON(cloneDir string) (*model.Marketplace, error) {
+	marketplaceFile := filepath.Join(cloneDir, "marketplace.json")
+
+	data, err := os.ReadFile(marketplaceFile)
+	if err != nil {
+		return nil, fmt.Errorf("read marketplace.json: %w", err)
+	}
+
+	var marketplace model.Marketplace
+	if err := json.Unmarshal(data, &marketplace); err != nil {
+		return nil, fmt.Errorf("parse marketplace.json: %w", err)
+	}
+
+	return &marketplace, nil
 }

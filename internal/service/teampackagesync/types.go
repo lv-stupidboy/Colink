@@ -16,6 +16,8 @@ type RemotePackage struct {
 	Version     string `json:"version"`
 	Description string `json:"description"`
 	Path        string `json:"path"`
+	Repository  string `json:"repository"` // 包所在仓库URL（用于market场景）
+	Source      string `json:"source"`     // 包在仓库中的相对路径（用于market场景）
 }
 
 type UpdateCheckResult struct {

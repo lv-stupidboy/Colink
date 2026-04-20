@@ -69,6 +69,46 @@ func (g *GitClient) Clone(ctx context.Context) (string, error) {
 	return tempDir, nil
 }
 
+// CloneFromURL clones a specific URL to a temp directory
+func (g *GitClient) CloneFromURL(ctx context.Context, url string, branch string) (string, error) {
+	// 使用项目数据目录下的临时目录
+	tempBase := filepath.Join(g.basePath, g.config.TempDir)
+
+	// 确保临时目录存在
+	if err := os.MkdirAll(tempBase, 0755); err != nil {
+		return "", fmt.Errorf("create temp base dir: %w", err)
+	}
+
+	// 在临时目录下创建本次同步的子目录
+	tempDir, err := os.MkdirTemp(tempBase, "team-package-sync-")
+	if err != nil {
+		return "", fmt.Errorf("create temp dir: %w", err)
+	}
+
+	g.logger.Info("cloning remote repository",
+		zap.String("url", url),
+		zap.String("branch", branch),
+		zap.String("tempDir", tempDir),
+	)
+
+	// Git clone with --depth 1 and specified branch
+	cmd := exec.CommandContext(ctx, "git", "clone", "--depth", "1", "--branch", branch, url, tempDir)
+	cmd.Env = os.Environ()
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		g.logger.Error("git clone failed",
+			zap.Error(err),
+			zap.String("output", string(output)),
+		)
+		g.Cleanup(tempDir)
+		return "", fmt.Errorf("git clone failed: %w, output: %s", err, string(output))
+	}
+
+	g.logger.Info("repository cloned successfully", zap.String("tempDir", tempDir))
+	return tempDir, nil
+}
+
 // GetPackageList scans clone directory and builds RemotePackageList
 func (g *GitClient) GetPackageList(cloneDir string) (*RemotePackageList, error) {
 	list := &RemotePackageList{Categories: []RemotePackageCategory{}}

@@ -9,10 +9,11 @@ import {
   FileZipOutlined,
   WarningOutlined,
   ReloadOutlined,
+  SyncOutlined,
 } from '@ant-design/icons';
 import type { UploadProps } from 'antd';
 import api from '@/api/client';
-import type { RemotePackageInfo, TeamPackageVersion } from '@/types';
+import type { RemotePackageInfo, TeamPackageVersion, UpdateCheckResult } from '@/types';
 
 const { Title, Text } = Typography;
 const { Dragger } = Upload;
@@ -70,6 +71,8 @@ const TeamPackageManagement: React.FC = () => {
   const [selectedCategory, setSelectedCategory] = useState<string>('');
   const [loadingRemote, setLoadingRemote] = useState(false);
   const [syncingPackage, setSyncingPackage] = useState<string | null>(null);
+  const [checkingUpdates, setCheckingUpdates] = useState(false);
+  const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null);
 
   // 加载工作流列表
   useEffect(() => {
@@ -150,6 +153,25 @@ const TeamPackageManagement: React.FC = () => {
       message.error(errorMsg);
     } finally {
       setSyncingPackage(null);
+    }
+  };
+
+  // 检查更新
+  const handleCheckUpdate = async () => {
+    setCheckingUpdates(true);
+    try {
+      const result = await api.teamPackages.checkUpdates();
+      setUpdateResult(result);
+      if (result.hasUpdates) {
+        message.info(`发现 ${result.total} 个团队包有更新`);
+      } else {
+        message.success('所有团队包已是最新版本');
+      }
+    } catch (error) {
+      console.error('Failed to check updates:', error);
+      message.error('检查更新失败');
+    } finally {
+      setCheckingUpdates(false);
     }
   };
 
@@ -563,13 +585,22 @@ const TeamPackageManagement: React.FC = () => {
       <Card
         title="远程团队包"
         extra={
-          <Button
-            icon={<ReloadOutlined />}
-            onClick={refreshRemotePackages}
-            loading={loadingRemote}
-          >
-            刷新远程列表
-          </Button>
+          <Space>
+            <Button
+              icon={<SyncOutlined spin={checkingUpdates} />}
+              onClick={handleCheckUpdate}
+              loading={checkingUpdates}
+            >
+              检查更新
+            </Button>
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={refreshRemotePackages}
+              loading={loadingRemote}
+            >
+              刷新
+            </Button>
+          </Space>
         }
       >
         <Spin spinning={loadingRemote}>
@@ -592,7 +623,79 @@ const TeamPackageManagement: React.FC = () => {
             </Space>
           </div>
 
+          {/* 更新结果提示 */}
+          {updateResult && updateResult.hasUpdates && (
+            <Alert
+              type="info"
+              message={`发现 ${updateResult.total} 个团队包有更新`}
+              description={
+                <ul style={{ margin: 0, paddingLeft: 20 }}>
+                  {updateResult.updates.map((item) => (
+                    <li key={item.packageName}>
+                      {item.packageName}: {item.localVersion} → {item.remoteVersion}
+                    </li>
+                  ))}
+                </ul>
+              }
+              showIcon
+              closable
+              onClose={() => setUpdateResult(null)}
+              style={{ marginBottom: 16 }}
+            />
+          )}
+
+          {/* 已导入团队包 */}
+          {localVersions.length > 0 && (
+            <div style={{ marginBottom: 24 }}>
+              <Title level={5}>已导入团队包</Title>
+              <Table
+                dataSource={localVersions}
+                rowKey="packageName"
+                pagination={false}
+                size="small"
+                columns={[
+                  {
+                    title: '名称',
+                    dataIndex: 'packageName',
+                    key: 'packageName',
+                    ellipsis: true,
+                  },
+                  {
+                    title: '分类',
+                    dataIndex: 'category',
+                    key: 'category',
+                    render: () => <Tag color="blue">团队包</Tag>,
+                  },
+                  {
+                    title: '版本号',
+                    dataIndex: 'version',
+                    key: 'version',
+                    render: (version: string) => <Tag color="green">{version}</Tag>,
+                  },
+                  {
+                    title: '最后同步时间',
+                    dataIndex: 'installedAt',
+                    key: 'installedAt',
+                    render: (time: string) => {
+                      if (!time) return '-';
+                      const date = new Date(time);
+                      return date.toLocaleString('zh-CN', {
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      });
+                    },
+                  },
+                ]}
+                locale={{ emptyText: '暂无已导入的团队包' }}
+              />
+            </div>
+          )}
+
           {/* 远程团队包列表 */}
+          <Title level={5}>可用团队包</Title>
           <Table
             dataSource={remotePackages
               .filter(pkg => !selectedCategory || pkg.category === selectedCategory)

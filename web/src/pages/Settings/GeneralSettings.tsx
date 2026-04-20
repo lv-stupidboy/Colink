@@ -1,13 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Form, Switch, Typography, Space, Button, message, Alert, Tag, Select, Table, Spin } from 'antd';
+import { Card, Form, Switch, Typography, Space, Button, message, Alert, Tag, Select } from 'antd';
 import {
   SettingOutlined,
   AlertOutlined,
   DesktopOutlined,
   SoundOutlined,
-  SyncOutlined,
   CloudSyncOutlined,
-  ReloadOutlined,
 } from '@ant-design/icons';
 import { useAppStore } from '@/store';
 import {
@@ -18,8 +16,6 @@ import {
   setNotificationSoundEnabled,
   playNotificationSound,
 } from '@/utils/systemNotification';
-import api from '@/api/client';
-import type { TeamPackageVersion, UpdateCheckResult } from '@/types';
 
 const { Title, Text } = Typography;
 
@@ -37,10 +33,6 @@ const GeneralSettings: React.FC = () => {
   const [autoUpdateEnabled, setAutoUpdateEnabled] = useState(false);
   const [checkInterval, setCheckInterval] = useState<string>('24h');
   const [remoteRepoUrl, setRemoteRepoUrl] = useState<string>('');
-  const [localVersions, setLocalVersions] = useState<TeamPackageVersion[]>([]);
-  const [loadingVersions, setLoadingVersions] = useState(false);
-  const [checkingUpdates, setCheckingUpdates] = useState(false);
-  const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null);
 
   // 从 Store 获取阻塞提醒相关 actions
   const setBlockingReminderEnabled = useAppStore((state) => state.setBlockingReminderEnabled);
@@ -70,24 +62,7 @@ const GeneralSettings: React.FC = () => {
     // 加载远程仓库地址（从配置或默认值）
     const repoUrlStored = localStorage.getItem('isdp_team_package_repo_url');
     setRemoteRepoUrl(repoUrlStored || 'https://gitee.com/colink_1/team-packages');
-
-    // 加载本地版本列表
-    loadLocalVersions();
   }, []);
-
-  // 加载本地版本列表
-  const loadLocalVersions = async () => {
-    setLoadingVersions(true);
-    try {
-      const result = await api.teamPackages.listLocalVersions();
-      setLocalVersions(result.data || []);
-    } catch (error) {
-      console.error('Failed to load local versions:', error);
-      message.error('加载本地团队包版本失败');
-    } finally {
-      setLoadingVersions(false);
-    }
-  };
 
   // 实时保存阻塞提醒开关状态
   const handleReminderChange = (checked: boolean) => {
@@ -136,26 +111,7 @@ const GeneralSettings: React.FC = () => {
   const handleCheckIntervalChange = (value: string) => {
     setCheckInterval(value);
     localStorage.setItem('isdp_team_package_check_interval', value);
-    message.success('检查间隔已更新');
-  };
-
-  // 手动检查更新
-  const handleCheckUpdate = async () => {
-    setCheckingUpdates(true);
-    try {
-      const result = await api.teamPackages.checkUpdates();
-      setUpdateResult(result);
-      if (result.hasUpdates) {
-        message.info(`发现 ${result.total} 个团队包有更新`);
-      } else {
-        message.success('所有团队包已是最新版本');
-      }
-    } catch (error) {
-      console.error('Failed to check updates:', error);
-      message.error('检查更新失败');
-    } finally {
-      setCheckingUpdates(false);
-    }
+    message.success('更新间隔已更新');
   };
 
   return (
@@ -321,7 +277,7 @@ const GeneralSettings: React.FC = () => {
           {/* 检查间隔 */}
           {autoUpdateEnabled && (
             <Form.Item
-              label="检查间隔"
+              label="更新间隔"
               tooltip="自动检查更新的频率"
             >
               <Select
@@ -339,99 +295,12 @@ const GeneralSettings: React.FC = () => {
 
           {/* 远程仓库地址 */}
           <Form.Item
-            label="远程仓库地址"
+            label="远程地址"
             tooltip="团队包同步的远程Git仓库地址"
           >
             <Text copyable style={{ fontFamily: 'monospace', fontSize: 13 }}>
               {remoteRepoUrl}
             </Text>
-          </Form.Item>
-
-          {/* 已导入团队包列表 */}
-          <Form.Item label="已导入团队包">
-            <Spin spinning={loadingVersions}>
-              <Table
-                dataSource={localVersions}
-                rowKey="packageName"
-                pagination={false}
-                size="small"
-                columns={[
-                  {
-                    title: '名称',
-                    dataIndex: 'packageName',
-                    key: 'packageName',
-                    ellipsis: true,
-                  },
-                  {
-                    title: '分类',
-                    dataIndex: 'category',
-                    key: 'category',
-                    render: () => <Tag color="blue">团队包</Tag>,
-                  },
-                  {
-                    title: '版本号',
-                    dataIndex: 'version',
-                    key: 'version',
-                    render: (version: string) => <Tag color="green">{version}</Tag>,
-                  },
-                  {
-                    title: '最后同步时间',
-                    dataIndex: 'installedAt',
-                    key: 'installedAt',
-                    render: (time: string) => {
-                      if (!time) return '-';
-                      const date = new Date(time);
-                      return date.toLocaleString('zh-CN', {
-                        year: 'numeric',
-                        month: '2-digit',
-                        day: '2-digit',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      });
-                    },
-                  },
-                ]}
-                locale={{ emptyText: '暂无已导入的团队包' }}
-              />
-            </Spin>
-          </Form.Item>
-
-          {/* 手动检查更新按钮 */}
-          <Form.Item>
-            <Space>
-              <Button
-                type="primary"
-                icon={<SyncOutlined spin={checkingUpdates} />}
-                onClick={handleCheckUpdate}
-                loading={checkingUpdates}
-              >
-                手动检查更新
-              </Button>
-              <Button
-                icon={<ReloadOutlined />}
-                onClick={loadLocalVersions}
-                loading={loadingVersions}
-              >
-                刷新列表
-              </Button>
-            </Space>
-            {updateResult && updateResult.hasUpdates && (
-              <Alert
-                type="info"
-                message={`发现 ${updateResult.total} 个团队包有更新`}
-                description={
-                  <ul style={{ margin: 0, paddingLeft: 20 }}>
-                    {updateResult.updates.map((item) => (
-                      <li key={item.packageName}>
-                        {item.packageName}: {item.localVersion} → {item.remoteVersion}
-                      </li>
-                    ))}
-                  </ul>
-                }
-                showIcon
-                style={{ marginTop: 12 }}
-              />
-            )}
           </Form.Item>
         </Form>
       </Card>

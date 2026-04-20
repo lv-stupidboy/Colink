@@ -73,7 +73,7 @@ func (h *TeamPackageSyncHandler) SyncPackage(c *gin.Context) {
 		return
 	}
 
-	result, err := h.syncSvc.SyncPackage(c.Request.Context(), req.PackageName, req.Confirm)
+	result, err := h.syncSvc.SyncPackage(c.Request.Context(), req.PackageName, req.MarketId, req.Confirm)
 	if err != nil {
 		h.logger.Error("sync package failed", zap.Error(err), zap.String("package", req.PackageName))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

@@ -10,11 +10,11 @@ export default defineConfig({
     },
   },
   server: {
-    port: 26306,
+    port: 26308,
     strictPort: true, // 端口冲突时报错而不是自动切换
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:26305',
+        target: 'http://127.0.0.1:26309',
         changeOrigin: true,
         ws: true, // 启用 WebSocket 代理
       },

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/anthropic/isdp/internal/model"
@@ -20,8 +19,6 @@ type Service struct {
 	versionRepo *repo.TeamPackageVersionRepository
 	gitClient   *GitClient
 	tempBase    string
-	cache       map[uuid.UUID]*model.Marketplace
-	cacheMutex  sync.RWMutex
 	logger      *zap.Logger
 }
 
@@ -37,7 +34,6 @@ func NewService(
 		versionRepo: versionRepo,
 		gitClient:   NewGitClient(logger),
 		tempBase:    tempBase,
-		cache:       make(map[uuid.UUID]*model.Marketplace),
 		logger:      logger,
 	}
 }
@@ -100,6 +96,11 @@ func (s *Service) DeleteMarket(ctx context.Context, id uuid.UUID) error {
 	return s.marketRepo.Delete(ctx, id)
 }
 
+// GetMarketByID 根据ID获取市场
+func (s *Service) GetMarketByID(ctx context.Context, id uuid.UUID) (*model.Market, error) {
+	return s.marketRepo.FindByID(ctx, id)
+}
+
 // RefreshMarket 刷新市场（重新克隆并解析 marketplace.json）
 func (s *Service) RefreshMarket(ctx context.Context, id uuid.UUID) (*model.Marketplace, error) {
 	market, err := s.marketRepo.FindByID(ctx, id)
@@ -123,10 +124,6 @@ func (s *Service) RefreshMarket(ctx context.Context, id uuid.UUID) (*model.Marke
 		return nil, err
 	}
 
-	// 更新缓存
-	s.cacheMutex.Lock()
-	s.cache[id] = marketplace
-	s.cacheMutex.Unlock()
 
 	// 更新同步状态
 	now := time.Now()
@@ -138,13 +135,6 @@ func (s *Service) RefreshMarket(ctx context.Context, id uuid.UUID) (*model.Marke
 	)
 
 	return marketplace, nil
-}
-
-// GetCachedMarketplace 获取缓存的市场数据
-func (s *Service) GetCachedMarketplace(id uuid.UUID) *model.Marketplace {
-	s.cacheMutex.RLock()
-	defer s.cacheMutex.RUnlock()
-	return s.cache[id]
 }
 
 // GetTeamPackages 获取所有市场的团队包列表
