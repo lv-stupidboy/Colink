@@ -324,20 +324,12 @@ func (s *SyncService) updateVersionRecord(ctx context.Context, packageName strin
 
 	now := time.Now()
 
-	// 从导入结果中获取 workflow ID
+	// 从导入结果中获取 workflow ID（直接使用 ImportDetail.ID）
 	var workflowID string
 	for _, detail := range result.Details {
-		if detail.AssetType == "workflow" && detail.Status == "success" {
-			// 尝试从 workflowRepo 获取刚导入的 workflow ID
-			workflows, err := s.workflowRepo.FindAll(ctx)
-			if err == nil {
-				for _, wf := range workflows {
-					if wf.Name == packageName {
-						workflowID = wf.ID.String()
-						break
-					}
-				}
-			}
+		// workflow 可能是 success 或 skipped（已存在），都需要获取 ID
+		if detail.AssetType == "workflow" && (detail.Status == "success" || detail.Status == "skipped") && detail.ID != "" {
+			workflowID = detail.ID
 			break
 		}
 	}

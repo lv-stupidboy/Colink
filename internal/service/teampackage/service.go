@@ -1061,6 +1061,7 @@ func (s *Service) importSkill(ctx context.Context, tempDir string, item model.As
 	}
 
 	detail.Status = "success"
+	detail.ID = skill.ID.String()
 	return skill.ID, detail
 }
 
@@ -1116,6 +1117,7 @@ func (s *Service) importCommand(ctx context.Context, tempDir string, item model.
 	}
 
 	detail.Status = "success"
+	detail.ID = command.ID.String()
 	return command.ID, detail
 }
 
@@ -1171,6 +1173,7 @@ func (s *Service) importSubagent(ctx context.Context, tempDir string, item model
 	}
 
 	detail.Status = "success"
+	detail.ID = subagent.ID.String()
 	return subagent.ID, detail
 }
 
@@ -1226,6 +1229,7 @@ func (s *Service) importRule(ctx context.Context, tempDir string, item model.Ass
 	}
 
 	detail.Status = "success"
+	detail.ID = rule.ID.String()
 	return rule.ID, detail
 }
 
@@ -1287,6 +1291,7 @@ func (s *Service) importSettings(ctx context.Context, tempDir string, item model
 	}
 
 	detail.Status = "success"
+	detail.ID = settingsRecord.ID.String()
 	return settingsRecord.ID, detail
 }
 
@@ -1360,6 +1365,7 @@ func (s *Service) importSettings(ctx context.Context, tempDir string, item model
 		}
 
 		detail.Status = "success"
+		detail.ID = roleID.String()
 		if _, err := uuid.Parse(originalIDStr); err == nil {
 			detail.Message = "角色导入成功"
 		} else {
@@ -1381,7 +1387,8 @@ func (s *Service) importWorkflow(ctx context.Context, wf model.TeamPackageWorkfl
 			if existing.Name == wf.Name {
 				detail.Status = "skipped"
 				detail.Message = "已存在相同名称的 Team"
-				return uuid.Nil, detail
+				detail.ID = existing.ID.String() // 设置已存在的 workflow ID
+				return existing.ID, detail
 			}
 		}
 	}
@@ -1448,6 +1455,7 @@ func (s *Service) importWorkflow(ctx context.Context, wf model.TeamPackageWorkfl
 	}
 
 	detail.Status = "success"
+	detail.ID = workflow.ID.String()
 	return workflow.ID, detail
 	}
 

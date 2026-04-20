@@ -75,13 +75,26 @@ func (s *Service) UpdateMarket(ctx context.Context, id uuid.UUID, req UpdateMark
 		return nil, fmt.Errorf("market not found")
 	}
 
-	if req.Name != "" {
-		market.Name = req.Name
+	if req.Name != nil && *req.Name != "" {
+		market.Name = *req.Name
 	}
-	market.Enabled = req.Enabled
-	market.AutoUpdate = req.AutoUpdate
-	if req.CheckInterval != "" {
-		market.CheckInterval = req.CheckInterval
+	if req.URL != nil && *req.URL != "" {
+		market.URL = *req.URL
+	}
+	if req.Branch != nil && *req.Branch != "" {
+		market.Branch = *req.Branch
+	}
+	if req.Enabled != nil {
+		market.Enabled = *req.Enabled
+	}
+	if req.AutoUpdate != nil {
+		market.AutoUpdate = *req.AutoUpdate
+	}
+	if req.CheckInterval != nil && *req.CheckInterval != "" {
+		if !ValidateCron(*req.CheckInterval) {
+			return nil, fmt.Errorf("invalid cron expression: %s (format: min hour day month weekday)", *req.CheckInterval)
+		}
+		market.CheckInterval = *req.CheckInterval
 	}
 
 	if err := s.marketRepo.Update(ctx, market); err != nil {

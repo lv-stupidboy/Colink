@@ -1250,6 +1250,8 @@ export interface AddMarketRequest {
 // UpdateMarketRequest 更新市场请求
 export interface UpdateMarketRequest {
   name?: string;
+  url?: string;
+  branch?: string;
   enabled?: boolean;
   autoUpdate?: boolean;
   checkInterval?: string;

@@ -73,6 +73,7 @@ type ImportResult struct {
 type ImportDetail struct {
 	AssetType string `json:"assetType"`
 	Name      string `json:"name"`
+	ID        string `json:"id,omitempty"`  // 成功导入时的ID
 	Status    string `json:"status"` // success, skipped, failed
 	Message   string `json:"message,omitempty"`
 }
