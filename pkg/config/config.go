@@ -30,6 +30,7 @@ type Config struct {
 	IM          IMConfig          `mapstructure:"im"`
 	Reporter    ReporterConfig    `mapstructure:"reporter"`
 	HumanTask   HumanTaskConfig   `mapstructure:"human_task"`
+	// TeamPackageSyncConfig 团队包同步配置（仅保留临时目录配置）
 	TeamPackageSync TeamPackageSyncConfig `mapstructure:"team_package_sync"`
 }
 
@@ -305,41 +306,14 @@ type HumanTaskConfig struct {
 
 // TeamPackageSyncConfig 团队包同步配置
 type TeamPackageSyncConfig struct {
-	RemoteRepoURL     string `mapstructure:"remote_repo_url"`
-	AutoUpdateEnabled bool   `mapstructure:"auto_update_enabled"`
-	CheckInterval     string `mapstructure:"check_interval"`
-	Branch            string `mapstructure:"branch"`
-	TempDir           string `mapstructure:"temp_dir"` // 临时目录路径，相对于 base_path
+	TempDir string `mapstructure:"temp_dir"` // 临时目录路径，相对于 base_path
 }
 
 // ApplyDefaults 设置团队包同步配置默认值
 func (c *TeamPackageSyncConfig) ApplyDefaults() {
-	if c.RemoteRepoURL == "" {
-		c.RemoteRepoURL = "https://gitee.com/colink_1/isdp.git"
-	}
-	if c.CheckInterval == "" {
-		c.CheckInterval = "24h"
-	}
-	if c.Branch == "" {
-		c.Branch = "main"
-	}
 	if c.TempDir == "" {
 		c.TempDir = "temp" // 默认在 base_path 下创建 temp 目录
 	}
-}
-
-// GetCheckInterval 获取检查间隔（解析为 time.Duration）
-func (c *TeamPackageSyncConfig) GetCheckInterval() time.Duration {
-	d, err := time.ParseDuration(c.CheckInterval)
-	if err != nil {
-		return 24 * time.Hour
-	}
-	return d
-}
-
-// IsEnabled 返回是否启用团队包同步
-func (c *TeamPackageSyncConfig) IsEnabled() bool {
-	return c.AutoUpdateEnabled && c.RemoteRepoURL != ""
 }
 
 const (

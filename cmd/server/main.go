@@ -328,18 +328,16 @@ func main() {
 		defer usageReporter.Stop()
 	}
 
-	// 启动 TeamPackageSync Checker（团队包同步检查，如果配置启用）
-	if cfg.TeamPackageSync.IsEnabled() {
-		syncChecker := teampackagesync.NewSyncChecker(
-			teamPackageSyncSvc,
-			marketRepo,
-			teamPackageVersionRepo,
-			cfg.TeamPackageSync.GetCheckInterval(),
-			logger,
-		)
-		syncChecker.Start()
-		defer syncChecker.Stop()
-	}
+	// 启动 TeamPackageSync Checker（团队包同步检查，自动检查所有启用自动更新的市场）
+	syncChecker := teampackagesync.NewSyncChecker(
+		teamPackageSyncSvc,
+		marketRepo,
+		teamPackageVersionRepo,
+		24*time.Hour, // 默认 24 小时检查间隔
+		logger,
+	)
+	syncChecker.Start()
+	defer syncChecker.Stop()
 
 	// 初始化适配器
 	// 默认适配器设为 nil，在执行时根据 AgentRoleConfig.BaseAgentID 动态创建适配器

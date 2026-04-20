@@ -2,15 +2,6 @@ package teampackagesync
 
 import "github.com/anthropic/isdp/internal/model"
 
-type RemotePackageList struct {
-	Categories []RemotePackageCategory `json:"categories"`
-}
-
-type RemotePackageCategory struct {
-	Name     string          `json:"name"`
-	Packages []RemotePackage `json:"packages"`
-}
-
 type RemotePackage struct {
 	Name        string `json:"name"`
 	Version     string `json:"version"`
@@ -40,12 +31,6 @@ type SyncPackageRequest struct {
 type PreviewPackageRequest struct {
 	PackageName string `json:"packageName" binding:"required"`
 	MarketId    string `json:"marketId"` // 可选：指定从哪个市场预览
-}
-
-type PackageInfo struct {
-	Name        string `json:"name"`
-	Version     string `json:"version"`
-	Description string `json:"description"`
 }
 
 // PreviewPackageResponse 包预览响应

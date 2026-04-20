@@ -159,12 +159,3 @@ func (c *SyncChecker) check() {
 		}
 	}
 }
-
-// getPackageNames 从更新信息列表中提取包名
-func getPackageNames(updates []PackageUpdateInfo) []string {
-	names := make([]string, len(updates))
-	for i, u := range updates {
-		names[i] = u.Local.Name
-	}
-	return names
-}

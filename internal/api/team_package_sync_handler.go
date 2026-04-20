@@ -26,22 +26,10 @@ func NewTeamPackageSyncHandler(syncSvc *teampackagesync.SyncService, logger *zap
 // RegisterRoutes 注册路由
 func (h *TeamPackageSyncHandler) RegisterRoutes(r *gin.RouterGroup) {
 	g := r.Group("/team-package-sync")
-	g.GET("/remote", h.GetRemotePackages)
 	g.GET("/check-update", h.CheckUpdates)
 	g.GET("/local-versions", h.GetLocalVersions)
 	g.POST("/preview", h.PreviewPackage)
 	g.POST("/sync", h.SyncPackage)
-}
-
-// GetRemotePackages 获取远程团队包列表
-func (h *TeamPackageSyncHandler) GetRemotePackages(c *gin.Context) {
-	result, err := h.syncSvc.GetRemotePackages(c.Request.Context())
-	if err != nil {
-		h.logger.Error("get remote packages failed", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, result)
 }
 
 // CheckUpdates 检查可用更新
