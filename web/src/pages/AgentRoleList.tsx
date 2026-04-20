@@ -60,8 +60,8 @@ const AgentRoleList: React.FC = () => {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [form] = Form.useForm();
   // 分页状态
-  const [systemPageSize, setSystemPageSize] = useState(5);
-  const [customPageSize, setCustomPageSize] = useState(5);
+  const [systemPageSize, setSystemPageSize] = useState(10);
+  const [customPageSize, setCustomPageSize] = useState(10);
   // 批量删除相关状态
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [batchDeleteLoading, setBatchDeleteLoading] = useState(false);
