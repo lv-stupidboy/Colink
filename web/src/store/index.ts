@@ -344,7 +344,7 @@ export const useAppStore = create<AppState & AppActions>()(
             .map((i: AgentInvocation) => ({
               ...i,
               // 确保 agentName 存在，如果没有则使用 role
-              agentName: i.agentName || (i.role === 'custom' ? 'Agent' : i.role),
+              agentName: i.agentName || i.role,
             })),
         });
       } catch (error) {

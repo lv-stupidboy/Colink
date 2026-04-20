@@ -114,11 +114,11 @@
   position: relative;
 }
 
+/* Agent 头像 */
 .workflow-agent-avatar {
   width: 56px;
   height: 56px;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -127,17 +127,28 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
-.workflow-agent-avatar:hover {
+/* Agent 类型 - 使用主题主色 */
+.workflow-agent-avatar.agent {
+  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);
+}
+
+.workflow-agent-avatar.agent:hover {
   transform: scale(1.08);
   box-shadow: 0 4px 16px var(--color-primary-opacity-30);
 }
 
-.workflow-agent-icon {
-  font-size: 24px;
-  color: #fff;
+/* Human 类型 - 使用主题协调色 */
+.workflow-agent-avatar.human {
+  background: linear-gradient(135deg, var(--human-color) 0%, var(--human-color-hover) 100%);
 }
 
-.workflow-agent-icon.system {
+.workflow-agent-avatar.human:hover {
+  transform: scale(1.08);
+  box-shadow: 0 4px 16px var(--human-color-shadow);
+}
+
+.workflow-agent-icon {
+  font-size: 24px;
   color: #fff;
 }
 

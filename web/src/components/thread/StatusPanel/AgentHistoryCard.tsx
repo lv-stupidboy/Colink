@@ -64,8 +64,8 @@ const getDisplayName = (agent: AgentInvocation): string => {
   if (agent.agentName && agent.agentName.trim()) {
     return agent.agentName.trim();
   }
-  // 如果 role 是 custom，显示 'Agent'
-  if (agent.role === 'custom') {
+  // 如果 role 是 agent，显示 'Agent'
+  if (agent.role === 'agent') {
     return 'Agent';
   }
   // 否则显示 role（如 developer, architect 等）

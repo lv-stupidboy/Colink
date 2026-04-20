@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Layout, Menu, Typography, Space, Tag } from 'antd';
+import { Layout, Menu, Typography, Space, Tag, Button, Tooltip } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   DashboardOutlined,
@@ -20,6 +20,7 @@ import {
   ContainerOutlined,
   ToolOutlined,
   TeamOutlined,
+  FileTextOutlined,
   ShopOutlined,
 } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
@@ -241,6 +242,7 @@ const MainLayout: React.FC = () => {
   // 获取当前选中的菜单项
   const getSelectedKey = () => {
     const path = location.pathname;
+    if (path.startsWith('/tasks')) return '/tasks';
     if (path.startsWith('/projects')) return '/projects';
     if (path.startsWith('/threads')) return '/projects';
     if (path.startsWith('/registries')) return '/registries';
@@ -325,8 +327,17 @@ const MainLayout: React.FC = () => {
           <Title level={4} style={{ margin: 0, color: 'var(--text-primary)' }}>
             Colink - 多智能体协作平台
           </Title>
-          <Space size="small">
+          <Space size={2}>
             <Tag color="blue" style={{ margin: 0 }}>{version || '加载中...'}</Tag>
+            {/* 待办任务入口（弱化版） */}
+            <Button
+              type="text"
+              className="theme-switcher-btn"
+              icon={<FileTextOutlined />}
+              onClick={() => navigate('/tasks')}
+            >
+              待办
+            </Button>
             <ThemeSwitcher />
           </Space>
         </Header>

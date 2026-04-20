@@ -6,17 +6,21 @@ import (
 	"sync"
 
 	"github.com/anthropic/isdp/internal/model"
+	"github.com/anthropic/isdp/internal/repo"
 	"github.com/anthropic/isdp/internal/service/agent"
+	"github.com/anthropic/isdp/internal/service/humantask"
 	"github.com/anthropic/isdp/internal/ws"
 	"github.com/google/uuid"
 )
 
 // A2ATriggerDeps A2A 触发依赖
 type A2ATriggerDeps struct {
-	Registry     *InvocationRegistry
-	Orchestrator *agent.Orchestrator
-	WSHub        *ws.Hub
-	Queue        *InvocationQueue
+	Registry        *InvocationRegistry
+	Orchestrator    *agent.Orchestrator
+	WSHub           *ws.Hub
+	Queue           *InvocationQueue
+	HumanTaskSvc    *humantask.Service      // 人角色任务服务
+	AgentConfigRepo *repo.AgentConfigRepository // Agent配置仓库
 }
 
 // A2ATriggerOptions A2A 触发选项
@@ -36,6 +40,34 @@ type A2AResult struct {
 	Fallback bool     // 是否使用了 fallback 模式
 }
 
+// handleHumanRoleTask 处理人类角色
+// Human 角色不再通过 @mention 触发，任务由 ExecutionService 状态检测机制创建（waiting 状态检测）
+// 返回: (是否处理, 入队的ID)
+func handleHumanRoleTask(ctx context.Context, deps *A2ATriggerDeps, opts *A2ATriggerOptions, roleConfigID uuid.UUID) (bool, string) {
+	// 检查依赖是否可用
+	if deps.AgentConfigRepo == nil {
+		fmt.Printf("[A2A] handleHumanRoleTask: missing AgentConfigRepo\n")
+		return false, ""
+	}
+
+	// 获取角色配置
+	roleConfig, err := deps.AgentConfigRepo.FindByID(ctx, roleConfigID)
+	if err != nil {
+		fmt.Printf("[A2A] handleHumanRoleTask: failed to find role config %s: %v\n", roleConfigID.String(), err)
+		return false, ""
+	}
+
+	// 检查是否是人类角色
+	if !roleConfig.Role.IsHumanRole() {
+		return false, ""
+	}
+
+	// Human 角色不通过 @mention 触发，跳过
+	// Human 任务由 ExecutionService 在 Agent 进入 waiting 状态时创建
+	fmt.Printf("[A2A] handleHumanRoleTask: skipping human role %s (tasks created via waiting state detection)\n", roleConfig.Name)
+	return true, roleConfigID.String() // 返回 true 表示已处理（跳过 Agent 触发）
+}
+
 // EnqueueA2ATargets 将 @mentioned 的 Agent 加入工作队列
 //
 // 流程：
@@ -52,6 +84,19 @@ func EnqueueA2ATargets(ctx context.Context, deps *A2ATriggerDeps, opts *A2ATrigg
 	// 如果有队列，使用队列模式
 	if deps.Queue != nil {
 		for _, catID := range opts.TargetCats {
+			// 解析 catID 为 UUID
+			roleConfigID, err := uuid.Parse(catID)
+			if err != nil {
+				// 无效的 UUID，跳过
+				continue
+			}
+
+			// 检查是否是人类角色，如果是则创建人工任务
+			if handled, enqueuedID := handleHumanRoleTask(ctx, deps, opts, roleConfigID); handled {
+				enqueued = append(enqueued, enqueuedID)
+				continue
+			}
+
 			// 深度限制检查
 			currentDepth := deps.Queue.CountAgentEntriesForThread(opts.ThreadID.String())
 			if currentDepth >= MaxA2ADepth {
@@ -100,6 +145,19 @@ func EnqueueA2ATargets(ctx context.Context, deps *A2ATriggerDeps, opts *A2ATrigg
 
 	// 无队列时直接触发
 	for _, catID := range opts.TargetCats {
+		// 解析 catID 为 UUID
+		roleConfigID, err := uuid.Parse(catID)
+		if err != nil {
+			// 无效的 UUID，跳过
+			continue
+		}
+
+		// 检查是否是人类角色，如果是则创建人工任务
+		if handled, enqueuedID := handleHumanRoleTask(ctx, deps, opts, roleConfigID); handled {
+			enqueued = append(enqueued, enqueuedID)
+			continue
+		}
+
 		// 检查 slot 是否被占用
 		if deps.Registry.HasActiveSlot(opts.ThreadID, catID) {
 			continue

@@ -1,11 +1,13 @@
 // isdp/web/src/components/thread/ChatMessage.tsx
 import React, { memo } from 'react';
-import { Tag, Button, Tooltip, Alert, Card, Space } from 'antd';
-import { StopOutlined, ReloadOutlined, FileTextOutlined, ExclamationCircleOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { Tag, Button, Tooltip, Alert, Card, Space, Avatar } from 'antd';
+import { StopOutlined, ReloadOutlined, FileTextOutlined, ExclamationCircleOutlined, ThunderboltOutlined, RobotOutlined, UserOutlined } from '@ant-design/icons';
 import type { Message, AgentConfig, AgentRole, MessageRole, ReviewIssue, ToolEvent, MessageContentBlock } from '@/types';
+import type { HumanTask, HumanTaskStatus } from '@/types';
 import type { FileChange } from '@/types/content';
 import { getAgentStyle, AGENT_STYLES, USER_MESSAGE_STYLE, SYSTEM_MESSAGE_STYLE } from '@/config/agentStyles';
 import { ReviewReport } from '@/components/ReviewReport';
+import HumanTaskCard from '@/components/HumanTaskCard';
 import MessageContentRenderer from './ContentBlock/MessageContentRenderer';
 import { ReplyPill } from './ContentBlock/ReplyPill';
 import { WhisperBadge } from './ContentBlock/WhisperBadge';
@@ -51,9 +53,9 @@ function getStyleByRole(role: MessageRole, agentRole?: AgentRole) {
     case 'system':
       return SYSTEM_MESSAGE_STYLE;
     case 'agent':
-      return agentRole ? getAgentStyle(agentRole) : AGENT_STYLES.custom;
+      return agentRole ? getAgentStyle(agentRole) : AGENT_STYLES.agent;
     default:
-      return AGENT_STYLES.custom;
+      return AGENT_STYLES.agent;
   }
 }
 
@@ -65,14 +67,8 @@ function getRoleDisplayName(role: MessageRole, agentRole?: AgentRole): string {
   if (role === 'system') return '系统';
   if (agentRole) {
     const roleLabels: Record<AgentRole, string> = {
-      requirement: '需求分析师',
-      architect: '架构师',
-      developer: '开发者',
-      reviewer: '评审者',
-      testengineer: '测试工程师',
-      devops: '运维工程师',
-      fullstack_engineer: '全栈工程师',
-      custom: '自定义',
+      agent: 'Agent',
+      human: 'Human',
     };
     return roleLabels[agentRole] || agentRole;
   }
@@ -150,6 +146,10 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
   const styleConfig = getStyleByRole(message.role, agentRole);
   const roleDisplay = getRoleDisplayName(message.role, agentRole);
 
+  // 头像图标和颜色：Agent 统一使用 RobotOutlined + color-primary
+  const avatarIcon = isUser ? null : <RobotOutlined />;
+  const avatarColor = isUser ? '#52c41a' : 'var(--color-primary)';
+
   // 统一使用 contentBlocks，如果没有则从 content 转换
   const contentBlocks: MessageContentBlock[] = message.contentBlocks && message.contentBlocks.length > 0
     ? message.contentBlocks
@@ -173,6 +173,53 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
   const timestamp = message.createdAt
     ? new Date(message.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
     : '';
+
+  // 检查是否是人工任务卡片消息（通过 metadata.type 判断）
+  if (message.metadata?.type === 'human_task') {
+    const metadata = message.metadata;
+
+    // 验证必需字段是否存在
+    if (!metadata.taskId || !metadata.agentName || !metadata.status) {
+      console.warn('Invalid human_task metadata - missing required fields:', metadata);
+      // 继续渲染普通消息，而不是返回 null
+    } else {
+      // 验证枚举值是否有效
+      const validStatuses: HumanTaskStatus[] = ['pending', 'completed', 'cancelled'];
+
+      const status = metadata.status as HumanTaskStatus;
+
+      if (!validStatuses.includes(status)) {
+        console.warn('Invalid human_task status:', metadata.status);
+      } else {
+        // 所有验证通过，安全地构建 task 对象
+        const task: HumanTask = {
+          id: metadata.taskId as string,
+          threadId: message.threadId,
+          invocationId: (metadata.invocationId as string) || '',
+          agentConfigId: (metadata.agentConfigId as string) || '',
+          agentName: metadata.agentName as string,
+          waitReason: message.content,
+          projectId: (metadata.projectId as string) || '',
+          projectName: (metadata.projectName as string) || '',
+          threadName: (metadata.threadName as string) || '',
+          status: status,
+          createdAt: message.createdAt,
+        };
+
+        return (
+          <div style={{ marginBottom: '16px' }}>
+            <HumanTaskCard
+              task={task}
+              onExecute={() => {
+                // TODO: 打开执行任务模态框 - 需要状态管理支持
+                // 目前用户可以到 /tasks 页面执行任务
+              }}
+            />
+          </div>
+        );
+      }
+    }
+  }
 
   // 系统消息特殊渲染
   if (isSystem) {
@@ -212,25 +259,15 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
       }}
     >
       {/* 消息头像/图标 */}
-      <div
-        className="chat-message-avatar"
+      <Avatar
+        size={36}
+        icon={isUser ? <UserOutlined /> : avatarIcon}
         style={{
-          width: '36px',
-          height: '36px',
-          borderRadius: '50%',
-          backgroundColor: isUser ? '#52c41a' : styleConfig.color,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: '#fff',
-          fontSize: '14px',
-          fontWeight: 500,
+          backgroundColor: avatarColor,
           marginLeft: isUser ? '12px' : 0,
           marginRight: isUser ? 0 : '12px',
         }}
-      >
-        {isUser ? 'U' : roleDisplay.slice(0, 2)}
-      </div>
+      />
 
       {/* 消息主体 */}
       <div
@@ -260,15 +297,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
               }}
             >
               {agentConfig?.name || message.agentName || roleDisplay}
-            </span>
-            <span
-              className="chat-message-role"
-              style={{
-                color: '#8c8c8c',
-                fontSize: '12px',
-              }}
-            >
-              {roleDisplay}
             </span>
             {timestamp && (
               <span

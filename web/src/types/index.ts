@@ -1,13 +1,6 @@
-// Agent角色
-export type AgentRole =
-  | 'requirement'
-  | 'architect'
-  | 'developer'
-  | 'reviewer'
-  | 'testengineer'
-  | 'devops'
-  | 'fullstack_engineer'
-  | 'custom';
+// Agent角色（human 已废弃，仅保留用于兼容）
+/** @deprecated 'human' 类型已废弃 */
+export type AgentRole = 'agent' | 'human';
 
 // 基础Agent类型
 export type BaseAgentType = 'claude_code' | 'open_code';
@@ -231,14 +224,8 @@ export const PhaseLabels: Record<Phase, string> = {
 
 // Agent角色显示名称
 export const AgentRoleLabels: Record<AgentRole, string> = {
-  requirement: '需求分析师',
-  architect: '架构师',
-  developer: '开发者',
-  reviewer: '评审者',
-  testengineer: '测试工程师',
-  devops: '运维工程师',
-  fullstack_engineer: '全栈工程师',
-  custom: '自定义',
+  agent: 'AI代理',
+  human: '人工',
 };
 
 // Phase对应的颜色
@@ -1102,6 +1089,9 @@ export interface ImportDetail {
 
 // 内容类型
 export * from './content';
+
+// 人工任务类型
+export * from './humanTask';
 
 // ========== 批量操作相关类型 ==========
 

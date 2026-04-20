@@ -39,7 +39,7 @@ import { useAppStore } from '@/store';
 import { useDebugThreadStore } from '@/store/debugThread';
 import type { Message, Artifact, ReviewIssue, MergeCheckResult, AgentConfig, ToolEvent, MessageContentBlock } from '@/types';
 import type { FileChange } from '@/types/content';
-import { AgentRoleLabels, ArtifactTypeLabels } from '@/types';
+import { ArtifactTypeLabels } from '@/types';
 import { ReviewReport } from '@/components/ReviewReport';
 import { RightPanel, TaskList, ThreadInput } from '@/components/thread';
 import { FilePreviewPanel } from '@/components/thread/FilePreviewPanel';
@@ -422,10 +422,6 @@ const ThreadView: React.FC = () => {
         // 加载 Agent 配置
         api.agents.get(agentId).then((config: AgentConfig) => {
           setDebugAgentConfig(config);
-          // 全栈工程师角色自动进入 Solo 模式
-          if (config.role === 'fullstack_engineer') {
-            setSoloMode(true);
-          }
         }).catch(err => {
           message.error('加载 Agent 配置失败');
           console.error(err);
@@ -447,10 +443,6 @@ const ThreadView: React.FC = () => {
         // 加载 Agent 配置
         api.agents.get(agentId).then((config: AgentConfig) => {
           setDebugAgentConfig(config);
-          // 全栈工程师角色自动进入 Solo 模式
-          if (config.role === 'fullstack_engineer') {
-            setSoloMode(true);
-          }
         }).catch(err => {
           message.error('加载 Agent 配置失败');
           console.error(err);
@@ -1321,7 +1313,7 @@ const ThreadView: React.FC = () => {
 
     try {
       // 重新触发该 Agent，让它重新处理
-      await spawnAgent('custom', '请重新处理上一次的任务', agentId);
+      await spawnAgent('agent', '请重新处理上一次的任务', agentId);
       message.info('已重新触发 Agent');
     } catch (error) {
       message.error('重试失败');
@@ -1495,7 +1487,7 @@ const ThreadView: React.FC = () => {
     id: agent.id,
     role: agent.role,
     name: agent.name,
-    label: `${agent.name} (${AgentRoleLabels[agent.role as keyof typeof AgentRoleLabels] || agent.role})`,
+    label: agent.name,
   }));
 
   // 阻塞通知触发：仅在所有 Agent 完成后显示（使用系统通知）
@@ -1582,6 +1574,7 @@ const ThreadView: React.FC = () => {
       });
 
       const agentName = (questionBlock as any)?.agentName || '';
+      const invocationIdFromBlock = (questionBlock as any)?.invocationId || invocationId;
 
       // 将答案转换为自然语言消息格式
       // 对于多选，将多个答案合并为一个字符串
@@ -1627,8 +1620,16 @@ const ThreadView: React.FC = () => {
       // MessageContentRenderer 会根据 status === 'success' 自动保留渲染
 
       // 发送用户消息（通过 WebSocket），这会触发 SpawnAgentForUserMessage
-      // 后端会解析 @mention，使用 resume 策略调用正确的 Agent
+      // 后端会解析 @mention，使用 resume 筢略调用正确的 Agent
       await sendMessage(userResponseMessage);
+
+      // 调用 API 关闭待办任务（使用 invocationId）
+      try {
+        await api.humanTasks.completeByInvocation(invocationIdFromBlock);
+        console.log('[handleInlineQuestionSubmit] 待办任务已关闭, invocationId:', invocationIdFromBlock);
+      } catch (e) {
+        console.warn('[handleInlineQuestionSubmit] 关闭待办任务失败:', e);
+      }
 
       message.success('答案已提交，Agent 正在处理...');
     } catch (error) {
@@ -1683,7 +1684,7 @@ const ThreadView: React.FC = () => {
       );
       if (agentByName) {
         await sendMessage(content, true);
-        await spawnAgent('custom', input, agentByName.id);
+        await spawnAgent('agent', input, agentByName.id);
         return;
       }
 
@@ -1925,7 +1926,7 @@ const ThreadView: React.FC = () => {
                   <Tooltip title={fileSidebarVisible ? '隐藏文件树' : '显示文件树'}>
                     <Button icon={fileSidebarVisible ? <MenuFoldOutlined /> : <MenuUnfoldOutlined />} onClick={() => setFileSidebarVisible(!fileSidebarVisible)} size="small" />
                   </Tooltip>
-                  <Button icon={<ArrowLeftOutlined />} onClick={() => isDebugMode ? navigate('/agents') : navigate(`/projects/${projectId}`)} size="small">
+                  <Button icon={<ArrowLeftOutlined />} onClick={() => isDebugMode ? navigate('/agents') : navigate(`/projects/${projectId || currentThread?.projectId}`)} size="small">
                     {isDebugMode ? '返回 Agent 列表' : '返回项目'}
                   </Button>
                   <Tag color={wsConnected ? 'green' : 'red'}>{wsConnected ? '已连接' : '未连接'}</Tag>

@@ -146,6 +146,7 @@ const MessageScrollIndicator: React.FC<MessageScrollIndicatorProps> = ({
       return <CrownOutlined style={{ color: 'var(--color-warning)' }} />;
     }
 
+    // Agent 角色：RobotOutlined + color-primary
     return <RobotOutlined style={{ color: 'var(--color-primary)' }} />;
   };
 

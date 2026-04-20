@@ -20,6 +20,7 @@ import (
 	"github.com/anthropic/isdp/internal/service/assetpackage"
 	"github.com/anthropic/isdp/internal/service/command"
 	"github.com/anthropic/isdp/internal/service/configgen"
+	"github.com/anthropic/isdp/internal/service/humantask"
 	"github.com/anthropic/isdp/internal/service/im"
 	"github.com/anthropic/isdp/internal/service/knowledge"
 	"github.com/anthropic/isdp/internal/service/market"
@@ -185,6 +186,8 @@ func main() {
 	agentSettingsBindingRepo := repo.NewAgentSettingsBindingRepository(db, dbType)
 	// 后台执行支持：内容块持久化
 	contentBlockRepo := repo.NewContentBlockRepository(db, dbType)
+	// HumanTask Repository
+	humanTaskRepo := repo.NewHumanTaskRepository(db, dbType)
 
 	// 初始化Services
 	projectService := project.NewService(projectRepo, workflowRepo)
@@ -282,6 +285,9 @@ func main() {
 		logger,
 	)
 
+	// 创建 HumanTask Service
+	humanTaskSvc := humantask.NewService(humanTaskRepo, threadRepo, projectRepo, wsHub)
+
 	// 初始化 MarketRepository
 	marketRepo := repo.NewMarketRepository(db, dbType)
 
@@ -339,6 +345,8 @@ func main() {
 		invocationRepo, threadRepo, messageRepo,
 		configService, baseAgentService, baseAgentRepo, tracker, workflowEngine, workflowRepo, projectRepo, wsHub, defaultAdapter, mentionParser,
 		contentBlockRepo,
+		humanTaskSvc,
+		cfg.HumanTask.Enabled,
 	)
 
 	// 在Orchestrator中设置调试管理器
@@ -572,7 +580,7 @@ func main() {
 	marketHandler.RegisterRoutes(v1)
 
 	// MCP Callback Handler
-	callbackHandler := api.NewCallbackHandler(invocationRegistry, mcpAuthService, messageService, messageRepo, wsHub, orchestrator, baseAgentRepo, invocationQueue, queueProcessor, mentionParser)
+	callbackHandler := api.NewCallbackHandler(invocationRegistry, mcpAuthService, messageService, messageRepo, wsHub, orchestrator, baseAgentRepo, invocationQueue, queueProcessor, mentionParser, humanTaskSvc, agentConfigRepo)
 	callbackHandler.RegisterRoutes(v1)
 
 	// WebSocket
@@ -590,6 +598,10 @@ func main() {
 		sandboxHandler := api.NewSandboxHandler(sandboxService)
 		sandboxHandler.RegisterRoutes(v1)
 	}
+
+	// HumanTask Handler
+	humanTaskHandler := api.NewHumanTaskHandler(humanTaskSvc)
+	humanTaskHandler.RegisterRoutes(v1)
 
 	// 前端静态文件服务
 	router.Static("/assets", "./web/assets")

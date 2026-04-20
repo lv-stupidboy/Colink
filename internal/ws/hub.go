@@ -104,6 +104,31 @@ func (h *Hub) BroadcastToThread(threadID string, message WSMessage) {
 	}
 }
 
+// BroadcastGlobal 向所有客户端广播消息（用于跨 Thread 事件）
+// 注意：与 BroadcastToThread 不同，发送失败时仅跳过而不关闭连接。
+// 原因：跨 Thread 事件（如任务通知）对可靠性要求较低，客户端可通过轮询或重连获取数据；
+// 关闭连接可能过于激进，影响用户体验。
+func (h *Hub) BroadcastGlobal(message WSMessage) {
+	data, err := jsonMarshal(message)
+	if err != nil {
+		return
+	}
+
+	h.clientsMux.RLock()
+	defer h.clientsMux.RUnlock()
+
+	// 向所有 Thread 的所有客户端广播
+	for _, clients := range h.clients {
+		for client := range clients {
+			select {
+			case client.Send <- data:
+			default:
+				// 发送失败，跳过该客户端
+			}
+		}
+	}
+}
+
 // GetClientCount 获取指定Thread的客户端数量
 func (h *Hub) GetClientCount(threadID string) int {
 	h.clientsMux.RLock()

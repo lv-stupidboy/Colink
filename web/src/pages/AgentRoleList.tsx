@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { Table, Button, Card, Modal, Form, Input, Select, message, Space, Tag, Typography, Tooltip, Alert, Spin, Collapse } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, RobotOutlined, BugOutlined, CopyOutlined, CrownOutlined, UserOutlined, ExclamationCircleOutlined, EyeOutlined, SettingOutlined, BookOutlined, ApiOutlined, CodeOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, RobotOutlined, BugOutlined, CopyOutlined, CrownOutlined, ExclamationCircleOutlined, EyeOutlined, SettingOutlined, BookOutlined, ApiOutlined, CodeOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '@/api/client';
 import type { AgentConfig, BaseAgent, Skill, Subagent, Command, Rule, Settings, BatchGenerateResult, BatchUpdateResult, GenerateResultItem } from '@/types';
@@ -561,7 +561,11 @@ const AgentRoleList: React.FC = () => {
       width: 150,
       render: (name: string, record: AgentConfig) => (
         <Space>
-          {record.isSystem ? <CrownOutlined style={{ color: '#faad14' }} /> : <RobotOutlined />}
+          {record.isSystem ? (
+            <CrownOutlined style={{ color: '#faad14' }} />
+          ) : (
+            <RobotOutlined style={{ color: 'var(--color-primary)' }} />
+          )}
           <span>{name}</span>
         </Space>
       ),
@@ -698,7 +702,7 @@ const AgentRoleList: React.FC = () => {
             pagination={{
               pageSize: systemPageSize,
               showSizeChanger: true,
-              pageSizeOptions: ['5', '10', '20'],
+              pageSizeOptions: ['10', '20', '50'],
               showTotal: (total) => `共 ${total} 条`,
               hideOnSinglePage: false,
               onShowSizeChange: (_, size) => setSystemPageSize(size),
@@ -713,7 +717,7 @@ const AgentRoleList: React.FC = () => {
       <Card
         title={
           <Space>
-            <UserOutlined />
+            <RobotOutlined />
             <span>自定义角色</span>
             <Tag color="blue">{customAgents.length}</Tag>
           </Space>
@@ -777,7 +781,7 @@ const AgentRoleList: React.FC = () => {
             pagination={{
               pageSize: customPageSize,
               showSizeChanger: true,
-              pageSizeOptions: ['5', '10', '20'],
+              pageSizeOptions: ['10', '20', '50'],
               showTotal: (total) => `共 ${total} 条`,
               hideOnSinglePage: false,
               onShowSizeChange: (_, size) => setCustomPageSize(size),
@@ -802,7 +806,11 @@ const AgentRoleList: React.FC = () => {
           initialValues={{}}
         >
           <Form.Item name="name" label="名称" rules={[{ required: true, message: '请输入名称' }]}>
-            <Input placeholder="Agent角色名称" />
+            <Input placeholder="角色名称" />
+          </Form.Item>
+
+          <Form.Item name="description" label="描述">
+            <Input.TextArea rows={2} placeholder="角色描述" />
           </Form.Item>
 
           <Form.Item name="baseAgentId" label="基础Agent">
@@ -813,10 +821,6 @@ const AgentRoleList: React.FC = () => {
                 </Select.Option>
               ))}
             </Select>
-          </Form.Item>
-
-          <Form.Item name="description" label="描述">
-            <Input.TextArea rows={2} placeholder="Agent角色描述" />
           </Form.Item>
 
           <Form.Item name="mentionPatterns" label="触发模式" extra="设置 @mention 触发模式，用户可通过这些模式唤起该角色。新建时默认为 @+名称">

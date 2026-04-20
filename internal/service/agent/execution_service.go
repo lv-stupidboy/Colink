@@ -15,6 +15,7 @@ import (
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
+	"github.com/anthropic/isdp/internal/service/humantask"
 	"github.com/anthropic/isdp/internal/service/mention"
 	"github.com/anthropic/isdp/internal/ws"
 	"github.com/google/uuid"
@@ -123,6 +124,10 @@ type ExecutionService struct {
 	// Mention 解析器（支持动态 patterns）
 	mentionParser *mention.Parser
 
+	// Human 任务服务（用于 A2A 触发 Human 角色）
+	humanTaskSvc      *humantask.Service
+	humanTaskEnabled  bool // 待办任务开关，控制自动创建和关闭
+
 	// 后台执行支持：内容块持久化
 	contentBlockRepo    *repo.ContentBlockRepository
 	contentBlockBuffer  []model.InvocationContentBlock // 缓冲区
@@ -166,6 +171,8 @@ func NewExecutionService(
 	defaultAdapter AgentAdapter,
 	mentionParser *mention.Parser,
 	contentBlockRepo *repo.ContentBlockRepository,
+	humanTaskSvc *humantask.Service,
+	humanTaskEnabled bool,
 ) *ExecutionService {
 	es := &ExecutionService{
 		invocationRepo:     invocationRepo,
@@ -181,6 +188,8 @@ func NewExecutionService(
 		wsHub:              wsHub,
 		defaultAdapter:     defaultAdapter,
 		mentionParser:      mentionParser,
+		humanTaskSvc:       humanTaskSvc,
+		humanTaskEnabled:   humanTaskEnabled,
 		contentBlockRepo:   contentBlockRepo,
 		contentBlockBuffer: make([]model.InvocationContentBlock, 0, 20),
 		lastFlush:          time.Now(),
@@ -1841,6 +1850,12 @@ func (es *ExecutionService) checkSignalRouting(ctx context.Context, threadID uui
 
 	// ========== 2. 批量触发 Agent ==========
 	for _, targetConfig := range agentsToTrigger {
+		// Human 角色不再通过 @mention 触发
+		// Human 任务由 ExecutionService 状态检测机制创建（waiting 状态检测）
+		if targetConfig.Role.IsHumanRole() {
+			continue // 跳过 Human 角色的 Agent 触发流程
+		}
+
 		// 更新 A2A 上下文
 		es.a2aMu.Lock()
 		if a2aCtx.Depth >= MaxA2ADepth {
@@ -2306,6 +2321,34 @@ func (es *ExecutionService) broadcastChunk(threadID, invocationID uuid.UUID, chu
 			agent.PendingQuestionID = chunk.ToolID
 			// 记录 AskUserQuestion 工具调用，用于后续判断 tool_result 是否是该工具的拒绝响应
 			agent.LastQuestionToolID = chunk.ToolID
+
+			// 创建待办任务（Agent 等待用户输入）
+			// 仅在开关开启时自动创建
+			if es.humanTaskEnabled && es.humanTaskSvc != nil {
+				// 提取等待原因：从 Questions 中获取第一个问题的摘要
+				waitReason := "Agent 等待您的输入"
+				if len(chunk.Questions) > 0 && chunk.Questions[0].Question != "" {
+					waitReason = chunk.Questions[0].Question
+					if len(waitReason) > 100 {
+						waitReason = waitReason[:100] + "..."
+					}
+				}
+				_, err := es.humanTaskSvc.CreateTaskFromWaiting(
+					context.Background(),
+					agent.ThreadID,
+					invocationID,
+					agent.AgentConfig.ID,
+					agentNameStr,
+					waitReason,
+				)
+				if err != nil {
+					logError("创建待办任务失败", zap.Error(err))
+				} else {
+					logInfo("待办任务已创建",
+						zap.String("invocationID", invocationID.String()),
+						zap.String("agentName", agentNameStr))
+				}
+			}
 		}
 		agent.ContentBlocksMu.Unlock()
 			// 在释放锁后检查是否需要取消 CLI 进程（避免死锁）
@@ -2502,6 +2545,15 @@ func (es *ExecutionService) SubmitQuestionAnswer(threadID uuid.UUID, toolCallID 
 			// 清除等待状态
 			agent.WaitingForUserInput = false
 			agent.PendingQuestionID = ""
+
+			// 关闭关联的待办任务（仅在开关开启时）
+			if es.humanTaskEnabled && es.humanTaskSvc != nil {
+				if err := es.humanTaskSvc.CompleteTaskFromReply(context.Background(), invocationID); err != nil {
+					logError("关闭待办任务失败", zap.Error(err))
+				} else {
+					logInfo("待办任务已关闭", zap.String("invocationID", invocationID.String()))
+				}
+			}
 
 			// 更新内容块状态
 			agent.ContentBlocksMu.Lock()

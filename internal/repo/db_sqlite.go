@@ -33,6 +33,7 @@ func (d *SQLiteDialect) JSONContainsParam(value string) string {
 // parseSQLiteTime 解析 SQLite 时间字符串为 time.Time
 // SQLite 存储时间格式: "2006-01-02 15:04:05" 或 "2006-01-02T15:04:05Z"
 // modernc.org/sqlite 驱动可能存储 Go time.String() 格式（含 m=+... monotonic 部分）
+// 重要：对于没有时区信息的格式，使用本地时区解析（而非 UTC）
 func parseSQLiteTime(s string) time.Time {
 	if s == "" {
 		return time.Time{}
@@ -44,20 +45,35 @@ func parseSQLiteTime(s string) time.Time {
 		s = s[:idx]
 	}
 
+	localLocation := time.Local
+
 	// 尝试多种格式解析
-	layouts := []string{
-		"2006-01-02 15:04:05.999999999 -0700 MST",      // Go time.String() 格式（去掉 m= 后）
-		"2006-01-02 15:04:05.999999999 +0700 CST",      // Go time.String() 格式 (Windows)
-		"2006-01-02 15:04:05.999999999",
-		"2006-01-02 15:04:05",
-		"2006-01-02T15:04:05.999999999",
-		"2006-01-02T15:04:05Z",
-		"2006-01-02T15:04:05",
-		time.RFC3339,
-		time.RFC3339Nano,
+	// 注意：对于带时区的格式（如 RFC3339），使用 time.Parse（时区信息在字符串中）
+	// 对于不带时区的格式，使用 time.ParseInLocation（本地时区）
+	layoutsUTC := []struct {
+		layout string
+		useUTC bool
+	}{
+		{"2006-01-02 15:04:05.999999999 -0700 MST", false}, // 带时区信息
+		{"2006-01-02 15:04:05.999999999 +0700 CST", false}, // 带时区信息
+		{"2006-01-02 15:04:05.999999999", true},            // 不带时区，用本地时区
+		{"2006-01-02 15:04:05", true},                      // 不带时区，用本地时区
+		{"2006-01-02T15:04:05.999999999", true},            // 不带时区，用本地时区
+		{"2006-01-02T15:04:05Z", false},                    // UTC 时间
+		{"2006-01-02T15:04:05", true},                      // 不带时区，用本地时区
+		{time.RFC3339, false},                              // 带时区
+		{time.RFC3339Nano, false},                          // 带时区
 	}
-	for _, layout := range layouts {
-		if t, err := time.Parse(layout, s); err == nil {
+
+	for _, item := range layoutsUTC {
+		var t time.Time
+		var err error
+		if item.useUTC {
+			t, err = time.ParseInLocation(item.layout, s, localLocation)
+		} else {
+			t, err = time.Parse(item.layout, s)
+		}
+		if err == nil {
 			return t
 		}
 	}

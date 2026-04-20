@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/anthropic/isdp/internal/repo"
 	"github.com/anthropic/isdp/internal/service/a2a"
 	"github.com/anthropic/isdp/internal/service/agent"
+	"github.com/anthropic/isdp/internal/service/humantask"
 	"github.com/anthropic/isdp/internal/service/mention"
 	"github.com/anthropic/isdp/internal/service/message"
 	"github.com/anthropic/isdp/internal/ws"
@@ -31,6 +33,10 @@ type CallbackHandler struct {
 
 	// Mention 解析器（支持动态 patterns）
 	mentionParser *mention.Parser
+
+	// Human 任务服务（用于人角色触发）
+	humanTaskSvc    *humantask.Service
+	agentConfigRepo *repo.AgentConfigRepository
 }
 
 // NewCallbackHandler 创建 Callback 处理器
@@ -45,18 +51,22 @@ func NewCallbackHandler(
 	queue *a2a.InvocationQueue,
 	queueProcessor *a2a.QueueProcessor,
 	mentionParser *mention.Parser,
+	humanTaskSvc *humantask.Service,
+	agentConfigRepo *repo.AgentConfigRepository,
 ) *CallbackHandler {
 	return &CallbackHandler{
-		registry:       registry,
-		mcpAuth:        mcpAuth,
-		messageSvc:     messageSvc,
-		msgRepo:        msgRepo,
-		wsHub:          wsHub,
-		orchestrator:   orchestrator,
-		baseAgentRepo:  baseAgentRepo,
-		queue:          queue,
-		queueProcessor: queueProcessor,
-		mentionParser:  mentionParser,
+		registry:        registry,
+		mcpAuth:         mcpAuth,
+		messageSvc:      messageSvc,
+		msgRepo:         msgRepo,
+		wsHub:           wsHub,
+		orchestrator:    orchestrator,
+		baseAgentRepo:   baseAgentRepo,
+		queue:           queue,
+		queueProcessor:  queueProcessor,
+		mentionParser:   mentionParser,
+		humanTaskSvc:    humanTaskSvc,
+		agentConfigRepo: agentConfigRepo,
 	}
 }
 
@@ -137,13 +147,19 @@ func (h *CallbackHandler) PostMessage(c *gin.Context) {
 		var err error
 		mentions, err = h.mentionParser.Parse(c.Request.Context(), req.Content, record.CatID)
 		if err != nil {
+			fmt.Printf("[Callback] PostMessage: mentionParser.Parse error=%v\n", err)
 			// 解析失败，记录错误，使用空列表
 			// 不再回退到硬编码的静态解析
+		} else {
+			fmt.Printf("[Callback] PostMessage: parsed mentions=%v from content=%s\n", mentions, req.Content)
 		}
+	} else {
+		fmt.Printf("[Callback] PostMessage: mentionParser is nil\n")
 	}
 
 	// 合并显式指定的目标
 	allMentions := mergeMentions(mentions, req.TargetCats)
+	fmt.Printf("[Callback] PostMessage: allMentions=%v\n", allMentions)
 
 	// 存储消息
 	msg := &model.Message{
@@ -368,6 +384,8 @@ func (h *CallbackHandler) triggerA2A(ctx context.Context, threadID uuid.UUID, me
 		return
 	}
 
+	fmt.Printf("[Callback] triggerA2A: mentions=%v, content=%s, callerCatID=%s\n", mentions, content, record.CatID)
+
 	// 构建触发消息
 	triggerMsg := &model.Message{
 		ID:        uuid.New(),
@@ -380,27 +398,35 @@ func (h *CallbackHandler) triggerA2A(ctx context.Context, threadID uuid.UUID, me
 
 	// 构建依赖
 	deps := &a2a.A2ATriggerDeps{
-		Registry:     h.registry,
-		Orchestrator: h.orchestrator,
-		WSHub:        h.wsHub,
-		Queue:        h.queue,
+		Registry:        h.registry,
+		Orchestrator:    h.orchestrator,
+		WSHub:           h.wsHub,
+		Queue:           h.queue,
+		HumanTaskSvc:    h.humanTaskSvc,
+		AgentConfigRepo: h.agentConfigRepo,
 	}
+
+	fmt.Printf("[Callback] triggerA2A: deps.HumanTaskSvc=%v, deps.AgentConfigRepo=%v\n", deps.HumanTaskSvc != nil, deps.AgentConfigRepo != nil)
 
 	// 构建选项
 	opts := &a2a.A2ATriggerOptions{
-		TargetCats:     mentions,
-		Content:        content,
-		UserID:         record.UserID,
-		ThreadID:       threadID,
-		TriggerMessage: triggerMsg,
-		CallerCatID:    record.CatID,
+		TargetCats:         mentions,
+		Content:            content,
+		UserID:             record.UserID,
+		ThreadID:           threadID,
+		TriggerMessage:     triggerMsg,
+		CallerCatID:        record.CatID,
+		ParentInvocationID: &record.ID,
 	}
 
 	// 调用 A2A 触发
 	result, err := a2a.EnqueueA2ATargets(ctx, deps, opts)
 	if err != nil {
+		fmt.Printf("[Callback] triggerA2A: EnqueueA2ATargets error=%v\n", err)
 		return
 	}
+
+	fmt.Printf("[Callback] triggerA2A: result.Enqueued=%v, result.Fallback=%v\n", result.Enqueued, result.Fallback)
 
 	// 如果有入队的条目且 QueueProcessor 可用，触发自动执行
 	if len(result.Enqueued) > 0 && h.queueProcessor != nil {

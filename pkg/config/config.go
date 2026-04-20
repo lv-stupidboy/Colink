@@ -29,6 +29,7 @@ type Config struct {
 	Feishu      FeishuConfig      `mapstructure:"feishu"`
 	IM          IMConfig          `mapstructure:"im"`
 	Reporter    ReporterConfig    `mapstructure:"reporter"`
+	HumanTask   HumanTaskConfig   `mapstructure:"human_task"`
 	TeamPackageSync TeamPackageSyncConfig `mapstructure:"team_package_sync"`
 }
 
@@ -292,6 +293,14 @@ func (c *ReporterConfig) GetRetryInterval() time.Duration {
 		return 1 * time.Minute
 	}
 	return d
+}
+
+// HumanTaskConfig 待办任务配置
+type HumanTaskConfig struct {
+	// Enabled 是否启用待办任务自动创建，默认 false
+	// 当 Agent 等待用户输入（AskUserQuestion）时自动创建待办任务
+	// 用户回复后自动关闭对应的待办任务
+	Enabled bool `mapstructure:"enabled"`
 }
 
 // TeamPackageSyncConfig 团队包同步配置
@@ -613,10 +622,4 @@ func setDefaults() {
 
 	// IM 平台默认值（可选配置，默认为空数组）
 	// 具体平台配置通过 ApplyDefaults() 动态设置
-
-	// 团队包同步默认值
-	viper.SetDefault("team_package_sync.remote_repo_url", "https://gitee.com/colink_1/isdp.git")
-	viper.SetDefault("team_package_sync.auto_update_enabled", true)
-	viper.SetDefault("team_package_sync.check_interval", "24h")
-	viper.SetDefault("team_package_sync.branch", "main")
 }
