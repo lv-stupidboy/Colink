@@ -167,6 +167,11 @@ const MainLayout: React.FC = () => {
           label: '管理工具',
           children: [
             {
+              key: '/agents/team-packages',
+              icon: <TeamOutlined />,
+              label: '团队包',
+            },
+            {
               key: '/agents/asset-packages',
               icon: <ContainerOutlined />,
               label: '资产包',

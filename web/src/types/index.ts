@@ -1226,6 +1226,30 @@ export interface MarketPackage {
   localStatus: 'new' | 'update' | 'latest';
 }
 
+// PackagePreviewResponse 团队包预览响应
+export interface PackagePreviewResponse {
+  packageName: string;
+  version: string;
+  description: string;
+  workflow: {
+    name: string;
+    description: string;
+  };
+  roles: Array<{
+    name: string;
+    role: string;
+    description: string;
+    assets: string[]; // 如 "Skill: xxx", "Command: xxx"
+  }>;
+  assets: {
+    skills: Array<{ name: string; description: string }>;
+    commands: Array<{ name: string; description: string }>;
+    subagents: Array<{ name: string; description: string }>;
+    rules: Array<{ name: string; description: string }>;
+    settings: Array<{ name: string; description: string }>;
+  };
+}
+
 // AddMarketRequest 添加市场请求
 export interface AddMarketRequest {
   name: string;

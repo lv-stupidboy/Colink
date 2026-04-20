@@ -15,6 +15,7 @@ import BaseAgentSettings from '@/pages/Settings/BaseAgentSettings';
 import MarketLayout from '@/pages/Market/Layout';
 import MarketManagement from '@/pages/Market/MarketManagement';
 import TeamPackages from '@/pages/Market/TeamPackages';
+import TeamPackageManagement from '@/pages/TeamPackage';
 import WorkflowPage from '@/pages/Workflow';
 import SkillLibrary from '@/pages/SkillLibrary';
 import RegistryManagement from '@/pages/RegistryManagement';
@@ -168,13 +169,13 @@ const App: React.FC = () => {
               </Route>
 
               {/* 管理工具路由 - 作为 Agent团队的二级菜单 */}
-              <Route path="agents/team-packages" element={<Navigate to="/market/team-packages" replace />} />
+              <Route path="agents/team-packages" element={<TeamPackageManagement />} />
               <Route path="agents/asset-packages" element={<AssetPackageManagement />} />
 
               {/* 旧路由重定向 */}
-              <Route path="management-tools/team-package" element={<Navigate to="/market/team-packages" replace />} />
+              <Route path="management-tools/team-package" element={<Navigate to="/agents/team-packages" replace />} />
               <Route path="management-tools/asset-package" element={<Navigate to="/agents/asset-packages" replace />} />
-              <Route path="team-packages" element={<Navigate to="/market/team-packages" replace />} />
+              <Route path="team-packages" element={<Navigate to="/agents/team-packages" replace />} />
               <Route path="asset-packages" element={<Navigate to="/agents/asset-packages" replace />} />
 
               {/* 设置页面 - 二级菜单 */}

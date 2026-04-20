@@ -8,12 +8,9 @@ import {
   CloudDownloadOutlined,
   FileZipOutlined,
   WarningOutlined,
-  ReloadOutlined,
-  SyncOutlined,
 } from '@ant-design/icons';
 import type { UploadProps } from 'antd';
 import api from '@/api/client';
-import type { RemotePackageInfo, TeamPackageVersion, UpdateCheckResult } from '@/types';
 
 const { Title, Text } = Typography;
 const { Dragger } = Upload;
@@ -65,19 +62,9 @@ const TeamPackageManagement: React.FC = () => {
   // 导出状态
   const [exporting, setExporting] = useState(false);
 
-  // 远程团队包状态
-  const [remotePackages, setRemotePackages] = useState<RemotePackageInfo[]>([]);
-  const [localVersions, setLocalVersions] = useState<TeamPackageVersion[]>([]);
-  const [selectedCategory, setSelectedCategory] = useState<string>('');
-  const [loadingRemote, setLoadingRemote] = useState(false);
-  const [syncingPackage, setSyncingPackage] = useState<string | null>(null);
-  const [checkingUpdates, setCheckingUpdates] = useState(false);
-  const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null);
-
   // 加载工作流列表
   useEffect(() => {
     loadWorkflows();
-    loadRemotePackages();
   }, []);
 
   const loadWorkflows = async () => {
@@ -89,89 +76,6 @@ const TeamPackageManagement: React.FC = () => {
       message.error('加载团队列表失败');
     } finally {
       setLoadingWorkflows(false);
-    }
-  };
-
-  // 加载远程团队包列表
-  const loadRemotePackages = async () => {
-    setLoadingRemote(true);
-    try {
-      // 加载远程包列表（按分类组织）
-      const remoteResult = await api.teamPackages.getRemotePackages();
-      // 从 categories 中扁平化提取包列表，并附加分类信息
-      const packages: RemotePackageInfo[] = [];
-      (remoteResult.categories || []).forEach((category) => {
-        category.packages.forEach((pkg) => {
-          packages.push({
-            ...pkg,
-            category: category.name,
-          });
-        });
-      });
-      setRemotePackages(packages);
-      // 加载本地版本信息
-      const localResult = await api.teamPackages.listLocalVersions();
-      setLocalVersions(localResult.data || []);
-    } catch (error) {
-      message.error('加载远程团队包列表失败');
-    } finally {
-      setLoadingRemote(false);
-    }
-  };
-
-  // 刷新远程团队包列表
-  const refreshRemotePackages = () => {
-    loadRemotePackages();
-  };
-
-  // 判断本地状态
-  const determineLocalStatus = (packageName: string, remoteVersion: string): {
-    status: '已导入' | '待更新' | '未导入';
-    localVersion?: string;
-  } => {
-    const local = localVersions.find(v => v.packageName === packageName);
-    if (!local) {
-      return { status: '未导入' };
-    }
-    if (local.version === remoteVersion) {
-      return { status: '已导入', localVersion: local.version };
-    }
-    return { status: '待更新', localVersion: local.version };
-  };
-
-  // 同步团队包
-  const handleSyncPackage = async (packageName: string) => {
-    setSyncingPackage(packageName);
-    try {
-      await api.teamPackages.syncPackage(packageName);
-      message.success(`团队包 ${packageName} 同步成功`);
-      // 刷新列表
-      loadRemotePackages();
-      loadWorkflows();
-    } catch (error: any) {
-      const errorMsg = error.response?.data?.error || error.message || '同步失败';
-      message.error(errorMsg);
-    } finally {
-      setSyncingPackage(null);
-    }
-  };
-
-  // 检查更新
-  const handleCheckUpdate = async () => {
-    setCheckingUpdates(true);
-    try {
-      const result = await api.teamPackages.checkUpdates();
-      setUpdateResult(result);
-      if (result.hasUpdates) {
-        message.info(`发现 ${result.total} 个团队包有更新`);
-      } else {
-        message.success('所有团队包已是最新版本');
-      }
-    } catch (error) {
-      console.error('Failed to check updates:', error);
-      message.error('检查更新失败');
-    } finally {
-      setCheckingUpdates(false);
     }
   };
 
@@ -579,206 +483,6 @@ const TeamPackageManagement: React.FC = () => {
           </Spin>
         </Card>
       </div>
-
-      {/* 远程团队包区域 */}
-      <Divider />
-      <Card
-        title="远程团队包"
-        extra={
-          <Space>
-            <Button
-              icon={<SyncOutlined spin={checkingUpdates} />}
-              onClick={handleCheckUpdate}
-              loading={checkingUpdates}
-            >
-              检查更新
-            </Button>
-            <Button
-              icon={<ReloadOutlined />}
-              onClick={refreshRemotePackages}
-              loading={loadingRemote}
-            >
-              刷新
-            </Button>
-          </Space>
-        }
-      >
-        <Spin spinning={loadingRemote}>
-          {/* 分类筛选 */}
-          <div style={{ marginBottom: 16 }}>
-            <Space>
-              <Text>分类筛选：</Text>
-              <Select
-                style={{ width: 200 }}
-                placeholder="全部"
-                allowClear
-                value={selectedCategory}
-                onChange={setSelectedCategory}
-                options={[
-                  { value: '', label: '全部' },
-                  { value: 'team', label: '团队' },
-                  { value: 'workflow', label: '工作流' },
-                ]}
-              />
-            </Space>
-          </div>
-
-          {/* 更新结果提示 */}
-          {updateResult && updateResult.hasUpdates && (
-            <Alert
-              type="info"
-              message={`发现 ${updateResult.total} 个团队包有更新`}
-              description={
-                <ul style={{ margin: 0, paddingLeft: 20 }}>
-                  {updateResult.updates.map((item) => (
-                    <li key={item.packageName}>
-                      {item.packageName}: {item.localVersion} → {item.remoteVersion}
-                    </li>
-                  ))}
-                </ul>
-              }
-              showIcon
-              closable
-              onClose={() => setUpdateResult(null)}
-              style={{ marginBottom: 16 }}
-            />
-          )}
-
-          {/* 已导入团队包 */}
-          {localVersions.length > 0 && (
-            <div style={{ marginBottom: 24 }}>
-              <Title level={5}>已导入团队包</Title>
-              <Table
-                dataSource={localVersions}
-                rowKey="packageName"
-                pagination={false}
-                size="small"
-                columns={[
-                  {
-                    title: '名称',
-                    dataIndex: 'packageName',
-                    key: 'packageName',
-                    ellipsis: true,
-                  },
-                  {
-                    title: '分类',
-                    dataIndex: 'category',
-                    key: 'category',
-                    render: () => <Tag color="blue">团队包</Tag>,
-                  },
-                  {
-                    title: '版本号',
-                    dataIndex: 'version',
-                    key: 'version',
-                    render: (version: string) => <Tag color="green">{version}</Tag>,
-                  },
-                  {
-                    title: '最后同步时间',
-                    dataIndex: 'installedAt',
-                    key: 'installedAt',
-                    render: (time: string) => {
-                      if (!time) return '-';
-                      const date = new Date(time);
-                      return date.toLocaleString('zh-CN', {
-                        year: 'numeric',
-                        month: '2-digit',
-                        day: '2-digit',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      });
-                    },
-                  },
-                ]}
-                locale={{ emptyText: '暂无已导入的团队包' }}
-              />
-            </div>
-          )}
-
-          {/* 远程团队包列表 */}
-          <Title level={5}>可用团队包</Title>
-          <Table
-            dataSource={remotePackages
-              .filter(pkg => !selectedCategory || pkg.category === selectedCategory)
-              .map(pkg => ({
-                key: pkg.name,
-                name: pkg.name,
-                version: pkg.version,
-                category: pkg.category || 'team',
-                description: pkg.description,
-                ...determineLocalStatus(pkg.name, pkg.version),
-              }))
-            }
-            columns={[
-              {
-                title: '名称',
-                dataIndex: 'name',
-                key: 'name',
-                render: (name: string) => <Text strong>{name}</Text>,
-              },
-              {
-                title: '版本',
-                dataIndex: 'version',
-                key: 'version',
-                width: 120,
-              },
-              {
-                title: '分类',
-                dataIndex: 'category',
-                key: 'category',
-                width: 100,
-                render: (category: string) => (
-                  <Tag color={typeColors[category] || 'default'}>{category}</Tag>
-                ),
-              },
-              {
-                title: '本地状态',
-                dataIndex: 'status',
-                key: 'status',
-                width: 120,
-                render: (status: string, record: any) => (
-                  <Tag color={
-                    status === '已导入' ? 'success' :
-                    status === '待更新' ? 'warning' :
-                    'default'
-                  }>
-                    {status}
-                    {record.localVersion && status !== '已导入' && ` (v${record.localVersion})`}
-                  </Tag>
-                ),
-              },
-              {
-                title: '操作',
-                key: 'action',
-                width: 120,
-                render: (_: any, record: any) => {
-                  const isSyncing = syncingPackage === record.name;
-                  const buttonText = record.status === '未导入' ? '导入' :
-                                     record.status === '待更新' ? '更新' : '重新导入';
-                  return (
-                    <Popconfirm
-                      title={`确定要${buttonText}团队包 "${record.name}" 吗？`}
-                      onConfirm={() => handleSyncPackage(record.name)}
-                      okText="确定"
-                      cancelText="取消"
-                    >
-                      <Button
-                        type={record.status === '未导入' ? 'primary' : 'default'}
-                        size="small"
-                        icon={<CloudDownloadOutlined />}
-                        loading={isSyncing}
-                      >
-                        {buttonText}
-                      </Button>
-                    </Popconfirm>
-                  );
-                },
-              },
-            ]}
-            pagination={{ pageSize: 10 }}
-            locale={{ emptyText: '暂无远程团队包' }}
-          />
-        </Spin>
-      </Card>
     </div>
   );
 };

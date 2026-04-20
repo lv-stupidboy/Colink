@@ -688,6 +688,8 @@ class APIClient {
       this.request('/team-package-sync/remote', 'GET'),
     checkUpdates: (): Promise<UpdateCheckResult> =>
       this.request('/team-package-sync/check-update', 'GET'),
+    previewPackage: (packageName: string, marketId?: string): Promise<PackagePreviewResponse> =>
+      this.request('/team-package-sync/preview', 'POST', { packageName, marketId }),
     syncPackage: (packageName: string, confirm?: ImportConfirm, marketId?: string): Promise<ImportResult> =>
       this.request('/team-package-sync/sync', 'POST', { packageName, confirm, marketId }),
     listLocalVersions: (): Promise<{ data: TeamPackageVersion[]; total: number }> =>

@@ -29,6 +29,7 @@ func (h *TeamPackageSyncHandler) RegisterRoutes(r *gin.RouterGroup) {
 	g.GET("/remote", h.GetRemotePackages)
 	g.GET("/check-update", h.CheckUpdates)
 	g.GET("/local-versions", h.GetLocalVersions)
+	g.POST("/preview", h.PreviewPackage)
 	g.POST("/sync", h.SyncPackage)
 }
 
@@ -63,6 +64,23 @@ func (h *TeamPackageSyncHandler) GetLocalVersions(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": versions, "total": len(versions)})
+}
+
+// PreviewPackage 预览团队包内容（不实际导入）
+func (h *TeamPackageSyncHandler) PreviewPackage(c *gin.Context) {
+	var req teampackagesync.PreviewPackageRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	result, err := h.syncSvc.PreviewPackage(c.Request.Context(), req.PackageName, req.MarketId)
+	if err != nil {
+		h.logger.Error("preview package failed", zap.Error(err), zap.String("package", req.PackageName))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, result)
 }
 
 // SyncPackage 同步指定的团队包

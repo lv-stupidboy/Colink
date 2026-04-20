@@ -396,3 +396,192 @@ func (s *SyncService) parseMarketplaceJSON(cloneDir string) (*model.Marketplace,
 
 	return &marketplace, nil
 }
+
+// PreviewPackage 预览团队包内容（不实际导入）
+func (s *SyncService) PreviewPackage(ctx context.Context, packageName string, marketId string) (*PreviewPackageResponse, error) {
+	var remotePkg *RemotePackage
+	var packageCloneDir string
+
+	// 如果指定了 marketId，从市场获取包
+	if marketId != "" && s.marketSvc != nil {
+		marketUUID, err := uuid.Parse(marketId)
+		if err != nil {
+			return nil, fmt.Errorf("invalid market id: %w", err)
+		}
+
+		market, err := s.marketSvc.GetMarketByID(ctx, marketUUID)
+		if err != nil {
+			return nil, fmt.Errorf("get market: %w", err)
+		}
+		if market == nil {
+			return nil, fmt.Errorf("market not found: %s", marketId)
+		}
+
+		// 克隆市场仓库获取 marketplace.json
+		marketCloneDir, err := s.gitClient.CloneFromURL(ctx, market.URL, market.Branch)
+		if err != nil {
+			return nil, fmt.Errorf("clone market repo: %w", err)
+		}
+		defer s.gitClient.Cleanup(marketCloneDir)
+
+		// 解析 marketplace.json
+		marketplace, err := s.parseMarketplaceJSON(marketCloneDir)
+		if err != nil {
+			return nil, fmt.Errorf("parse marketplace.json: %w", err)
+		}
+
+		// 查找指定的包
+		for _, plugin := range marketplace.Plugins {
+			if strings.ToLower(plugin.Category) == "team" && plugin.Name == packageName {
+				remotePkg = &RemotePackage{
+					Name:        plugin.Name,
+					Version:     plugin.Version,
+					Description: plugin.Description,
+					Path:        "",
+					Repository:  plugin.Repository,
+					Source:      plugin.Source,
+				}
+				break
+			}
+		}
+
+		if remotePkg == nil {
+			return nil, fmt.Errorf("package not found in marketplace: %s", packageName)
+		}
+
+		// 克隆包仓库
+		packageCloneDir, err = s.gitClient.CloneFromURL(ctx, remotePkg.Repository, "master")
+		if err != nil {
+			return nil, fmt.Errorf("clone package repo: %w", err)
+		}
+		defer s.gitClient.Cleanup(packageCloneDir)
+
+		// 设置包的实际路径
+		remotePkg.Path = filepath.Join(packageCloneDir, remotePkg.Source)
+	} else {
+		// 使用默认配置的仓库
+		cloneDir, err := s.gitClient.Clone(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("clone repo: %w", err)
+		}
+		defer s.gitClient.Cleanup(cloneDir)
+
+		// 获取远程包列表
+		remoteList, err := s.gitClient.GetPackageList(cloneDir)
+		if err != nil {
+			return nil, fmt.Errorf("get package list: %w", err)
+		}
+
+		// 查找指定的包
+		for _, category := range remoteList.Categories {
+			for _, pkg := range category.Packages {
+				if pkg.Name == packageName {
+					remotePkg = &pkg
+					break
+				}
+			}
+			if remotePkg != nil {
+				break
+			}
+		}
+
+		if remotePkg == nil {
+			return nil, fmt.Errorf("package not found: %s", packageName)
+		}
+
+		packageCloneDir = cloneDir
+	}
+
+	// 解析包的 manifest.json
+	manifestPath := filepath.Join(remotePkg.Path, "manifest.json")
+	manifestData, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return nil, fmt.Errorf("read manifest.json: %w", err)
+	}
+
+	var manifest model.TeamPackageManifest
+	if err := json.Unmarshal(manifestData, &manifest); err != nil {
+		return nil, fmt.Errorf("parse manifest.json: %w", err)
+	}
+
+	// 构建预览响应
+	response := &PreviewPackageResponse{
+		PackageName: remotePkg.Name,
+		Version:     remotePkg.Version,
+		Description: remotePkg.Description,
+		Workflow: PreviewWorkflowInfo{
+			Name:        manifest.Workflow.Name,
+			Description: manifest.Workflow.Description,
+		},
+		Roles:  []PreviewRoleInfo{},
+		Assets: PreviewAssetsInfo{},
+	}
+
+	// 收集角色信息
+	for _, role := range manifest.Roles {
+		roleInfo := PreviewRoleInfo{
+			Name:        role.Name,
+			Role:        role.Role,
+			Description: role.Description,
+			Assets:      []string{},
+		}
+
+		// 收集角色绑定的资产名称
+		for _, skill := range role.Bindings.Skills {
+			roleInfo.Assets = append(roleInfo.Assets, fmt.Sprintf("Skill: %s", skill))
+		}
+		for _, cmd := range role.Bindings.Commands {
+			roleInfo.Assets = append(roleInfo.Assets, fmt.Sprintf("Command: %s", cmd))
+		}
+		for _, sub := range role.Bindings.Subagents {
+			roleInfo.Assets = append(roleInfo.Assets, fmt.Sprintf("Subagent: %s", sub))
+		}
+		for _, rule := range role.Bindings.Rules {
+			roleInfo.Assets = append(roleInfo.Assets, fmt.Sprintf("Rule: %s", rule))
+		}
+		for _, settings := range role.Bindings.Settings {
+			roleInfo.Assets = append(roleInfo.Assets, fmt.Sprintf("Settings: %s", settings))
+		}
+
+		response.Roles = append(response.Roles, roleInfo)
+	}
+
+	// 收集资产信息
+	for _, skill := range manifest.Assets.Skills {
+		response.Assets.Skills = append(response.Assets.Skills, PreviewAssetInfo{
+			Name:        skill.Name,
+			Description: skill.Description,
+		})
+	}
+	for _, cmd := range manifest.Assets.Commands {
+		response.Assets.Commands = append(response.Assets.Commands, PreviewAssetInfo{
+			Name:        cmd.Name,
+			Description: cmd.Description,
+		})
+	}
+	for _, sub := range manifest.Assets.Subagents {
+		response.Assets.Subagents = append(response.Assets.Subagents, PreviewAssetInfo{
+			Name:        sub.Name,
+			Description: sub.Description,
+		})
+	}
+	for _, rule := range manifest.Assets.Rules {
+		response.Assets.Rules = append(response.Assets.Rules, PreviewAssetInfo{
+			Name:        rule.Name,
+			Description: rule.Description,
+		})
+	}
+	for _, settings := range manifest.Assets.Settings {
+		response.Assets.Settings = append(response.Assets.Settings, PreviewAssetInfo{
+			Name:        settings.Name,
+			Description: settings.Description,
+		})
+	}
+
+	s.logger.Info("团队包预览完成",
+		zap.String("package", packageName),
+		zap.Int("roles", len(response.Roles)),
+		zap.Int("skills", len(response.Assets.Skills)))
+
+	return response, nil
+}
