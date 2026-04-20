@@ -164,10 +164,10 @@ func (s *Service) GetTeamPackages(ctx context.Context) ([]model.MarketPackage, e
 		localVersions = []model.TeamPackageVersion{}
 	}
 
-	// 构建本地版本映射
-	localMap := make(map[string]string)
+	// 构建本地版本映射（包含版本和最后导入时间）
+	localMap := make(map[string]model.TeamPackageVersion)
 	for _, v := range localVersions {
-		localMap[v.Name] = v.Version
+		localMap[v.Name] = v
 	}
 
 	packages := []model.MarketPackage{}
@@ -205,8 +205,9 @@ func (s *Service) GetTeamPackages(ctx context.Context) ([]model.MarketPackage, e
 
 			// 对比本地版本
 			if localVer, exists := localMap[plugin.Name]; exists {
-				pkg.LocalVersion = localVer
-				if compareVersions(localVer, plugin.Version) < 0 {
+				pkg.LocalVersion = localVer.Version
+				pkg.LastImportedAt = localVer.LastSyncedAt
+				if compareVersions(localVer.Version, plugin.Version) < 0 {
 					pkg.LocalStatus = "update"
 				} else {
 					pkg.LocalStatus = "latest"

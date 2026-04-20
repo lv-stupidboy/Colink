@@ -664,6 +664,16 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 	output := outputBuilder.String()
 	logInfo("Execution completed", zap.Int("outputLength", len(output)), zap.String("invocationID", invocation.ID.String()), zap.String("invocationSessionId", invocation.SessionID))
 
+	// 更新调用记录前，检查是否已被取消（使用新的 context，因为 ctx 可能已被取消）
+	checkCtx, checkCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	currentInvocation, checkErr := es.invocationRepo.FindByID(checkCtx, invocation.ID)
+	checkCancel()
+	if checkErr == nil && currentInvocation != nil && currentInvocation.Status == model.InvocationStatusCancelled {
+		logInfo("Execution completed but invocation was cancelled, skip status update",
+			zap.String("invocationID", invocation.ID.String()))
+		return
+	}
+
 	// 更新调用记录
 	invocation.Status = model.InvocationStatusCompleted
 	invocation.Output = output
@@ -907,6 +917,19 @@ func (es *ExecutionService) getAdapter(ctx context.Context, config *model.AgentR
 
 // handleAgentError 处理Agent错误
 func (es *ExecutionService) handleAgentError(ctx context.Context, invocation *model.AgentInvocation, err error) {
+	// 检查 invocation 是否已经被取消，避免覆盖 cancelled 状态
+	// 使用新的 context，因为传入的 ctx 可能已被取消
+	checkCtx, checkCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer checkCancel()
+	currentInvocation, findErr := es.invocationRepo.FindByID(checkCtx, invocation.ID)
+	if findErr == nil && currentInvocation != nil {
+		if currentInvocation.Status == model.InvocationStatusCancelled {
+			logInfo("handleAgentError: invocation already cancelled, skip error handling",
+				zap.String("invocationID", invocation.ID.String()))
+			return
+		}
+	}
+
 	invocation.Status = model.InvocationStatusFailed
 	invocation.Output = err.Error()
 	invocation.CompletedAt = timePtr(time.Now())
@@ -919,6 +942,19 @@ func (es *ExecutionService) handleAgentError(ctx context.Context, invocation *mo
 
 // handleAgentErrorWithContext 处理 Agent 错误（带执行请求上下文，用于详细诊断）
 func (es *ExecutionService) handleAgentErrorWithContext(ctx context.Context, invocation *model.AgentInvocation, err error, execReq *ExecutionRequest) {
+	// 检查 invocation 是否已经被取消，避免覆盖 cancelled 状态
+	// 使用新的 context，因为传入的 ctx 可能已被取消
+	checkCtx, checkCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	currentInvocation, findErr := es.invocationRepo.FindByID(checkCtx, invocation.ID)
+	checkCancel()
+	if findErr == nil && currentInvocation != nil {
+		if currentInvocation.Status == model.InvocationStatusCancelled {
+			logInfo("handleAgentErrorWithContext: invocation already cancelled, skip error handling",
+				zap.String("invocationID", invocation.ID.String()))
+			return
+		}
+	}
+
 	// 输出详细诊断日志
 	es.logErrorDiagnostics(ctx, invocation, err, execReq)
 
@@ -1961,6 +1997,40 @@ func (es *ExecutionService) getEnvironmentInfo(thread *model.Thread) string {
 
 // CancelAgent 取消Agent
 func (es *ExecutionService) CancelAgent(ctx context.Context, invocationID uuid.UUID) error {
+	// 先查询 invocation，确保数据库记录存在
+	invocation, err := es.invocationRepo.FindByID(ctx, invocationID)
+	if err != nil {
+		return fmt.Errorf("failed to find invocation: %w", err)
+	}
+	if invocation == nil {
+		return ErrAgentNotFound
+	}
+
+	// 检查是否已经是完成状态
+	if invocation.Status == model.InvocationStatusCompleted ||
+		invocation.Status == model.InvocationStatusFailed ||
+		invocation.Status == model.InvocationStatusCancelled ||
+		invocation.Status == model.InvocationStatusInterrupted {
+		logInfo("CancelAgent: invocation already finished",
+			zap.String("invocationID", invocationID.String()),
+			zap.String("status", string(invocation.Status)))
+		return nil // 已经完成，无需取消
+	}
+
+	// 1. 先更新数据库状态为 cancelled（必须在 kill 进程之前）
+	// 这样当 CLI 被 kill 报错时，检查 cancelled 状态才能正确跳过
+	invocation.Status = model.InvocationStatusCancelled
+	invocation.CompletedAt = timePtr(time.Now())
+	if err := es.invocationRepo.Update(ctx, invocation); err != nil {
+		logError("Failed to update invocation status", zap.Error(err))
+		return fmt.Errorf("failed to update invocation status: %w", err)
+	}
+	logInfo("CancelAgent: invocation status updated to cancelled (before kill)",
+		zap.String("invocationID", invocationID.String()))
+
+	// 2. 广播取消状态（让前端知道）
+	es.broadcastStatus(invocation.ThreadID, invocation.ID, "cancelled", invocation.Role, "", invocation.AgentConfigID.String(), "")
+
 	es.mu.Lock()
 	agent, exists := es.runningAgents[invocationID]
 	if exists {
@@ -1969,7 +2039,7 @@ func (es *ExecutionService) CancelAgent(ctx context.Context, invocationID uuid.U
 			zap.Bool("hasCmd", agent.Cmd != nil),
 			zap.Bool("hasAdapter", agent.Adapter != nil))
 
-		// 1. 终止 CLI 进程
+		// 3. 终止 CLI 进程
 		// 优先使用保存的 Cmd，如果为空则从 adapter 获取
 		cmd := agent.Cmd
 		if cmd == nil && agent.Adapter != nil {
@@ -1985,23 +2055,16 @@ func (es *ExecutionService) CancelAgent(ctx context.Context, invocationID uuid.U
 			logWarn("CancelAgent: cmd is nil, cannot kill process")
 		}
 
-		// 2. 取消 Go goroutine
+		// 4. 取消 Go goroutine
 		agent.CancelFunc()
 		delete(es.runningAgents, invocationID)
+	} else {
+		logInfo("CancelAgent: agent not in runningAgents map, database already updated",
+			zap.String("invocationID", invocationID.String()))
 	}
 	es.mu.Unlock()
 
-	if !exists {
-		return ErrAgentNotFound
-	}
-
-	// 3. 更新状态
-	invocation, err := es.invocationRepo.FindByID(ctx, invocationID)
-	if err != nil {
-		return err
-	}
-
-	// 4. 清除 CLI session 缓存（避免下次复用残留状态的 session）
+	// 5. 清除 CLI session 缓存（避免下次复用残留状态的 session）
 	if invocation.AgentConfigID != uuid.Nil {
 		sessionKey := fmt.Sprintf("%s:%s", invocation.ThreadID.String(), invocation.AgentConfigID.String())
 		es.csMu.Lock()
@@ -2009,15 +2072,6 @@ func (es *ExecutionService) CancelAgent(ctx context.Context, invocationID uuid.U
 		es.csMu.Unlock()
 		logInfo("CancelAgent: cleared CLI session cache", zap.String("sessionKey", sessionKey))
 	}
-
-	invocation.Status = model.InvocationStatusCancelled
-	invocation.CompletedAt = timePtr(time.Now())
-	if err := es.invocationRepo.Update(ctx, invocation); err != nil {
-		logError("Failed to update invocation status", zap.Error(err))
-	}
-
-	// 5. 广播取消状态
-	es.broadcastStatus(invocation.ThreadID, invocation.ID, "cancelled", invocation.Role, "", invocation.AgentConfigID.String(), "")
 
 	return nil
 }

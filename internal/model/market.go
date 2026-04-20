@@ -52,13 +52,14 @@ type Plugin struct {
 
 // MarketPackage 市场团队包（用于前端展示）
 type MarketPackage struct {
-	Name         string `json:"name"`
-	Version      string `json:"version"`
-	Description  string `json:"description"`
-	MarketID     string `json:"marketId"`
-	MarketName   string `json:"marketName"`
-	Repository   string `json:"repository"`
-	Source       string `json:"source"`
-	LocalVersion string `json:"localVersion"` // 本地版本
-	LocalStatus  string `json:"localStatus"`  // new/update/latest
+	Name          string     `json:"name"`
+	Version       string     `json:"version"`
+	Description   string     `json:"description"`
+	MarketID      string     `json:"marketId"`
+	MarketName    string     `json:"marketName"`
+	Repository    string     `json:"repository"`
+	Source        string     `json:"source"`
+	LocalVersion  string     `json:"localVersion"`          // 本地版本
+	LocalStatus   string     `json:"localStatus"`           // new/update/latest
+	LastImportedAt *time.Time `json:"lastImportedAt,omitempty"` // 最近导入时间
 }

@@ -330,7 +330,13 @@ func main() {
 
 	// 启动 TeamPackageSync Checker（团队包同步检查，如果配置启用）
 	if cfg.TeamPackageSync.IsEnabled() {
-		syncChecker := teampackagesync.NewSyncChecker(teamPackageSyncSvc, cfg.TeamPackageSync.GetCheckInterval(), logger)
+		syncChecker := teampackagesync.NewSyncChecker(
+			teamPackageSyncSvc,
+			marketRepo,
+			teamPackageVersionRepo,
+			cfg.TeamPackageSync.GetCheckInterval(),
+			logger,
+		)
 		syncChecker.Start()
 		defer syncChecker.Stop()
 	}
