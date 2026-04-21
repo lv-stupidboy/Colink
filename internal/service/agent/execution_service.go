@@ -33,8 +33,6 @@ const (
 
 // MaxA2ADepth A2A 最大深度限制
 const MaxA2ADepth = 15
-
-// killChild 终止 CLI 进程，先 SIGTERM，3秒后 SIGKILL
 func killChild(cmd *exec.Cmd, cmdMu *sync.Mutex) {
 	cmdMu.Lock()
 	defer cmdMu.Unlock()
@@ -74,11 +72,22 @@ type AgentInfo struct {
 }
 
 // A2AContext A2A 上下文，用于追踪深度和去重
+// 参考 clowder-ai route-serial previousResponses 累积机制
 type A2AContext struct {
 	Depth           int                // 当前深度
 	InvokedAgents   map[uuid.UUID]bool // 已调用的 Agent ID 集合
 	CompletedAgents map[uuid.UUID]bool // 已完成的 Agent ID 集合（用于汇聚判断）
 	FromAgent       *AgentInfo         // 触发者信息（谁 @ 的下游 Agent）
+	SessionStrategy SessionStrategy    // 会话策略：Resume 或 New
+
+	// 链路追踪（参考 clowder-ai route-serial）
+	PreviousResponses []ChainResponse  // 前序响应累积（按时间顺序）
+	OriginalMessage   string           // 原始用户消息（始终保留）
+	ChainIndex        int              // 当前在链路中的位置
+	ChainTotal        int              // 链路总长度（预计）
+
+	// clowder-ai 对齐新增字段
+	ChainHistory      *A2AChainContext  // 链路历史上下文（包含 TokenBudget、ActiveParticipants 等）
 }
 
 // ThreadContext 预加载的 Thread 上下文，避免重复数据库查询
@@ -89,6 +98,7 @@ type ThreadContext struct {
 	WorkflowAgentIDs []string
 	Transitions      []model.Transition
 	AllowedAgents    []*model.AgentRoleConfig
+	RoutableTeamAgents []*model.AgentRoleConfig // T2T: 可路由团队的 Agent 列表
 	LoadedAt         time.Time
 }
 

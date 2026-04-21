@@ -30,6 +30,42 @@ const (
 	SessionStrategyResume SessionStrategy = "resume" // 恢复会话，传递历史（同角色调用）
 )
 
+// MaxPreviousResponses PreviousResponses 最大长度限制
+// 防止多轮对话导致 PreviousResponses 无限增长
+const MaxPreviousResponses = 20
+
+// A2AInputOptions A2A 输入构建选项
+type A2AInputOptions struct {
+	IncludeTokenBudget bool // 是否注入 Token 预算信息
+	MaxSummaryLength   int  // 前序摘要最大长度（默认 500）
+}
+
+// ChainResponse 链路中的响应记录
+type ChainResponse struct {
+	AgentID   uuid.UUID // Agent ID
+	AgentName string    // Agent 名称
+	Content   string    // 响应内容（可能截断）
+	Role      string    // 角色
+	Timestamp int64      // 时间戳
+}
+
+// A2AChainContext A2A 链路追踪上下文（参考 clowder-ai route-serial previousResponses）
+type A2AChainContext struct {
+	ChainIndex        int               // 当前在链路中的位置（从 1 开始）
+	ChainTotal        int               // 链路总长度（预计）
+	Teammates         []uuid.UUID       // 链路中的队友列表
+	PreviousResponses []ChainResponse   // 前序响应累积（按时间顺序）
+	OriginalMessage   string            // 原始用户消息
+	FromAgent         *AgentInfo        // 直接触发者
+	SessionStrategy   SessionStrategy   // 会话策略
+	Depth             int               // A2A 深度
+
+	// clowder-ai 对齐新增字段
+	A2AEnabled        bool              // 是否允许继续 A2A（参考 clowder-ai invocationContext.a2aEnabled）
+	TokenBudget       *TokenBudgetInfo  // Token 预算信息
+	ActiveParticipants []ActiveParticipant // 活跃参与者列表（参考 clowder-ai activeParticipants）
+}
+
 // TokenUsage Token使用统计
 type TokenUsage struct {
 	InputTokens         int64   `json:"inputTokens,omitempty"`
