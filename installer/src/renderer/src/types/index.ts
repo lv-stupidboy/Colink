@@ -37,12 +37,17 @@ export interface InviteVerificationResponse {
   user?: { id?: string; username?: string }
 }
 
-// 验证状态
+// 验证状态（内存中的验证结果）
 export interface VerificationState {
   verified: boolean
   token?: string
   username?: string
   verifiedAt?: number
+}
+
+// 持久化的邀请码信息（文件保存）
+export interface SavedInviteCode {
+  inviteCode: string
 }
 
 // 安装配置
@@ -119,6 +124,8 @@ declare global {
 
       // 邀请码验证
       verifyInviteCode: (request: InviteVerificationRequest) => Promise<InviteVerificationResponse>
+      saveInviteCode: (inviteCode: string, installDir?: string) => Promise<{ success: boolean; message?: string }>
+      loadInviteCode: (installDir?: string) => Promise<{ success: boolean; inviteCode?: string; message?: string }>
 
       // 获取系统用户名
       getSystemUsername: () => Promise<string>

@@ -385,6 +385,59 @@ ipcMain.handle('verify-invite-code', async (_event, request: { code: string; use
   })
 })
 
+// 保存邀请码到文件
+ipcMain.handle('save-invite-code', async (_event, inviteCode: string, customDir?: string) => {
+  try {
+    // 优先使用传入的目录，其次使用已安装目录，最后使用全局 installDir
+    const installed = getInstalledVersion()
+    const dir = customDir || installed.installDir || installDir
+    if (!dir) {
+      return { success: false, message: '安装目录未确定' }
+    }
+
+    const filePath = join(dir, 'data', 'configs', 'invite-code.json')
+    const content = JSON.stringify({ inviteCode }, null, 2)
+
+    // 确保目录存在
+    const configsDir = join(dir, 'data', 'configs')
+    if (!existsSync(configsDir)) {
+      require('fs').mkdirSync(configsDir, { recursive: true })
+    }
+
+    require('fs').writeFileSync(filePath, content, 'utf-8')
+    console.log('[InviteCode] Saved to:', filePath)
+    return { success: true }
+  } catch (e) {
+    console.error('[InviteCode] Save failed:', e)
+    return { success: false, message: e instanceof Error ? e.message : '保存失败' }
+  }
+})
+
+// 加载邀请码
+ipcMain.handle('load-invite-code', async (_event, customDir?: string) => {
+  try {
+    // 优先使用传入的目录，其次使用已安装目录，最后使用全局 installDir
+    const installed = getInstalledVersion()
+    const dir = customDir || installed.installDir || installDir
+    if (!dir) {
+      return { success: false, message: '安装目录未确定' }
+    }
+
+    const filePath = join(dir, 'data', 'configs', 'invite-code.json')
+    if (!existsSync(filePath)) {
+      return { success: false, message: '邀请码不存在' }
+    }
+
+    const content = require('fs').readFileSync(filePath, 'utf-8')
+    const data = JSON.parse(content)
+    console.log('[InviteCode] Loaded from:', filePath)
+    return { success: true, inviteCode: data.inviteCode }
+  } catch (e) {
+    console.error('[InviteCode] Load failed:', e)
+    return { success: false, message: e instanceof Error ? e.message : '加载失败' }
+  }
+})
+
 ipcMain.handle('read-existing-config', async (_event, dir: string) => {
   return readExistingConfig(dir)
 })

@@ -16,11 +16,13 @@ interface InviteVerificationProps {
 export default function InviteVerification({
   config,
   onConfigUpdate,
+  isUpgrade,
   onValidationChange
 }: InviteVerificationProps) {
   const [code, setCode] = useState('')
   const [username, setUsername] = useState('')
   const [loading, setLoading] = useState(false)
+  const [loadingSaved, setLoadingSaved] = useState(isUpgrade) // 升级时先加载已保存的邀请码
   const [error, setError] = useState<string | null>(null)
   const [verified, setVerified] = useState(false)
 
@@ -32,6 +34,29 @@ export default function InviteVerification({
     }
     fetchUsername()
   }, [])
+
+  // 升级模式下，加载已保存的邀请码
+  useEffect(() => {
+    if (!isUpgrade) return
+
+    const loadSavedInviteCode = async () => {
+      setLoadingSaved(true)
+      try {
+        // 升级时不传安装目录，后端会自动使用已安装目录
+        const result = await window.electronAPI.loadInviteCode()
+        if (result.success && result.inviteCode) {
+          // 已有邀请码，自动填充到输入框
+          setCode(result.inviteCode)
+          console.log('[InviteVerification] Loaded saved invite code')
+        }
+      } catch (e) {
+        console.warn('[InviteVerification] Failed to load saved invite code:', e)
+      } finally {
+        setLoadingSaved(false)
+      }
+    }
+    loadSavedInviteCode()
+  }, [isUpgrade])
 
   const handleVerify = async () => {
     if (!code.trim()) {
@@ -50,7 +75,7 @@ export default function InviteVerification({
 
       if (response.success) {
         setVerified(true)
-        // 保存验证状态到 config
+        // 保存验证状态到 config（内存状态）
         onConfigUpdate({
           verification: {
             verified: true,
@@ -59,6 +84,9 @@ export default function InviteVerification({
             verifiedAt: Date.now()
           }
         })
+        // 持久化保存邀请码到文件：首次安装传 config.installDir，升级不传（后端自动检测）
+        const saveDir = isUpgrade ? undefined : config.installDir
+        await window.electronAPI.saveInviteCode(code.trim(), saveDir)
         onValidationChange?.(true)
       } else {
         setError(response.message || '验证失败，请检查邀请码')
@@ -70,6 +98,21 @@ export default function InviteVerification({
     } finally {
       setLoading(false)
     }
+  }
+
+  // 正在加载已保存的邀请码
+  if (loadingSaved) {
+    return (
+      <div style={{
+        flex: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center'
+      }}>
+        <Typography.Text type="secondary">正在检查已保存的邀请码...</Typography.Text>
+      </div>
+    )
   }
 
   // 已验证状态显示

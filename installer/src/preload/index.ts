@@ -32,6 +32,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 邀请码验证
   verifyInviteCode: (request: { code: string; username: string }) =>
     ipcRenderer.invoke('verify-invite-code', request),
+  saveInviteCode: (inviteCode: string, installDir?: string) =>
+    ipcRenderer.invoke('save-invite-code', inviteCode, installDir),
+  loadInviteCode: (installDir?: string) => ipcRenderer.invoke('load-invite-code', installDir),
 
   // 获取系统用户名
   getSystemUsername: () => ipcRenderer.invoke('get-system-username'),
