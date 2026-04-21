@@ -1074,13 +1074,9 @@ const AgentRoleList: React.FC = () => {
           </Form.Item>
 
           <Form.Item label="绑定 Rules">
-            <div style={{ marginBottom: 8 }}>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                Rules（默认全选，可取消）：
-              </Text>
-              <Select
-                mode="multiple"
-                placeholder="选择 Rules"
+            <Select
+              mode="multiple"
+              placeholder="选择 Rules"
                 value={selectedRuleIds}
                 onChange={setSelectedRuleIds}
                 style={{ width: '100%', marginTop: 4 }}
@@ -1104,7 +1100,6 @@ const AgentRoleList: React.FC = () => {
                   </div>
                 )}
               />
-            </div>
           </Form.Item>
 
           <Form.Item label="绑定 Settings">
