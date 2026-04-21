@@ -1,7 +1,8 @@
 // web/src/components/thread/MessageScrollIndicator.tsx
 import React, { useEffect, useState, useCallback, useRef, RefObject } from 'react';
 import { Avatar, Tooltip } from 'antd';
-import { UserOutlined, CrownOutlined, RobotOutlined } from '@ant-design/icons';
+import { UserOutlined } from '@ant-design/icons';
+import AgentTypeIcon from '@/components/AgentTypeIcon';
 import type { Message, AgentConfig } from '@/types';
 
 interface IndicatorItem {
@@ -138,16 +139,18 @@ const MessageScrollIndicator: React.FC<MessageScrollIndicatorProps> = ({
     }
 
     if (indicator.role === 'system') {
-      return <CrownOutlined style={{ color: 'var(--color-warning)' }} />;
+      // 系统消息使用特殊图标
+      return <AgentTypeIcon requiresHuman={false} isSystem={true} size={14} />;
     }
 
     // Agent 角色
-    if (agentConfig?.isSystem) {
-      return <CrownOutlined style={{ color: 'var(--color-warning)' }} />;
-    }
-
-    // Agent 角色：RobotOutlined + color-primary
-    return <RobotOutlined style={{ color: 'var(--color-primary)' }} />;
+    return (
+      <AgentTypeIcon
+        requiresHuman={agentConfig?.requiresHuman || false}
+        isSystem={agentConfig?.isSystem || false}
+        size={14}
+      />
+    );
   };
 
   // 获取显示名称

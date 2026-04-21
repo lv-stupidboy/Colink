@@ -25,6 +25,7 @@ type AgentInvocation struct {
 	ThreadID      uuid.UUID        `json:"threadId"`
 	AgentConfigID uuid.UUID        `json:"agentConfigId"`
 	Role          AgentRole        `json:"role"`
+	RequiresHuman bool             `json:"requiresHuman"` // 是否需要人工参与
 	AgentName     string           `json:"agentName"` // Agent名称（从 agent_configs.name 复制，用于历史显示）
 	Status        InvocationStatus `json:"status"`
 	Input         string           `json:"input"`

@@ -11,12 +11,11 @@ import {
   PlusOutlined,
   DeleteOutlined,
   TeamOutlined,
-  CrownOutlined,
   EditOutlined,
   AppstoreOutlined,
   ShareAltOutlined,
-  RobotOutlined,
 } from '@ant-design/icons';
+import AgentTypeIcon from '@/components/AgentTypeIcon';
 import type { AgentConfig, Transition } from '@/types';
 import AgentAvatar from './AgentAvatar';
 import TeamRelationGraph from './TeamRelationGraph';
@@ -223,23 +222,21 @@ const TeamCard: React.FC<TeamCardProps> = ({
                 <div className="workflow-add-agent-popover">
                   <div className="workflow-add-agent-title">选择 Agent</div>
                   <div className="workflow-add-agent-list">
-                    {availableAgents.map(agent => {
-                      const iconColor = agent.isSystem ? '#faad14' : 'var(--color-primary)';
-                      return (
-                        <div
-                          key={agent.id}
-                          className="workflow-add-agent-item"
-                          onClick={() => onAddAgent(agent.id)}
-                        >
-                          {agent.isSystem ? (
-                            <CrownOutlined style={{ color: iconColor, marginRight: 8 }} />
-                          ) : (
-                            <RobotOutlined style={{ color: iconColor, marginRight: 8 }} />
-                          )}
-                          <span>{agent.name}</span>
+                    {availableAgents.map(agent => (
+                      <div
+                        key={agent.id}
+                        className="workflow-add-agent-item"
+                        onClick={() => onAddAgent(agent.id)}
+                      >
+                        <AgentTypeIcon
+                          requiresHuman={agent.requiresHuman}
+                          isSystem={agent.isSystem}
+                          size={16}
+                          style={{ marginRight: 8 }}
+                        />
+                        <span>{agent.name}</span>
                         </div>
-                      );
-                    })}
+                    ))}
                   </div>
                 </div>
               }

@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { Table, Button, Card, Modal, Form, Input, Select, message, Space, Tag, Typography, Tooltip, Alert, Spin, Collapse } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, RobotOutlined, BugOutlined, CopyOutlined, CrownOutlined, ExclamationCircleOutlined, EyeOutlined, SettingOutlined, BookOutlined, ApiOutlined, CodeOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
+import { Table, Button, Card, Modal, Form, Input, Select, message, Space, Tag, Typography, Tooltip, Alert, Spin, Collapse, Switch } from 'antd';
+import { PlusOutlined, EditOutlined, DeleteOutlined, RobotOutlined, BugOutlined, CopyOutlined, CrownOutlined, ExclamationCircleOutlined, EyeOutlined, SettingOutlined, BookOutlined, ApiOutlined, CodeOutlined, SafetyCertificateOutlined, UserOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '@/api/client';
+import AgentTypeIcon from '@/components/AgentTypeIcon';
 import type { AgentConfig, BaseAgent, Skill, Subagent, Command, Rule, Settings, BatchGenerateResult, BatchUpdateResult, GenerateResultItem } from '@/types';
 
 const { Title, Text } = Typography;
@@ -561,11 +562,11 @@ const AgentRoleList: React.FC = () => {
       width: 150,
       render: (name: string, record: AgentConfig) => (
         <Space>
-          {record.isSystem ? (
-            <CrownOutlined style={{ color: '#faad14' }} />
-          ) : (
-            <RobotOutlined style={{ color: 'var(--color-primary)' }} />
-          )}
+          <AgentTypeIcon
+            requiresHuman={record.requiresHuman}
+            isSystem={record.isSystem}
+            size={16}
+          />
           <span>{name}</span>
         </Space>
       ),
@@ -583,6 +584,19 @@ const AgentRoleList: React.FC = () => {
           </Tag>
         ) : <Tag>默认</Tag>;
       },
+    },
+    {
+      title: '人工参与',
+      dataIndex: 'requiresHuman',
+      key: 'requiresHuman',
+      width: 90,
+      render: (requiresHuman: boolean) => (
+        requiresHuman ? (
+          <Tag color="green" icon={<UserOutlined />}>需要</Tag>
+        ) : (
+          <Tag color="default">无需</Tag>
+        )
+      ),
     },
     {
       title: '配置状态',
@@ -823,6 +837,19 @@ const AgentRoleList: React.FC = () => {
             </Select>
           </Form.Item>
 
+          <Form.Item
+            name="requiresHuman"
+            label="需要人工参与"
+            valuePropName="checked"
+            extra="开启后，该角色在执行过程中会在关键节点等待人工确认或输入"
+          >
+            <Switch checkedChildren="是" unCheckedChildren="否" />
+          </Form.Item>
+
+          <Form.Item name="systemPrompt" label="系统提示词" rules={[{ required: true, message: '请输入系统提示词' }]}>
+            <Input.TextArea rows={8} placeholder="系统提示词，定义Agent的行为和能力" />
+          </Form.Item>
+
           <Form.Item name="mentionPatterns" label="触发模式" extra="设置 @mention 触发模式，用户可通过这些模式唤起该角色。新建时默认为 @+名称">
             <Select
               mode="tags"
@@ -830,10 +857,6 @@ const AgentRoleList: React.FC = () => {
               style={{ width: '100%' }}
               tokenSeparators={[',', ' ']}
             />
-          </Form.Item>
-
-          <Form.Item name="systemPrompt" label="系统提示词" rules={[{ required: true, message: '请输入系统提示词' }]}>
-            <Input.TextArea rows={8} placeholder="系统提示词，定义Agent的行为和能力" />
           </Form.Item>
 
           <Form.Item label="绑定 Skills">

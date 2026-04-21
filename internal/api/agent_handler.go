@@ -530,6 +530,7 @@ func (h *AgentHandler) Debug(c *gin.Context) {
 		ThreadID:    debugThreadID,
 		ConfigID:    config.ID,
 		Role:        config.Role,
+			RequiresHuman: config.RequiresHuman,
 		Input:       req.Input,
 		ProjectPath: req.ProjectPath,
 	})

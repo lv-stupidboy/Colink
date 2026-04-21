@@ -97,6 +97,7 @@ func (s *ConfigService) Create(ctx context.Context, req *model.CreateAgentReques
 		Temperature:    req.Temperature,
 		IsDefault:      req.IsDefault,
 		MentionPatterns: req.MentionPatterns,
+			RequiresHuman:  req.RequiresHuman,
 		CreatedAt:      time.Now(),
 		UpdatedAt:      time.Now(),
 	}
@@ -133,6 +134,7 @@ func (s *ConfigService) Update(ctx context.Context, id uuid.UUID, req *model.Cre
 	config.MaxTokens = req.MaxTokens
 	config.Temperature = req.Temperature
 	config.IsDefault = req.IsDefault
+	config.RequiresHuman = req.RequiresHuman
 	// 直接更新 mentionPatterns
 	config.MentionPatterns = req.MentionPatterns
 	config.UpdatedAt = time.Now()

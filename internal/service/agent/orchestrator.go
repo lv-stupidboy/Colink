@@ -317,6 +317,7 @@ type SpawnRequest struct {
 	ThreadID        uuid.UUID
 	ConfigID        uuid.UUID
 	Role            model.AgentRole
+	RequiresHuman   bool             // 是否需要人工参与
 	Input           string
 	ProjectPath     string           // 工作目录
 	SessionID       string           // 会话ID（用于 --resume 复用已有会话）
@@ -435,6 +436,7 @@ func (o *Orchestrator) SpawnDebugAgent(ctx context.Context, req *SpawnRequest) (
 		ThreadID:      req.ThreadID,
 		AgentConfigID: req.ConfigID,
 		Role:          req.Role,
+		RequiresHuman: req.RequiresHuman,
 		Status:        model.InvocationStatusRunning,
 		Input:         req.Input,
 		StartedAt:     timePtr(time.Now()),
@@ -554,11 +556,12 @@ func (o *Orchestrator) ContinueDebugAgent(ctx context.Context, threadID uuid.UUI
 
 	// 使用相同的配置继续执行
 	req := &SpawnRequest{
-		ThreadID:    threadID,
-		ConfigID:    lastConfigID,
-		Role:        config.Role,
-		Input:       message,
-		ProjectPath: projectPath,
+		ThreadID:      threadID,
+		ConfigID:      lastConfigID,
+		Role:          config.Role,
+		RequiresHuman: config.RequiresHuman,
+		Input:         message,
+		ProjectPath:   projectPath,
 	}
 
 	_, err = o.SpawnDebugAgent(ctx, req)

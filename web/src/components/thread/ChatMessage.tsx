@@ -1,7 +1,8 @@
 // isdp/web/src/components/thread/ChatMessage.tsx
 import React, { memo } from 'react';
 import { Tag, Button, Tooltip, Alert, Card, Space, Avatar } from 'antd';
-import { StopOutlined, ReloadOutlined, FileTextOutlined, ExclamationCircleOutlined, ThunderboltOutlined, RobotOutlined, UserOutlined } from '@ant-design/icons';
+import { StopOutlined, ReloadOutlined, FileTextOutlined, ExclamationCircleOutlined, ThunderboltOutlined, UserOutlined } from '@ant-design/icons';
+import AgentTypeIcon from '@/components/AgentTypeIcon';
 import type { Message, AgentConfig, AgentRole, MessageRole, ReviewIssue, ToolEvent, MessageContentBlock } from '@/types';
 import type { HumanTask, HumanTaskStatus } from '@/types';
 import type { FileChange } from '@/types/content';
@@ -146,8 +147,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
   const styleConfig = getStyleByRole(message.role, agentRole);
   const roleDisplay = getRoleDisplayName(message.role, agentRole);
 
-  // 头像图标和颜色：Agent 统一使用 RobotOutlined + color-primary
-  const avatarIcon = isUser ? null : <RobotOutlined />;
+  // 头像颜色
   const avatarColor = isUser ? '#52c41a' : 'var(--color-primary)';
 
   // 统一使用 contentBlocks，如果没有则从 content 转换
@@ -259,15 +259,38 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
       }}
     >
       {/* 消息头像/图标 */}
-      <Avatar
-        size={36}
-        icon={isUser ? <UserOutlined /> : avatarIcon}
-        style={{
-          backgroundColor: avatarColor,
-          marginLeft: isUser ? '12px' : 0,
-          marginRight: isUser ? 0 : '12px',
-        }}
-      />
+      {isUser ? (
+        <Avatar
+          size={36}
+          icon={<UserOutlined />}
+          style={{
+            backgroundColor: avatarColor,
+            marginLeft: '12px',
+          }}
+        />
+      ) : (
+        <div
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: '50%',
+            backgroundColor: avatarColor,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            marginRight: '12px',
+            position: 'relative',
+            overflow: 'visible',
+          }}
+        >
+          <AgentTypeIcon
+            requiresHuman={agentConfig?.requiresHuman || false}
+            isSystem={agentConfig?.isSystem || false}
+            size={20}
+            iconColor="#fff"
+          />
+        </div>
+      )}
 
       {/* 消息主体 */}
       <div

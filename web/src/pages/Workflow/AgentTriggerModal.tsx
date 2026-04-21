@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Modal, Form, Select, Input, Button, Empty, Typography, Space } from 'antd';
-import { PlusOutlined, DeleteOutlined, RobotOutlined, CrownOutlined } from '@ant-design/icons';
+import { PlusOutlined, DeleteOutlined } from '@ant-design/icons';
+import AgentTypeIcon from '@/components/AgentTypeIcon';
 import type { AgentConfig } from '@/types';
 
 const { Text } = Typography;
@@ -93,11 +94,11 @@ const AgentTriggerModal: React.FC<AgentTriggerModalProps> = ({
     <Modal
       title={
         <Space>
-          {agent.config.isSystem ? (
-            <CrownOutlined style={{ color: '#faad14' }} />
-          ) : (
-            <RobotOutlined style={{ color: 'var(--color-primary)' }} />
-          )}
+          <AgentTypeIcon
+            requiresHuman={agent.config.requiresHuman}
+            isSystem={agent.config.isSystem}
+            size={16}
+          />
           <span>配置触发规则：{agent.config.name}</span>
         </Space>
       }

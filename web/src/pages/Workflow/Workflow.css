@@ -125,6 +125,10 @@
   cursor: pointer;
   transition: all 0.2s ease;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  position: relative;
+  overflow: visible;
+  /* 确保 Badge 图标叠加不被裁剪 */
+  flex-shrink: 0;
 }
 
 /* Agent 类型 - 使用主题主色 */
@@ -254,6 +258,23 @@
 
 [data-theme='dark'] .workflow-agent-add:hover {
   background: #064e3b;
+}
+
+/* AgentTypeIcon Badge 样式 - 确保在圆形容器内正确显示 */
+.workflow-agent-avatar .ant-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.workflow-agent-avatar .ant-badge-count {
+  /* 确保 Badge 叠加不被裁剪 */
+  z-index: 10;
+}
+
+/* 深色模式下 Badge 白色背景需要保留 */
+[data-theme='dark'] .workflow-agent-avatar .ant-badge-count > div {
+  background-color: #fff !important;
 }
 
 /* ========== 响应式设计 ========== */
