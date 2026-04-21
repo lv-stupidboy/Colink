@@ -44,11 +44,12 @@ func (r *MessageRepository) Create(ctx context.Context, msg *model.Message) erro
 	return err
 }
 
-// FindByThreadID 根据ThreadID查找消息
+// FindByThreadID 根据ThreadID查找消息（取最新的N条，按时间正序返回）
 func (r *MessageRepository) FindByThreadID(ctx context.Context, threadID uuid.UUID, limit int) ([]*model.Message, error) {
+	// 先用 DESC 取最新的 N 条，然后反转顺序
 	query := `
 		SELECT id, thread_id, role, agent_id, content, content_blocks, message_type, metadata, created_at, mentions, origin, reply_to
-		FROM messages WHERE thread_id = ? ORDER BY created_at ASC LIMIT ?
+		FROM messages WHERE thread_id = ? ORDER BY created_at DESC LIMIT ?
 	`
 	rows, err := r.DB().QueryContext(ctx, query, threadID.String(), limit)
 	if err != nil {
@@ -64,6 +65,12 @@ func (r *MessageRepository) FindByThreadID(ctx context.Context, threadID uuid.UU
 		}
 		messages = append(messages, msg)
 	}
+
+	// 反转顺序，使旧消息在前、新消息在后（符合聊天显示习惯）
+	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
+		messages[i], messages[j] = messages[j], messages[i]
+	}
+
 	return messages, nil
 }
 
