@@ -235,6 +235,19 @@
   background: var(--color-primary-light);
 }
 
+/* ========== A2A Enhancement: 可路由团队配置 ========== */
+.workflow-routable-teams {
+  padding: 12px 20px;
+  border-top: 1px solid var(--border-light);
+  background: var(--bg-base);
+}
+
+.workflow-routable-teams-popover {
+  width: 280px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
 /* ========== 加载状态 ========== */
 .workflow-loading-container {
   display: flex;

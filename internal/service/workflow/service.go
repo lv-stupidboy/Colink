@@ -82,6 +82,11 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, req *model.UpdateWor
 	if req.EstimatedTime != "" {
 		template.EstimatedTime = req.EstimatedTime
 	}
+	// A2A Enhancement: 处理 RoutableTeams
+	if req.RoutableTeams != nil {
+		routableTeams, _ := json.Marshal(req.RoutableTeams)
+		template.RoutableTeams = routableTeams
+	}
 
 	if err := s.repo.Update(ctx, template); err != nil {
 		return nil, err

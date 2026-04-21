@@ -275,6 +275,7 @@ export interface WorkflowTemplate {
   estimatedTime: string;
   isSystem: boolean;
   isDefault: boolean;
+  routableTeams?: string[]; // A2A Enhancement: 可路由到的目标 Team ID 列表
   createdAt: string;
   updatedAt: string;
 }

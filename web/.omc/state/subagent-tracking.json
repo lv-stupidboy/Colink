@@ -1,0 +1,22 @@
+{
+  "agents": [
+    {
+      "agent_id": "a19a58fcf4d338a09",
+      "agent_type": "worker-1",
+      "started_at": "2026-04-18T07:00:03.924Z",
+      "parent_mode": "none",
+      "status": "running"
+    },
+    {
+      "agent_id": "a8a4b7621f55c8816",
+      "agent_type": "worker-2",
+      "started_at": "2026-04-18T07:00:04.504Z",
+      "parent_mode": "none",
+      "status": "running"
+    }
+  ],
+  "total_spawned": 2,
+  "total_completed": 0,
+  "total_failed": 0,
+  "last_updated": "2026-04-21T02:29:20.002Z"
+}

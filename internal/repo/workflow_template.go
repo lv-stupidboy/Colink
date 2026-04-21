@@ -26,8 +26,8 @@ func NewWorkflowTemplateRepository(db *sql.DB, dbType DBType) *WorkflowTemplateR
 // Create 创建工作流模板
 func (r *WorkflowTemplateRepository) Create(ctx context.Context, template *model.WorkflowTemplate) error {
 	query := `
-		INSERT INTO workflow_templates (id, name, description, agent_ids, transitions, checkpoints, estimated_time, is_system, is_default, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO workflow_templates (id, name, description, agent_ids, transitions, checkpoints, estimated_time, is_system, is_default, routable_teams, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	now := time.Now()
 	_, err := r.DB().ExecContext(ctx, query,
@@ -40,6 +40,7 @@ func (r *WorkflowTemplateRepository) Create(ctx context.Context, template *model
 		template.EstimatedTime,
 		template.IsSystem,
 		template.IsDefault,
+		[]byte(template.RoutableTeams), // A2A Enhancement: routable_teams
 		now,
 		now,
 	)
@@ -54,12 +55,12 @@ func (r *WorkflowTemplateRepository) Create(ctx context.Context, template *model
 // FindByID 根据ID查找工作流模板
 func (r *WorkflowTemplateRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.WorkflowTemplate, error) {
 	query := `
-		SELECT id, name, description, agent_ids, transitions, checkpoints, estimated_time, is_system, is_default, created_at, updated_at
+		SELECT id, name, description, agent_ids, transitions, checkpoints, estimated_time, is_system, is_default, routable_teams, created_at, updated_at
 		FROM workflow_templates WHERE id = ?
 	`
 	template := &model.WorkflowTemplate{}
 	var idStr string
-	var agentIDs, transitions, checkpoints []byte
+	var agentIDs, transitions, checkpoints, routableTeams []byte
 	var isSystem, isDefault int
 	var createdAt, updatedAt SQLiteTimeScanner
 	err := r.DB().QueryRowContext(ctx, query, id.String()).Scan(
@@ -72,6 +73,7 @@ func (r *WorkflowTemplateRepository) FindByID(ctx context.Context, id uuid.UUID)
 		&template.EstimatedTime,
 		&isSystem,
 		&isDefault,
+		&routableTeams,
 		&createdAt,
 		&updatedAt,
 	)
@@ -82,6 +84,7 @@ func (r *WorkflowTemplateRepository) FindByID(ctx context.Context, id uuid.UUID)
 	template.AgentIDs = json.RawMessage(agentIDs)
 	template.Transitions = json.RawMessage(transitions)
 	template.Checkpoints = json.RawMessage(checkpoints)
+	template.RoutableTeams = json.RawMessage(routableTeams) // A2A Enhancement
 	template.IsSystem = isSystem == 1
 	template.IsDefault = isDefault == 1
 	template.CreatedAt = createdAt.Time
@@ -92,7 +95,7 @@ func (r *WorkflowTemplateRepository) FindByID(ctx context.Context, id uuid.UUID)
 // FindAll 查找所有工作流模板
 func (r *WorkflowTemplateRepository) FindAll(ctx context.Context) ([]*model.WorkflowTemplate, error) {
 	query := `
-		SELECT id, name, description, agent_ids, transitions, checkpoints, estimated_time, is_system, is_default, created_at, updated_at
+		SELECT id, name, description, agent_ids, transitions, checkpoints, estimated_time, is_system, is_default, routable_teams, created_at, updated_at
 		FROM workflow_templates ORDER BY created_at DESC
 	`
 	rows, err := r.DB().QueryContext(ctx, query)
@@ -105,7 +108,7 @@ func (r *WorkflowTemplateRepository) FindAll(ctx context.Context) ([]*model.Work
 	for rows.Next() {
 		template := &model.WorkflowTemplate{}
 		var idStr string
-		var agentIDs, transitions, checkpoints []byte
+		var agentIDs, transitions, checkpoints, routableTeams []byte
 		var isSystem, isDefault int
 		var createdAt, updatedAt SQLiteTimeScanner
 		err := rows.Scan(
@@ -118,6 +121,7 @@ func (r *WorkflowTemplateRepository) FindAll(ctx context.Context) ([]*model.Work
 			&template.EstimatedTime,
 			&isSystem,
 			&isDefault,
+			&routableTeams,
 			&createdAt,
 			&updatedAt,
 		)
@@ -128,6 +132,7 @@ func (r *WorkflowTemplateRepository) FindAll(ctx context.Context) ([]*model.Work
 		template.AgentIDs = json.RawMessage(agentIDs)
 		template.Transitions = json.RawMessage(transitions)
 		template.Checkpoints = json.RawMessage(checkpoints)
+		template.RoutableTeams = json.RawMessage(routableTeams) // A2A Enhancement
 		template.IsSystem = isSystem == 1
 		template.IsDefault = isDefault == 1
 		template.CreatedAt = createdAt.Time
@@ -141,7 +146,7 @@ func (r *WorkflowTemplateRepository) FindAll(ctx context.Context) ([]*model.Work
 func (r *WorkflowTemplateRepository) Update(ctx context.Context, template *model.WorkflowTemplate) error {
 	query := `
 		UPDATE workflow_templates
-		SET name = ?, description = ?, agent_ids = ?, transitions = ?, checkpoints = ?, estimated_time = ?, updated_at = ?
+		SET name = ?, description = ?, agent_ids = ?, transitions = ?, checkpoints = ?, estimated_time = ?, routable_teams = ?, updated_at = ?
 		WHERE id = ?
 	`
 	template.UpdatedAt = time.Now()
@@ -152,6 +157,7 @@ func (r *WorkflowTemplateRepository) Update(ctx context.Context, template *model
 		[]byte(template.Transitions),   // 转换为 []byte
 		[]byte(template.Checkpoints),   // 转换为 []byte
 		template.EstimatedTime,
+		[]byte(template.RoutableTeams), // A2A Enhancement: routable_teams
 		template.UpdatedAt,
 		template.ID.String(),
 	)
@@ -178,12 +184,12 @@ func (r *WorkflowTemplateRepository) Delete(ctx context.Context, id uuid.UUID) e
 // GetDefault 获取默认工作流模板
 func (r *WorkflowTemplateRepository) GetDefault(ctx context.Context) (*model.WorkflowTemplate, error) {
 	query := `
-		SELECT id, name, description, agent_ids, transitions, checkpoints, estimated_time, is_system, is_default, created_at, updated_at
+		SELECT id, name, description, agent_ids, transitions, checkpoints, estimated_time, is_system, is_default, routable_teams, created_at, updated_at
 		FROM workflow_templates WHERE is_default = 1 LIMIT 1
 	`
 	template := &model.WorkflowTemplate{}
 	var idStr string
-	var agentIDs, transitions, checkpoints []byte
+	var agentIDs, transitions, checkpoints, routableTeams []byte
 	var isSystem, isDefault int
 	var createdAt, updatedAt SQLiteTimeScanner
 	err := r.DB().QueryRowContext(ctx, query).Scan(
@@ -196,6 +202,7 @@ func (r *WorkflowTemplateRepository) GetDefault(ctx context.Context) (*model.Wor
 		&template.EstimatedTime,
 		&isSystem,
 		&isDefault,
+		&routableTeams,
 		&createdAt,
 		&updatedAt,
 	)
@@ -206,6 +213,7 @@ func (r *WorkflowTemplateRepository) GetDefault(ctx context.Context) (*model.Wor
 	template.AgentIDs = json.RawMessage(agentIDs)
 	template.Transitions = json.RawMessage(transitions)
 	template.Checkpoints = json.RawMessage(checkpoints)
+	template.RoutableTeams = json.RawMessage(routableTeams) // A2A Enhancement
 	template.IsSystem = isSystem == 1
 	template.IsDefault = isDefault == 1
 	template.CreatedAt = createdAt.Time
@@ -260,7 +268,7 @@ func (r *WorkflowTemplateRepository) CountProjectReferences(ctx context.Context,
 func (r *WorkflowTemplateRepository) FindByAgentID(ctx context.Context, agentID uuid.UUID) ([]*model.WorkflowTemplate, error) {
 	// 使用 json_each 精确匹配 JSON 数组中的元素
 	query := `
-		SELECT DISTINCT t.id, t.name, t.description, t.agent_ids, t.transitions, t.checkpoints, t.estimated_time, t.is_system, t.is_default, t.created_at, t.updated_at
+		SELECT DISTINCT t.id, t.name, t.description, t.agent_ids, t.transitions, t.checkpoints, t.estimated_time, t.is_system, t.is_default, t.routable_teams, t.created_at, t.updated_at
 		FROM workflow_templates t, json_each(t.agent_ids)
 		WHERE json_each.value = ?
 	`
@@ -283,7 +291,7 @@ func (r *WorkflowTemplateRepository) FindByAgentID(ctx context.Context, agentID 
 	for rows.Next() {
 		template := &model.WorkflowTemplate{}
 		var idStr string
-		var agentIDs, transitions, checkpoints []byte
+		var agentIDs, transitions, checkpoints, routableTeams []byte
 		var isSystem, isDefault int
 		var createdAt, updatedAt SQLiteTimeScanner
 		err := rows.Scan(
@@ -296,6 +304,7 @@ func (r *WorkflowTemplateRepository) FindByAgentID(ctx context.Context, agentID 
 			&template.EstimatedTime,
 			&isSystem,
 			&isDefault,
+			&routableTeams,
 			&createdAt,
 			&updatedAt,
 		)
@@ -306,6 +315,7 @@ func (r *WorkflowTemplateRepository) FindByAgentID(ctx context.Context, agentID 
 		template.AgentIDs = json.RawMessage(agentIDs)
 		template.Transitions = json.RawMessage(transitions)
 		template.Checkpoints = json.RawMessage(checkpoints)
+		template.RoutableTeams = json.RawMessage(routableTeams) // A2A Enhancement
 		template.IsSystem = isSystem == 1
 		template.IsDefault = isDefault == 1
 		template.CreatedAt = createdAt.Time

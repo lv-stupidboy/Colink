@@ -29,7 +29,9 @@ type AgentInvocation struct {
 	AgentName     string           `json:"agentName"` // Agent名称（从 agent_configs.name 复制，用于历史显示）
 	Status        InvocationStatus `json:"status"`
 	Input         string           `json:"input"`
-	FullPrompt    string           `json:"fullPrompt,omitempty"` // 完整提示词（系统提示 + 历史 + 输入）
+	FullPrompt    string           `json:"fullPrompt,omitempty"`    // 完整提示词（系统提示 + 历史 + 输入）
+	PromptDigest  string           `json:"promptDigest,omitempty"`  // T6(M4): Prompt 摘要（length:hash）
+	PromptLength  int              `json:"promptLength,omitempty"`  // T6(M4): Prompt 长度
 	Output        string           `json:"output,omitempty"`
 	StartedAt     *time.Time       `json:"startedAt,omitempty"`
 	CompletedAt   *time.Time       `json:"completedAt,omitempty"`
@@ -49,6 +51,10 @@ type AgentInvocation struct {
 	CostUsd             float64 `json:"costUsd,omitempty"`
 	DurationMs          int64   `json:"durationMs,omitempty"`
 	DurationApiMs       int64   `json:"durationApiMs,omitempty"`
+
+	// A2A Enhancement: MCP 认证和触发者追踪
+	CallbackToken string    `json:"callbackToken,omitempty"` // MCP 回调认证 Token
+	TriggeredBy   uuid.UUID `json:"triggeredBy,omitempty"`   // 触发者 Invocation ID（A2A 链追踪）
 }
 
 func (a *AgentInvocation) TableName() string {

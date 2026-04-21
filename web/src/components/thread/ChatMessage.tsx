@@ -113,13 +113,22 @@ function renderProgressTags(
 }
 
 /**
+ * 过滤掉 a2a-handoff 交接块（已在调用日志面板中单独展示）
+ */
+function filterA2AHandoff(content: string): string {
+  return content.replace(/<a2a-handoff>[\s\S]*?<\/a2a-handoff>/g, '').trim();
+}
+
+/**
  * 将纯文本内容转换为 contentBlocks（用于兼容旧消息）
  */
 function contentToBlocks(content: string): MessageContentBlock[] {
+  // 过滤 a2a-handoff 块
+  const filteredContent = filterA2AHandoff(content);
   return [{
     id: `text-${Date.now()}`,
     type: 'text',
-    content,
+    content: filteredContent,
     timestamp: Date.now(),
   }];
 }
@@ -151,8 +160,15 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
   const avatarColor = isUser ? '#52c41a' : 'var(--color-primary)';
 
   // 统一使用 contentBlocks，如果没有则从 content 转换
+  // 同时过滤掉 a2a-handoff 块（已在调用日志面板中单独展示）
   const contentBlocks: MessageContentBlock[] = message.contentBlocks && message.contentBlocks.length > 0
-    ? message.contentBlocks
+    ? message.contentBlocks.map(block => {
+        // 只过滤 text 类型的块
+        if (block.type === 'text' && block.content) {
+          return { ...block, content: filterA2AHandoff(block.content) };
+        }
+        return block;
+      })
     : contentToBlocks(message.content);
 
   // 检查是否有产物和审查报告
