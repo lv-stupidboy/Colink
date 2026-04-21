@@ -192,11 +192,9 @@ export default function Installing({ config, onComplete, isUpgrade }: Installing
   const completedSteps = steps.filter(s => s.status === 'success' || s.status === 'warning').length
   const totalProgress = Math.round((completedSteps / steps.length) * 100)
 
-  // 数据库迁移提示：有迁移内容时根据数据库类型显示不同提示
+  // 数据库迁移提示：有迁移内容时显示
   const migrationStep = steps.find(s => s.step === 'migration')
-  const dbType = config.database.type || 'sqlite'
   const showMigrationAlert = installComplete && !installError && migrationStep && migrationStep.details
-  const isMysqlMigration = dbType === 'mysql'
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
@@ -232,19 +230,17 @@ export default function Installing({ config, onComplete, isUpgrade }: Installing
       {/* 数据库迁移提示 */}
       {showMigrationAlert && migrationStep && (
         <Alert
-          type={isMysqlMigration ? 'warning' : 'success'}
+          type='success'
           showIcon
           style={{ marginBottom: 20 }}
-          message={isMysqlMigration
-            ? 'MySQL 数据库需手动迁移'
-            : 'SQLite 数据库已自动迁移'}
+          message='SQLite 数据库已自动迁移'
           description={
             <div>
               <p style={{ marginBottom: 8 }}>{migrationStep.message}</p>
               <pre style={{
                 margin: 0,
                 padding: 8,
-                background: isMysqlMigration ? '#fffbe6' : '#f6ffed',
+                background: '#f6ffed',
                 borderRadius: 4,
                 fontSize: 12,
                 fontFamily: 'Consolas, Monaco, monospace',

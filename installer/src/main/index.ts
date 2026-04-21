@@ -21,7 +21,6 @@ import {
 import { ServiceManager } from './service-manager'
 import { showCloseConfirm } from './shared/window-utils'
 import { getInstalledVersion, getOldISDPVersion, uninstallOldISDP } from './shared/install-utils'
-import mysql from 'mysql2/promise'
 
 const isDev = !app.isPackaged
 
@@ -278,30 +277,6 @@ ipcMain.handle('get-disk-space', async (_event, path: string) => {
   }
 })
 
-ipcMain.handle('test-database-connection', async (_event, config: any) => {
-  try {
-    // SQLite 模式不需要测试连接
-    if (config.type === 'sqlite') {
-      return { success: true, message: 'SQLite 无需测试连接' }
-    }
-
-    // MySQL 模式：测试连接
-    const connection = await mysql.createConnection({
-      host: config.host,
-      port: config.port,
-      user: config.username,
-      password: config.password,
-      database: config.database,
-      connectTimeout: 5000,
-    })
-    await connection.ping()
-    await connection.end()
-    return { success: true }
-  } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : '连接失败' }
-  }
-})
-
 // 验证邀请码
 // 验证 API URL 从配置文件读取
 function getVerificationApiUrl(): string {
@@ -444,7 +419,7 @@ ipcMain.handle('read-existing-config', async (_event, dir: string) => {
 
 ipcMain.handle('generate-config-preview', async (_event, params: {
   installDir?: string
-  database: { type: 'sqlite' | 'mysql'; host?: string; port?: number; database?: string; username?: string; password?: string }
+  database: { type: 'sqlite' }
   serverPort?: number
 }) => {
   return generateConfigPreview(params)

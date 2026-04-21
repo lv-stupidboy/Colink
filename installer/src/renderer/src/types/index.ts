@@ -15,12 +15,7 @@ export type InstallMode = 'launcher-install' | 'skip'
 
 // 数据库配置
 export interface DatabaseConfig {
-  type: 'sqlite' | 'mysql'  // 数据库类型，默认 sqlite
-  host?: string             // MySQL 主机
-  port?: number             // MySQL 端口
-  database?: string         // MySQL 数据库名
-  username?: string         // MySQL 用户名
-  password?: string         // MySQL 密码
+  type: 'sqlite'
 }
 
 // 验证请求
@@ -119,7 +114,6 @@ declare global {
       checkDependency: (dep: string) => Promise<{ installed: boolean; version?: string }>
       installDependency: (dep: string) => Promise<{ success: boolean; error?: string }>
       startInstallation: (config: object) => Promise<{ success: boolean; error?: string; dbChanges?: Array<{ version: string; files: string[] }> }>
-      testDatabaseConnection: (config: object) => Promise<{ success: boolean; error?: string }>
       createShortcut: (path: string) => Promise<{ success: boolean }>
 
       // 邀请码验证

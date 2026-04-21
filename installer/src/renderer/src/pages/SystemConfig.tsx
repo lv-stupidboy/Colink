@@ -1,9 +1,8 @@
-import { useState, useEffect, useCallback } from 'react'
-import { Button, Input, Row, Col, message, Spin, Typography, Radio, Alert } from 'antd'
-import { CheckCircleOutlined, EditOutlined, InfoCircleOutlined } from '@ant-design/icons'
+import { useState, useEffect } from 'react'
+import { Button, Input, Row, Col, message, Spin, Typography } from 'antd'
+import { CheckCircleOutlined, EditOutlined } from '@ant-design/icons'
 import ConfigSection from '../components/ConfigSection'
-import { InstallConfig, InstalledVersion, DatabaseConfig } from '../types'
-import { testConnection } from '../services/database-connector'
+import { InstallConfig, InstalledVersion } from '../types'
 
 const { Text } = Typography
 const { TextArea } = Input
@@ -16,31 +15,11 @@ interface SystemConfigProps {
 }
 
 export default function SystemConfig({ config, onConfigUpdate, installedVersion, isUpgrade }: SystemConfigProps) {
-  const [testing, setTesting] = useState(false)
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
   const [loadingConfig, setLoadingConfig] = useState(false)
   const [mergedConfigYaml, setMergedConfigYaml] = useState<string>('')
   const [editingYaml, setEditingYaml] = useState(false)
   const [yamlError, setYamlError] = useState<string | null>(null)
   const [configMerged, setConfigMerged] = useState(false)
-  const [userSelectedDbType, setUserSelectedDbType] = useState<boolean>(false)  // 用户是否手动选择了数据库类型
-  const [wasMySQLDetected, setWasMySQLDetected] = useState<boolean>(false)  // 检测到原配置是 MySQL
-  const [userEditedYaml, setUserEditedYaml] = useState<boolean>(false)  // 用户是否手动编辑过 YAML
-
-  // 保存 MySQL 配置，即使切换到 sqlite 也保留（用于切换回来时恢复）
-  const [mysqlConfig, setMysqlConfig] = useState<{
-    host: string
-    port: number
-    database: string
-    username: string
-    password: string
-  }>({
-    host: 'localhost',
-    port: 3306,
-    database: 'isdp',
-    username: 'root',
-    password: ''
-  })
 
   // 升级模式或安装目录已有配置时读取已有配置
   useEffect(() => {
@@ -54,31 +33,12 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
       try {
         const result = await window.electronAPI.readExistingConfig(targetDir)
         if (result.success && result.config) {
-          console.log('[SystemConfig] Loaded existing config from:', targetDir, 'original type:', result.config.database.type)
-
-          // 不管升级还是安装场景，只要原来是 MySQL 都默认切换到 SQLite
-          // 保留 MySQL 配置供用户手动切换回来
-          const wasMySQL = result.config.database.type === 'mysql' || result.config.database.host
-          const dbConfig = wasMySQL
-            ? { type: 'sqlite' as 'sqlite' | 'mysql' }
-            : result.config.database
+          console.log('[SystemConfig] Loaded existing config from:', targetDir)
 
           onConfigUpdate({
-            database: dbConfig,
+            database: { type: 'sqlite' },
             serverPort: result.config.serverPort || 8080
           })
-
-          // 保存 mysql 配置到 state（用于切换回来时恢复）
-          if (wasMySQL) {
-            setWasMySQLDetected(true)  // 标记检测到原配置是 MySQL
-            setMysqlConfig({
-              host: result.config.database.host || 'localhost',
-              port: result.config.database.port || 3306,
-              database: result.config.database.database || 'isdp',
-              username: result.config.database.username || 'root',
-              password: result.config.database.password || ''
-            })
-          }
 
           if (!isUpgrade) {
             message.info('已加载该目录下的现有配置')
@@ -101,48 +61,21 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
     }
   }, [isUpgrade, installedVersion, config.installDir])
 
-  // 当数据库类型或配置变化时更新预览
+  // 生成配置预览
   useEffect(() => {
-    // 编辑模式或用户已手动编辑过 YAML 时，不自动更新
-    if (editingYaml || userEditedYaml) return
+    // 编辑模式时，不自动更新
+    if (editingYaml) return
 
     const generatePreview = async () => {
       try {
-        // 确定实际使用的数据库类型：
-        // 1. 如果用户手动选择了，使用用户选择的值
-        // 2. 否则升级场景默认 sqlite，非升级场景使用 config 中的值
-        let effectiveDbType: 'sqlite' | 'mysql'
-        if (userSelectedDbType) {
-          effectiveDbType = (config.database.type || 'sqlite') as 'sqlite' | 'mysql'
-        } else if (isUpgrade) {
-          effectiveDbType = 'sqlite'
-        } else {
-          effectiveDbType = (config.database.type || 'sqlite') as 'sqlite' | 'mysql'
-        }
-
-        const dbConfig: DatabaseConfig = effectiveDbType === 'mysql'
-          ? { type: 'mysql', ...mysqlConfig }
-          : { type: 'sqlite' }
-
-        console.log('[SystemConfig] Generating preview:', {
-          isUpgrade,
-          userSelectedDbType,
-          configDbType: config.database.type,
-          effectiveDbType,
-        })
-
-        // 调用新的 generateConfigPreview API
         const result = await window.electronAPI.generateConfigPreview({
           installDir: config.installDir || installedVersion?.installDir,
-          database: dbConfig,
+          database: { type: 'sqlite' },
           serverPort: config.serverPort || 8080
         })
 
-        console.log('[SystemConfig] generateConfigPreview result:', result)
-
         if (result.success && result.yaml && typeof result.yaml === 'string') {
           setMergedConfigYaml(result.yaml)
-          // 同时更新 configYaml，确保预览内容传递到安装流程
           onConfigUpdate({ configYaml: result.yaml })
         } else {
           const errorMsg = result.error || '返回格式错误'
@@ -155,35 +88,7 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
     }
 
     generatePreview()
-  }, [isUpgrade, userSelectedDbType, config.database.type, mysqlConfig, config.serverPort, editingYaml, userEditedYaml, config.installDir, installedVersion?.installDir])
-
-  // MySQL 配置变化时更新 mysqlConfig state
-  const handleDbChange = (field: string, value: string | number) => {
-    const newMysqlConfig = { ...mysqlConfig, [field]: value }
-    setMysqlConfig(newMysqlConfig)
-    setUserSelectedDbType(true)  // 用户手动修改了数据库配置
-    setUserEditedYaml(false)  // 修改数据库配置时重置 YAML 编辑标记，允许重新生成
-    onConfigUpdate({
-      database: { type: 'mysql', ...newMysqlConfig }
-    })
-    setConfigMerged(false)
-  }
-
-  const handleTestConnection = async () => {
-    setTesting(true)
-    setTestResult(null)
-
-    const result = await testConnection({ type: 'mysql', ...mysqlConfig })
-    setTesting(false)
-
-    if (result.success) {
-      setTestResult({ success: true, message: '连接成功' })
-      message.success('数据库连接成功')
-    } else {
-      setTestResult({ success: false, message: result.error || '连接失败' })
-      message.error(result.error || '数据库连接失败')
-    }
-  }
+  }, [editingYaml, config.serverPort, config.installDir, installedVersion?.installDir])
 
   // YAML 编辑处理
   const handleYamlChange = (value: string) => {
@@ -192,17 +97,13 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
   }
 
   const handleSaveYaml = () => {
-    // 简单校验 YAML 格式
     try {
-      // 这里只是简单检查，实际保存时后端会完整校验
       if (mergedConfigYaml.trim().length === 0) {
         setYamlError('配置不能为空')
         return
       }
       setEditingYaml(false)
-      setUserEditedYaml(true)  // 标记用户已手动编辑，阻止后续自动重新生成
       setYamlError(null)
-      // 将编辑后的 YAML 内容传递到 config
       onConfigUpdate({ configYaml: mergedConfigYaml })
       message.success('配置已更新')
     } catch (e) {
@@ -230,161 +131,20 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
         )}
       </p>
 
-      {/* MySQL 迁移提示 */}
-      {wasMySQLDetected && (
-        <Alert
-          type="info"
-          showIcon
-          icon={<InfoCircleOutlined />}
-          style={{ marginBottom: 20 }}
-          message="数据库类型已自动切换为 SQLite"
-          description={
-            <div>
-              <p style={{ marginBottom: 8 }}>
-                检测到您之前使用的是 MySQL 数据库，已自动切换为 SQLite。
-              </p>
-              <p style={{ marginBottom: 0 }}>
-                <strong>后续版本将不再支持 MySQL</strong>，请使用 SQLite 作为默认数据库。
-                如需临时切换回 MySQL（仅限过渡期），可在下方手动选择。
-              </p>
-            </div>
-          }
-        />
-      )}
-
       <ConfigSection title="数据库配置">
-        {/* 数据库类型选择 */}
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ display: 'block', fontSize: 13, color: '#666', marginBottom: 6 }}>
-            数据库类型
-          </label>
-          <Radio.Group
-            value={config.database.type || 'sqlite'}
-            onChange={(e) => {
-              const newType = e.target.value as 'sqlite' | 'mysql'
-              setUserSelectedDbType(true)  // 用户手动选择了数据库类型
-              setUserEditedYaml(false)  // 切换数据库类型时重置 YAML 编辑标记，允许重新生成
-              if (newType === 'mysql') {
-                // 切换到 MySQL 时使用保存的 mysqlConfig
-                onConfigUpdate({
-                  database: { type: 'mysql', ...mysqlConfig }
-                })
-              } else {
-                // 切换到 SQLite 时只保留 type
-                onConfigUpdate({
-                  database: { type: 'sqlite' }
-                })
-              }
-              setConfigMerged(false)
-              setTestResult(null)
-            }}
-            style={{ width: '100%' }}
-          >
-            <Radio.Button value="sqlite" style={{ width: '50%', textAlign: 'center' }}>
-              SQLite（推荐）
-            </Radio.Button>
-            <Radio.Button value="mysql" style={{ width: '50%', textAlign: 'center' }}>
-              MySQL（过渡期保留）
-            </Radio.Button>
-          </Radio.Group>
+        <div style={{
+          background: '#f0f5ff',
+          border: '1px solid #adc6ff',
+          borderRadius: 4,
+          padding: 12
+        }}>
+          <Text type="secondary">
+            SQLite 数据库将自动创建在安装目录下：./data/sqlite/colink.db
+          </Text>
+          <Text type="secondary" style={{ display: 'block', marginTop: 4 }}>
+            无需额外配置，首次安装时自动初始化数据库结构。
+          </Text>
         </div>
-
-        {/* SQLite 模式：显示路径提示 */}
-        {(config.database.type || 'sqlite') === 'sqlite' && (
-          <div style={{
-            background: '#f0f5ff',
-            border: '1px solid #adc6ff',
-            borderRadius: 4,
-            padding: 12,
-            marginBottom: 16
-          }}>
-            <Text type="secondary">
-              SQLite 数据库将自动创建在安装目录下：./data/sqlite/colink.db
-            </Text>
-            <Text type="secondary" style={{ display: 'block', marginTop: 4 }}>
-              无需额外配置，首次安装时自动初始化数据库结构。
-            </Text>
-          </div>
-        )}
-
-        {/* MySQL 模式：显示原有配置项 */}
-        {(config.database.type || 'sqlite') === 'mysql' && (
-          <>
-            <Row gutter={20}>
-              <Col span={16}>
-                <div style={{ marginBottom: 16 }}>
-                  <label style={{ display: 'block', fontSize: 13, color: '#666', marginBottom: 6 }}>
-                    数据库地址
-                  </label>
-                  <Input
-                    value={mysqlConfig.host}
-                    onChange={(e) => handleDbChange('host', e.target.value)}
-                    placeholder="rm-xxx.mysql.rds.aliyuncs.com"
-                  />
-                </div>
-              </Col>
-              <Col span={8}>
-                <div style={{ marginBottom: 16 }}>
-                  <label style={{ display: 'block', fontSize: 13, color: '#666', marginBottom: 6 }}>
-                    端口
-                  </label>
-                  <Input
-                    type="number"
-                    value={mysqlConfig.port}
-                    onChange={(e) => handleDbChange('port', parseInt(e.target.value) || 3306)}
-                  />
-                </div>
-              </Col>
-            </Row>
-
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', fontSize: 13, color: '#666', marginBottom: 6 }}>
-                数据库名
-              </label>
-              <Input
-                value={mysqlConfig.database}
-                onChange={(e) => handleDbChange('database', e.target.value)}
-              />
-            </div>
-
-            <Row gutter={20}>
-              <Col span={12}>
-                <div style={{ marginBottom: 16 }}>
-                  <label style={{ display: 'block', fontSize: 13, color: '#666', marginBottom: 6 }}>
-                    用户名
-                  </label>
-                  <Input
-                    value={mysqlConfig.username}
-                    onChange={(e) => handleDbChange('username', e.target.value)}
-                  />
-                </div>
-              </Col>
-              <Col span={12}>
-                <div style={{ marginBottom: 16 }}>
-                  <label style={{ display: 'block', fontSize: 13, color: '#666', marginBottom: 6 }}>
-                    密码
-                  </label>
-                  <Input.Password
-                    value={mysqlConfig.password}
-                    onChange={(e) => handleDbChange('password', e.target.value)}
-                  />
-                </div>
-              </Col>
-            </Row>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Button onClick={handleTestConnection} loading={testing}>
-                测试连接
-              </Button>
-              {testResult && (
-                <span style={{ color: testResult.success ? '#52c41a' : '#ff4d4f' }}>
-                  {testResult.success && <CheckCircleOutlined style={{ marginRight: 4 }} />}
-                  {testResult.message}
-                </span>
-              )}
-            </div>
-          </>
-        )}
       </ConfigSection>
 
       <ConfigSection title="服务配置">
@@ -398,7 +158,6 @@ export default function SystemConfig({ config, onConfigUpdate, installedVersion,
                 type="number"
                 value={config.serverPort || 8080}
                 onChange={(e) => {
-                  setUserEditedYaml(false)  // 修改端口时重置 YAML 编辑标记，允许重新生成
                   onConfigUpdate({ serverPort: parseInt(e.target.value) || 8080 })
                   setConfigMerged(false)
                 }}

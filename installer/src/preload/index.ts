@@ -23,10 +23,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   startInstallation: (config: object) => ipcRenderer.invoke('start-installation', config),
   generateConfigPreview: (params: {
     installDir?: string
-    database: { type: 'sqlite' | 'mysql'; host?: string; port?: number; database?: string; username?: string; password?: string }
+    database: { type: 'sqlite' }
     serverPort?: number
   }) => ipcRenderer.invoke('generate-config-preview', params),
-  testDatabaseConnection: (config: object) => ipcRenderer.invoke('test-database-connection', config),
   createShortcut: (path: string) => ipcRenderer.invoke('create-shortcut', path),
 
   // 邀请码验证
