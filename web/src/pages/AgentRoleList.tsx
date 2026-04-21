@@ -231,8 +231,7 @@ const AgentRoleList: React.FC = () => {
     setSelectedSubagentIds([]);
     setSelectedCommandIds([]);
     setSelectedSettingsIds([]);
-    // 默认选中所有规约
-    setSelectedRuleIds(rules.map(r => r.id));
+    setSelectedRuleIds([]);
     setModalVisible(true);
   };
 
