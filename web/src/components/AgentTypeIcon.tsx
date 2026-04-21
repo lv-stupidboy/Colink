@@ -47,7 +47,7 @@ const AgentTypeIcon: React.FC<AgentTypeIconProps> = ({
     // Badge 位置偏移 - 右下角
     // Badge offset: [水平偏移, 垂直偏移]，正值向右向下
     // 默认在右上角，要移到右下角需要较大的垂直向下偏移
-    const badgeOffset = [-size * 0.08, size * 0.75];
+    const badgeOffset: [number, number] = [-size * 0.08, size * 0.75];
 
     return (
       <Badge

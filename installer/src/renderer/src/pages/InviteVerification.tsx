@@ -16,11 +16,13 @@ interface InviteVerificationProps {
 export default function InviteVerification({
   config,
   onConfigUpdate,
+  isUpgrade,
   onValidationChange
 }: InviteVerificationProps) {
   const [code, setCode] = useState('')
   const [username, setUsername] = useState('')
   const [loading, setLoading] = useState(false)
+  const [loadingSaved, setLoadingSaved] = useState(isUpgrade || !!config.installDir) // 尝试加载已保存的邀请码
   const [error, setError] = useState<string | null>(null)
   const [verified, setVerified] = useState(false)
 
@@ -32,6 +34,36 @@ export default function InviteVerification({
     }
     fetchUsername()
   }, [])
+
+  // 加载已保存的邀请码
+  useEffect(() => {
+    const loadSavedInviteCode = async () => {
+      setLoadingSaved(true)
+      try {
+        // 升级时：不传安装目录，后端自动使用已安装目录
+        // 首次安装时：传用户选择的安装目录（卸载后重装可能保留 data）
+        const saveDir = isUpgrade ? undefined : config.installDir
+        const result = await window.electronAPI.loadInviteCode(saveDir)
+        if (result.success && result.inviteCode) {
+          // 已有邀请码，自动填充到输入框
+          setCode(result.inviteCode)
+          console.log('[InviteVerification] Loaded saved invite code')
+        }
+      } catch (e) {
+        console.warn('[InviteVerification] Failed to load saved invite code:', e)
+      } finally {
+        setLoadingSaved(false)
+      }
+    }
+
+    // 升级模式：总是尝试加载
+    // 首次安装：如果用户已选择安装目录，尝试从该目录加载
+    if (isUpgrade || config.installDir) {
+      loadSavedInviteCode()
+    } else {
+      setLoadingSaved(false)
+    }
+  }, [isUpgrade, config.installDir])
 
   const handleVerify = async () => {
     if (!code.trim()) {
@@ -50,7 +82,7 @@ export default function InviteVerification({
 
       if (response.success) {
         setVerified(true)
-        // 保存验证状态到 config
+        // 保存验证状态到 config（内存状态）
         onConfigUpdate({
           verification: {
             verified: true,
@@ -59,6 +91,9 @@ export default function InviteVerification({
             verifiedAt: Date.now()
           }
         })
+        // 持久化保存邀请码到文件：首次安装传 config.installDir，升级不传（后端自动检测）
+        const saveDir = isUpgrade ? undefined : config.installDir
+        await window.electronAPI.saveInviteCode(code.trim(), saveDir)
         onValidationChange?.(true)
       } else {
         setError(response.message || '验证失败，请检查邀请码')
@@ -70,6 +105,21 @@ export default function InviteVerification({
     } finally {
       setLoading(false)
     }
+  }
+
+  // 正在加载已保存的邀请码
+  if (loadingSaved) {
+    return (
+      <div style={{
+        flex: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center'
+      }}>
+        <Typography.Text type="secondary">正在检查已保存的邀请码...</Typography.Text>
+      </div>
+    )
   }
 
   // 已验证状态显示

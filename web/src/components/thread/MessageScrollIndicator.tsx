@@ -140,7 +140,7 @@ const MessageScrollIndicator: React.FC<MessageScrollIndicatorProps> = ({
 
     if (indicator.role === 'system') {
       // 系统消息使用特殊图标
-      return <AgentTypeIcon requiresHuman={false} isSystem={true} size={14} />;
+      return <AgentTypeIcon requiresHuman={false} isSystem={true} size={10} />;
     }
 
     // Agent 角色
@@ -148,7 +148,7 @@ const MessageScrollIndicator: React.FC<MessageScrollIndicatorProps> = ({
       <AgentTypeIcon
         requiresHuman={agentConfig?.requiresHuman || false}
         isSystem={agentConfig?.isSystem || false}
-        size={14}
+        size={10}
       />
     );
   };

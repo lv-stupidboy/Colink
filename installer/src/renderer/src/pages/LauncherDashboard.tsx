@@ -1,14 +1,17 @@
 import { useEffect, useState } from 'react'
-import { Card, Button, Space, Tag, Divider, Typography, Table, Alert } from 'antd'
+import { Card, Button, Space, Tag, Divider, Typography, Table, Alert, message } from 'antd'
 import {
   PlayCircleOutlined,
   StopOutlined,
   SettingOutlined,
   FileTextOutlined,
   FolderOutlined,
-  GlobalOutlined
+  GlobalOutlined,
+  ToolOutlined
 } from '@ant-design/icons'
 import type { RunningAgentInstance } from '../types'
+import DependencyManager from '../components/DependencyManager'
+import ConfigEditor from '../components/ConfigEditor'
 
 const { Title, Text } = Typography
 
@@ -78,6 +81,8 @@ export function LauncherDashboard({
 
   const [runningAgents, setRunningAgents] = useState<RunningAgentInstance[]>([])
   const [agentCount, setAgentCount] = useState(0)
+  const [depManagerVisible, setDepManagerVisible] = useState(false)
+  const [configEditorVisible, setConfigEditorVisible] = useState(false)
 
   // 轮询获取运行中的Agent（不依赖 serviceStatus，因为 Go 服务可能独立运行）
   useEffect(() => {
@@ -136,6 +141,13 @@ export function LauncherDashboard({
             </Tag>
           </div>
           <Space>
+            <Button
+              icon={<GlobalOutlined />}
+              onClick={handleOpenConsole}
+              disabled={!isRunning}
+            >
+              打开控制台
+            </Button>
             {isRunning ? (
               <Button
                 icon={<StopOutlined />}
@@ -202,17 +214,16 @@ export function LauncherDashboard({
       <Card title="快捷操作" size="small" style={{ marginBottom: 16 }}>
         <Space wrap>
           <Button
-            icon={<GlobalOutlined />}
-            onClick={handleOpenConsole}
-            disabled={!isRunning}
-          >
-            打开控制台
-          </Button>
-          <Button
             icon={<SettingOutlined />}
-            onClick={handleOpenConfig}
+            onClick={() => setConfigEditorVisible(true)}
           >
             系统配置
+          </Button>
+          <Button
+            icon={<ToolOutlined />}
+            onClick={() => setDepManagerVisible(true)}
+          >
+            智能体管理
           </Button>
           <Button
             icon={<FileTextOutlined />}
@@ -236,6 +247,19 @@ export function LauncherDashboard({
           <Text code>{installDir}</Text>
         </div>
       </Card>
+
+      {/* 依赖管理弹窗 */}
+      <DependencyManager
+        visible={depManagerVisible}
+        onClose={() => setDepManagerVisible(false)}
+      />
+
+      {/* 配置编辑弹窗 */}
+      <ConfigEditor
+        visible={configEditorVisible}
+        onClose={() => setConfigEditorVisible(false)}
+        onSaved={() => message.info('配置已保存，重启服务后生效')}
+      />
     </div>
   )
 }

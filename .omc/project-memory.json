@@ -1,16 +1,33 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1775524833734,
-  "projectRoot": "D:\\Tools\\ASDP_gittee\\isdp",
+  "lastScanned": 1776751374808,
+  "projectRoot": "D:\\CoLinkProject\\Colink-0421\\isdp",
   "techStack": {
-    "languages": [],
+    "languages": [
+      {
+        "name": "Go",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "go.mod"
+        ]
+      },
+      {
+        "name": "C/C++",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "Makefile"
+        ]
+      }
+    ],
     "frameworks": [],
-    "packageManager": null,
+    "packageManager": "go",
     "runtime": null
   },
   "build": {
-    "buildCommand": null,
-    "testCommand": null,
+    "buildCommand": "make build",
+    "testCommand": "make test",
     "lintCommand": null,
     "devCommand": null,
     "scripts": {}
@@ -25,7 +42,9 @@
     "isMonorepo": false,
     "workspaces": [],
     "mainDirectories": [
-      "docs"
+      "bin",
+      "docs",
+      "scripts"
     ],
     "gitBranches": {
       "defaultBranch": "master",
@@ -34,101 +53,213 @@
   },
   "customNotes": [],
   "directoryMap": {
+    "bin": {
+      "path": "bin",
+      "purpose": "Executable scripts",
+      "fileCount": 0,
+      "lastAccessed": 1776751374729,
+      "keyFiles": []
+    },
+    "cmd": {
+      "path": "cmd",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1776751374730,
+      "keyFiles": [
+        "check_agents.go"
+      ]
+    },
+    "configs": {
+      "path": "configs",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1776751374730,
+      "keyFiles": [
+        "config.yaml.example"
+      ]
+    },
+    "data": {
+      "path": "data",
+      "purpose": "Data files",
+      "fileCount": 0,
+      "lastAccessed": 1776751374731,
+      "keyFiles": []
+    },
     "docs": {
       "path": "docs",
       "purpose": "Documentation",
-      "fileCount": 4,
-      "lastAccessed": 1775524833600,
+      "fileCount": 11,
+      "lastAccessed": 1776751374731,
       "keyFiles": [
-        "agent-invocation-and-memory-analysis.md",
-        "CHANGELOG.md",
-        "installer-ui-preview.html",
-        "智能软件开发平台PRD文档v0.3.md"
+        "a2a-clowder-ai-analysis.md",
+        "a2a-collaboration.md",
+        "a2a-comparison-report.md",
+        "acp-mcp-config-analysis.md",
+        "agent-context-engineering-analysis.md"
       ]
     },
     "installer": {
       "path": "installer",
       "purpose": null,
-      "fileCount": 10,
-      "lastAccessed": 1775524833611,
+      "fileCount": 11,
+      "lastAccessed": 1776751374732,
       "keyFiles": [
+        "AGENTS.md",
         "build.ps1",
         "build.sh",
         "electron-builder.launcher.yml",
-        "electron-builder.yml",
-        "electron.vite.config.ts"
+        "electron-builder.yml"
       ]
     },
-    "isdp": {
-      "path": "isdp",
+    "internal": {
+      "path": "internal",
       "purpose": null,
-      "fileCount": 14,
-      "lastAccessed": 1775524833611,
+      "fileCount": 0,
+      "lastAccessed": 1776751374733,
+      "keyFiles": []
+    },
+    "pkg": {
+      "path": "pkg",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1776751374733,
+      "keyFiles": []
+    },
+    "scripts": {
+      "path": "scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 1,
+      "lastAccessed": 1776751374734,
       "keyFiles": [
-        "go.mod",
-        "go.sum",
-        "insert_builtin_agents.exe",
-        "isdp-server.exe",
-        "isdp.exe"
+        "export_schema.py"
       ]
     },
-    "docs\\node_modules": {
-      "path": "docs\\node_modules",
-      "purpose": "Dependencies",
+    "sql-change": {
+      "path": "sql-change",
+      "purpose": null,
       "fileCount": 1,
-      "lastAccessed": 1775524833612,
+      "lastAccessed": 1776751374734,
+      "keyFiles": [
+        "AGENTS.md"
+      ]
+    },
+    "teams": {
+      "path": "teams",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1776751374735,
+      "keyFiles": [
+        "全功能开发团队.zip",
+        "全栈工程师单人模式.zip"
+      ]
+    },
+    "tools": {
+      "path": "tools",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1776751374735,
       "keyFiles": []
+    },
+    "web": {
+      "path": "web",
+      "purpose": null,
+      "fileCount": 8,
+      "lastAccessed": 1776751374736,
+      "keyFiles": [
+        "AGENTS.md",
+        "index.html",
+        "package-lock.json",
+        "package.json",
+        "playwright.config.ts"
+      ]
     },
     "installer\\build": {
       "path": "installer\\build",
       "purpose": "Build output",
       "fileCount": 2,
-      "lastAccessed": 1775524833613,
+      "lastAccessed": 1776751374738,
       "keyFiles": [
         "icon.ico",
         "installer.nsh"
       ]
     },
-    "installer\\scripts": {
-      "path": "installer\\scripts",
-      "purpose": "Build/utility scripts",
+    "internal\\api": {
+      "path": "internal\\api",
+      "purpose": "API routes",
+      "fileCount": 26,
+      "lastAccessed": 1776751374739,
+      "keyFiles": [
+        "agent_handler.go",
+        "artifact_handler.go",
+        "asset_package_handler.go"
+      ]
+    },
+    "internal\\config": {
+      "path": "internal\\config",
+      "purpose": "Configuration files",
+      "fileCount": 1,
+      "lastAccessed": 1776751374740,
+      "keyFiles": [
+        "logging.go"
+      ]
+    },
+    "internal\\middleware": {
+      "path": "internal\\middleware",
+      "purpose": "Middleware",
+      "fileCount": 1,
+      "lastAccessed": 1776751374740,
+      "keyFiles": [
+        "invite.go"
+      ]
+    },
+    "pkg\\config": {
+      "path": "pkg\\config",
+      "purpose": "Configuration files",
+      "fileCount": 3,
+      "lastAccessed": 1776751374741,
+      "keyFiles": [
+        "config.go",
+        "config_test.go",
+        "merge.go"
+      ]
+    },
+    "web\\dist": {
+      "path": "web\\dist",
+      "purpose": "Distribution/build output",
+      "fileCount": 3,
+      "lastAccessed": 1776751374742,
+      "keyFiles": [
+        "favicon.ico",
+        "favicon.svg",
+        "index.html"
+      ]
+    },
+    "web\\node_modules": {
+      "path": "web\\node_modules",
+      "purpose": "Dependencies",
+      "fileCount": 1,
+      "lastAccessed": 1776751374744,
+      "keyFiles": []
+    },
+    "web\\public": {
+      "path": "web\\public",
+      "purpose": "Public files",
       "fileCount": 2,
-      "lastAccessed": 1775524833613,
+      "lastAccessed": 1776751374744,
       "keyFiles": [
-        "create-icon.js",
-        "create-zip.js"
+        "favicon.ico",
+        "favicon.svg"
       ]
     },
-    "isdp\\bin": {
-      "path": "isdp\\bin",
-      "purpose": "Executable scripts",
-      "fileCount": 8,
-      "lastAccessed": 1775524833614,
+    "web\\src": {
+      "path": "web\\src",
+      "purpose": "Source code",
+      "fileCount": 3,
+      "lastAccessed": 1776751374745,
       "keyFiles": [
-        "isdp-mcp-server.exe",
-        "isdp-server-debug.exe",
-        "isdp-server-test.exe"
-      ]
-    },
-    "isdp\\data": {
-      "path": "isdp\\data",
-      "purpose": "Data files",
-      "fileCount": 6,
-      "lastAccessed": 1775524833615,
-      "keyFiles": [
-        "free_mode.db",
-        "free_mode.db-shm",
-        "free_mode.db-wal"
-      ]
-    },
-    "isdp\\docs": {
-      "path": "isdp\\docs",
-      "purpose": "Documentation",
-      "fileCount": 2,
-      "lastAccessed": 1775524833621,
-      "keyFiles": [
-        "a2a-collaboration.md",
-        "architecture.md"
+        "App.tsx",
+        "index.css",
+        "main.tsx"
       ]
     }
   },
@@ -162,6 +293,12 @@
       "accessCount": 18,
       "lastAccessed": 1775532262808,
       "type": "file"
+    },
+    {
+      "path": "",
+      "accessCount": 11,
+      "lastAccessed": 1776743892713,
+      "type": "directory"
     },
     {
       "path": "isdp\\internal\\service\\agent\\claude_adapter.go",
@@ -204,12 +341,6 @@
       "accessCount": 5,
       "lastAccessed": 1775134517814,
       "type": "file"
-    },
-    {
-      "path": "",
-      "accessCount": 5,
-      "lastAccessed": 1775535165344,
-      "type": "directory"
     },
     {
       "path": "isdp\\web\\src\\components\\thread\\StatusPanel\\AgentHistoryCard.tsx",

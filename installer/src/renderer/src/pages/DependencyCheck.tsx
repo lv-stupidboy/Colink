@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Spin, Tag } from 'antd'
+import { Spin, Tag, Alert } from 'antd'
 import { CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons'
 import { Dependency, InstallConfig, InstalledVersion } from '../types'
 import { checkAllDependencies } from '../services/dependency-checker'
@@ -23,13 +23,11 @@ export default function DependencyCheck({ onDependenciesUpdate }: DependencyChec
     })
   }, [onDependenciesUpdate])
 
-  const missingCount = dependencies.filter(d => !d.installed).length
-
   return (
     <div style={{ flex: 1 }}>
-      <h2 style={{ fontSize: 22, marginBottom: 8, color: '#333' }}>依赖检测</h2>
+      <h2 style={{ fontSize: 22, marginBottom: 8, color: '#333' }}>智能体检测</h2>
       <p style={{ color: '#666', marginBottom: 30 }}>
-        {loading ? '正在检测系统运行环境...' : '检测结果如下'}
+        {loading ? '正在检测系统智能体环境...' : '检测结果如下'}
       </p>
 
       {loading ? (
@@ -65,11 +63,22 @@ export default function DependencyCheck({ onDependenciesUpdate }: DependencyChec
             ))}
           </div>
 
-          {missingCount > 0 && (
-            <p style={{ color: '#fa8c16', fontWeight: 500 }}>
-              检测到 <strong>{missingCount}</strong> 个依赖项缺失
-            </p>
-          )}
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginTop: 16 }}
+            message="智能体说明"
+            description={
+              <div>
+                <p style={{ marginBottom: 8 }}>
+                  Colink 平台当前支持 Claude CLI 和 OpenCode 等智能体，安装后即可使用对应的 Agent 类型。
+                </p>
+                <p style={{ marginBottom: 0 }}>
+                  您可以在安装 Colink 后自行安装需要的智能体，也可以提前安装，无先后顺序要求。
+                </p>
+              </div>
+            }
+          />
         </>
       )}
     </div>

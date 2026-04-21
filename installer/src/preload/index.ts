@@ -23,15 +23,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   startInstallation: (config: object) => ipcRenderer.invoke('start-installation', config),
   generateConfigPreview: (params: {
     installDir?: string
-    database: { type: 'sqlite' | 'mysql'; host?: string; port?: number; database?: string; username?: string; password?: string }
+    database: { type: 'sqlite' }
     serverPort?: number
   }) => ipcRenderer.invoke('generate-config-preview', params),
-  testDatabaseConnection: (config: object) => ipcRenderer.invoke('test-database-connection', config),
   createShortcut: (path: string) => ipcRenderer.invoke('create-shortcut', path),
 
   // 邀请码验证
   verifyInviteCode: (request: { code: string; username: string }) =>
     ipcRenderer.invoke('verify-invite-code', request),
+  saveInviteCode: (inviteCode: string, installDir?: string) =>
+    ipcRenderer.invoke('save-invite-code', inviteCode, installDir),
+  loadInviteCode: (installDir?: string) => ipcRenderer.invoke('load-invite-code', installDir),
 
   // 获取系统用户名
   getSystemUsername: () => ipcRenderer.invoke('get-system-username'),
@@ -47,6 +49,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   stopService: () => ipcRenderer.invoke('stop-service'),
   getServiceStatus: () => ipcRenderer.invoke('get-service-status'),
   getRunningAgents: () => ipcRenderer.invoke('get-running-agents'),
+
+  // 依赖管理（启动器）
+  checkAllDependencies: () => ipcRenderer.invoke('check-all-dependencies'),
+
+  // 配置编辑（启动器）
+  readConfigFile: () => ipcRenderer.invoke('read-config-file'),
+  getConfigPreview: () => ipcRenderer.invoke('get-config-preview'),
+  saveConfig: (yaml: string) => ipcRenderer.invoke('save-config', yaml),
+  getExistingConfig: () => ipcRenderer.invoke('get-existing-config'),
 
   // 快捷操作
   openLogs: () => ipcRenderer.invoke('open-logs'),

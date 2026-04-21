@@ -11,16 +11,11 @@ export interface Dependency {
 }
 
 // 安装模式
-export type InstallMode = 'auto' | 'manual' | 'skip'
+export type InstallMode = 'launcher-install' | 'skip'
 
 // 数据库配置
 export interface DatabaseConfig {
-  type: 'sqlite' | 'mysql'  // 数据库类型，默认 sqlite
-  host?: string             // MySQL 主机
-  port?: number             // MySQL 端口
-  database?: string         // MySQL 数据库名
-  username?: string         // MySQL 用户名
-  password?: string         // MySQL 密码
+  type: 'sqlite'
 }
 
 // 验证请求
@@ -37,12 +32,17 @@ export interface InviteVerificationResponse {
   user?: { id?: string; username?: string }
 }
 
-// 验证状态
+// 验证状态（内存中的验证结果）
 export interface VerificationState {
   verified: boolean
   token?: string
   username?: string
   verifiedAt?: number
+}
+
+// 持久化的邀请码信息（文件保存）
+export interface SavedInviteCode {
+  inviteCode: string
 }
 
 // 安装配置
@@ -114,11 +114,12 @@ declare global {
       checkDependency: (dep: string) => Promise<{ installed: boolean; version?: string }>
       installDependency: (dep: string) => Promise<{ success: boolean; error?: string }>
       startInstallation: (config: object) => Promise<{ success: boolean; error?: string; dbChanges?: Array<{ version: string; files: string[] }> }>
-      testDatabaseConnection: (config: object) => Promise<{ success: boolean; error?: string }>
       createShortcut: (path: string) => Promise<{ success: boolean }>
 
       // 邀请码验证
       verifyInviteCode: (request: InviteVerificationRequest) => Promise<InviteVerificationResponse>
+      saveInviteCode: (inviteCode: string, installDir?: string) => Promise<{ success: boolean; message?: string }>
+      loadInviteCode: (installDir?: string) => Promise<{ success: boolean; inviteCode?: string; message?: string }>
 
       // 获取系统用户名
       getSystemUsername: () => Promise<string>
@@ -139,6 +140,15 @@ declare global {
       stopService: () => Promise<{ success: boolean }>
       getServiceStatus: () => Promise<{ status: 'running' | 'stopped' }>
       getRunningAgents: () => Promise<{ instances: RunningAgentInstance[] }>
+
+      // 依赖管理（启动器）
+      checkAllDependencies: () => Promise<Array<{ key: string; name: string; installed: boolean; version?: string }>>
+
+      // 配置编辑（启动器）
+      readConfigFile: () => Promise<{ success: boolean; content?: string; error?: string }>
+      getConfigPreview: () => Promise<{ success: boolean; yaml?: string; error?: string }>
+      saveConfig: (yaml: string) => Promise<{ success: boolean; error?: string }>
+      getExistingConfig: () => Promise<{ success: boolean; config?: ExistingConfig; error?: string }>
 
       // 快捷操作
       openLogs: () => Promise<void>

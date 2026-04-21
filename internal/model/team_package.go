@@ -31,6 +31,7 @@ type TeamPackageRole struct {
 	SystemPrompt    string              `json:"systemPrompt"`
 	MaxTokens       int                 `json:"maxTokens"`
 	Temperature     float64             `json:"temperature"`
+	RequiresHuman   bool                `json:"requiresHuman"` // 是否需要人工参与
 	MentionPatterns []string            `json:"mentionPatterns"`
 	Bindings        TeamPackageBindings `json:"bindings"`
 }

@@ -171,8 +171,7 @@ export async function runDatabaseMigration(
 export async function checkDatabaseChanges(
   sqlChangeDir: string,
   currentVersion: string,
-  newVersion: string,
-  dbType: 'sqlite' | 'mysql' = 'sqlite'
+  newVersion: string
 ): Promise<{ hasChanges: boolean; changes: Array<{ version: string; files: string[] }> }> {
   try {
     // 如果目录不存在，返回无变更
@@ -204,8 +203,8 @@ export async function checkDatabaseChanges(
       // 版本在范围内：大于当前版本，小于或等于新版本
       // 新安装时 currentVersion 为 "0.0.0"，会提示所有版本
       if (compareVersions(version, current) > 0 && compareVersions(version, newVer) <= 0) {
-        // 检查对应数据库类型的子目录
-        const dbTypePath = join(sqlChangeDir, versionDir, dbType)
+        // SQLite 数据库子目录
+        const dbTypePath = join(sqlChangeDir, versionDir, 'sqlite')
         if (existsSync(dbTypePath)) {
           const sqlFiles = readdirSync(dbTypePath)
             .filter(f => f.endsWith('.sql'))
@@ -247,7 +246,20 @@ function compareVersions(a: [number, number, number], b: [number, number, number
   return 0
 }
 
-// ==================== 配置写入 ====================
+// ==================== 配置文件 ====================
+
+// 读取配置文件原始内容
+export async function readConfigFile(configPath: string): Promise<{ success: boolean; content?: string; error?: string }> {
+  try {
+    if (!existsSync(configPath)) {
+      return { success: false, error: '配置文件不存在' }
+    }
+    const content = await fsReadFile(configPath, 'utf-8')
+    return { success: true, content }
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : '读取配置失败' }
+  }
+}
 
 // 写入配置文件（所见即所得）
 // 直接写入前端预览的 YAML 内容
@@ -678,14 +690,7 @@ export async function copyLauncherFiles(
 // 合并顺序：模板 → 用户本地配置 → 页面修改参数
 export async function generateConfigPreview(params: {
   installDir?: string  // 安装目录（用于读取本地配置）
-  database: {
-    type: 'sqlite' | 'mysql'
-    host?: string
-    port?: number
-    database?: string
-    username?: string
-    password?: string
-  }
+  database: { type: 'sqlite' }
   serverPort?: number
 }): Promise<{ success: boolean; yaml?: string; error?: string }> {
   try {
@@ -710,24 +715,8 @@ export async function generateConfigPreview(params: {
 
     // 3. 应用页面修改的参数（强制覆盖）
     if (baseYaml?.database) {
-      baseYaml.database.type = params.database.type
-
-      // SQLite 模式：强制设置默认路径（确保不会被旧配置覆盖）
-      if (params.database.type === 'sqlite') {
-        baseYaml.database.path = './data/sqlite/colink.db'
-        // 清理 MySQL 相关配置（避免干扰）
-        if (baseYaml.database.mysql) {
-          // 保留 MySQL 配置供用户手动切换回来时使用，但不影响 SQLite 运行
-        }
-      }
-    }
-
-    if (params.database.type === 'mysql' && baseYaml?.database?.mysql) {
-      if (params.database.host) baseYaml.database.mysql.host = params.database.host
-      if (params.database.port) baseYaml.database.mysql.port = params.database.port
-      if (params.database.database) baseYaml.database.mysql.database = params.database.database
-      if (params.database.username) baseYaml.database.mysql.username = params.database.username
-      if (params.database.password) baseYaml.database.mysql.password = params.database.password
+      baseYaml.database.type = 'sqlite'
+      baseYaml.database.path = './data/sqlite/colink.db'
     }
 
     if (params.serverPort && baseYaml?.server) {
@@ -783,18 +772,11 @@ function findConfigTemplate(): string | null {
   return null
 }
 
-// 读取已有配置（用于切换 MySQL 时恢复参数）
+// 读取已有配置
 export async function readExistingConfig(installDir: string): Promise<{
   success: boolean
   config?: {
-    database: {
-      type: 'sqlite' | 'mysql'
-      host?: string
-      port?: number
-      database?: string
-      username?: string
-      password?: string
-    }
+    database: { type: 'sqlite' }
     serverPort?: number
   }
   error?: string
@@ -808,20 +790,10 @@ export async function readExistingConfig(installDir: string): Promise<{
     const content = await fsReadFile(configPath, 'utf-8')
     const parsed = YAML.parse(content)
 
-    // 保留 MySQL 配置信息供切换回来时使用
-    const mysqlConfig = parsed?.database?.mysql || {}
-
     return {
       success: true,
       config: {
-        database: {
-          type: parsed?.database?.type || 'sqlite',
-          host: mysqlConfig.host || '',
-          port: mysqlConfig.port || 3306,
-          database: mysqlConfig.database || 'isdp',
-          username: mysqlConfig.username || 'root',
-          password: mysqlConfig.password || ''
-        },
+        database: { type: 'sqlite' },
         serverPort: parsed?.server?.port || 8080
       }
     }
@@ -939,14 +911,7 @@ export async function runInstallation(
     installDir: string
     installMode: string
     dependencies: Array<{ key: string; installed: boolean }>
-    database: {
-      type: 'sqlite' | 'mysql'
-      host?: string
-      port?: number
-      database?: string
-      username?: string
-      password?: string
-    }
+    database: { type: 'sqlite' }
     serverPort?: number
     keepData?: boolean
     createShortcut?: boolean
@@ -1029,24 +994,11 @@ export async function runInstallation(
       sendProgress('dbcheck', 'success', 100, '跳过检测', '新安装不需要检查数据库变更')
     }
 
-    // Step 1.6: 数据库迁移（SQLite 自动执行，MySQL 提示手动执行）
+    // Step 1.6: SQLite 数据库迁移
     const dbPath = join(config.installDir, 'data', 'sqlite', 'colink.db')
 
-    // MySQL 场景：提示用户手动执行
-    if (dbType === 'mysql') {
-      if (dbChanges.length > 0) {
-        // 每个文件单独拼接完整路径
-        const manualHint = dbChanges.map(c => {
-          const filesList = c.files.map(f => `  sql-change/${c.version}/${f}`).join('\n')
-          return `${c.version}:\n${filesList}`
-        }).join('\n')
-        sendProgress('migration', 'warning', 100, 'MySQL 数据库需手动迁移',
-          `请手动执行以下 SQL 脚本：\n${manualHint}`)
-      } else {
-        sendProgress('migration', 'success', 100, '无需迁移', 'MySQL 模式，无数据库变更')
-      }
-    } else {
-      // SQLite 场景：自动执行迁移
+    if (config.currentVersion && config.newVersion) {
+      // 升级场景：自动执行迁移
       const currentVer = config.currentVersion || '0.0.0'
       const targetVer = config.newVersion || '1.1.0'
 
@@ -1111,40 +1063,12 @@ export async function runInstallation(
           : `${versionsToRun.length} 个版本已处理`
         sendProgress('migration', 'success', 100, 'SQLite 数据库迁移完成', detailStr)
       }
-    }
-
-    // Step 2-3: 安装依赖
-    if (config.installMode === 'auto') {
-      const claudeMissing = config.dependencies.find(d => d.key === 'claude' && !d.installed)
-      if (claudeMissing) {
-        sendProgress('claude', 'running', 0, '安装 Claude CLI...', '正在执行: npm install -g @anthropic-ai/claude-cli')
-        const result = await installNpmPackage('@anthropic-ai/claude-cli')
-        sendProgress('claude', result.success ? 'success' : 'failed', result.success ? 100 : 0,
-          result.success ? 'Claude CLI 安装成功' : 'Claude CLI 安装失败',
-          result.success ? '已安装到全局 npm 目录' : result.error)
-      } else {
-        sendProgress('claude', 'success', 100, 'Claude CLI 已安装', '检测到已安装，跳过')
-      }
     } else {
-      sendProgress('claude', 'success', 100, '跳过自动安装', '手动模式')
+      // 新安装，无需迁移
+      sendProgress('migration', 'success', 100, '跳过迁移', '新安装无需执行数据库迁移')
     }
 
-    if (config.installMode === 'auto') {
-      const opencodeMissing = config.dependencies.find(d => d.key === 'opencode' && !d.installed)
-      if (opencodeMissing) {
-        sendProgress('opencode', 'running', 0, '安装 OpenCode...', '正在执行: npm install -g @anthropic-ai/opencode')
-        const result = await installNpmPackage('@anthropic-ai/opencode')
-        sendProgress('opencode', result.success ? 'success' : 'failed', result.success ? 100 : 0,
-          result.success ? 'OpenCode 安装成功' : 'OpenCode 安装失败',
-          result.success ? '已安装到全局 npm 目录' : result.error)
-      } else {
-        sendProgress('opencode', 'success', 100, 'OpenCode 已安装', '检测到已安装，跳过')
-      }
-    } else {
-      sendProgress('opencode', 'success', 100, '跳过自动安装', '手动模式')
-    }
-
-    // Step 4: 配置文件处理（所见即所得）
+    // Step 2: 配置文件处理（所见即所得）
     sendProgress('config', 'running', 0, '写入配置文件...', `配置路径: ${config.installDir}/data/configs/config.yaml`)
     const configPath = join(config.installDir, 'data', 'configs', 'config.yaml')
 
@@ -1155,10 +1079,7 @@ export async function runInstallation(
         console.warn('[Config] Write failed:', writeResult.error)
         sendProgress('config', 'warning', 100, '配置写入失败', writeResult.error)
       } else {
-        const dbInfo = config.database.type === 'sqlite'
-          ? 'SQLite: ./data/sqlite/colink.db'
-          : `MySQL: ${config.database.host}:${config.database.port}/${config.database.database}`
-        sendProgress('config', 'success', 100, '配置已写入', `数据库类型: ${config.database.type}\n${dbInfo}`)
+        sendProgress('config', 'success', 100, '配置已写入', '数据库: SQLite ./data/sqlite/colink.db')
       }
     } else {
       // 没有 configYaml，使用默认配置
@@ -1175,7 +1096,7 @@ export async function runInstallation(
       }
     }
 
-    // Step 5: 创建快捷方式
+    // Step 3: 创建快捷方式
     sendProgress('shortcut', 'running', 0, '创建快捷方式...', '桌面和开始菜单')
     if (config.createShortcut !== false) {
       await createDesktopShortcut(config.installDir)
@@ -1185,7 +1106,7 @@ export async function runInstallation(
       sendProgress('shortcut', 'success', 100, '跳过快捷方式', '用户选择不创建')
     }
 
-    // Step 6: 写入注册表
+    // Step 4: 写入注册表
     sendProgress('registry', 'running', 0, '写入注册表...', `版本: ${config.newVersion || '1.0.0'}`)
     await writeRegistry(config.installDir, config.newVersion || '1.0.0')
     sendProgress('registry', 'success', 100, '注册表已写入', `安装信息已注册到系统\n安装目录: ${config.installDir}`)

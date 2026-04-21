@@ -5,6 +5,7 @@ import http from 'http'
 import { ServiceManager } from './service-manager'
 import { getInstalledVersion } from './shared/install-utils'
 import { showCloseConfirm } from './shared/window-utils'
+import { checkDependency, installNpmPackage, generateConfigPreview, writeConfigFile, readExistingConfig, readConfigFile } from './installer'
 
 const isDev = !app.isPackaged
 
@@ -108,7 +109,24 @@ ipcMain.handle('get-running-agents', async () => {
 
 ipcMain.handle('open-logs', async () => {
   if (installDir) {
-    shell.openPath(join(installDir, 'data', 'logs'))
+    const logsDir = join(installDir, 'data', 'logs')
+    const logFile = join(logsDir, 'colink.log')
+
+    // 使用 PowerShell 的 Get-Content -Wait 实现 tail -f 功能
+    // 启动一个新的 PowerShell 窗口，显示日志最后 100 行并自动跟随新内容
+    if (existsSync(logFile)) {
+      const { spawn } = require('child_process')
+      spawn('powershell', [
+        '-Command',
+        `Get-Content -Path '${logFile}' -Wait -Tail 100`
+      ], {
+        detached: true,
+        stdio: 'ignore'
+      })
+    } else {
+      // 日志文件不存在，打开日志目录
+      shell.openPath(logsDir)
+    }
   }
 })
 
@@ -144,6 +162,67 @@ ipcMain.handle('open-console', async () => {
   }
 
   shell.openExternal(`http://localhost:${port}`)
+})
+
+// ==================== 依赖管理 ====================
+
+ipcMain.handle('check-dependency', async (_event, key: string) => {
+  return checkDependency(key)
+})
+
+ipcMain.handle('install-dependency', async (_event, key: string) => {
+  const packages: Record<string, string> = {
+    claude: '@anthropic-ai/claude-cli',
+    opencode: '@anthropic-ai/opencode',
+  }
+  if (packages[key]) {
+    return installNpmPackage(packages[key])
+  }
+  return { success: false, error: '未知的依赖' }
+})
+
+ipcMain.handle('check-all-dependencies', async () => {
+  const deps = ['claude', 'opencode']
+  const results = []
+  for (const dep of deps) {
+    const result = await checkDependency(dep)
+    results.push({
+      key: dep,
+      name: dep === 'claude' ? 'Claude CLI' : 'OpenCode',
+      installed: result.installed,
+      version: result.version
+    })
+  }
+  return results
+})
+
+// ==================== 配置编辑 ====================
+
+ipcMain.handle('read-config-file', async () => {
+  const configPath = join(installDir, 'data', 'configs', 'config.yaml')
+  return readConfigFile(configPath)
+})
+
+ipcMain.handle('get-config-preview', async () => {
+  // 读取现有配置，生成预览
+  const existingResult = await readExistingConfig(installDir)
+  if (existingResult.success && existingResult.config) {
+    return generateConfigPreview({
+      installDir,
+      database: existingResult.config.database,
+      serverPort: existingResult.config.serverPort
+    })
+  }
+  return { success: false, error: '读取配置失败' }
+})
+
+ipcMain.handle('save-config', async (_event, yaml: string) => {
+  const configPath = join(installDir, 'data', 'configs', 'config.yaml')
+  return writeConfigFile(configPath, yaml)
+})
+
+ipcMain.handle('get-existing-config', async () => {
+  return readExistingConfig(installDir)
 })
 
 // ==================== 创建窗口 ====================

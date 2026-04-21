@@ -245,6 +245,7 @@ func (s *Service) Export(ctx context.Context, workflowID string) ([]byte, string
 			SystemPrompt:    agent.SystemPrompt,
 			MaxTokens:       agent.MaxTokens,
 			Temperature:     agent.Temperature,
+			RequiresHuman:   agent.RequiresHuman,
 			MentionPatterns: agent.MentionPatterns,
 			Bindings:        bindings,
 		})
@@ -1344,18 +1345,19 @@ func (s *Service) importSettings(ctx context.Context, tempDir string, item model
 		// 创建角色
 		now := time.Now()
 		agentConfig := &model.AgentRoleConfig{
-			ID:           roleID,
-			Name:         role.Name,
-			Role:         model.AgentRole(role.Role),
-			Description:  role.Description,
-			SystemPrompt: role.SystemPrompt,
-			MaxTokens:    role.MaxTokens,
-			Temperature:  role.Temperature,
-			IsDefault:    false,
-			IsSystem:     false,
+			ID:              roleID,
+			Name:            role.Name,
+			Role:            model.AgentRole(role.Role),
+			Description:     role.Description,
+			SystemPrompt:    role.SystemPrompt,
+			MaxTokens:       role.MaxTokens,
+			Temperature:     role.Temperature,
+			RequiresHuman:   role.RequiresHuman,
+			IsDefault:       false,
+			IsSystem:        false,
 			MentionPatterns: role.MentionPatterns,
-			CreatedAt:    now,
-			UpdatedAt:    now,
+			CreatedAt:       now,
+			UpdatedAt:       now,
 		}
 
 		if err := s.agentRepo.Create(ctx, agentConfig); err != nil {
