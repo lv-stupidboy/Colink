@@ -22,7 +22,7 @@ export default function InviteVerification({
   const [code, setCode] = useState('')
   const [username, setUsername] = useState('')
   const [loading, setLoading] = useState(false)
-  const [loadingSaved, setLoadingSaved] = useState(isUpgrade) // 升级时先加载已保存的邀请码
+  const [loadingSaved, setLoadingSaved] = useState(isUpgrade || !!config.installDir) // 尝试加载已保存的邀请码
   const [error, setError] = useState<string | null>(null)
   const [verified, setVerified] = useState(false)
 
@@ -35,15 +35,15 @@ export default function InviteVerification({
     fetchUsername()
   }, [])
 
-  // 升级模式下，加载已保存的邀请码
+  // 加载已保存的邀请码
   useEffect(() => {
-    if (!isUpgrade) return
-
     const loadSavedInviteCode = async () => {
       setLoadingSaved(true)
       try {
-        // 升级时不传安装目录，后端会自动使用已安装目录
-        const result = await window.electronAPI.loadInviteCode()
+        // 升级时：不传安装目录，后端自动使用已安装目录
+        // 首次安装时：传用户选择的安装目录（卸载后重装可能保留 data）
+        const saveDir = isUpgrade ? undefined : config.installDir
+        const result = await window.electronAPI.loadInviteCode(saveDir)
         if (result.success && result.inviteCode) {
           // 已有邀请码，自动填充到输入框
           setCode(result.inviteCode)
@@ -55,8 +55,15 @@ export default function InviteVerification({
         setLoadingSaved(false)
       }
     }
-    loadSavedInviteCode()
-  }, [isUpgrade])
+
+    // 升级模式：总是尝试加载
+    // 首次安装：如果用户已选择安装目录，尝试从该目录加载
+    if (isUpgrade || config.installDir) {
+      loadSavedInviteCode()
+    } else {
+      setLoadingSaved(false)
+    }
+  }, [isUpgrade, config.installDir])
 
   const handleVerify = async () => {
     if (!code.trim()) {
