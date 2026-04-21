@@ -127,3 +127,10 @@ human_task:
   # 开启后：Agent 等待用户输入（AskUserQuestion）时自动创建待办任务
   # 用户回复后自动关闭对应的待办任务
   enabled: false
+
+# 默认市场配置
+market:
+  # Colink官方市场配置（用于一键添加）
+  name: "Colink官方市场"
+  url: ""  # 官方市场Git仓库URL，如 https://gitee.com/colink/marketplace.git
+  branch: "main"

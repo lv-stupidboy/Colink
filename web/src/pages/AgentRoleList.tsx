@@ -294,20 +294,45 @@ const AgentRoleList: React.FC = () => {
   const handleBatchDelete = () => {
     if (selectedRowKeys.length === 0) return;
 
-    // 获取选中项的名称列表
-    const selectedNames = customAgents
-      .filter(a => selectedRowKeys.includes(a.id))
-      .map(a => a.name);
+    // 获取选中项数据
+    const selectedItems = customAgents.filter(a => selectedRowKeys.includes(a.id));
 
     Modal.confirm({
       title: '批量删除确认',
       icon: <ExclamationCircleOutlined />,
+      width: 520,
       content: (
         <div>
-          <p>确定要删除以下 {selectedRowKeys.length} 个 Agent 角色吗？此操作不可恢复。</p>
-          <ul style={{ marginTop: 8, paddingLeft: 20, maxHeight: 200, overflow: 'auto' }}>
-            {selectedNames.map(name => <li key={name}>{name}</li>)}
-          </ul>
+          <p style={{ marginBottom: 12 }}>确定要删除以下 {selectedRowKeys.length} 个 Agent 角色吗？此操作不可恢复。</p>
+          <Table
+            dataSource={selectedItems}
+            columns={[
+              {
+                title: '名称',
+                dataIndex: 'name',
+                key: 'name',
+              },
+              {
+                title: '基础Agent',
+                dataIndex: 'baseAgentId',
+                key: 'baseAgentId',
+                width: 100,
+                ellipsis: true,
+                render: (baseAgentId: string) => {
+                  const agent = baseAgents.find(a => a.id === baseAgentId);
+                  return agent ? agent.name : '默认';
+                },
+              },
+            ]}
+            rowKey="id"
+            size="small"
+            pagination={{
+              pageSize: 10,
+              showSizeChanger: false,
+              showTotal: (total) => `共 ${total} 条`,
+            }}
+            scroll={{ y: 280 }}
+          />
         </div>
       ),
       okText: '确认删除',
@@ -325,16 +350,31 @@ const AgentRoleList: React.FC = () => {
           if (errorData?.referencedAgents) {
             Modal.error({
               title: '无法删除',
+              width: 520,
               content: (
                 <div>
                   <p>以下 Agent 角色被团队引用，无法删除：</p>
-                  <ul style={{ marginTop: 8, paddingLeft: 20 }}>
-                    {errorData.referencedAgents.map((agent: any) => (
-                      <li key={agent.id}>
-                        <strong>{agent.name}</strong> - 被 {agent.workflowNames.join('、')} 引用
-                      </li>
-                    ))}
-                  </ul>
+                  <Table
+                    dataSource={errorData.referencedAgents}
+                    columns={[
+                      { title: '名称', dataIndex: 'name', key: 'name', ellipsis: true },
+                      {
+                        title: '引用团队',
+                        dataIndex: 'workflowNames',
+                        key: 'workflowNames',
+                        ellipsis: true,
+                        render: (names: string[]) => names.join('、'),
+                      },
+                    ]}
+                    rowKey="id"
+                    size="small"
+                    pagination={{
+                      pageSize: 10,
+                      showSizeChanger: false,
+                      showTotal: (total) => `共 ${total} 条`,
+                    }}
+                    scroll={{ y: 280 }}
+                  />
                   <p style={{ marginTop: 8 }}>请先从团队中移除这些 Agent，再进行删除。</p>
                 </div>
               ),
@@ -358,13 +398,53 @@ const AgentRoleList: React.FC = () => {
   const handleBatchGenerateConfig = () => {
     if (selectedRowKeys.length === 0) return;
 
+    // 获取选中项数据
+    const selectedItems = customAgents.filter(a => selectedRowKeys.includes(a.id));
+
     Modal.confirm({
       title: '批量生成配置',
       icon: <ExclamationCircleOutlined />,
+      width: 520,
       content: (
         <div>
-          <p>确定为选中的 {selectedRowKeys.length} 个 Agent 生成配置？</p>
-          <p style={{ color: '#faad14' }}>已有配置将被覆盖。</p>
+          <p style={{ marginBottom: 12 }}>确定为选中的 {selectedRowKeys.length} 个 Agent 生成配置？</p>
+          <Alert
+            type="warning"
+            message="已有配置将被覆盖"
+            showIcon
+            style={{ marginBottom: 12 }}
+          />
+          <Table
+            dataSource={selectedItems}
+            columns={[
+              {
+                title: '名称',
+                dataIndex: 'name',
+                key: 'name',
+                ellipsis: true,
+              },
+              {
+                title: '配置状态',
+                key: 'configStatus',
+                width: 80,
+                render: (_: unknown, record: AgentConfig) => (
+                  record.configGeneratedAt ? (
+                    <Tag color="green">已生成</Tag>
+                  ) : (
+                    <Tag color="default">未生成</Tag>
+                  )
+                ),
+              },
+            ]}
+            rowKey="id"
+            size="small"
+            pagination={{
+              pageSize: 10,
+              showSizeChanger: false,
+              showTotal: (total) => `共 ${total} 条`,
+            }}
+            scroll={{ y: 280 }}
+          />
         </div>
       ),
       okText: '确认生成',
@@ -1196,6 +1276,8 @@ const AgentRoleList: React.FC = () => {
       <Modal
         title="批量修改基础Agent"
         open={batchUpdateVisible}
+        width={520}
+        styles={{ body: { maxHeight: '70vh' } }}
         onCancel={() => {
           setBatchUpdateVisible(false);
           setTargetBaseAgentId('');
@@ -1206,12 +1288,39 @@ const AgentRoleList: React.FC = () => {
         confirmLoading={batchUpdateLoading}
       >
         <div style={{ marginBottom: 16 }}>
-          <p>将为选中的 {selectedRowKeys.length} 个 Agent 角色修改基础Agent：</p>
-          <ul style={{ marginTop: 8, paddingLeft: 20, maxHeight: 150, overflow: 'auto' }}>
-            {customAgents
-              .filter(a => selectedRowKeys.includes(a.id))
-              .map(a => <li key={a.id}>{a.name}</li>)}
-          </ul>
+          <p style={{ marginBottom: 8 }}>将为选中的 {selectedRowKeys.length} 个 Agent 角色修改基础Agent：</p>
+          <Table
+            dataSource={customAgents.filter(a => selectedRowKeys.includes(a.id))}
+            columns={[
+              {
+                title: '名称',
+                dataIndex: 'name',
+                key: 'name',
+              },
+              {
+                title: '当前基础Agent',
+                dataIndex: 'baseAgentId',
+                key: 'baseAgentId',
+                width: 120,
+                render: (baseAgentId: string) => {
+                  const agent = baseAgents.find(a => a.id === baseAgentId);
+                  return agent ? (
+                    <Tag color={agent.type === 'claude_code' ? 'blue' : 'green'}>
+                      {agent.name}
+                    </Tag>
+                  ) : <Tag>默认</Tag>;
+                },
+              },
+            ]}
+            rowKey="id"
+            size="small"
+            pagination={{
+              pageSize: 10,
+              showSizeChanger: false,
+              showTotal: (total) => `共 ${total} 条`,
+            }}
+            scroll={{ y: 220 }}
+          />
         </div>
         <div style={{ marginBottom: 8 }}>
           <label style={{ display: 'block', marginBottom: 4 }}>目标基础Agent</label>
@@ -1234,6 +1343,7 @@ const AgentRoleList: React.FC = () => {
       <Modal
         title="批量生成配置结果"
         open={batchResultVisible}
+        width={600}
         onCancel={() => {
           setBatchResultVisible(false);
           setBatchResultData(null);
@@ -1246,7 +1356,6 @@ const AgentRoleList: React.FC = () => {
             关闭
           </Button>,
         ]}
-        width={600}
       >
         {batchResultData && (
           <div>
@@ -1264,11 +1373,13 @@ const AgentRoleList: React.FC = () => {
                     title: 'Agent名称',
                     dataIndex: 'agentName',
                     key: 'agentName',
+                    ellipsis: true,
                   },
                   {
                     title: '状态',
                     dataIndex: 'status',
                     key: 'status',
+                    width: 70,
                     render: (status: string) => (
                       <Tag color={status === 'success' ? 'green' : 'red'}>
                         {status === 'success' ? '成功' : '失败'}
@@ -1278,24 +1389,29 @@ const AgentRoleList: React.FC = () => {
                   {
                     title: '生成数量',
                     key: 'counts',
+                    ellipsis: true,
                     render: (_: unknown, record: GenerateResultItem) => (
-                      <span>
-                        Skills: {record.skillsCount}, Commands: {record.commandsCount},
-                        Subagents: {record.subagentsCount}, Rules: {record.rulesCount},
-                        Settings: {record.settingsCount}
+                      <span style={{ fontSize: 12 }}>
+                        S:{record.skillsCount} C:{record.commandsCount}
                       </span>
                     ),
                   },
                   {
-                    title: '错误信息',
+                    title: '错误',
                     dataIndex: 'error',
                     key: 'error',
-                    render: (error?: string) => error ? <Text type="danger">{error}</Text> : '-',
+                    ellipsis: true,
+                    render: (error?: string) => error ? <Text type="danger" style={{ fontSize: 12 }}>{error}</Text> : '-',
                   },
                 ]}
                 rowKey="agentId"
-                pagination={false}
                 size="small"
+                pagination={{
+                  pageSize: 10,
+                  showSizeChanger: false,
+                  showTotal: (total) => `共 ${total} 条`,
+                }}
+                scroll={{ y: 300 }}
               />
             )}
           </div>
@@ -1306,6 +1422,7 @@ const AgentRoleList: React.FC = () => {
       <Modal
         title="批量修改基础Agent结果"
         open={batchUpdateResultVisible}
+        width={520}
         onCancel={() => {
           setBatchUpdateResultVisible(false);
           setBatchUpdateResultData(null);
@@ -1318,7 +1435,6 @@ const AgentRoleList: React.FC = () => {
             关闭
           </Button>,
         ]}
-        width={500}
       >
         {batchUpdateResultData && (
           <div>
@@ -1336,16 +1452,20 @@ const AgentRoleList: React.FC = () => {
                     title: 'Agent名称',
                     dataIndex: 'agentName',
                     key: 'agentName',
+                    ellipsis: true,
                   },
                   {
                     title: '基础Agent',
                     dataIndex: 'baseAgentName',
                     key: 'baseAgentName',
+                    width: 100,
+                    ellipsis: true,
                   },
                   {
                     title: '状态',
                     dataIndex: 'status',
                     key: 'status',
+                    width: 70,
                     render: (status: string) => (
                       <Tag color={status === 'success' ? 'green' : 'red'}>
                         {status === 'success' ? '成功' : '失败'}
@@ -1353,15 +1473,21 @@ const AgentRoleList: React.FC = () => {
                     ),
                   },
                   {
-                    title: '错误信息',
+                    title: '错误',
                     dataIndex: 'error',
                     key: 'error',
+                    ellipsis: true,
                     render: (error?: string) => error ? <Text type="danger">{error}</Text> : '-',
                   },
                 ]}
                 rowKey="agentId"
-                pagination={false}
                 size="small"
+                pagination={{
+                  pageSize: 10,
+                  showSizeChanger: false,
+                  showTotal: (total) => `共 ${total} 条`,
+                }}
+                scroll={{ y: 300 }}
               />
             )}
           </div>

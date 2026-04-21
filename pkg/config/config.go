@@ -10,28 +10,28 @@ import (
 
 // Config 应用配置
 type Config struct {
-	Server      ServerConfig      `mapstructure:"server"`
-	Data        DataConfig        `mapstructure:"data"`
-	Database    DatabaseConfig    `mapstructure:"database"`
-	Redis       RedisConfig       `mapstructure:"redis"`
-	Claude      ClaudeConfig      `mapstructure:"claude"`
-	Sandbox     SandboxConfig     `mapstructure:"sandbox"`
-	Agent       AgentConfig       `mapstructure:"agent"`
-	Logging     LoggingConfig     `mapstructure:"logging"`
-	MCP         MCPConfig         `mapstructure:"mcp"`
-	Auth        AuthConfig        `mapstructure:"auth"`
-	AgentAssets AgentAssetsConfig `mapstructure:"agent_assets"`
-	Skill       SkillConfig       `mapstructure:"skill"`
-	Subagent    SubagentConfig    `mapstructure:"subagent"`
-	AgentConfig AgentConfigConfig `mapstructure:"agent_config"`
-	Command     CommandConfig     `mapstructure:"command"`
-	Rule        RuleConfig        `mapstructure:"rule"`
-	Feishu      FeishuConfig      `mapstructure:"feishu"`
-	IM          IMConfig          `mapstructure:"im"`
-	Reporter    ReporterConfig    `mapstructure:"reporter"`
-	HumanTask   HumanTaskConfig   `mapstructure:"human_task"`
-	// TeamPackageSyncConfig 团队包同步配置（仅保留临时目录配置）
+	Server         ServerConfig         `mapstructure:"server"`
+	Data           DataConfig           `mapstructure:"data"`
+	Database       DatabaseConfig       `mapstructure:"database"`
+	Redis          RedisConfig          `mapstructure:"redis"`
+	Claude         ClaudeConfig         `mapstructure:"claude"`
+	Sandbox        SandboxConfig        `mapstructure:"sandbox"`
+	Agent          AgentConfig          `mapstructure:"agent"`
+	Logging        LoggingConfig        `mapstructure:"logging"`
+	MCP            MCPConfig            `mapstructure:"mcp"`
+	Auth           AuthConfig           `mapstructure:"auth"`
+	AgentAssets    AgentAssetsConfig    `mapstructure:"agent_assets"`
+	Skill          SkillConfig          `mapstructure:"skill"`
+	Subagent       SubagentConfig       `mapstructure:"subagent"`
+	AgentConfig    AgentConfigConfig    `mapstructure:"agent_config"`
+	Command        CommandConfig        `mapstructure:"command"`
+	Rule           RuleConfig           `mapstructure:"rule"`
+	Feishu         FeishuConfig         `mapstructure:"feishu"`
+	IM             IMConfig             `mapstructure:"im"`
+	Reporter       ReporterConfig       `mapstructure:"reporter"`
+	HumanTask      HumanTaskConfig      `mapstructure:"human_task"`
 	TeamPackageSync TeamPackageSyncConfig `mapstructure:"team_package_sync"`
+	Market         MarketDefaultConfig  `mapstructure:"market"`
 }
 
 // DataConfig 数据目录配置
@@ -316,6 +316,13 @@ func (c *TeamPackageSyncConfig) ApplyDefaults() {
 	}
 }
 
+// MarketDefaultConfig 默认市场配置
+type MarketDefaultConfig struct {
+	Name   string `mapstructure:"name"`   // 默认市场名称
+	URL    string `mapstructure:"url"`    // 默认市场Git仓库URL
+	Branch string `mapstructure:"branch"` // 默认分支
+}
+
 const (
 	EventModeWebhook  = "webhook"
 	EventModeListener = "listener"
@@ -594,6 +601,6 @@ func setDefaults() {
 	viper.SetDefault("reporter.retry_times", 3)
 	viper.SetDefault("reporter.retry_interval", "1m")
 
-	// IM 平台默认值（可选配置，默认为空数组）
-	// 具体平台配置通过 ApplyDefaults() 动态设置
+	// Market 默认市场配置
+	viper.SetDefault("market.branch", "main")
 }
