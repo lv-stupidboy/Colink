@@ -223,7 +223,7 @@ export function LauncherDashboard({
             icon={<ToolOutlined />}
             onClick={() => setDepManagerVisible(true)}
           >
-            依赖管理
+            智能体管理
           </Button>
           <Button
             icon={<FileTextOutlined />}

@@ -144,6 +144,7 @@ declare global {
       checkAllDependencies: () => Promise<Array<{ key: string; name: string; installed: boolean; version?: string }>>
 
       // 配置编辑（启动器）
+      readConfigFile: () => Promise<{ success: boolean; content?: string; error?: string }>
       getConfigPreview: () => Promise<{ success: boolean; yaml?: string; error?: string }>
       saveConfig: (yaml: string) => Promise<{ success: boolean; error?: string }>
       getExistingConfig: () => Promise<{ success: boolean; config?: ExistingConfig; error?: string }>

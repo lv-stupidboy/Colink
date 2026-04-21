@@ -27,9 +27,9 @@ export default function DependencyCheck({ onDependenciesUpdate }: DependencyChec
 
   return (
     <div style={{ flex: 1 }}>
-      <h2 style={{ fontSize: 22, marginBottom: 8, color: '#333' }}>依赖检测</h2>
+      <h2 style={{ fontSize: 22, marginBottom: 8, color: '#333' }}>智能体检测</h2>
       <p style={{ color: '#666', marginBottom: 30 }}>
-        {loading ? '正在检测系统运行环境...' : '检测结果如下'}
+        {loading ? '正在检测系统智能体环境...' : '检测结果如下'}
       </p>
 
       {loading ? (

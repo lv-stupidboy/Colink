@@ -26,7 +26,7 @@ export default function DependencyManager({ visible, onClose }: DependencyManage
       const results = await window.electronAPI.checkAllDependencies()
       setDependencies(results)
     } catch (e) {
-      message.error('检测依赖失败')
+      message.error('检测智能体失败')
     }
     setLoading(false)
   }
@@ -104,7 +104,7 @@ export default function DependencyManager({ visible, onClose }: DependencyManage
       title={
         <Space>
           <ToolOutlined />
-          依赖管理
+          智能体管理
         </Space>
       }
       open={visible}
@@ -120,7 +120,7 @@ export default function DependencyManager({ visible, onClose }: DependencyManage
 
       {loading ? (
         <div style={{ textAlign: 'center', padding: 40 }}>
-          <Spin tip="检测依赖状态..." />
+          <Spin tip="检测智能体状态..." />
         </div>
       ) : (
         <>

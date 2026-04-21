@@ -38,7 +38,7 @@ export default function ModeSelect({ config, onConfigUpdate }: ModeSelectProps) 
             <span style={{ marginLeft: 8 }}>稍后在启动器安装（推荐）</span>
           </div>
           <p style={{ color: '#666', fontSize: 13, marginLeft: 30 }}>
-            安装完成后，在启动器的「依赖管理」中自助安装 Claude CLI 和 OpenCode
+            安装完成后，在启动器的「智能体管理」中自助安装 Claude CLI 和 OpenCode
           </p>
         </div>
 

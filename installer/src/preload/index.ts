@@ -52,6 +52,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   checkAllDependencies: () => ipcRenderer.invoke('check-all-dependencies'),
 
   // 配置编辑（启动器）
+  readConfigFile: () => ipcRenderer.invoke('read-config-file'),
   getConfigPreview: () => ipcRenderer.invoke('get-config-preview'),
   saveConfig: (yaml: string) => ipcRenderer.invoke('save-config', yaml),
   getExistingConfig: () => ipcRenderer.invoke('get-existing-config'),

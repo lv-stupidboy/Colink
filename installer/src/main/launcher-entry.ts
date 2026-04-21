@@ -5,7 +5,7 @@ import http from 'http'
 import { ServiceManager } from './service-manager'
 import { getInstalledVersion } from './shared/install-utils'
 import { showCloseConfirm } from './shared/window-utils'
-import { checkDependency, installNpmPackage, generateConfigPreview, writeConfigFile, readExistingConfig } from './installer'
+import { checkDependency, installNpmPackage, generateConfigPreview, writeConfigFile, readExistingConfig, readConfigFile } from './installer'
 
 const isDev = !app.isPackaged
 
@@ -180,6 +180,11 @@ ipcMain.handle('check-all-dependencies', async () => {
 })
 
 // ==================== 配置编辑 ====================
+
+ipcMain.handle('read-config-file', async () => {
+  const configPath = join(installDir, 'data', 'configs', 'config.yaml')
+  return readConfigFile(configPath)
+})
 
 ipcMain.handle('get-config-preview', async () => {
   // 读取现有配置，生成预览

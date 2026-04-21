@@ -18,9 +18,9 @@ export default function ConfigEditor({ visible, onClose, onSaved }: ConfigEditor
   const loadConfig = async () => {
     setLoading(true)
     try {
-      const result = await window.electronAPI.getConfigPreview()
-      if (result.success && result.yaml) {
-        setYamlContent(result.yaml)
+      const result = await window.electronAPI.readConfigFile()
+      if (result.success && result.content) {
+        setYamlContent(result.content)
       } else {
         message.error(result.error || '读取配置失败')
       }

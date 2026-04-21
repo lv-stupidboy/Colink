@@ -247,7 +247,20 @@ function compareVersions(a: [number, number, number], b: [number, number, number
   return 0
 }
 
-// ==================== 配置写入 ====================
+// ==================== 配置文件 ====================
+
+// 读取配置文件原始内容
+export async function readConfigFile(configPath: string): Promise<{ success: boolean; content?: string; error?: string }> {
+  try {
+    if (!existsSync(configPath)) {
+      return { success: false, error: '配置文件不存在' }
+    }
+    const content = await fsReadFile(configPath, 'utf-8')
+    return { success: true, content }
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : '读取配置失败' }
+  }
+}
 
 // 写入配置文件（所见即所得）
 // 直接写入前端预览的 YAML 内容
