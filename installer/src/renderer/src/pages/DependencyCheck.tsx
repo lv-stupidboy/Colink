@@ -23,8 +23,6 @@ export default function DependencyCheck({ onDependenciesUpdate }: DependencyChec
     })
   }, [onDependenciesUpdate])
 
-  const missingCount = dependencies.filter(d => !d.installed).length
-
   return (
     <div style={{ flex: 1 }}>
       <h2 style={{ fontSize: 22, marginBottom: 8, color: '#333' }}>智能体检测</h2>
@@ -65,34 +63,22 @@ export default function DependencyCheck({ onDependenciesUpdate }: DependencyChec
             ))}
           </div>
 
-          {missingCount > 0 && (
-            <Alert
-              type="info"
-              showIcon
-              style={{ marginTop: 16 }}
-              message="智能体安装提示"
-              description={
-                <div>
-                  <p style={{ marginBottom: 8 }}>
-                    Claude CLI 和 OpenCode 是 Colink 平台的核心智能体，需要安装后才能使用相应功能。
-                  </p>
-                  <p style={{ marginBottom: 0 }}>
-                    您可以在安装 Colink 后，通过启动器的「智能体管理」自助安装；也可以提前安装，无先后顺序要求。
-                  </p>
-                </div>
-              }
-            />
-          )}
-
-          {missingCount === 0 && (
-            <Alert
-              type="success"
-              showIcon
-              style={{ marginTop: 16 }}
-              message="所有智能体已就绪"
-              description="Claude CLI 和 OpenCode 已安装，Colink 平台可以正常使用全部功能。"
-            />
-          )}
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginTop: 16 }}
+            message="智能体说明"
+            description={
+              <div>
+                <p style={{ marginBottom: 8 }}>
+                  Colink 平台当前支持 Claude CLI 和 OpenCode 等智能体，安装后即可使用对应的 Agent 类型。
+                </p>
+                <p style={{ marginBottom: 0 }}>
+                  您可以在安装 Colink 后自行安装需要的智能体，也可以提前安装，无先后顺序要求。
+                </p>
+              </div>
+            }
+          />
         </>
       )}
     </div>
