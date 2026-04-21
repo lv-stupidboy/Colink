@@ -75,10 +75,23 @@ func (s *Service) Create(ctx context.Context, threadID uuid.UUID, role model.Mes
 	return msg, nil
 }
 
-// GetByThreadID 根据ThreadID获取消息列表
+// GetByThreadID 根据ThreadID获取消息列表（最新的N条）
 func (s *Service) GetByThreadID(ctx context.Context, threadID uuid.UUID, limit int) ([]*model.Message, error) {
 	if limit <= 0 {
-		limit = 50
+		limit = 10
 	}
 	return s.repo.FindByThreadID(ctx, threadID, limit)
+}
+
+// GetByThreadIDBeforeCursor 根据ThreadID获取指定cursor之前的消息（用于向上滚动加载历史）
+func (s *Service) GetByThreadIDBeforeCursor(ctx context.Context, threadID uuid.UUID, cursor string, limit int) ([]*model.Message, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	return s.repo.FindByThreadIDBeforeCursor(ctx, threadID, cursor, limit)
+}
+
+// GetMessageCount 获取消息总数
+func (s *Service) GetMessageCount(ctx context.Context, threadID uuid.UUID) (int, error) {
+	return s.repo.CountByThreadID(ctx, threadID)
 }

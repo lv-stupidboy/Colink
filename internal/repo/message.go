@@ -74,6 +74,53 @@ func (r *MessageRepository) FindByThreadID(ctx context.Context, threadID uuid.UU
 	return messages, nil
 }
 
+// FindByThreadIDBeforeCursor 根据ThreadID查找指定cursor之前的消息（用于向上滚动加载历史）
+// cursor 是消息ID，返回比该消息更早的消息，按时间正序返回
+func (r *MessageRepository) FindByThreadIDBeforeCursor(ctx context.Context, threadID uuid.UUID, cursor string, limit int) ([]*model.Message, error) {
+	// 先获取 cursor 消息的 created_at，然后查询比它更早的消息
+	cursorQuery := `SELECT created_at FROM messages WHERE id = ?`
+	var cursorTime SQLiteTimeScanner
+	err := r.DB().QueryRowContext(ctx, cursorQuery, cursor).Scan(&cursorTime)
+	if err != nil {
+		return nil, fmt.Errorf("cursor message not found: %w", err)
+	}
+
+	// 查询比 cursor 更早的消息，用 DESC 取最新的 N 条，然后反转
+	query := `
+		SELECT id, thread_id, role, agent_id, content, content_blocks, message_type, metadata, created_at, mentions, origin, reply_to
+		FROM messages WHERE thread_id = ? AND created_at < ? ORDER BY created_at DESC LIMIT ?
+	`
+	rows, err := r.DB().QueryContext(ctx, query, threadID.String(), cursorTime.Time, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var messages = make([]*model.Message, 0)
+	for rows.Next() {
+		msg, err := r.scanMessage(rows)
+		if err != nil {
+			return nil, err
+		}
+		messages = append(messages, msg)
+	}
+
+	// 反转顺序，使旧消息在前、新消息在后
+	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
+		messages[i], messages[j] = messages[j], messages[i]
+	}
+
+	return messages, nil
+}
+
+// CountByThreadID 获取消息总数（用于判断是否还有更多历史）
+func (r *MessageRepository) CountByThreadID(ctx context.Context, threadID uuid.UUID) (int, error) {
+	query := `SELECT COUNT(*) FROM messages WHERE thread_id = ?`
+	var count int
+	err := r.DB().QueryRowContext(ctx, query, threadID.String()).Scan(&count)
+	return count, err
+}
+
 // GetRecent 获取最近消息
 func (r *MessageRepository) GetRecent(ctx context.Context, threadID uuid.UUID, limit int) ([]*model.Message, error) {
 	query := `

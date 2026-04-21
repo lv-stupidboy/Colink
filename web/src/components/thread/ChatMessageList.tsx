@@ -1,5 +1,5 @@
 // isdp/web/src/components/thread/ChatMessageList.tsx
-import { forwardRef, useRef, useEffect, RefObject } from 'react';
+import { forwardRef, useRef, useEffect, RefObject, useState, useCallback } from 'react';
 import { useAppStore } from '@/store';
 import type { AgentConfig, ToolEvent } from '@/types';
 import type { FileChange } from '@/types/content';
@@ -14,6 +14,7 @@ import '@/components/CollapsiblePanels.css';
 /**
  * 聊天消息列表组件
  * 支持自动滚动到底部、进度状态、终止操作、重试、代码预览、工具事件
+ * 支持向上滚动加载历史消息（类似微信）
  *
  * 性能优化：
  * - 流式消息使用独立的 StreamingMessage 组件隔离高频更新
@@ -41,6 +42,9 @@ interface ChatMessageListProps {
   loading?: boolean;
   autoScroll?: boolean;
   onQuestionSubmit?: (blockId: string, answers: Record<number, string | string[]>, invocationId: string) => void;
+  hasMoreHistory?: boolean;
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
 }
 
 /**
@@ -76,6 +80,9 @@ export const ChatMessageList = forwardRef<HTMLDivElement, ChatMessageListProps>(
       loading = false,
       autoScroll = true,
       onQuestionSubmit,
+      hasMoreHistory = false,
+      loadingMore = false,
+      onLoadMore,
     } = props;
 
     // Use passed ref or create internal one
@@ -87,6 +94,38 @@ export const ChatMessageList = forwardRef<HTMLDivElement, ChatMessageListProps>(
 
   // 订阅流式内容块变化（用于滚动控制）
   const streamingContentBlocks = useAppStore((s) => s.streamingContentBlocks);
+
+  // 向上滚动加载历史的逻辑
+  const [isLoadingFromTop, setIsLoadingFromTop] = useState(false);
+  const prevScrollHeightRef = useRef(0);
+
+  // 检测滚动到顶部
+  const handleScroll = useCallback(() => {
+    if (!listRef.current || !onLoadMore || loadingMore || !hasMoreHistory) return;
+
+    const { scrollTop, scrollHeight } = listRef.current;
+    // 当滚动到顶部附近（小于 100px）时触发加载
+    if (scrollTop < 100) {
+      // 记录当前滚动高度，用于加载后恢复位置
+      prevScrollHeightRef.current = scrollHeight;
+      setIsLoadingFromTop(true);
+      onLoadMore();
+    }
+  }, [listRef, onLoadMore, loadingMore, hasMoreHistory]);
+
+  // 加载完成后恢复滚动位置（避免跳动）
+  useEffect(() => {
+    if (!isLoadingFromTop || loadingMore) return;
+
+    // 当 loadingMore 变为 false 时，表示加载完成
+    if (!loadingMore && listRef.current) {
+      const newScrollHeight = listRef.current.scrollHeight;
+      const addedHeight = newScrollHeight - prevScrollHeightRef.current;
+      // 保持滚动位置，使新加载的内容出现在上方
+      listRef.current.scrollTop = addedHeight;
+      setIsLoadingFromTop(false);
+    }
+  }, [loadingMore, isLoadingFromTop, listRef]);
 
   // 条件自动滚动：只有接近底部时才滚动
   // 监听已完成消息数量和流式内容变化
@@ -132,7 +171,26 @@ export const ChatMessageList = forwardRef<HTMLDivElement, ChatMessageListProps>(
         overflowY: 'auto',
         padding: '16px',
       }}
+      onScroll={handleScroll}
     >
+      {/* 加载更多历史指示器 */}
+      {hasMoreHistory && (
+        <div
+          style={{
+            textAlign: 'center',
+            padding: '8px 0',
+            color: 'var(--text-secondary)',
+            fontSize: '13px',
+          }}
+        >
+          {loadingMore ? (
+            <span>正在加载历史消息...</span>
+          ) : (
+            <span style={{ opacity: 0.6 }}>↑ 向上滚动加载更多</span>
+          )}
+        </div>
+      )}
+
       {/* 已完成的消息 - 不会因流式消息更新而重渲染 */}
       {messages.map((message) => {
         const agentConfig = getAgentConfig(

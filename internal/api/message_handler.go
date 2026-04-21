@@ -20,7 +20,7 @@ func NewMessageHandler(service *message.Service) *MessageHandler {
 	return &MessageHandler{service: service}
 }
 
-// List 列出消息
+// List 列出消息（默认返回最新的N条）
 func (h *MessageHandler) List(c *gin.Context) {
 	threadID, err := uuid.Parse(c.Param("threadId"))
 	if err != nil {
@@ -28,13 +28,52 @@ func (h *MessageHandler) List(c *gin.Context) {
 		return
 	}
 
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
 	messages, err := h.service.GetByThreadID(c.Request.Context(), threadID, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, messages)
+
+	// 获取消息总数，用于判断是否还有更多历史
+	total, err := h.service.GetMessageCount(c.Request.Context(), threadID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"messages":  messages,
+		"total":     total,
+		"hasMore":   len(messages) < total,
+	})
+}
+
+// ListBeforeCursor 列出指定cursor之前的消息（用于向上滚动加载历史）
+func (h *MessageHandler) ListBeforeCursor(c *gin.Context) {
+	threadID, err := uuid.Parse(c.Param("threadId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid thread id"})
+		return
+	}
+
+	cursor := c.Query("cursor")
+	if cursor == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cursor is required"})
+		return
+	}
+
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
+	messages, err := h.service.GetByThreadIDBeforeCursor(c.Request.Context(), threadID, cursor, limit)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"messages": messages,
+		"hasMore":  len(messages) >= limit, // 如果返回数量等于limit，可能还有更多
+	})
 }
 
 // Create 创建消息
@@ -73,6 +112,7 @@ func (h *MessageHandler) RegisterRoutes(r *gin.RouterGroup) {
 	messages := r.Group("/messages")
 	{
 		messages.GET("/thread/:threadId", h.List)
+		messages.GET("/thread/:threadId/history", h.ListBeforeCursor)
 		messages.POST("/thread/:threadId", h.Create)
 	}
 }

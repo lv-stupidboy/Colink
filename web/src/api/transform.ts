@@ -79,12 +79,21 @@ export function transformMessage(data: any): any {
   return snakeToCamel(data);
 }
 
-// 转换 Message 列表
-export function transformMessages(data: any[]): any[] {
-  if (!data || !Array.isArray(data)) {
-    return [];
+// 转换 Message 列表或分页结果
+export function transformMessages(data: any): any {
+  // 如果是分页结果对象 { messages, total, hasMore }
+  if (data && typeof data === 'object' && !Array.isArray(data) && 'messages' in data) {
+    return {
+      messages: Array.isArray(data.messages) ? data.messages.map(transformMessage) : [],
+      total: data.total ?? 0,
+      hasMore: data.hasMore ?? false,
+    };
   }
-  return data.map(transformMessage);
+  // 如果是数组（兼容旧格式）
+  if (Array.isArray(data)) {
+    return data.map(transformMessage);
+  }
+  return [];
 }
 
 // 转换 AgentConfig 数据

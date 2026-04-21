@@ -18,6 +18,11 @@ interface AppState {
   // 消息列表
   messages: Message[];
 
+  // 消息分页状态
+  messagesHasMore: boolean;        // 是否有更多历史消息可加载
+  messagesLoadingMore: boolean;    // 正在加载更多历史
+  messagesTotal: number;           // 消息总数
+
   // 流式消息状态
   isStreaming: boolean;
   streamingAgentId: string | null;
@@ -152,6 +157,9 @@ interface AppActions {
   // 清除项目上下文
   clearProjectContext: () => void;
 
+  // 加载更多历史消息（向上滚动加载）
+  loadMoreMessages: () => Promise<void>;
+
   // 获取过滤后的Agent列表（基于Agent团队）
   getFilteredAgents: () => AgentConfig[];
 
@@ -212,6 +220,10 @@ const initialState: AppState = {
   currentProjectId: null,
   currentThread: null,
   messages: [],
+  // 消息分页状态
+  messagesHasMore: false,
+  messagesLoadingMore: false,
+  messagesTotal: 0,
   // 流式状态
   isStreaming: false,
   streamingAgentId: null,
@@ -273,6 +285,10 @@ export const useAppStore = create<AppState & AppActions>()(
         loading: true,
         error: null,
         messages: [],
+        // 重置分页状态
+        messagesHasMore: false,
+        messagesLoadingMore: false,
+        messagesTotal: 0,
         // 重置流式状态
         isStreaming: false,
         streamingAgentId: null,
@@ -288,11 +304,16 @@ export const useAppStore = create<AppState & AppActions>()(
       });
 
       try {
-        const [thread, messages, invocations] = await Promise.all([
+        const [thread, messagesResult, invocations] = await Promise.all([
           api.threads.get(threadId),
           api.messages.list(threadId),
           api.invocations.list(threadId),
         ]);
+
+        // API 返回 { messages, total, hasMore }
+        const messages = messagesResult.messages || [];
+        const hasMore = messagesResult.hasMore || false;
+        const total = messagesResult.total || 0;
 
         // 构建已完成的 invocation ID 集合
         const completedInvocationIds = new Set(
@@ -332,6 +353,8 @@ export const useAppStore = create<AppState & AppActions>()(
         set({
           currentThread: thread,
           messages: updatedMessages,
+          messagesHasMore: hasMore,
+          messagesTotal: total,
           activeAgents: (invocations || []).filter((i: AgentInvocation) => i.status === 'running'),
           // 恢复已完成的 Agent 历史
           completedAgents: (invocations || [])
@@ -705,6 +728,69 @@ export const useAppStore = create<AppState & AppActions>()(
         currentProject: null,
         currentWorkflowTemplate: null,
       });
+    },
+
+    // 加载更多历史消息（向上滚动加载）
+    loadMoreMessages: async () => {
+      const { currentThread, messages, messagesLoadingMore, messagesHasMore } = get();
+      if (!currentThread || messagesLoadingMore || !messagesHasMore || messages.length === 0) {
+        return;
+      }
+
+      // 获取最早一条消息的 ID 作为 cursor
+      const oldestMessage = messages[0];
+      const cursor = oldestMessage.id;
+
+      set({ messagesLoadingMore: true });
+
+      try {
+        const result = await api.messages.listHistory(currentThread.id, cursor);
+
+        // 将新加载的历史消息插入到前面
+        const newMessages = result.messages || [];
+
+        // 构建已完成的 invocation ID 集合（用于更新历史消息状态）
+        const invocations = get().completedAgents;
+        const completedInvocationIds = new Set(
+          invocations
+            .filter((i) => i.status === 'completed' || i.status === 'failed' || i.status === 'interrupted')
+            .map((i) => i.id)
+        );
+
+        // 更新历史消息中已完成的 content blocks 状态
+        const updatedNewMessages = newMessages.map((msg: Message) => {
+          if (msg.contentBlocks && msg.contentBlocks.length > 0) {
+            const msgInvocationId = msg.metadata?.invocationId as string | undefined;
+            const isCompleted = msgInvocationId && completedInvocationIds.has(msgInvocationId);
+
+            if (isCompleted) {
+              const updatedBlocks = msg.contentBlocks.map(block => {
+                if ((block.type === 'thinking' || block.type === 'tool_use') && 'status' in block && block.status === 'streaming') {
+                  return {
+                    ...block,
+                    status: 'success' as const,
+                  };
+                }
+                return block;
+              });
+              return {
+                ...msg,
+                contentBlocks: updatedBlocks,
+              };
+            }
+          }
+          return msg;
+        });
+
+        set({
+          messages: [...updatedNewMessages, ...messages],
+          messagesHasMore: result.hasMore || false,
+          messagesLoadingMore: false,
+        });
+      } catch (error) {
+        console.error('Failed to load more messages:', error);
+        set({ messagesLoadingMore: false });
+      }
     },
 
     getFilteredAgents: () => {

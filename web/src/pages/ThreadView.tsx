@@ -95,6 +95,10 @@ const ThreadView: React.FC = () => {
   const workflowMessages = useAppStore((s) => s.messages);
   const workflowLoading = useAppStore((s) => s.loading);
   const workflowWsConnected = useAppStore((s) => s.wsConnected);
+  // 消息分页状态
+  const messagesHasMore = useAppStore((s) => s.messagesHasMore);
+  const messagesLoadingMore = useAppStore((s) => s.messagesLoadingMore);
+  const loadMoreMessages = useAppStore((s) => s.loadMoreMessages);
 
   // Actions - 使用 getState() 获取避免订阅
   const loadThread = useAppStore((s) => s.loadThread);
@@ -413,8 +417,8 @@ const ThreadView: React.FC = () => {
         setDebugThreadId(threadId!);
 
         // 加载历史消息（直接替换，不追加）
-        api.messages.list(threadId!).then(messages => {
-          setDebugMessages(messages);
+        api.messages.list(threadId!).then(result => {
+          setDebugMessages(result.messages);
         }).catch(err => {
           console.error('Failed to load messages:', err);
         });
@@ -1145,8 +1149,8 @@ const ThreadView: React.FC = () => {
 
       // 加载历史消息
       try {
-        const messages = await api.messages.list(task.id);
-        messages.forEach(msg => addDebugMessage(msg));
+        const result = await api.messages.list(task.id);
+        result.messages.forEach(msg => addDebugMessage(msg));
       } catch (error) {
         console.error('Failed to load messages:', error);
       }
@@ -1157,8 +1161,8 @@ const ThreadView: React.FC = () => {
       // 团队模式：设置 currentThread + 加载历史消息
       setCurrentThread(task);
       try {
-        const messages = await api.messages.list(task.id);
-        messages.forEach(msg => addMessage(msg));
+        const result = await api.messages.list(task.id);
+        result.messages.forEach(msg => addMessage(msg));
       } catch (error) {
         console.error('Failed to load messages:', error);
       }
@@ -1864,6 +1868,9 @@ const ThreadView: React.FC = () => {
                     onOpenCodePanel={openCodePanel}
                     autoScroll={true}
                     onQuestionSubmit={handleInlineQuestionSubmit}
+                    hasMoreHistory={!isDebugMode && messagesHasMore}
+                    loadingMore={!isDebugMode && messagesLoadingMore}
+                    onLoadMore={!isDebugMode ? loadMoreMessages : undefined}
                   />
                   <MessageScrollIndicator
                     messages={messages}
@@ -1985,6 +1992,9 @@ const ThreadView: React.FC = () => {
                     onOpenCodePanel={openCodePanel}
                     autoScroll={true}
                     onQuestionSubmit={handleInlineQuestionSubmit}
+                    hasMoreHistory={!isDebugMode && messagesHasMore}
+                    loadingMore={!isDebugMode && messagesLoadingMore}
+                    onLoadMore={!isDebugMode ? loadMoreMessages : undefined}
                   />
                   <MessageScrollIndicator
                     messages={messages}

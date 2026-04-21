@@ -265,8 +265,11 @@ class APIClient {
 
   // 消息 API
   messages = {
-    list: (threadId: string, limit = 50): Promise<Message[]> =>
+    list: (threadId: string, limit = 10): Promise<{ messages: Message[]; total: number; hasMore: boolean }> =>
       this.request(`/messages/thread/${threadId}`, 'GET', undefined, { params: { limit } }),
+    // 加载历史消息（向上滚动加载）
+    listHistory: (threadId: string, cursor: string, limit = 10): Promise<{ messages: Message[]; hasMore: boolean }> =>
+      this.request(`/messages/thread/${threadId}/history`, 'GET', undefined, { params: { cursor, limit } }),
     create: (threadId: string, content: string, skipAgentTrigger?: boolean): Promise<Message> =>
       this.request(`/messages/thread/${threadId}`, 'POST', { content, skipAgentTrigger }),
   };
