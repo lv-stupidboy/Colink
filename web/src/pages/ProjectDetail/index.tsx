@@ -335,8 +335,21 @@ const ProjectDetail: React.FC = () => {
           </Space>
         }
       >
-        <Descriptions column={4} size="small" labelStyle={{ width: 80 }}>
-          {/* 第一行：核心信息 */}
+        <Descriptions column={4} size="small" labelStyle={{ width: 80 }} contentStyle={{ padding: '8px 0' }}>
+          {/* 第一行 */}
+          <Descriptions.Item label="描述">
+            <Text ellipsis style={{ maxWidth: 200 }}>{project.description || '-'}</Text>
+          </Descriptions.Item>
+          <Descriptions.Item label="本地路径">
+            <Text ellipsis style={{ maxWidth: 300 }}>{project.localPath || '-'}</Text>
+          </Descriptions.Item>
+          <Descriptions.Item label="仓库地址">
+            <Text ellipsis style={{ maxWidth: 200 }}>{project.gitRepo || '-'}</Text>
+          </Descriptions.Item>
+          <Descriptions.Item label="创建时间">
+            {new Date(project.createdAt).toLocaleDateString()}
+          </Descriptions.Item>
+          {/* 第二行 */}
           <Descriptions.Item label="绑定团队">
             <Select
               style={{ width: 180 }}
@@ -352,18 +365,6 @@ const ProjectDetail: React.FC = () => {
                 </Option>
               ))}
             </Select>
-          </Descriptions.Item>
-          <Descriptions.Item label="描述">
-            <Text ellipsis style={{ maxWidth: 200 }}>{project.description || '-'}</Text>
-          </Descriptions.Item>
-          <Descriptions.Item label="本地路径">
-            <Text ellipsis style={{ maxWidth: 300 }}>{project.localPath || '-'}</Text>
-          </Descriptions.Item>
-          <Descriptions.Item label="仓库地址">
-            <Text ellipsis style={{ maxWidth: 200 }}>{project.gitRepo || '-'}</Text>
-          </Descriptions.Item>
-          <Descriptions.Item label="创建时间">
-            {new Date(project.createdAt).toLocaleDateString()}
           </Descriptions.Item>
         </Descriptions>
       </Card>
