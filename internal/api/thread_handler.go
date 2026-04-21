@@ -128,6 +128,30 @@ func (h *ThreadHandler) SetPhase(c *gin.Context) {
 	c.Status(http.StatusOK)
 }
 
+// Update 更新 Thread
+func (h *ThreadHandler) Update(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	var req struct {
+		WorkflowTemplateID *uuid.UUID `json:"workflowTemplateId,omitempty"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	thread, err := h.service.Update(c.Request.Context(), id, req.WorkflowTemplateID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, thread)
+}
+
 // Delete 删除Thread
 func (h *ThreadHandler) Delete(c *gin.Context) {
 	id, err := uuid.Parse(c.Param("id"))
@@ -148,6 +172,7 @@ func (h *ThreadHandler) RegisterRoutes(r *gin.RouterGroup) {
 	threads := r.Group("/threads")
 	{
 		threads.GET("/:id", h.Get)
+		threads.PUT("/:id", h.Update)
 		threads.DELETE("/:id", h.Delete)
 		threads.PUT("/:id/status", h.UpdateStatus)
 		threads.PUT("/:id/phase", h.SetPhase)

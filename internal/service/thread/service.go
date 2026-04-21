@@ -108,6 +108,28 @@ func (s *Service) SetPhase(ctx context.Context, id uuid.UUID, phase model.Phase,
 	return s.repo.Update(ctx, thread)
 }
 
+// Update 更新 Thread（支持更新 workflowTemplateId）
+func (s *Service) Update(ctx context.Context, id uuid.UUID, workflowTemplateID *uuid.UUID) (*model.Thread, error) {
+	thread, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	// 如果指定了新的团队，验证是否存在
+	if workflowTemplateID != nil {
+		_, err := s.workflowRepo.FindByID(ctx, *workflowTemplateID)
+		if err != nil {
+			return nil, errors.New("指定的工作流团队不存在")
+		}
+	}
+
+	thread.WorkflowTemplateID = workflowTemplateID
+	if err := s.repo.Update(ctx, thread); err != nil {
+		return nil, err
+	}
+	return thread, nil
+}
+
 // Delete 删除Thread
 func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
 	return s.repo.Delete(ctx, id)

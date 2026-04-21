@@ -1,6 +1,6 @@
 // isdp/web/src/pages/thread/ThreadHeader.tsx
 import React, { memo } from 'react';
-import { Button, Space, Tag, Badge, Tooltip } from 'antd';
+import { Button, Space, Tag, Badge, Tooltip, Typography } from 'antd';
 import {
   ArrowLeftOutlined,
   MenuFoldOutlined,
@@ -8,8 +8,11 @@ import {
   FullscreenOutlined,
   UnorderedListOutlined,
   DesktopOutlined,
+  TeamOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
+
+const { Text } = Typography;
 
 interface ThreadHeaderProps {
   wsConnected: boolean;
@@ -22,6 +25,8 @@ interface ThreadHeaderProps {
   isRunning: boolean;
   debugAgentName?: string;
   activeAgentCount: number;
+  threadName?: string;
+  teamName?: string;
   onToggleFileSidebar: () => void;
   onToggleArtifactsSidebar: () => void;
   onToggleRightPanel: () => void;
@@ -43,6 +48,8 @@ export const ThreadHeader: React.FC<ThreadHeaderProps> = memo(({
   isRunning,
   debugAgentName,
   activeAgentCount,
+  threadName,
+  teamName,
   onToggleFileSidebar,
   onToggleArtifactsSidebar,
   onToggleRightPanel,
@@ -77,6 +84,15 @@ export const ThreadHeader: React.FC<ThreadHeaderProps> = memo(({
           )}
           {isRunning && (
             <Badge status="processing" text={`${activeAgentCount} 个 Agent 运行中`} />
+          )}
+        </Space>
+        {/* 中间：任务名和团队名 */}
+        <Space style={{ flex: 1, justifyContent: 'center' }}>
+          {threadName && (
+            <Text strong style={{ fontSize: 14 }}>{threadName}</Text>
+          )}
+          {teamName && (
+            <Tag icon={<TeamOutlined />} color="blue">{teamName}</Tag>
           )}
         </Space>
         <Space>

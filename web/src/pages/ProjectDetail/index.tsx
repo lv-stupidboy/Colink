@@ -164,11 +164,15 @@ const ProjectDetail: React.FC = () => {
     }
   };
 
-  // 获取任务团队名称
-  const getThreadTeamName = (workflowTemplateId?: string) => {
-    if (!workflowTemplateId) return '-';
-    const template = workflowTemplates.find(t => t.id === workflowTemplateId);
-    return template?.name || '-';
+  // 更新任务的团队绑定
+  const handleThreadTeamChange = async (threadId: string, workflowTemplateId: string | undefined) => {
+    try {
+      await api.threads.update(threadId, { workflowTemplateId });
+      message.success('团队已更新');
+      loadProjectData();
+    } catch (error) {
+      message.error('更新失败');
+    }
   };
 
   // Thread 列表列定义
@@ -188,8 +192,23 @@ const ProjectDetail: React.FC = () => {
       title: '团队',
       dataIndex: 'workflowTemplateId',
       key: 'workflowTemplateId',
-      width: 150,
-      render: (templateId?: string) => getThreadTeamName(templateId),
+      width: 180,
+      render: (templateId: string | undefined, record: Thread) => (
+        <Select
+          style={{ width: 160 }}
+          size="small"
+          value={templateId || undefined}
+          placeholder="选择团队"
+          loading={loadingTemplates}
+          onChange={(value) => handleThreadTeamChange(record.id, value)}
+        >
+          {workflowTemplates.map((t) => (
+            <Option key={t.id} value={t.id}>
+              {t.name} {t.isDefault ? '(默认)' : ''}
+            </Option>
+          ))}
+        </Select>
+      ),
     },
     {
       title: '创建时间',

@@ -34,6 +34,7 @@ import {
   FullscreenOutlined,
   ThunderboltOutlined,
   ApartmentOutlined,
+  TeamOutlined,
 } from '@ant-design/icons';
 import { useAppStore } from '@/store';
 import { useDebugThreadStore } from '@/store/debugThread';
@@ -84,6 +85,7 @@ const ThreadView: React.FC = () => {
   const activeAgents = useAppStore((s) => s.activeAgents);
   const loadingProjectContext = useAppStore((s) => s.loadingProjectContext);
   const currentProject = useAppStore((s) => s.currentProject);
+  const currentWorkflowTemplate = useAppStore((s) => s.currentWorkflowTemplate);
   const debugAgentConfig = useAppStore((s) => s.debugAgentConfig);
   const debugProjectPath = useAppStore((s) => s.debugProjectPath);
   const sandboxServer = useAppStore((s) => s.sandboxServer);
@@ -1941,6 +1943,15 @@ const ThreadView: React.FC = () => {
                   <Tag color={wsConnected ? 'green' : 'red'}>{wsConnected ? '已连接' : '未连接'}</Tag>
                   {isDebugMode && debugAgentConfig && <Tag color="purple">调试: {debugAgentConfig.name}</Tag>}
                   {isRunning && <Badge status="processing" text={`${activeAgents.length} 个 Agent 运行中`} />}
+                </Space>
+                {/* 中间：任务名和团队名 */}
+                <Space style={{ flex: 1, justifyContent: 'center' }}>
+                  {currentThread?.name && (
+                    <Text strong style={{ fontSize: 14 }}>{currentThread.name}</Text>
+                  )}
+                  {currentWorkflowTemplate?.name && (
+                    <Tag icon={<TeamOutlined />} color="blue">{currentWorkflowTemplate.name}</Tag>
+                  )}
                 </Space>
                 <Space>
                   <Tooltip title="进入 Solo 模式">
