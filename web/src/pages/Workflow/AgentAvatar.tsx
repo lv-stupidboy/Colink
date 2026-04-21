@@ -30,7 +30,14 @@ const AgentAvatar: React.FC<AgentAvatarProps> = ({
   isDragOver,
   disabled = false,
 }) => {
-  const tooltipContent = agent.config.name;
+  // hover 展示内容：角色名称 + 人工参与状态
+  const humanStatus = agent.config.requiresHuman ? 'Human In' : 'Human Out';
+  const tooltipContent = (
+    <div>
+      <div>角色名称：{agent.config.name}</div>
+      <div>人工参与：{humanStatus}</div>
+    </div>
+  );
 
   const avatarClassName = 'workflow-agent-avatar agent';
 

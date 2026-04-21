@@ -112,6 +112,8 @@
   flex-direction: column;
   align-items: center;
   position: relative;
+  /* 固定宽度确保间隔一致 */
+  width: 70px;
 }
 
 /* Agent 头像 */

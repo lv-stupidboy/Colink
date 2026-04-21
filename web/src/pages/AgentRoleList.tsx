@@ -4,7 +4,7 @@ import { PlusOutlined, EditOutlined, DeleteOutlined, RobotOutlined, BugOutlined,
 import { useNavigate } from 'react-router-dom';
 import api from '@/api/client';
 import AgentTypeIcon from '@/components/AgentTypeIcon';
-import type { AgentConfig, BaseAgent, Skill, Subagent, Command, Rule, Settings, BatchGenerateResult, BatchUpdateResult, GenerateResultItem } from '@/types';
+import type { AgentConfig, BaseAgent, Skill, Subagent, Command, Rule, Settings, BatchGenerateResult, BatchUpdateResult, GenerateResultItem, WorkflowTemplate } from '@/types';
 
 const { Title, Text } = Typography;
 
@@ -76,6 +76,9 @@ const AgentRoleList: React.FC = () => {
   const [batchUpdateResultVisible, setBatchUpdateResultVisible] = useState(false);
   const [batchUpdateResultData, setBatchUpdateResultData] = useState<BatchUpdateResult | null>(null);
   const [targetBaseAgentId, setTargetBaseAgentId] = useState<string>('');
+  // 团队筛选相关状态
+  const [workflows, setWorkflows] = useState<WorkflowTemplate[]>([]);
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState<string>('');
 
   useEffect(() => {
     loadConfigs();
@@ -85,6 +88,7 @@ const AgentRoleList: React.FC = () => {
     loadCommands();
     loadRules();
     loadSettings();
+    loadWorkflows();
   }, []);
 
   const loadConfigs = async () => {
@@ -108,6 +112,15 @@ const AgentRoleList: React.FC = () => {
       setBaseAgents(data);
     } catch (error) {
       console.error('加载基础Agent失败', error);
+    }
+  };
+
+  const loadWorkflows = async () => {
+    try {
+      const data = await api.workflows.list();
+      setWorkflows(data);
+    } catch (error) {
+      console.error('加载团队列表失败', error);
     }
   };
 
@@ -547,12 +560,22 @@ const AgentRoleList: React.FC = () => {
     }
   };
 
-  // 分组显示：系统预置和自定义
+  // 分组显示：系统预置和自定义，支持团队筛选
   const { systemAgents, customAgents } = useMemo(() => {
-    const system = configs.filter(c => c.isSystem);
-    const custom = configs.filter(c => !c.isSystem);
+    // 先获取选中团队中的 agentIds
+    let filteredConfigs = configs;
+    if (selectedWorkflowId) {
+      const selectedWorkflow = workflows.find(w => w.id === selectedWorkflowId);
+      if (selectedWorkflow && selectedWorkflow.agentIds) {
+        // 只保留该团队中的角色
+        filteredConfigs = configs.filter(c => selectedWorkflow.agentIds.includes(c.id));
+      }
+    }
+
+    const system = filteredConfigs.filter(c => c.isSystem);
+    const custom = filteredConfigs.filter(c => !c.isSystem);
     return { systemAgents: system, customAgents: custom };
-  }, [configs]);
+  }, [configs, selectedWorkflowId, workflows]);
 
   const columns = [
     {
@@ -589,13 +612,16 @@ const AgentRoleList: React.FC = () => {
       title: '人工参与',
       dataIndex: 'requiresHuman',
       key: 'requiresHuman',
-      width: 90,
+      width: 100,
       render: (requiresHuman: boolean) => (
-        requiresHuman ? (
-          <Tag color="green" icon={<UserOutlined />}>需要</Tag>
-        ) : (
-          <Tag color="default">无需</Tag>
-        )
+        <span style={{ display: 'inline-block', width: 85 }}>
+          <Tag
+            color={requiresHuman ? 'green' : 'default'}
+            style={{ width: '100%', textAlign: 'center' }}
+          >
+            {requiresHuman ? 'Human In' : 'Human Out'}
+          </Tag>
+        </span>
       ),
     },
     {
@@ -689,6 +715,20 @@ const AgentRoleList: React.FC = () => {
           <Title level={2} style={{ margin: 0 }}>Agent角色</Title>
           <Text type="secondary">管理不同职责的 Agent 角色配置</Text>
         </div>
+        <Space>
+          <Text type="secondary">筛选团队：</Text>
+          <Select
+            placeholder="选择团队"
+            allowClear
+            style={{ width: 200 }}
+            value={selectedWorkflowId}
+            onChange={setSelectedWorkflowId}
+            options={workflows.map(w => ({
+              label: w.name,
+              value: w.id,
+            }))}
+          />
+        </Space>
       </div>
 
       {/* 系统预置角色 */}
