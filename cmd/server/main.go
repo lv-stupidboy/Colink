@@ -580,7 +580,7 @@ func main() {
 	teamPackageSyncHandler.RegisterRoutes(v1)
 
 	// Market Handler
-	marketHandler := api.NewMarketHandler(marketSvc, logger)
+	marketHandler := api.NewMarketHandler(marketSvc, cfg, logger)
 	marketHandler.RegisterRoutes(v1)
 
 	// MCP Callback Handler

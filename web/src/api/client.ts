@@ -719,6 +719,10 @@ class APIClient {
   markets = {
     list: (): Promise<{ data: Market[]; total: number }> =>
       this.request('/markets', 'GET'),
+    getDefaultConfig: (): Promise<{ name: string; url: string; branch: string }> =>
+      this.request('/markets/default', 'GET'),
+    addDefaultMarket: (): Promise<Market> =>
+      this.request('/markets/default', 'POST'),
     add: (req: AddMarketRequest): Promise<Market> =>
       this.request('/markets', 'POST', req),
     update: (id: string, req: UpdateMarketRequest): Promise<Market> =>

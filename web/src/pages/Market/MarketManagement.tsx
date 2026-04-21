@@ -3,7 +3,7 @@ import {
   Card, Table, Button, Space, Modal, Form, Input, Switch, Tag, message, Popconfirm, Typography, Spin
 } from 'antd';
 import {
-  PlusOutlined, EditOutlined, DeleteOutlined, ShopOutlined
+  PlusOutlined, EditOutlined, DeleteOutlined, ShopOutlined, RocketOutlined
 } from '@ant-design/icons';
 import api from '@/api/client';
 import type { Market, AddMarketRequest } from '@/types';
@@ -66,10 +66,25 @@ const MarketManagement: React.FC = () => {
   const [editingCronMarket, setEditingCronMarket] = useState<Market | null>(null);
   const [cronForm] = Form.useForm();
   const [form] = Form.useForm();
+  // 默认市场相关状态
+  const [defaultMarketConfig, setDefaultMarketConfig] = useState<{ name: string; url: string; branch: string } | null>(null);
+  const [showAddDefaultButton, setShowAddDefaultButton] = useState(false);
+  const [addingDefaultMarket, setAddingDefaultMarket] = useState(false);
 
   useEffect(() => {
     loadMarkets();
+    loadDefaultMarketConfig();
   }, []);
+
+  const loadDefaultMarketConfig = async () => {
+    try {
+      const config = await api.markets.getDefaultConfig();
+      setDefaultMarketConfig(config);
+    } catch (error: any) {
+      // 获取默认配置失败，不影响主流程
+      console.warn('获取默认市场配置失败:', error);
+    }
+  };
 
   const loadMarkets = async () => {
     setLoading(true);
@@ -80,6 +95,30 @@ const MarketManagement: React.FC = () => {
       message.error(error.response?.data?.error || '加载市场列表失败');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // 检查是否需要显示添加默认市场按钮
+  useEffect(() => {
+    if (defaultMarketConfig && defaultMarketConfig.url) {
+      // 检查是否已存在该URL的市场
+      const exists = markets.some(m => m.url === defaultMarketConfig.url);
+      setShowAddDefaultButton(!exists);
+    } else {
+      setShowAddDefaultButton(false);
+    }
+  }, [markets, defaultMarketConfig]);
+
+  const handleAddDefaultMarket = async () => {
+    setAddingDefaultMarket(true);
+    try {
+      await api.markets.addDefaultMarket();
+      message.success('已添加默认市场');
+      loadMarkets();
+    } catch (error: any) {
+      message.error(error.response?.data?.error || '添加默认市场失败');
+    } finally {
+      setAddingDefaultMarket(false);
     }
   };
 
@@ -282,9 +321,21 @@ const MarketManagement: React.FC = () => {
           </Space>
         }
         extra={
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
-            添加市场
-          </Button>
+          <Space>
+            {showAddDefaultButton && defaultMarketConfig && (
+              <Button
+                type="default"
+                icon={<RocketOutlined />}
+                onClick={handleAddDefaultMarket}
+                loading={addingDefaultMarket}
+              >
+                添加默认市场
+              </Button>
+            )}
+            <Button type="primary" icon={<PlusOutlined />} onClick={handleAdd}>
+              添加市场
+            </Button>
+          </Space>
         }
       >
         <Spin spinning={loading}>

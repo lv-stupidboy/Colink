@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/anthropic/isdp/internal/service/market"
+	"github.com/anthropic/isdp/pkg/config"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -12,13 +13,15 @@ import (
 // MarketHandler 市场 API 处理器
 type MarketHandler struct {
 	marketSvc *market.Service
+	cfg       *config.Config
 	logger    *zap.Logger
 }
 
 // NewMarketHandler 创建 MarketHandler
-func NewMarketHandler(marketSvc *market.Service, logger *zap.Logger) *MarketHandler {
+func NewMarketHandler(marketSvc *market.Service, cfg *config.Config, logger *zap.Logger) *MarketHandler {
 	return &MarketHandler{
 		marketSvc: marketSvc,
+		cfg:       cfg,
 		logger:    logger,
 	}
 }
@@ -27,7 +30,9 @@ func NewMarketHandler(marketSvc *market.Service, logger *zap.Logger) *MarketHand
 func (h *MarketHandler) RegisterRoutes(r *gin.RouterGroup) {
 	g := r.Group("/markets")
 	g.GET("", h.ListMarkets)
+	g.GET("/default", h.GetDefaultMarketConfig)
 	g.POST("", h.AddMarket)
+	g.POST("/default", h.AddDefaultMarket)
 	g.PUT("/:id", h.UpdateMarket)
 	g.DELETE("/:id", h.DeleteMarket)
 	g.POST("/:id/refresh", h.RefreshMarket)
@@ -43,6 +48,48 @@ func (h *MarketHandler) ListMarkets(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": markets, "total": len(markets)})
+}
+
+// GetDefaultMarketConfig 获取默认市场配置
+func (h *MarketHandler) GetDefaultMarketConfig(c *gin.Context) {
+	cfg := h.cfg.Market
+	c.JSON(http.StatusOK, gin.H{
+		"name":   cfg.Name,
+		"url":    cfg.URL,
+		"branch": cfg.Branch,
+	})
+}
+
+// AddDefaultMarket 添加默认市场
+func (h *MarketHandler) AddDefaultMarket(c *gin.Context) {
+	cfg := h.cfg.Market
+	if cfg.URL == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "默认市场URL未配置"})
+		return
+	}
+
+	req := market.AddMarketRequest{
+		Name:   cfg.Name,
+		URL:    cfg.URL,
+		Branch: cfg.Branch,
+	}
+
+	// 如果名称为空，使用默认名称
+	if req.Name == "" {
+		req.Name = "Colink官方市场"
+	}
+	// 如果分支为空，使用默认分支
+	if req.Branch == "" {
+		req.Branch = "main"
+	}
+
+	m, err := h.marketSvc.AddMarket(c.Request.Context(), req)
+	if err != nil {
+		h.logger.Error("add default market failed", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, m)
 }
 
 // AddMarket 添加市场
