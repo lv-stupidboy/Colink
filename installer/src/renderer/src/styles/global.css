@@ -122,7 +122,7 @@ html, body, #root {
 
 /* 步骤导航 */
 .step-nav {
-  width: 180px;
+  width: 220px;
   background: var(--bg-secondary);
   padding: 24px 16px;
   border-right: 1px solid var(--border-color);

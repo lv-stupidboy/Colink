@@ -70,8 +70,27 @@ export default function DependencyCheck({ onDependenciesUpdate }: DependencyChec
               type="info"
               showIcon
               style={{ marginTop: 16 }}
-              message="缺失的智能体可在启动器中安装"
-              description="安装完成后，在启动器的「依赖管理」中自助安装 Claude CLI 和 OpenCode。"
+              message="智能体安装提示"
+              description={
+                <div>
+                  <p style={{ marginBottom: 8 }}>
+                    Claude CLI 和 OpenCode 是 Colink 平台的核心智能体，需要安装后才能使用相应功能。
+                  </p>
+                  <p style={{ marginBottom: 0 }}>
+                    您可以在安装 Colink 后，通过启动器的「智能体管理」自助安装；也可以提前安装，无先后顺序要求。
+                  </p>
+                </div>
+              }
+            />
+          )}
+
+          {missingCount === 0 && (
+            <Alert
+              type="success"
+              showIcon
+              style={{ marginTop: 16 }}
+              message="所有智能体已就绪"
+              description="Claude CLI 和 OpenCode 已安装，Colink 平台可以正常使用全部功能。"
             />
           )}
         </>

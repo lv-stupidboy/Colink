@@ -23,11 +23,10 @@ const INSTALL_PAGES = {
   2: InviteVerification,
   3: DirectorySelect,
   4: DependencyCheck,
-  5: ModeSelect,
-  6: SystemConfig,
+  5: SystemConfig,
 }
 
-const STEP_LABELS = ['欢迎', '验证邀请码', '目录选择', '智能体检测', '模式选择', '系统配置']
+const STEP_LABELS = ['欢迎', '验证邀请码', '目录选择', '智能体检测', '系统配置']
 const UPGRADE_STEP_LABELS = ['欢迎', '验证邀请码', '智能体检测', '系统配置']
 
 export default function App() {
@@ -152,14 +151,12 @@ export default function App() {
   const getStepLabels = () => isUpgrade ? UPGRADE_STEP_LABELS : STEP_LABELS
 
   const handleNext = () => {
-    if (currentStep >= 6) return
+    if (currentStep >= 5) return
     let nextStep = currentStep + 1
     if (isUpgrade) {
       if (currentStep === 1) nextStep = 2  // Welcome -> InviteVerification
       else if (currentStep === 2) nextStep = 4  // InviteVerification -> DependencyCheck
-      else if (currentStep === 4 && !hasMissingDeps) nextStep = 6  // skip ModeSelect if no missing deps
-    } else {
-      if (currentStep === 4 && !hasMissingDeps) nextStep = 6  // skip ModeSelect if no missing deps
+      else if (currentStep === 4) nextStep = 5  // DependencyCheck -> SystemConfig
     }
     setCurrentStep(nextStep)
   }
@@ -168,11 +165,9 @@ export default function App() {
     if (currentStep <= 1) return
     let prevStep = currentStep - 1
     if (isUpgrade) {
-      if (currentStep === 6) prevStep = 4  // SystemConfig -> DependencyCheck
+      if (currentStep === 5) prevStep = 4  // SystemConfig -> DependencyCheck
       else if (currentStep === 4) prevStep = 2  // DependencyCheck -> InviteVerification
       else if (currentStep === 2) prevStep = 1  // InviteVerification -> Welcome
-    } else {
-      if (currentStep === 6 && !hasMissingDeps) prevStep = 4
     }
     setCurrentStep(prevStep)
   }
@@ -362,10 +357,10 @@ export default function App() {
           {currentStep === 2 && inviteVerified && (
             <Button type="primary" onClick={handleNext}>下一步</Button>
           )}
-          {currentStep > 2 && currentStep < 6 && (
+          {currentStep > 2 && currentStep < 5 && (
             <Button type="primary" onClick={handleNext} disabled={currentStep === 3 && !dirValid}>下一步</Button>
           )}
-          {currentStep === 6 && (
+          {currentStep === 5 && (
             <Button type="primary" onClick={handleInstall}>
               {isUpgrade ? '升级' : '安装'}
             </Button>
