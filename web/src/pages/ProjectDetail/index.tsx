@@ -15,8 +15,6 @@ import {
   message,
   Spin,
   Empty,
-  Progress,
-  Tooltip,
   Divider,
   Popconfirm,
 } from 'antd';
@@ -30,7 +28,6 @@ import {
 } from '@ant-design/icons';
 import api from '@/api/client';
 import type { Project, Thread, WorkflowTemplate } from '@/types';
-import { PhaseLabels, PhaseColors, ThreadStatus } from '@/types';
 
 const { Text } = Typography;
 const { Option } = Select;
@@ -167,6 +164,13 @@ const ProjectDetail: React.FC = () => {
     }
   };
 
+  // 获取任务团队名称
+  const getThreadTeamName = (workflowTemplateId?: string) => {
+    if (!workflowTemplateId) return '-';
+    const template = workflowTemplates.find(t => t.id === workflowTemplateId);
+    return template?.name || '-';
+  };
+
   // Thread 列表列定义
   const threadColumns = [
     {
@@ -181,54 +185,11 @@ const ProjectDetail: React.FC = () => {
       ),
     },
     {
-      title: '状态',
-      dataIndex: 'status',
-      key: 'status',
-      width: 100,
-      render: (status: ThreadStatus) => {
-        const statusConfig: Record<ThreadStatus, { color: string; text: string }> = {
-          idle: { color: 'default', text: '空闲' },
-          running: { color: 'processing', text: '运行中' },
-          paused: { color: 'warning', text: '已暂停' },
-          complete: { color: 'success', text: '已完成' },
-          failed: { color: 'error', text: '失败' },
-        };
-        const config = statusConfig[status] || { color: 'default', text: status };
-        return <Tag color={config.color}>{config.text}</Tag>;
-      },
-    },
-    {
-      title: '当前阶段',
-      dataIndex: 'currentPhase',
-      key: 'currentPhase',
-      width: 120,
-      render: (phase: string) => (
-        <Tag color={PhaseColors[phase as keyof typeof PhaseColors] || 'default'}>
-          {PhaseLabels[phase as keyof typeof PhaseLabels] || phase}
-        </Tag>
-      ),
-    },
-    {
-      title: '进度',
-      key: 'progress',
-      width: 200,
-      render: (_: unknown, record: Thread) => {
-        const phases = ['requirement', 'design', 'development', 'review', 'test', 'merge', 'complete'];
-        const currentIndex = phases.indexOf(record.currentPhase);
-        const percent = Math.round(((currentIndex + 1) / phases.length) * 100);
-        return <Progress percent={percent} size="small" status="active" />;
-      },
-    },
-    {
-      title: '深度',
-      dataIndex: 'depth',
-      key: 'depth',
-      width: 80,
-      render: (depth: number) => (
-        <Tooltip title={`Agent 调用深度: ${depth}/15`}>
-          <Text>{depth}/15</Text>
-        </Tooltip>
-      ),
+      title: '团队',
+      dataIndex: 'workflowTemplateId',
+      key: 'workflowTemplateId',
+      width: 150,
+      render: (templateId?: string) => getThreadTeamName(templateId),
     },
     {
       title: '创建时间',
