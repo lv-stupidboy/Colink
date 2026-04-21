@@ -155,30 +155,6 @@ func TestTokenBudgetManagerIntegration(t *testing.T) {
 			t.Logf("Model '%s' context window: %d", model, windowSize)
 		}
 	})
-
-	// 测试 A2A 深度计算
-	t.Run("MaxA2ADepthCalculation", func(t *testing.T) {
-		testCases := []struct {
-			budget    int64
-			avgTokens int64
-		}{
-			{100_000, 10_000}, // 10 层
-			{50_000, 10_000},  // 5 层
-			{10_000, 10_000},  // 1 层（最少）
-			{200_000, 5_000},  // 15 层（上限）
-		}
-
-		for _, tc := range testCases {
-			depth := tbm.CalculateMaxA2ADepth(tc.budget, tc.avgTokens)
-			if depth < 1 {
-				t.Errorf("Depth should be at least 1 (budget=%d, avg=%d)", tc.budget, tc.avgTokens)
-			}
-			if depth > MaxA2ADepth {
-				t.Errorf("Depth should not exceed MaxA2ADepth (got %d, max %d)", depth, MaxA2ADepth)
-			}
-			t.Logf("Budget=%d, AvgTurn=%d -> MaxDepth=%d", tc.budget, tc.avgTokens, depth)
-		}
-	})
 }
 
 // TestGovernanceDigestValidation 验证治理摘要有效性

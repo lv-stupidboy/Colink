@@ -69,23 +69,6 @@ func defaultContextWindowSizes() map[string]int64 {
 	}
 }
 
-// CalculateMaxA2ADepth 根据剩余 Token 预算计算允许的 A2A 深度
-// 算法：remainingBudget / avgTurnTokens，向下取整，最大 MaxA2ADepth
-// 改进：avgTurnTokens 使用动态统计而非硬编码
-func (m *TokenBudgetManager) CalculateMaxA2ADepth(remainingBudget int64, avgTurnTokens int64) int {
-	if avgTurnTokens <= 0 {
-		return MaxA2ADepth // 默认最大深度
-	}
-	depth := int(remainingBudget / avgTurnTokens)
-	if depth > MaxA2ADepth {
-		depth = MaxA2ADepth
-	}
-	if depth < 1 {
-		depth = 1 // 最少允许 1 层
-	}
-	return depth
-}
-
 // GetAvgTurnTokens 动态计算平均 Token 消耗
 // 改进：使用最近 invocation 的平均值，而非硬编码 10K
 func (m *TokenBudgetManager) GetAvgTurnTokens(threadID uuid.UUID) int64 {

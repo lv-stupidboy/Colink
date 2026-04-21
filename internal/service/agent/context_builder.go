@@ -445,23 +445,6 @@ func ApplyTokenBudgetConstraint(layers *ContextLayers, modelName string, tbm *To
 	}
 }
 
-// GetMaxA2ADepth 根据剩余 token 预算计算允许的 A2A 深度
-// 提取自 ExecutionService.getMaxA2ADepth
-func GetMaxA2ADepth(a2aCtx *A2AContext, tbm *TokenBudgetManager) int {
-	if tbm != nil {
-		remainingBudget := int64(DefaultContextWindow)
-		avgTurnTokens := int64(DefaultAvgTurnTokens)
-		for _, usage := range tbm.GetAllCachedUsages() {
-			remainingBudget -= int64(usage.InputTokens + usage.OutputTokens)
-		}
-		if remainingBudget < 0 {
-			remainingBudget = 0
-		}
-		return tbm.CalculateMaxA2ADepth(remainingBudget, avgTurnTokens)
-	}
-	return MaxA2ADepth
-}
-
 // BuildA2AChainContext 构建 A2A 链路历史上下文
 // 提取自 ExecutionService.buildA2AChainContext
 func BuildA2AChainContext(a2aCtx *A2AContext, sessionStrategy SessionStrategy, remainingAgents int, tbm *TokenBudgetManager) *A2AChainContext {
