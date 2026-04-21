@@ -694,12 +694,13 @@ func (h *AgentHandler) RegisterRoutes(r *gin.RouterGroup) {
 		agents.POST("/question/:threadId/answer", h.SubmitQuestionAnswer) // AskUserQuestion 答案提交
 		agents.POST("/batch-generate-config", h.BatchGenerateConfig)      // 批量生成配置
 		agents.POST("/batch-update-base-agent", h.BatchUpdateBaseAgent)   // 批量修改基础Agent
+		agents.POST("/batch-delete", h.BatchDelete)
+		// 注意：带后缀的路由必须在通用 :id 路由之前注册
+		agents.POST("/:id/refs", h.CheckReferences)
+		agents.POST("/:id/copy", h.Copy)
+		agents.POST("/:id/debug", h.Debug)
 		agents.GET("/:id", h.Get)
 		agents.PUT("/:id", h.Update)
 		agents.DELETE("/:id", h.Delete)
-		agents.POST("/:id/refs", h.CheckReferences)
-		agents.POST("/batch-delete", h.BatchDelete)
-		agents.POST("/:id/copy", h.Copy)
-		agents.POST("/:id/debug", h.Debug)
 	}
 }

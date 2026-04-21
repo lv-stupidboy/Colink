@@ -258,15 +258,24 @@ func (r *WorkflowTemplateRepository) CountProjectReferences(ctx context.Context,
 
 // FindByAgentID 查找包含指定AgentID的工作流模板
 func (r *WorkflowTemplateRepository) FindByAgentID(ctx context.Context, agentID uuid.UUID) ([]*model.WorkflowTemplate, error) {
-	// 使用 LIKE 模糊匹配 JSON 数组（兼容 SQLite 和 MySQL）
+	// 使用 json_each 精确匹配 JSON 数组中的元素
 	query := `
-		SELECT id, name, description, agent_ids, transitions, checkpoints, estimated_time, is_system, is_default, created_at, updated_at
-		FROM workflow_templates WHERE agent_ids LIKE ?
+		SELECT DISTINCT t.id, t.name, t.description, t.agent_ids, t.transitions, t.checkpoints, t.estimated_time, t.is_system, t.is_default, t.created_at, t.updated_at
+		FROM workflow_templates t, json_each(t.agent_ids)
+		WHERE json_each.value = ?
 	`
-	agentIDPattern := fmt.Sprintf(`%%"%s"%%`, agentID.String())
-	rows, err := r.DB().QueryContext(ctx, query, agentIDPattern)
+	rows, err := r.DB().QueryContext(ctx, query, agentID.String())
 	if err != nil {
-		return nil, fmt.Errorf("failed to find workflow templates by agent id: %w", err)
+		// 如果 json_each 不支持，回退到 LIKE 匹配
+		query = `
+			SELECT id, name, description, agent_ids, transitions, checkpoints, estimated_time, is_system, is_default, created_at, updated_at
+			FROM workflow_templates WHERE agent_ids LIKE ?
+		`
+		agentIDPattern := fmt.Sprintf(`%%"%s"%%`, agentID.String())
+		rows, err = r.DB().QueryContext(ctx, query, agentIDPattern)
+		if err != nil {
+			return nil, fmt.Errorf("failed to find workflow templates by agent id: %w", err)
+		}
 	}
 	defer rows.Close()
 

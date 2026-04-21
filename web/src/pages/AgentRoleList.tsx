@@ -627,7 +627,7 @@ const AgentRoleList: React.FC = () => {
     {
       title: '配置状态',
       key: 'configStatus',
-      width: 150,
+      width: 120,
       render: (_: unknown, record: AgentConfig) => (
         record.configGeneratedAt ? (
           <Tooltip title={`路径: ${record.configPath}`}>
@@ -644,14 +644,14 @@ const AgentRoleList: React.FC = () => {
       title: '系统提示词',
       dataIndex: 'systemPrompt',
       key: 'systemPrompt',
-      width: 350,
+      width: 280,
       render: (prompt?: string) => {
         if (!prompt) return '-';
-        const truncated = truncateText(prompt, 80);
-        if (truncated === prompt) return <Text style={{ maxWidth: 350 }}>{prompt}</Text>;
+        const truncated = truncateText(prompt, 60);
+        if (truncated === prompt) return <Text style={{ maxWidth: 280 }}>{prompt}</Text>;
         return (
           <Tooltip title={<div style={{ maxWidth: 400, whiteSpace: 'pre-wrap' }}>{prompt}</div>} placement="topLeft">
-            <Text style={{ maxWidth: 350, cursor: 'pointer' }}>{truncated}</Text>
+            <Text style={{ maxWidth: 280, cursor: 'pointer' }}>{truncated}</Text>
           </Tooltip>
         );
       },
