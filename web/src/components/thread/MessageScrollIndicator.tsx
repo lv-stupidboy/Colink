@@ -1,8 +1,7 @@
 // web/src/components/thread/MessageScrollIndicator.tsx
 import React, { useEffect, useState, useCallback, useRef, RefObject } from 'react';
-import { Avatar, Tooltip } from 'antd';
-import { UserOutlined } from '@ant-design/icons';
-import AgentTypeIcon from '@/components/AgentTypeIcon';
+import { Tooltip } from 'antd';
+import { UserOutlined, RobotOutlined, CrownOutlined } from '@ant-design/icons';
 import type { Message, AgentConfig } from '@/types';
 
 interface IndicatorItem {
@@ -130,26 +129,185 @@ const MessageScrollIndicator: React.FC<MessageScrollIndicatorProps> = ({
     return undefined;
   }, [agentConfigs]);
 
-  // 渲染指示器图标
-  const renderIndicatorIcon = (indicator: IndicatorItem) => {
+  // 统一的图标容器样式（模拟 Avatar 效果）
+  const iconContainerStyle: React.CSSProperties = {
+    width: 16,
+    height: 16,
+    borderRadius: '50%',
+    backgroundColor: 'var(--bg-container)',
+    border: '1px solid var(--border-color)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  };
+
+  // 人机交互角标样式（小圆点 + 人形图标）
+  // 使用 CSS 变量适配深色模式
+  const humanBadgeStyle: React.CSSProperties = {
+    position: 'absolute',
+    right: -2,
+    bottom: -2,
+    width: 8,
+    height: 8,
+    borderRadius: '50%',
+    backgroundColor: 'var(--bg-container)',
+    border: '1px solid var(--border-color)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
+  };
+
+  // 渲染指示器图标（小图标用于滚动条上）
+  const renderSmallIcon = (indicator: IndicatorItem) => {
     const agentConfig = getAgentConfig(indicator.agentId, indicator.agentName);
 
     if (indicator.role === 'user') {
-      return <UserOutlined style={{ color: 'var(--text-primary)' }} />;
+      return (
+        <div style={iconContainerStyle}>
+          <UserOutlined style={{ color: 'var(--text-primary)', fontSize: 10 }} />
+        </div>
+      );
     }
 
     if (indicator.role === 'system') {
-      // 系统消息使用特殊图标
-      return <AgentTypeIcon requiresHuman={false} isSystem={true} size={10} />;
+      // 系统消息使用皇冠图标
+      return (
+        <div style={iconContainerStyle}>
+          <CrownOutlined style={{ fontSize: 10, color: '#faad14' }} />
+        </div>
+      );
     }
 
     // Agent 角色
+    const requiresHuman = agentConfig?.requiresHuman || false;
+    const isSystem = agentConfig?.isSystem || false;
+
     return (
-      <AgentTypeIcon
-        requiresHuman={agentConfig?.requiresHuman || false}
-        isSystem={agentConfig?.isSystem || false}
-        size={10}
-      />
+      <div style={iconContainerStyle}>
+        {isSystem ? (
+          <CrownOutlined style={{ fontSize: 10, color: '#faad14' }} />
+        ) : (
+          <RobotOutlined style={{ fontSize: 10, color: 'var(--color-primary)' }} />
+        )}
+        {/* 人机交互角标：小圆点内的人形图标 */}
+        {requiresHuman && (
+          <div style={humanBadgeStyle}>
+            <UserOutlined style={{ fontSize: 5, color: 'var(--color-primary)' }} />
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // 统一的 Tooltip 图标容器样式
+  const tooltipIconContainerStyle: React.CSSProperties = {
+    width: 32,
+    height: 32,
+    borderRadius: '50%',
+    backgroundColor: 'var(--bg-container)',
+    border: '1px solid var(--border-color)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+  };
+
+  // Agent 专用的 Tooltip 图标容器（带主色调背景）
+  const tooltipAgentIconStyle: React.CSSProperties = {
+    width: 32,
+    height: 32,
+    borderRadius: '50%',
+    backgroundColor: 'var(--color-primary)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+  };
+
+  // 系统 Agent 专用的 Tooltip 图标容器（带金色背景）
+  const tooltipSystemIconStyle: React.CSSProperties = {
+    width: 32,
+    height: 32,
+    borderRadius: '50%',
+    backgroundColor: '#faad14',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+  };
+
+  // 人机交互 Tooltip 角标样式
+  const tooltipHumanBadgeStyle: React.CSSProperties = {
+    position: 'absolute',
+    right: -4,
+    bottom: -4,
+    width: 14,
+    height: 14,
+    borderRadius: '50%',
+    backgroundColor: 'var(--bg-container)',
+    border: '1px solid var(--border-color)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
+  };
+
+  // 渲染 Tooltip 内容（大图标 + 名称）
+  const renderTooltipContent = (indicator: IndicatorItem) => {
+    const agentConfig = getAgentConfig(indicator.agentId, indicator.agentName);
+    const displayName = getDisplayName(indicator);
+
+    if (indicator.role === 'user') {
+      return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={tooltipIconContainerStyle}>
+            <UserOutlined style={{ color: 'var(--text-primary)', fontSize: 18 }} />
+          </div>
+          <span>{displayName}</span>
+        </div>
+      );
+    }
+
+    if (indicator.role === 'system') {
+      return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={tooltipSystemIconStyle}>
+            <CrownOutlined style={{ fontSize: 18, color: '#fff' }} />
+          </div>
+          <span>{displayName}</span>
+        </div>
+      );
+    }
+
+    // Agent 角色
+    const requiresHuman = agentConfig?.requiresHuman || false;
+    const isSystem = agentConfig?.isSystem || false;
+
+    // 系统 Agent 使用金色背景，普通 Agent 使用主色调背景
+    const containerStyle = isSystem ? tooltipSystemIconStyle : tooltipAgentIconStyle;
+
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={containerStyle}>
+          {isSystem ? (
+            <CrownOutlined style={{ fontSize: 18, color: '#fff' }} />
+          ) : (
+            <RobotOutlined style={{ fontSize: 18, color: '#fff' }} />
+          )}
+          {/* 人机交互角标 */}
+          {requiresHuman && (
+            <div style={tooltipHumanBadgeStyle}>
+              <UserOutlined style={{ fontSize: 8, color: 'var(--color-primary)' }} />
+            </div>
+          )}
+        </div>
+        <span>{displayName}</span>
+      </div>
     );
   };
 
@@ -182,7 +340,7 @@ const MessageScrollIndicator: React.FC<MessageScrollIndicatorProps> = ({
       {indicators.map((indicator) => (
         <Tooltip
           key={indicator.messageId}
-          title={getDisplayName(indicator)}
+          title={renderTooltipContent(indicator)}
           placement="left"
         >
           <div
@@ -190,7 +348,7 @@ const MessageScrollIndicator: React.FC<MessageScrollIndicatorProps> = ({
             style={{ top: indicator.y }}
             onClick={() => handleJump(indicator.messageId)}
           >
-            <Avatar size={16} icon={renderIndicatorIcon(indicator)} />
+            {renderSmallIcon(indicator)}
           </div>
         </Tooltip>
       ))}
