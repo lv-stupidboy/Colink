@@ -27,8 +27,6 @@ const UPGRADE_STEPS = [
   { key: 'copy', label: '复制新版本', description: '复制新版本程序文件到安装目录' },
   { key: 'dbcheck', label: '检测数据库变更', description: '检查是否需要执行数据库迁移' },
   { key: 'migration', label: '数据库迁移', description: '执行 SQLite 数据库迁移脚本' },
-  { key: 'claude', label: '安装 Claude CLI', description: '安装 Anthropic Claude CLI 工具' },
-  { key: 'opencode', label: '安装 OpenCode', description: '安装 OpenCode 工具' },
   { key: 'config', label: '生成配置文件', description: '合并用户配置与模板配置' },
   { key: 'shortcut', label: '创建快捷方式', description: '创建桌面和开始菜单快捷方式' },
   { key: 'registry', label: '写入注册表', description: '注册安装信息到系统' },
@@ -39,8 +37,6 @@ const INSTALL_STEPS = [
   { key: 'copy', label: '复制文件', description: '复制应用程序文件到安装目录' },
   { key: 'dbcheck', label: '检测数据库变更', description: '检查数据库初始化脚本' },
   { key: 'migration', label: '数据库初始化', description: '执行数据库初始化脚本' },
-  { key: 'claude', label: '安装 Claude CLI', description: '安装 Anthropic Claude CLI 工具' },
-  { key: 'opencode', label: '安装 OpenCode', description: '安装 OpenCode 工具' },
   { key: 'config', label: '生成配置文件', description: '创建默认配置文件' },
   { key: 'shortcut', label: '创建快捷方式', description: '创建桌面和开始菜单快捷方式' },
   { key: 'registry', label: '写入注册表', description: '注册安装信息到系统' },
@@ -294,12 +290,10 @@ export default function Installing({ config, onComplete, isUpgrade }: Installing
                   {failedStep === 'uninstall' && '请检查是否有进程占用文件，可在任务管理器中结束 Colink.exe 和 colink-server.exe'}
                   {failedStep === 'copy' && '请检查磁盘空间是否充足，或是否有程序占用目标文件'}
                   {failedStep === 'migration' && '请检查数据库文件是否正常，可尝试手动执行数据库迁移脚本'}
-                  {failedStep === 'claude' && '请检查 npm 是否正常安装，或手动执行 npm install -g @anthropic-ai/claude-cli'}
-                  {failedStep === 'opencode' && '请检查 npm 是否正常安装，或手动执行 npm install -g @anthropic-ai/opencode'}
                   {failedStep === 'config' && '请检查安装目录权限，确保可写入配置文件'}
                   {failedStep === 'shortcut' && '请检查桌面和开始菜单目录权限'}
                   {failedStep === 'registry' && '请检查注册表写入权限，可能需要管理员权限运行'}
-                  {!['uninstall', 'copy', 'migration', 'claude', 'opencode', 'config', 'shortcut', 'registry'].includes(failedStep) && '请检查错误信息，处理后点击重试'}
+                  {!['uninstall', 'copy', 'migration', 'config', 'shortcut', 'registry'].includes(failedStep) && '请检查错误信息，处理后点击重试'}
                 </div>
               )}
               <p style={{ marginBottom: 0, color: '#999' }}>处理完成后，点击"重试"按钮继续安装</p>
