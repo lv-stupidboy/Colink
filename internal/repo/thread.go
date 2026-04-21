@@ -120,12 +120,18 @@ func (r *ThreadRepository) FindByProjectID(ctx context.Context, projectID uuid.U
 func (r *ThreadRepository) Update(ctx context.Context, thread *model.Thread) error {
 	query := `
 		UPDATE threads
-		SET status = ?, current_phase = ?, current_agent = ?, depth = ?, abort_token = ?, updated_at = ?
+		SET status = ?, current_phase = ?, current_agent = ?, depth = ?, workflow_template_id = ?, abort_token = ?, updated_at = ?
 		WHERE id = ?
 	`
 	thread.UpdatedAt = time.Now()
+
+	var workflowTemplateID interface{}
+	if thread.WorkflowTemplateID != nil {
+		workflowTemplateID = thread.WorkflowTemplateID.String()
+	}
+
 	_, err := r.DB().ExecContext(ctx, query,
-		thread.Status, thread.CurrentPhase, thread.CurrentAgent, thread.Depth, thread.AbortToken, thread.UpdatedAt, thread.ID.String(),
+		thread.Status, thread.CurrentPhase, thread.CurrentAgent, thread.Depth, workflowTemplateID, thread.AbortToken, thread.UpdatedAt, thread.ID.String(),
 	)
 	return err
 }
