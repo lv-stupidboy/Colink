@@ -134,6 +134,7 @@ export interface AgentConfig {
   temperature: number;
   isDefault: boolean;
   isSystem: boolean;  // 是否为系统预置角色
+  requiresHuman: boolean;  // 是否需要人工参与
   mentionPatterns?: string[];  // @mention 触发模式列表
   configGeneratedAt?: string;
   configPath?: string;
@@ -147,6 +148,7 @@ export interface AgentInvocation {
   threadId: string;
   agentConfigId: string;
   role: AgentRole;
+  requiresHuman: boolean;  // 是否需要人工参与
   status: 'pending' | 'running' | 'streaming' | 'completed' | 'failed' | 'cancelled' | 'interrupted';
   input: string;
   fullPrompt?: string; // 完整提示词（系统提示 + 历史 + 输入）
@@ -273,6 +275,7 @@ export interface WorkflowTemplate {
   estimatedTime: string;
   isSystem: boolean;
   isDefault: boolean;
+  routableTeams?: string[]; // A2A Enhancement: 可路由到的目标 Team ID 列表
   createdAt: string;
   updatedAt: string;
 }

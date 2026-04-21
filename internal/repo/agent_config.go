@@ -26,8 +26,8 @@ func NewAgentConfigRepository(db *sql.DB, dbType DBType) *AgentConfigRepository 
 // Create 创建配置
 func (r *AgentConfigRepository) Create(ctx context.Context, config *model.AgentRoleConfig) error {
 	query := `
-		INSERT INTO agent_configs (id, name, role, description, system_prompt, max_tokens, temperature, base_agent_id, is_default, is_system, mention_patterns, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO agent_configs (id, name, role, description, system_prompt, max_tokens, temperature, base_agent_id, is_default, is_system, requires_human, mention_patterns, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	mentionPatterns, _ := json.Marshal(config.MentionPatterns)
 
@@ -37,7 +37,7 @@ func (r *AgentConfigRepository) Create(ctx context.Context, config *model.AgentR
 	}
 
 	_, err := r.DB().ExecContext(ctx, query,
-		config.ID.String(), config.Name, config.Role, config.Description, config.SystemPrompt, config.MaxTokens, config.Temperature, baseAgentID, config.IsDefault, config.IsSystem, mentionPatterns, config.CreatedAt, config.UpdatedAt,
+		config.ID.String(), config.Name, config.Role, config.Description, config.SystemPrompt, config.MaxTokens, config.Temperature, baseAgentID, config.IsDefault, config.IsSystem, config.RequiresHuman, mentionPatterns, config.CreatedAt, config.UpdatedAt,
 	)
 	return err
 }
@@ -45,7 +45,7 @@ func (r *AgentConfigRepository) Create(ctx context.Context, config *model.AgentR
 // FindByID 根据ID查找
 func (r *AgentConfigRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.AgentRoleConfig, error) {
 	query := `
-		SELECT id, name, role, description, system_prompt, max_tokens, temperature, base_agent_id, is_default, is_system, mention_patterns, config_generated_at, config_path, created_at, updated_at
+		SELECT id, name, role, description, system_prompt, max_tokens, temperature, base_agent_id, is_default, is_system, requires_human, mention_patterns, config_generated_at, config_path, created_at, updated_at
 		FROM agent_configs WHERE id = ?
 	`
 	config := &model.AgentRoleConfig{}
@@ -57,7 +57,7 @@ func (r *AgentConfigRepository) FindByID(ctx context.Context, id uuid.UUID) (*mo
 	var configGeneratedAt sql.NullString
 	var createdAt, updatedAt SQLiteTimeScanner
 	err := r.DB().QueryRowContext(ctx, query, id.String()).Scan(
-		&idStr, &config.Name, &config.Role, &description, &systemPrompt, &maxTokens, &temperature, &baseAgentID, &config.IsDefault, &config.IsSystem, &mentionPatterns, &configGeneratedAt, &configPath, &createdAt, &updatedAt,
+		&idStr, &config.Name, &config.Role, &description, &systemPrompt, &maxTokens, &temperature, &baseAgentID, &config.IsDefault, &config.IsSystem, &config.RequiresHuman, &mentionPatterns, &configGeneratedAt, &configPath, &createdAt, &updatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find agent config: %w", err)
@@ -96,7 +96,7 @@ func (r *AgentConfigRepository) FindByID(ctx context.Context, id uuid.UUID) (*mo
 // FindByRole 根据角色查找
 func (r *AgentConfigRepository) FindByRole(ctx context.Context, role model.AgentRole) ([]*model.AgentRoleConfig, error) {
 	query := `
-		SELECT id, name, role, description, system_prompt, max_tokens, temperature, base_agent_id, is_default, is_system, mention_patterns, config_generated_at, config_path, created_at, updated_at
+		SELECT id, name, role, description, system_prompt, max_tokens, temperature, base_agent_id, is_default, is_system, requires_human, mention_patterns, config_generated_at, config_path, created_at, updated_at
 		FROM agent_configs WHERE role = ? ORDER BY is_default DESC, name
 	`
 	rows, err := r.DB().QueryContext(ctx, query, role)
@@ -116,7 +116,7 @@ func (r *AgentConfigRepository) FindByRole(ctx context.Context, role model.Agent
 		var configGeneratedAt sql.NullString
 		var createdAt, updatedAt SQLiteTimeScanner
 		err := rows.Scan(
-			&idStr, &config.Name, &config.Role, &description, &systemPrompt, &maxTokens, &temperature, &baseAgentID, &config.IsDefault, &config.IsSystem, &mentionPatterns, &configGeneratedAt, &configPath, &createdAt, &updatedAt,
+			&idStr, &config.Name, &config.Role, &description, &systemPrompt, &maxTokens, &temperature, &baseAgentID, &config.IsDefault, &config.IsSystem, &config.RequiresHuman, &mentionPatterns, &configGeneratedAt, &configPath, &createdAt, &updatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan agent config: %w", err)
@@ -157,7 +157,7 @@ func (r *AgentConfigRepository) FindByRole(ctx context.Context, role model.Agent
 // List 列出所有配置
 func (r *AgentConfigRepository) List(ctx context.Context) ([]*model.AgentRoleConfig, error) {
 	query := `
-		SELECT id, name, role, description, system_prompt, max_tokens, temperature, base_agent_id, is_default, is_system, mention_patterns, config_generated_at, config_path, created_at, updated_at
+		SELECT id, name, role, description, system_prompt, max_tokens, temperature, base_agent_id, is_default, is_system, requires_human, mention_patterns, config_generated_at, config_path, created_at, updated_at
 		FROM agent_configs ORDER BY is_system DESC, role, name
 	`
 	rows, err := r.DB().QueryContext(ctx, query)
@@ -177,7 +177,7 @@ func (r *AgentConfigRepository) List(ctx context.Context) ([]*model.AgentRoleCon
 		var configGeneratedAt sql.NullString
 		var createdAt, updatedAt SQLiteTimeScanner
 		err := rows.Scan(
-			&idStr, &config.Name, &config.Role, &description, &systemPrompt, &maxTokens, &temperature, &baseAgentID, &config.IsDefault, &config.IsSystem, &mentionPatterns, &configGeneratedAt, &configPath, &createdAt, &updatedAt,
+			&idStr, &config.Name, &config.Role, &description, &systemPrompt, &maxTokens, &temperature, &baseAgentID, &config.IsDefault, &config.IsSystem, &config.RequiresHuman, &mentionPatterns, &configGeneratedAt, &configPath, &createdAt, &updatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan agent config: %w", err)
@@ -219,7 +219,7 @@ func (r *AgentConfigRepository) List(ctx context.Context) ([]*model.AgentRoleCon
 func (r *AgentConfigRepository) Update(ctx context.Context, config *model.AgentRoleConfig) error {
 	query := `
 		UPDATE agent_configs
-		SET name = ?, role = ?, description = ?, system_prompt = ?, max_tokens = ?, temperature = ?, base_agent_id = ?, is_default = ?, is_system = ?, mention_patterns = ?, updated_at = ?
+		SET name = ?, role = ?, description = ?, system_prompt = ?, max_tokens = ?, temperature = ?, base_agent_id = ?, is_default = ?, is_system = ?, requires_human = ?, mention_patterns = ?, updated_at = ?
 		WHERE id = ?
 	`
 	mentionPatterns, _ := json.Marshal(config.MentionPatterns)
@@ -231,7 +231,7 @@ func (r *AgentConfigRepository) Update(ctx context.Context, config *model.AgentR
 	}
 
 	_, err := r.DB().ExecContext(ctx, query,
-		config.Name, config.Role, config.Description, config.SystemPrompt, config.MaxTokens, config.Temperature, baseAgentID, config.IsDefault, config.IsSystem, mentionPatterns, config.UpdatedAt, config.ID.String(),
+		config.Name, config.Role, config.Description, config.SystemPrompt, config.MaxTokens, config.Temperature, baseAgentID, config.IsDefault, config.IsSystem, config.RequiresHuman, mentionPatterns, config.UpdatedAt, config.ID.String(),
 	)
 	return err
 }

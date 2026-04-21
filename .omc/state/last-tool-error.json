@@ -1,7 +1,7 @@
 {
   "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"cd D:/Tools/ASDP_gittee/isdp && git rebase --continue\",\"description\":\"Continue rebase after resolving conflicts\"}",
+  "tool_input_preview": "{\"command\":\"cd D:/Tools/ASDP_gittee/isdp && git rebase --continue\",\"description\":\"Continue rebase from repo directory\"}",
   "error": "Exit code 1\nYou must edit all merge conflicts and then\nmark them as resolved using git add",
-  "timestamp": "2026-04-08T01:34:33.844Z",
-  "retry_count": 3
+  "timestamp": "2026-04-21T03:27:43.601Z",
+  "retry_count": 4
 }

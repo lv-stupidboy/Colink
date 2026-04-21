@@ -1486,6 +1486,8 @@ const ThreadView: React.FC = () => {
   const agentOptions = mentionableAgents.map(agent => ({
     id: agent.id,
     role: agent.role,
+    requiresHuman: agent.requiresHuman,
+    isSystem: agent.isSystem,
     name: agent.name,
     label: agent.name,
   }));

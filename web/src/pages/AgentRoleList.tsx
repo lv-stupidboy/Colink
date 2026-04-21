@@ -1,9 +1,10 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { Table, Button, Card, Modal, Form, Input, Select, message, Space, Tag, Typography, Tooltip, Alert, Spin, Collapse } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, RobotOutlined, BugOutlined, CopyOutlined, CrownOutlined, ExclamationCircleOutlined, EyeOutlined, SettingOutlined, BookOutlined, ApiOutlined, CodeOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
+import { Table, Button, Card, Modal, Form, Input, Select, message, Space, Tag, Typography, Tooltip, Alert, Spin, Collapse, Switch } from 'antd';
+import { PlusOutlined, EditOutlined, DeleteOutlined, RobotOutlined, BugOutlined, CopyOutlined, CrownOutlined, ExclamationCircleOutlined, EyeOutlined, SettingOutlined, BookOutlined, ApiOutlined, CodeOutlined, SafetyCertificateOutlined, UserOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '@/api/client';
-import type { AgentConfig, BaseAgent, Skill, Subagent, Command, Rule, Settings, BatchGenerateResult, BatchUpdateResult, GenerateResultItem } from '@/types';
+import AgentTypeIcon from '@/components/AgentTypeIcon';
+import type { AgentConfig, BaseAgent, Skill, Subagent, Command, Rule, Settings, BatchGenerateResult, BatchUpdateResult, GenerateResultItem, WorkflowTemplate } from '@/types';
 
 const { Title, Text } = Typography;
 
@@ -75,6 +76,9 @@ const AgentRoleList: React.FC = () => {
   const [batchUpdateResultVisible, setBatchUpdateResultVisible] = useState(false);
   const [batchUpdateResultData, setBatchUpdateResultData] = useState<BatchUpdateResult | null>(null);
   const [targetBaseAgentId, setTargetBaseAgentId] = useState<string>('');
+  // 团队筛选相关状态
+  const [workflows, setWorkflows] = useState<WorkflowTemplate[]>([]);
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState<string>('');
 
   useEffect(() => {
     loadConfigs();
@@ -84,6 +88,7 @@ const AgentRoleList: React.FC = () => {
     loadCommands();
     loadRules();
     loadSettings();
+    loadWorkflows();
   }, []);
 
   const loadConfigs = async () => {
@@ -107,6 +112,15 @@ const AgentRoleList: React.FC = () => {
       setBaseAgents(data);
     } catch (error) {
       console.error('加载基础Agent失败', error);
+    }
+  };
+
+  const loadWorkflows = async () => {
+    try {
+      const data = await api.workflows.list();
+      setWorkflows(data);
+    } catch (error) {
+      console.error('加载团队列表失败', error);
     }
   };
 
@@ -626,12 +640,22 @@ const AgentRoleList: React.FC = () => {
     }
   };
 
-  // 分组显示：系统预置和自定义
+  // 分组显示：系统预置和自定义，支持团队筛选
   const { systemAgents, customAgents } = useMemo(() => {
-    const system = configs.filter(c => c.isSystem);
-    const custom = configs.filter(c => !c.isSystem);
+    // 先获取选中团队中的 agentIds
+    let filteredConfigs = configs;
+    if (selectedWorkflowId) {
+      const selectedWorkflow = workflows.find(w => w.id === selectedWorkflowId);
+      if (selectedWorkflow && selectedWorkflow.agentIds) {
+        // 只保留该团队中的角色
+        filteredConfigs = configs.filter(c => selectedWorkflow.agentIds.includes(c.id));
+      }
+    }
+
+    const system = filteredConfigs.filter(c => c.isSystem);
+    const custom = filteredConfigs.filter(c => !c.isSystem);
     return { systemAgents: system, customAgents: custom };
-  }, [configs]);
+  }, [configs, selectedWorkflowId, workflows]);
 
   const columns = [
     {
@@ -641,11 +665,11 @@ const AgentRoleList: React.FC = () => {
       width: 150,
       render: (name: string, record: AgentConfig) => (
         <Space>
-          {record.isSystem ? (
-            <CrownOutlined style={{ color: '#faad14' }} />
-          ) : (
-            <RobotOutlined style={{ color: 'var(--color-primary)' }} />
-          )}
+          <AgentTypeIcon
+            requiresHuman={record.requiresHuman}
+            isSystem={record.isSystem}
+            size={16}
+          />
           <span>{name}</span>
         </Space>
       ),
@@ -665,9 +689,25 @@ const AgentRoleList: React.FC = () => {
       },
     },
     {
+      title: '人工参与',
+      dataIndex: 'requiresHuman',
+      key: 'requiresHuman',
+      width: 100,
+      render: (requiresHuman: boolean) => (
+        <span style={{ display: 'inline-block', width: 85 }}>
+          <Tag
+            color={requiresHuman ? 'green' : 'default'}
+            style={{ width: '100%', textAlign: 'center' }}
+          >
+            {requiresHuman ? 'Human In' : 'Human Out'}
+          </Tag>
+        </span>
+      ),
+    },
+    {
       title: '配置状态',
       key: 'configStatus',
-      width: 150,
+      width: 120,
       render: (_: unknown, record: AgentConfig) => (
         record.configGeneratedAt ? (
           <Tooltip title={`路径: ${record.configPath}`}>
@@ -684,14 +724,14 @@ const AgentRoleList: React.FC = () => {
       title: '系统提示词',
       dataIndex: 'systemPrompt',
       key: 'systemPrompt',
-      width: 350,
+      width: 280,
       render: (prompt?: string) => {
         if (!prompt) return '-';
-        const truncated = truncateText(prompt, 80);
-        if (truncated === prompt) return <Text style={{ maxWidth: 350 }}>{prompt}</Text>;
+        const truncated = truncateText(prompt, 60);
+        if (truncated === prompt) return <Text style={{ maxWidth: 280 }}>{prompt}</Text>;
         return (
           <Tooltip title={<div style={{ maxWidth: 400, whiteSpace: 'pre-wrap' }}>{prompt}</div>} placement="topLeft">
-            <Text style={{ maxWidth: 350, cursor: 'pointer' }}>{truncated}</Text>
+            <Text style={{ maxWidth: 280, cursor: 'pointer' }}>{truncated}</Text>
           </Tooltip>
         );
       },
@@ -755,6 +795,20 @@ const AgentRoleList: React.FC = () => {
           <Title level={2} style={{ margin: 0 }}>Agent角色</Title>
           <Text type="secondary">管理不同职责的 Agent 角色配置</Text>
         </div>
+        <Space>
+          <Text type="secondary">筛选团队：</Text>
+          <Select
+            placeholder="选择团队"
+            allowClear
+            style={{ width: 200 }}
+            value={selectedWorkflowId}
+            onChange={setSelectedWorkflowId}
+            options={workflows.map(w => ({
+              label: w.name,
+              value: w.id,
+            }))}
+          />
+        </Space>
       </div>
 
       {/* 系统预置角色 */}
@@ -903,6 +957,19 @@ const AgentRoleList: React.FC = () => {
             </Select>
           </Form.Item>
 
+          <Form.Item
+            name="requiresHuman"
+            label="需要人工参与"
+            valuePropName="checked"
+            extra="开启后，该角色在执行过程中会在关键节点等待人工确认或输入"
+          >
+            <Switch checkedChildren="是" unCheckedChildren="否" />
+          </Form.Item>
+
+          <Form.Item name="systemPrompt" label="系统提示词" rules={[{ required: true, message: '请输入系统提示词' }]}>
+            <Input.TextArea rows={8} placeholder="系统提示词，定义Agent的行为和能力" />
+          </Form.Item>
+
           <Form.Item name="mentionPatterns" label="触发模式" extra="设置 @mention 触发模式，用户可通过这些模式唤起该角色。新建时默认为 @+名称">
             <Select
               mode="tags"
@@ -910,10 +977,6 @@ const AgentRoleList: React.FC = () => {
               style={{ width: '100%' }}
               tokenSeparators={[',', ' ']}
             />
-          </Form.Item>
-
-          <Form.Item name="systemPrompt" label="系统提示词" rules={[{ required: true, message: '请输入系统提示词' }]}>
-            <Input.TextArea rows={8} placeholder="系统提示词，定义Agent的行为和能力" />
           </Form.Item>
 
           <Form.Item label="绑定 Skills">

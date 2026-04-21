@@ -82,7 +82,8 @@ type AgentRoleConfig struct {
 	MaxTokens    int       `json:"maxTokens"`
 	Temperature  float64   `json:"temperature"`
 	IsDefault    bool      `json:"isDefault"`
-	IsSystem     bool      `json:"isSystem"` // 是否为系统预置角色
+	IsSystem     bool      `json:"isSystem"`      // 是否为系统预置角色
+	RequiresHuman bool     `json:"requiresHuman"` // 是否需要人工参与
 
 	// Mention 触发模式（支持 A2A 动态路由）
 	MentionPatterns []string `json:"mentionPatterns"` // @mention 触发模式列表，如 ["@architect", "@架构师"]
@@ -125,6 +126,7 @@ type CreateAgentRequest struct {
 	MaxTokens      int       `json:"maxTokens"`
 	Temperature    float64   `json:"temperature"`
 	IsDefault      bool      `json:"isDefault"`
+	RequiresHuman  bool      `json:"requiresHuman"`  // 是否需要人工参与
 	MentionPatterns []string `json:"mentionPatterns"` // @mention 触发模式列表
 }
 
@@ -138,6 +140,7 @@ type UpdateAgentRequest struct {
 	MaxTokens      *int       `json:"maxTokens"`
 	Temperature    *float64   `json:"temperature"`
 	IsDefault      *bool      `json:"isDefault"`
+	RequiresHuman  *bool      `json:"requiresHuman"`  // 是否需要人工参与
 	MentionPatterns *[]string `json:"mentionPatterns"`
 }
 

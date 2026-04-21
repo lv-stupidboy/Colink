@@ -1,7 +1,8 @@
 // web/src/pages/Workflow/AgentAvatar.tsx
 import React from 'react';
 import { Button, Tooltip } from 'antd';
-import { CrownOutlined, DeleteOutlined, HolderOutlined, RobotOutlined } from '@ant-design/icons';
+import { DeleteOutlined, HolderOutlined } from '@ant-design/icons';
+import AgentTypeIcon from '@/components/AgentTypeIcon';
 import type { TeamAgent } from './useAgentDragSort';
 
 interface AgentAvatarProps {
@@ -29,7 +30,14 @@ const AgentAvatar: React.FC<AgentAvatarProps> = ({
   isDragOver,
   disabled = false,
 }) => {
-  const tooltipContent = agent.config.name;
+  // hover 展示内容：角色名称 + 人工参与状态
+  const humanStatus = agent.config.requiresHuman ? 'Human In' : 'Human Out';
+  const tooltipContent = (
+    <div>
+      <div>角色名称：{agent.config.name}</div>
+      <div>人工参与：{humanStatus}</div>
+    </div>
+  );
 
   const avatarClassName = 'workflow-agent-avatar agent';
 
@@ -72,11 +80,13 @@ const AgentAvatar: React.FC<AgentAvatarProps> = ({
       {/* Agent 头像 */}
       <Tooltip title={tooltipContent} placement="top">
         <div className={avatarClassName} onClick={() => onClick(agent, index)}>
-          {agent.config.isSystem ? (
-            <CrownOutlined className="workflow-agent-icon" />
-          ) : (
-            <RobotOutlined className="workflow-agent-icon" />
-          )}
+          <AgentTypeIcon
+            requiresHuman={agent.config.requiresHuman}
+            isSystem={agent.config.isSystem}
+            size={20}
+            iconColor="#fff"
+            className="workflow-agent-icon"
+          />
         </div>
       </Tooltip>
 

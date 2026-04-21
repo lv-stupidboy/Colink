@@ -1,7 +1,8 @@
 // isdp/web/src/components/thread/ChatMessage.tsx
 import React, { memo } from 'react';
 import { Tag, Button, Tooltip, Alert, Card, Space, Avatar } from 'antd';
-import { StopOutlined, ReloadOutlined, FileTextOutlined, ExclamationCircleOutlined, ThunderboltOutlined, RobotOutlined, UserOutlined } from '@ant-design/icons';
+import { StopOutlined, ReloadOutlined, FileTextOutlined, ExclamationCircleOutlined, ThunderboltOutlined, UserOutlined } from '@ant-design/icons';
+import AgentTypeIcon from '@/components/AgentTypeIcon';
 import type { Message, AgentConfig, AgentRole, MessageRole, ReviewIssue, ToolEvent, MessageContentBlock } from '@/types';
 import type { HumanTask, HumanTaskStatus } from '@/types';
 import type { FileChange } from '@/types/content';
@@ -112,13 +113,22 @@ function renderProgressTags(
 }
 
 /**
+ * 过滤掉 a2a-handoff 交接块（已在调用日志面板中单独展示）
+ */
+function filterA2AHandoff(content: string): string {
+  return content.replace(/<a2a-handoff>[\s\S]*?<\/a2a-handoff>/g, '').trim();
+}
+
+/**
  * 将纯文本内容转换为 contentBlocks（用于兼容旧消息）
  */
 function contentToBlocks(content: string): MessageContentBlock[] {
+  // 过滤 a2a-handoff 块
+  const filteredContent = filterA2AHandoff(content);
   return [{
     id: `text-${Date.now()}`,
     type: 'text',
-    content,
+    content: filteredContent,
     timestamp: Date.now(),
   }];
 }
@@ -146,13 +156,19 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
   const styleConfig = getStyleByRole(message.role, agentRole);
   const roleDisplay = getRoleDisplayName(message.role, agentRole);
 
-  // 头像图标和颜色：Agent 统一使用 RobotOutlined + color-primary
-  const avatarIcon = isUser ? null : <RobotOutlined />;
+  // 头像颜色
   const avatarColor = isUser ? '#52c41a' : 'var(--color-primary)';
 
   // 统一使用 contentBlocks，如果没有则从 content 转换
+  // 同时过滤掉 a2a-handoff 块（已在调用日志面板中单独展示）
   const contentBlocks: MessageContentBlock[] = message.contentBlocks && message.contentBlocks.length > 0
-    ? message.contentBlocks
+    ? message.contentBlocks.map(block => {
+        // 只过滤 text 类型的块
+        if (block.type === 'text' && block.content) {
+          return { ...block, content: filterA2AHandoff(block.content) };
+        }
+        return block;
+      })
     : contentToBlocks(message.content);
 
   // 检查是否有产物和审查报告
@@ -259,15 +275,38 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
       }}
     >
       {/* 消息头像/图标 */}
-      <Avatar
-        size={36}
-        icon={isUser ? <UserOutlined /> : avatarIcon}
-        style={{
-          backgroundColor: avatarColor,
-          marginLeft: isUser ? '12px' : 0,
-          marginRight: isUser ? 0 : '12px',
-        }}
-      />
+      {isUser ? (
+        <Avatar
+          size={36}
+          icon={<UserOutlined />}
+          style={{
+            backgroundColor: avatarColor,
+            marginLeft: '12px',
+          }}
+        />
+      ) : (
+        <div
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: '50%',
+            backgroundColor: avatarColor,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            marginRight: '12px',
+            position: 'relative',
+            overflow: 'visible',
+          }}
+        >
+          <AgentTypeIcon
+            requiresHuman={agentConfig?.requiresHuman || false}
+            isSystem={agentConfig?.isSystem || false}
+            size={20}
+            iconColor="#fff"
+          />
+        </div>
+      )}
 
       {/* 消息主体 */}
       <div

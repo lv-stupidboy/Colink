@@ -58,11 +58,11 @@ func (r *AgentInvocationRepository) FindByID(ctx context.Context, id uuid.UUID) 
 	if agentName.Valid {
 		invocation.AgentName = agentName.String
 	}
-	if sessionID.Valid {
-		invocation.SessionID = sessionID.String
-	}
 	if fullPrompt.Valid {
 		invocation.FullPrompt = fullPrompt.String
+	}
+	if sessionID.Valid {
+		invocation.SessionID = sessionID.String
 	}
 	invocation.CreatedAt = createdAt.Time
 	if startedAt.Valid {
@@ -106,11 +106,11 @@ func (r *AgentInvocationRepository) FindByThreadID(ctx context.Context, threadID
 		if agentName.Valid {
 			invocation.AgentName = agentName.String
 		}
-		if sessionID.Valid {
-			invocation.SessionID = sessionID.String
-		}
 		if fullPrompt.Valid {
 			invocation.FullPrompt = fullPrompt.String
+		}
+		if sessionID.Valid {
+			invocation.SessionID = sessionID.String
 		}
 		invocation.CreatedAt = createdAt.Time
 		if startedAt.Valid {
@@ -182,11 +182,11 @@ func (r *AgentInvocationRepository) FindByStatus(ctx context.Context, status mod
 		if processID.Valid {
 			invocation.ProcessID = &processID.String
 		}
-		if sessionID.Valid {
-			invocation.SessionID = sessionID.String
-		}
 		if fullPrompt.Valid {
 			invocation.FullPrompt = fullPrompt.String
+		}
+		if sessionID.Valid {
+			invocation.SessionID = sessionID.String
 		}
 		invocation.CreatedAt = createdAt.Time
 		if startedAt.Valid {
@@ -238,11 +238,11 @@ func (r *AgentInvocationRepository) FindRecentlyCompletedByThread(ctx context.Co
 		if agentName.Valid {
 			invocation.AgentName = agentName.String
 		}
-		if sessionID.Valid {
-			invocation.SessionID = sessionID.String
-		}
 		if fullPrompt.Valid {
 			invocation.FullPrompt = fullPrompt.String
+		}
+		if sessionID.Valid {
+			invocation.SessionID = sessionID.String
 		}
 		invocation.CreatedAt = createdAt.Time
 		if startedAt.Valid {

@@ -1131,3 +1131,330 @@
   max-height: 400px;
   overflow-y: auto;
 }
+
+/* ========== 全屏 Modal 样式 ========== */
+.invocation-log-modal .modal-log-list {
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.invocation-log-modal .modal-agent-section {
+  margin-bottom: 16px;
+}
+
+.invocation-log-modal .modal-agent-header {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary, #111827);
+  margin-bottom: 8px;
+  padding-left: 8px;
+  border-left: 3px solid var(--color-primary, #3b82f6);
+}
+
+.invocation-log-modal .modal-invocation-item {
+  padding: 12px;
+  background: var(--bg-base, #fff);
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+
+.invocation-log-modal .modal-invocation-meta {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+/* 折叠区块样式 */
+.collapsed-content {
+  margin: 0;
+  font-size: 13px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.6;
+  color: var(--text-primary, #111827);
+}
+
+/* Layer 分块内容 - 白色字体 */
+.layer-context-block .collapsed-content {
+  color: #ffffff;
+}
+
+/* 空内容显示 */
+.empty-content {
+  color: var(--text-secondary, #6b7280);
+  font-size: 12px;
+}
+
+/* 放大按钮 */
+.fullscreen-btn {
+  cursor: pointer;
+  padding: 4px;
+  color: var(--text-secondary, #6b7280);
+  border-radius: 4px;
+  transition: all 0.2s;
+  margin-left: auto;
+}
+
+.fullscreen-btn:hover {
+  color: var(--color-primary, #3b82f6);
+  background: var(--color-primary-opacity-10, #eff6ff);
+}
+
+/* 详情按钮 */
+.invocation-record-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.detail-btn {
+  cursor: pointer;
+  padding: 4px;
+  color: var(--text-secondary, #6b7280);
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.detail-btn:hover {
+  color: var(--color-primary, #3b82f6);
+  background: var(--color-primary-opacity-10, #eff6ff);
+}
+
+/* 深色模式适配 */
+[data-theme='dark'] .invocation-log-modal .modal-agent-header {
+  color: var(--text-primary);
+  border-left-color: var(--color-primary);
+}
+
+[data-theme='dark'] .invocation-log-modal .modal-invocation-item {
+  background: var(--bg-elevated);
+}
+
+[data-theme='dark'] .collapsed-content {
+  color: var(--text-primary);
+}
+
+[data-theme='dark'] .empty-content {
+  color: var(--text-secondary);
+}
+
+[data-theme='dark'] .fullscreen-btn:hover,
+[data-theme='dark'] .detail-btn:hover {
+  color: var(--color-primary);
+  background: var(--color-primary-opacity-20);
+}
+
+/* A2A Handoff 交接信息卡片 */
+.handoff-card {
+  background: var(--color-primary-opacity-10, #eff6ff);
+  border: 1px solid var(--color-primary-opacity-30, #bfdbfe);
+  border-radius: 8px;
+  margin: 8px 0;
+  padding: 12px;
+}
+
+.handoff-card-header {
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-primary, #3b82f6);
+  margin-bottom: 10px;
+}
+
+.handoff-card-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.handoff-part {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.handoff-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary, #6b7280);
+}
+
+.handoff-value {
+  font-size: 12px;
+  color: var(--text-primary, #111827);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+[data-theme='dark'] .handoff-card {
+  background: var(--color-primary-opacity-20, rgba(59, 130, 246, 0.2));
+  border-color: var(--color-primary-opacity-40, rgba(59, 130, 246, 0.4));
+}
+
+[data-theme='dark'] .handoff-card-header {
+  color: var(--color-primary);
+}
+
+[data-theme='dark'] .handoff-label {
+  color: var(--text-secondary);
+}
+
+[data-theme='dark'] .handoff-value {
+  color: var(--text-primary);
+}
+
+/* ========== Layer Context 分块样式 ========== */
+
+.layer-context-block {
+  margin: 8px 0;
+}
+
+.layer-context-block .ant-collapse {
+  background: transparent;
+  border: none;
+}
+
+.layer-context-block .ant-collapse-item {
+  margin-bottom: 4px;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 6px;
+  background: var(--bg-base, #fff);
+}
+
+.layer-context-block .ant-collapse-header {
+  padding: 8px 12px !important;
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--bg-elevated, #f9fafb);
+  border-radius: 6px 6px 0 0;
+}
+
+.layer-context-block .ant-collapse-content {
+  padding: 0 !important;
+  background: transparent;
+}
+
+.layer-context-block .ant-collapse-content-box {
+  padding: 8px 12px !important;
+  background: #1e293b; /* 深色背景，让白色字体可见 */
+}
+
+.layer-panel-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-primary, #111827);
+}
+
+.layer-panel-label .anticon {
+  font-size: 14px;
+}
+
+.layer-panel-size {
+  font-size: 10px;
+  color: var(--text-secondary, #6b7280);
+  margin-left: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* 各 Layer 颜色区分 */
+.layer-context-block .ant-collapse-item.layer-system {
+  border-left: 3px solid #8b5cf6; /* 紫色 - System Prompt */
+}
+
+.layer-context-block .ant-collapse-item.layer-system .ant-collapse-header {
+  background: #f3e8ff;
+}
+
+.layer-context-block .ant-collapse-item.layer-conversation {
+  border-left: 3px solid #3b82f6; /* 蓝色 - Conversation */
+}
+
+.layer-context-block .ant-collapse-item.layer-conversation .ant-collapse-header {
+  background: #eff6ff;
+}
+
+.layer-context-block .ant-collapse-item.layer-artifacts {
+  border-left: 3px solid #f59e0b; /* 橙色 - Artifacts */
+}
+
+.layer-context-block .ant-collapse-item.layer-artifacts .ant-collapse-header {
+  background: #fef3c7;
+}
+
+.layer-context-block .ant-collapse-item.layer-environment {
+  border-left: 3px solid #22c55e; /* 绿色 - Environment */
+}
+
+.layer-context-block .ant-collapse-item.layer-environment .ant-collapse-header {
+  background: #f0fdf4;
+}
+
+.layer-context-block .ant-collapse-item.layer-remaining {
+  border-left: 3px solid #6b7280; /* 灰色 - 其他 */
+}
+
+.layer-context-block .ant-collapse-item.layer-remaining .ant-collapse-header {
+  background: #f3f4f6;
+}
+
+/* Layer 分块深色模式 */
+[data-theme='dark'] .layer-context-block .ant-collapse-item {
+  border-color: var(--border-color);
+  background: var(--bg-elevated);
+}
+
+[data-theme='dark'] .layer-context-block .ant-collapse-header {
+  background: var(--bg-base);
+  color: var(--text-primary);
+}
+
+[data-theme='dark'] .layer-panel-label {
+  color: var(--text-primary);
+}
+
+[data-theme='dark'] .layer-panel-size {
+  color: var(--text-secondary);
+}
+
+[data-theme='dark'] .layer-context-block .ant-collapse-item.layer-system {
+  border-left-color: #a78bfa;
+}
+
+[data-theme='dark'] .layer-context-block .ant-collapse-item.layer-system .ant-collapse-header {
+  background: rgba(139, 92, 246, 0.15);
+}
+
+[data-theme='dark'] .layer-context-block .ant-collapse-item.layer-conversation {
+  border-left-color: #60a5fa;
+}
+
+[data-theme='dark'] .layer-context-block .ant-collapse-item.layer-conversation .ant-collapse-header {
+  background: rgba(59, 130, 246, 0.15);
+}
+
+[data-theme='dark'] .layer-context-block .ant-collapse-item.layer-artifacts {
+  border-left-color: #fbbf24;
+}
+
+[data-theme='dark'] .layer-context-block .ant-collapse-item.layer-artifacts .ant-collapse-header {
+  background: rgba(245, 158, 11, 0.15);
+}
+
+[data-theme='dark'] .layer-context-block .ant-collapse-item.layer-environment {
+  border-left-color: #4ade80;
+}
+
+[data-theme='dark'] .layer-context-block .ant-collapse-item.layer-environment .ant-collapse-header {
+  background: rgba(34, 197, 94, 0.15);
+}
+
+[data-theme='dark'] .layer-context-block .ant-collapse-item.layer-remaining {
+  border-left-color: #9ca3af;
+}
+
+[data-theme='dark'] .layer-context-block .ant-collapse-item.layer-remaining .ant-collapse-header {
+  background: var(--bg-base);
+}

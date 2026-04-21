@@ -163,6 +163,17 @@ export function transformWorkflowTemplate(data: any): any {
     }
   }
 
+  // A2A Enhancement: 确保 routableTeams 是数组
+  if (result.routableTeams == null) {
+    result.routableTeams = [];
+  } else if (typeof result.routableTeams === 'string') {
+    try {
+      result.routableTeams = JSON.parse(result.routableTeams);
+    } catch {
+      result.routableTeams = [];
+    }
+  }
+
   // 确保 isSystem 是布尔值
   if (typeof result.isSystem === 'number') {
     result.isSystem = result.isSystem === 1;

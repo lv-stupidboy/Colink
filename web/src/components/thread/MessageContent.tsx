@@ -1,5 +1,5 @@
 // isdp/web/src/components/thread/MessageContent.tsx
-import React, { memo } from 'react';
+import React, { memo, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
@@ -12,6 +12,16 @@ interface MessageContentProps {
 }
 
 /**
+ * 过滤掉 a2a-handoff 交接块（已在调用日志面板中单独展示）
+ * 避免对话框中重复显示
+ */
+const filterA2AHandoff = (content: string): string => {
+  // 移除 <a2a-handoff>...</a2a-handoff> 块
+  // 使用非贪婪匹配，避免误删其他内容
+  return content.replace(/<a2a-handoff>[\s\S]*?<\/a2a-handoff>/g, '').trim();
+};
+
+/**
  * 消息内容渲染组件
  * 支持 Markdown、代码高亮
  */
@@ -19,6 +29,9 @@ export const MessageContent: React.FC<MessageContentProps> = memo(({
   content,
   className = '',
 }) => {
+  // 过滤掉 a2a-handoff 交接块
+  const filteredContent = useMemo(() => filterA2AHandoff(content), [content]);
+
   return (
     <div className={`message-content-wrapper ${className}`}>
       <ReactMarkdown
@@ -92,7 +105,7 @@ export const MessageContent: React.FC<MessageContentProps> = memo(({
           p: ({ children }) => <p className="message-paragraph">{children}</p>,
         }}
       >
-        {content}
+        {filteredContent}
       </ReactMarkdown>
     </div>
   );

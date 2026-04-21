@@ -40,6 +40,7 @@ type WorkflowTemplate struct {
 	EstimatedTime string          `json:"estimatedTime"` // 预计耗时
 	IsSystem      bool            `json:"isSystem"`      // 是否系统预设
 	IsDefault     bool            `json:"isDefault"`     // 新增：是否为默认工作流
+	RoutableTeams json.RawMessage `json:"routableTeams"` // A2A Enhancement: 可路由到的目标 Team ID 列表 (JSON数组)
 	CreatedAt     time.Time       `json:"createdAt"`
 	UpdatedAt     time.Time       `json:"updatedAt"`
 }
@@ -67,4 +68,5 @@ type UpdateWorkflowTemplateRequest struct {
 	Transitions   []Transition `json:"transitions"`
 	Checkpoints   []string     `json:"checkpoints"`
 	EstimatedTime string       `json:"estimatedTime"`
+	RoutableTeams []string     `json:"routableTeams"` // A2A Enhancement: 可路由到的目标 Team ID 列表
 }

@@ -1,7 +1,8 @@
 // isdp/web/src/components/thread/ThreadInput.tsx
 import React, { memo, useState, useCallback, useRef, useEffect } from 'react';
-import { Input, Button, Space, Card, List, Avatar, Spin } from 'antd';
-import { SendOutlined, RobotOutlined } from '@ant-design/icons';
+import { Input, Button, Space, Card, List, Spin } from 'antd';
+import { SendOutlined } from '@ant-design/icons';
+import AgentTypeIcon from '@/components/AgentTypeIcon';
 import type { AgentRole } from '@/types';
 
 const { TextArea } = Input;
@@ -9,6 +10,8 @@ const { TextArea } = Input;
 interface AgentOption {
   id: string;
   role: AgentRole;
+  requiresHuman: boolean;
+  isSystem?: boolean;
   name: string;
   label: string;
 }
@@ -246,7 +249,11 @@ export const ThreadInput: React.FC<ThreadInputProps> = memo(({
                         onMouseEnter={() => setHighlightedIndex(index)}
                       >
                         <Space>
-                          <Avatar size="small" icon={<RobotOutlined />} style={{ backgroundColor: 'var(--color-primary)' }} />
+                          <AgentTypeIcon
+                            requiresHuman={opt.requiresHuman}
+                            isSystem={opt.isSystem || false}
+                            size={16}
+                          />
                           <span>{opt.label}</span>
                         </Space>
                       </List.Item>

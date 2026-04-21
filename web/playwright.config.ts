@@ -16,8 +16,8 @@ export default defineConfig({
     timeout: 5000,
   },
   use: {
-    baseURL: 'http://localhost:3001',
-    headless: false, // 改为有头模式，方便调试
+    baseURL: 'http://localhost:3000',
+    headless: true, // headless 模式，适合 CI/CLI 环境
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
     trace: 'retain-on-failure',
