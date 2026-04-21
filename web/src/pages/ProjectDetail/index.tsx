@@ -335,7 +335,7 @@ const ProjectDetail: React.FC = () => {
           </Space>
         }
       >
-        <Descriptions column={4} size="small" labelStyle={{ width: 80 }} contentStyle={{ padding: '8px 0' }}>
+        <Descriptions column={4} size="small" labelStyle={{ width: 80, paddingBottom: 8 }} contentStyle={{ paddingBottom: 8 }}>
           {/* 第一行 */}
           <Descriptions.Item label="描述">
             <Text ellipsis style={{ maxWidth: 200 }}>{project.description || '-'}</Text>
