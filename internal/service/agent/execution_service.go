@@ -1279,6 +1279,10 @@ func generateTriggerHint(toAgent *model.AgentRoleConfig) string {
 func (es *ExecutionService) buildDynamicSystemPromptFromContext(tc *ThreadContext, config *model.AgentRoleConfig) string {
 	var sb strings.Builder
 
+	// 注入治理摘要（A2A 协作规则）
+	sb.WriteString(BuildGovernanceDigestWithVersion())
+	sb.WriteString("\n")
+
 	// 原始系统提示
 	sb.WriteString(config.SystemPrompt)
 
