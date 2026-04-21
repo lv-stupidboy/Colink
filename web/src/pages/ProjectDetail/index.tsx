@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Card,
-  Tabs,
   Button,
   Space,
   Tag,
@@ -23,20 +22,19 @@ import {
 } from 'antd';
 import {
   ArrowLeftOutlined,
-  SettingOutlined,
   PlusOutlined,
   FolderOutlined,
   EditOutlined,
   DeleteOutlined,
   PlayCircleOutlined,
   SyncOutlined,
+  TeamOutlined,
 } from '@ant-design/icons';
 import api from '@/api/client';
 import type { Project, Thread, WorkflowTemplate } from '@/types';
 import { PhaseLabels, PhaseColors, ThreadStatus } from '@/types';
 
 const { Text } = Typography;
-const { TabPane } = Tabs;
 const { Option } = Select;
 const { TextArea } = Input;
 
@@ -45,10 +43,9 @@ const { TextArea } = Input;
  * PRD Section 2.1.1 - 项目空间管理
  *
  * 功能要点：
- * - 项目属性展示与编辑
- * - 项目状态跟踪与可视化
+ * - 项目属性展示与编辑（紧凑布局）
+ * - 团队绑定（可直接修改）
  * - 项目任务列表 (Thread列表)
- * - 项目设置
  */
 const ProjectDetail: React.FC = () => {
   const { projectId } = useParams<{ projectId: string }>();
@@ -64,6 +61,10 @@ const ProjectDetail: React.FC = () => {
   const [workflowTemplates, setWorkflowTemplates] = useState<WorkflowTemplate[]>([]);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [syncLoading, setSyncLoading] = useState(false);
+
+  // 任务创建时的团队选择状态
+  const [selectedTeamId, setSelectedTeamId] = useState<string | undefined>(undefined);
+  const [teamManuallyChanged, setTeamManuallyChanged] = useState(false);
 
   useEffect(() => {
     if (projectId) {
@@ -96,7 +97,6 @@ const ProjectDetail: React.FC = () => {
 
       // 加载该项目的 Thread 列表
       const threadsData = await api.threads.list(projectId!);
-      // 处理可能返回 null 的情况
       setThreads((threadsData as unknown as Thread[]) || []);
     } catch (error) {
       message.error('加载项目数据失败');
@@ -117,9 +117,22 @@ const ProjectDetail: React.FC = () => {
     }
   };
 
+  // 打开创建任务弹窗时初始化团队选择
+  const openCreateThreadModal = () => {
+    // 默认继承项目团队
+    setSelectedTeamId(project?.workflowTemplateId || undefined);
+    setTeamManuallyChanged(false);
+    setCreateThreadModalVisible(true);
+  };
+
+  // 创建任务时传递选择的团队
   const handleCreateThread = async (values: { name?: string }) => {
     try {
-      const thread = await api.threads.create(projectId!, values.name || '新任务');
+      const thread = await api.threads.create(
+        projectId!,
+        values.name || '新任务',
+        selectedTeamId
+      );
       message.success('任务创建成功');
       setCreateThreadModalVisible(false);
       threadForm.resetFields();
@@ -182,6 +195,17 @@ const ProjectDetail: React.FC = () => {
         }
       },
     });
+  };
+
+  // 更新团队绑定
+  const handleTeamChange = async (value: string | undefined) => {
+    try {
+      await api.projects.update(projectId!, { workflowTemplateId: value });
+      message.success('团队绑定已更新');
+      loadProjectData();
+    } catch (error) {
+      message.error('更新失败');
+    }
   };
 
   // Thread 列表列定义
@@ -274,7 +298,7 @@ const ProjectDetail: React.FC = () => {
               try {
                 await api.threads.delete(record.id);
                 message.success('任务已删除');
-                loadProjectData(); // 刷新列表
+                loadProjectData();
               } catch (error) {
                 console.error('Failed to delete thread:', error);
                 message.error('删除失败');
@@ -331,10 +355,14 @@ const ProjectDetail: React.FC = () => {
     );
   }
 
+  // 获取当前绑定的团队信息
+  const boundTemplate = workflowTemplates.find(t => t.id === project.workflowTemplateId);
+  const defaultTemplate = workflowTemplates.find(t => t.isDefault);
+
   return (
     <div className="project-detail">
       {/* 顶部导航 */}
-      <div style={{ marginBottom: 24 }}>
+      <div style={{ marginBottom: 16 }}>
         <Space>
           <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/projects')}>
             返回项目列表
@@ -342,12 +370,13 @@ const ProjectDetail: React.FC = () => {
         </Space>
       </div>
 
-      {/* 项目信息卡片 */}
+      {/* 项目信息卡片 - 紧凑布局 */}
       <Card
+        size="small"
         title={
           <Space>
             <FolderOutlined />
-            <span>{project.name}</span>
+            <span style={{ fontSize: 16 }}>{project.name}</span>
             <Tag color={project.status === 'active' ? 'green' : 'default'}>
               {project.status === 'active' ? '活跃' : '归档'}
             </Tag>
@@ -355,195 +384,109 @@ const ProjectDetail: React.FC = () => {
         }
         extra={
           <Space>
-            <Button icon={<EditOutlined />} onClick={() => {
+            <Button size="small" icon={<EditOutlined />} onClick={() => {
               form.setFieldsValue(project);
               setEditModalVisible(true);
             }}>
               编辑
             </Button>
-            <Button danger icon={<DeleteOutlined />} onClick={handleDeleteProject}>
+            <Button size="small" icon={<SyncOutlined spin={syncLoading} />} onClick={handleSyncConfig} loading={syncLoading}>
+              同步配置
+            </Button>
+            <Button size="small" danger icon={<DeleteOutlined />} onClick={handleDeleteProject}>
               删除
             </Button>
           </Space>
         }
       >
-        <Descriptions column={3} bordered size="small">
-          <Descriptions.Item label="项目类型">
-            <Tag color={projectTypeConfig[project.type || 'service']?.color || 'default'}>
-              {projectTypeConfig[project.type || 'service']?.label || project.type}
+        <Descriptions column={4} size="small">
+          {/* 第一行：核心信息 */}
+          <Descriptions.Item label="绑定团队">
+            <Space>
+              <TeamOutlined />
+              <Select
+                style={{ width: 180 }}
+                placeholder="选择团队"
+                value={project.workflowTemplateId || undefined}
+                loading={loadingTemplates}
+                allowClear
+                onChange={handleTeamChange}
+                size="small"
+              >
+                {workflowTemplates.map((t) => (
+                  <Option key={t.id} value={t.id}>
+                    {t.name} {t.isDefault ? '(默认)' : ''}
+                  </Option>
+                ))}
+              </Select>
+              {project.workflowTemplateId && boundTemplate && (
+                <Tooltip title={boundTemplate.checkpoints?.join(', ') || '无检查点'}>
+                  <Tag color="orange">{boundTemplate.checkpoints?.length || 0} 检查点</Tag>
+                </Tooltip>
+              )}
+            </Space>
+          </Descriptions.Item>
+          <Descriptions.Item label="任务数">
+            <Tag color="blue">{threads.length}</Tag>
+          </Descriptions.Item>
+          <Descriptions.Item label="类型">
+            <Tag color={projectTypeConfig[project.type || 'service']?.color}>
+              {projectTypeConfig[project.type || 'service']?.label}
             </Tag>
           </Descriptions.Item>
-          <Descriptions.Item label="开发模式">
-            <Tag color={projectModeConfig[project.mode || 'new']?.color || 'default'}>
-              {projectModeConfig[project.mode || 'new']?.label || project.mode}
+          <Descriptions.Item label="模式">
+            <Tag color={projectModeConfig[project.mode || 'new']?.color}>
+              {projectModeConfig[project.mode || 'new']?.label}
             </Tag>
           </Descriptions.Item>
-          <Descriptions.Item label="状态">
-            <Tag color={project.status === 'active' ? 'green' : 'default'}>
-              {project.status === 'active' ? '活跃' : '归档'}
-            </Tag>
-          </Descriptions.Item>
-          <Descriptions.Item label="描述" span={3}>
-            {project.description || '暂无描述'}
-          </Descriptions.Item>
-          <Descriptions.Item label="仓库地址" span={3}>
-            {project.repositoryUrl ? (
-              <a href={project.repositoryUrl} target="_blank" rel="noopener noreferrer">
-                {project.repositoryUrl}
-              </a>
-            ) : (
-              <Text type="secondary">未配置</Text>
-            )}
+
+          {/* 第二行：路径和时间 */}
+          <Descriptions.Item label="本地路径" span={2}>
+            <Text ellipsis style={{ maxWidth: 300 }}>{project.localPath || '-'}</Text>
           </Descriptions.Item>
           <Descriptions.Item label="创建时间">
-            {new Date(project.createdAt).toLocaleString()}
+            {new Date(project.createdAt).toLocaleDateString()}
           </Descriptions.Item>
           <Descriptions.Item label="更新时间">
-            {new Date(project.updatedAt).toLocaleString()}
-          </Descriptions.Item>
-          <Descriptions.Item label="任务数量">
-            <Tag color="blue">{threads.length}</Tag>
+            {new Date(project.updatedAt).toLocaleDateString()}
           </Descriptions.Item>
         </Descriptions>
       </Card>
 
-      {/* Tab 页签：任务列表 / 项目设置 */}
-      <Card style={{ marginTop: 16 }}>
-        <Tabs defaultActiveKey="threads">
-          <TabPane
-            tab={
-              <span>
-                <PlayCircleOutlined />
-                任务列表
-              </span>
-            }
-            key="threads"
+      {/* 任务列表版块 */}
+      <Card
+        style={{ marginTop: 16 }}
+        title={
+          <Space>
+            <PlayCircleOutlined />
+            <span>任务列表</span>
+            <Tag color="blue">{threads.length}</Tag>
+          </Space>
+        }
+        extra={
+          <Button type="primary" size="small" icon={<PlusOutlined />} onClick={openCreateThreadModal}>
+            新建任务
+          </Button>
+        }
+      >
+        {threads.length > 0 ? (
+          <Table
+            dataSource={threads}
+            columns={threadColumns}
+            rowKey="id"
+            pagination={{ pageSize: 10 }}
+            size="small"
+          />
+        ) : (
+          <Empty
+            description="暂无任务"
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
           >
-            <div style={{ marginBottom: 16 }}>
-              <Button
-                type="primary"
-                icon={<PlusOutlined />}
-                onClick={() => setCreateThreadModalVisible(true)}
-              >
-                新建任务
-              </Button>
-            </div>
-
-            {threads.length > 0 ? (
-              <Table
-                dataSource={threads}
-                columns={threadColumns}
-                rowKey="id"
-                pagination={{ pageSize: 10 }}
-              />
-            ) : (
-              <Empty
-                description="暂无任务"
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-              >
-                <Button type="primary" onClick={() => setCreateThreadModalVisible(true)}>
-                  创建第一个任务
-                </Button>
-              </Empty>
-            )}
-          </TabPane>
-
-          <TabPane
-            tab={
-              <span>
-                <SettingOutlined />
-                项目设置
-              </span>
-            }
-            key="settings"
-          >
-            <Card>
-              <Descriptions title="项目配置" column={2} bordered>
-                <Descriptions.Item label="项目 ID">
-                  <Text code>{project.id}</Text>
-                </Descriptions.Item>
-                <Descriptions.Item label="项目名称">
-                  {project.name}
-                </Descriptions.Item>
-                <Descriptions.Item label="项目类型">
-                  {projectTypeConfig[project.type || 'service']?.label || project.type}
-                </Descriptions.Item>
-                <Descriptions.Item label="开发模式">
-                  {projectModeConfig[project.mode || 'new']?.label || project.mode}
-                </Descriptions.Item>
-                <Descriptions.Item label="绑定团队" span={2}>
-                  <Space direction="vertical" style={{ width: '100%' }}>
-                    <Select
-                      style={{ width: 300 }}
-                      placeholder="选择Agent团队"
-                      value={project.workflowTemplateId || undefined}
-                      loading={loadingTemplates}
-                      allowClear
-                      onChange={async (value) => {
-                        try {
-                          await api.projects.update(projectId!, { workflowTemplateId: value });
-                          message.success('团队绑定已更新');
-                          loadProjectData();
-                        } catch (error) {
-                          message.error('更新失败');
-                        }
-                      }}
-                    >
-                      {workflowTemplates.map((t) => (
-                        <Option key={t.id} value={t.id}>
-                          {t.name} {t.isDefault ? '(默认)' : ''} {t.isSystem ? '[系统]' : ''}
-                        </Option>
-                      ))}
-                    </Select>
-                    {project.workflowTemplateId ? (
-                      <Space direction="vertical" size="small">
-                        <Text type="secondary">当前绑定：</Text>
-                        {(() => {
-                          const boundTemplate = workflowTemplates.find(t => t.id === project.workflowTemplateId);
-                          if (!boundTemplate) return <Text type="warning">团队不存在</Text>;
-                          return (
-                            <>
-                              <Text strong>{boundTemplate.name}</Text>
-                              <div>
-                                <Text type="secondary">检查点：</Text>
-                                {boundTemplate.checkpoints?.map((cp) => (
-                                  <Tag key={cp} color="orange" style={{ marginBottom: 4 }}>{cp}</Tag>
-                                ))}
-                              </div>
-                            </>
-                          );
-                        })()}
-                      </Space>
-                    ) : (
-                      <Text type="secondary">
-                        未绑定团队，将使用系统默认团队
-                        {workflowTemplates.find(t => t.isDefault) && (
-                          <>：{workflowTemplates.find(t => t.isDefault)?.name}</>
-                        )}
-                      </Text>
-                    )}
-                  </Space>
-                </Descriptions.Item>
-              </Descriptions>
-
-              <Divider />
-
-              <div style={{ marginTop: 16 }}>
-                <Space>
-                  <Button type="primary" icon={<EditOutlined />} onClick={() => {
-                    form.setFieldsValue(project);
-                    setEditModalVisible(true);
-                  }}>
-                    编辑项目信息
-                  </Button>
-                  <Button icon={<SyncOutlined spin={syncLoading} />} onClick={handleSyncConfig} loading={syncLoading}>
-                    同步配置
-                  </Button>
-                </Space>
-              </div>
-            </Card>
-          </TabPane>
-        </Tabs>
+            <Button type="primary" onClick={openCreateThreadModal}>
+              创建第一个任务
+            </Button>
+          </Empty>
+        )}
       </Card>
 
       {/* 编辑项目弹窗 */}
@@ -560,22 +503,6 @@ const ProjectDetail: React.FC = () => {
           </Form.Item>
           <Form.Item name="description" label="项目描述">
             <TextArea rows={3} placeholder="请输入项目描述" />
-          </Form.Item>
-          <Form.Item name="type" label="项目类型">
-            <Select placeholder="请选择项目类型">
-              <Option value="service">服务</Option>
-              <Option value="app">应用</Option>
-              <Option value="task">任务</Option>
-            </Select>
-          </Form.Item>
-          <Form.Item name="mode" label="开发模式">
-            <Select placeholder="请选择开发模式">
-              <Option value="new">全新开发</Option>
-              <Option value="enhance">功能增强</Option>
-            </Select>
-          </Form.Item>
-          <Form.Item name="repositoryUrl" label="仓库地址">
-            <Input placeholder="https://github.com/user/repo" />
           </Form.Item>
           <Form.Item name="workflowTemplateId" label="绑定团队">
             <Select placeholder="选择Agent团队" allowClear loading={loadingTemplates}>
@@ -595,7 +522,7 @@ const ProjectDetail: React.FC = () => {
         </Form>
       </Modal>
 
-      {/* 创建任务弹窗 */}
+      {/* 创建任务弹窗 - 支持团队选择 */}
       <Modal
         title="新建开发任务"
         open={createThreadModalVisible}
@@ -610,28 +537,49 @@ const ProjectDetail: React.FC = () => {
           <Form.Item name="name" label="任务名称（可选）">
             <Input placeholder="为任务起个名字" autoComplete="off" />
           </Form.Item>
+
           <Divider style={{ margin: '12px 0' }} />
-          <div>
-            <Text strong>使用团队：</Text>
-            <div style={{ marginTop: 8 }}>
-              {project.workflowTemplateId ? (
-                <>
-                  <Tag color="blue">
-                    {workflowTemplates.find(t => t.id === project.workflowTemplateId)?.name || '未知团队'}
-                  </Tag>
-                  <Text type="secondary" style={{ marginLeft: 8 }}>（来自项目绑定）</Text>
-                </>
-              ) : (
-                <>
-                  <Tag color="gold">
-                    {workflowTemplates.find(t => t.isDefault)?.name || '系统默认'}
-                  </Tag>
-                  <Text type="secondary" style={{ marginLeft: 8 }}>（系统默认团队）</Text>
-                </>
-              )}
-            </div>
-          </div>
-          <Text type="secondary" style={{ display: 'block', marginTop: 16 }}>
+
+          <Form.Item label="使用团队">
+            <Space direction="vertical" style={{ width: '100%' }}>
+              <Select
+                style={{ width: 280 }}
+                value={selectedTeamId}
+                onChange={(value) => {
+                  setSelectedTeamId(value);
+                  setTeamManuallyChanged(true);
+                }}
+                allowClear
+                loading={loadingTemplates}
+                placeholder="选择团队"
+              >
+                {workflowTemplates.map((t) => (
+                  <Option key={t.id} value={t.id}>
+                    {t.name} {t.isDefault ? '(默认)' : ''} {t.isSystem ? '[系统]' : ''}
+                  </Option>
+                ))}
+              </Select>
+
+              {/* 提示信息 */}
+              <div style={{ marginTop: 4 }}>
+                {teamManuallyChanged ? (
+                  <Text type="warning" style={{ fontSize: 12 }}>
+                    ⚠️ 已手动切换团队
+                  </Text>
+                ) : (
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    {project.workflowTemplateId ? (
+                      <>✓ 继承自项目绑定团队：{boundTemplate?.name || '未知'}</>
+                    ) : (
+                      <>✓ 继承自系统默认团队：{defaultTemplate?.name || '默认'}</>
+                    )}
+                  </Text>
+                )}
+              </div>
+            </Space>
+          </Form.Item>
+
+          <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
             创建后将进入开发工作台，您可以描述您的需求并启动 AI 开发流程。
           </Text>
         </Form>

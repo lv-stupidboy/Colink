@@ -26,7 +26,9 @@ func NewService(repo *repo.ThreadRepository, projectRepo *repo.ProjectRepository
 }
 
 // Create 创建Thread
-func (s *Service) Create(ctx context.Context, projectID uuid.UUID, name string) (*model.Thread, error) {
+// overrideWorkflowID: 可选，前端指定的团队ID
+// 优先级：指定团队 > 项目绑定团队 > 系统默认团队
+func (s *Service) Create(ctx context.Context, projectID uuid.UUID, name string, overrideWorkflowID *uuid.UUID) (*model.Thread, error) {
 	// 1. 获取项目信息
 	project, err := s.projectRepo.FindByID(ctx, projectID)
 	if err != nil {
@@ -35,16 +37,23 @@ func (s *Service) Create(ctx context.Context, projectID uuid.UUID, name string) 
 
 	var workflowID *uuid.UUID
 
-	// 2. 检查项目是否绑定了工作流
-	if project.WorkflowTemplateID != nil {
-		// 验证工作流是否存在
+	// 2. 确定使用的团队（优先级：指定 > 项目绑定 > 默认）
+	if overrideWorkflowID != nil {
+		// 前端指定了团队，验证是否存在
+		_, err := s.workflowRepo.FindByID(ctx, *overrideWorkflowID)
+		if err != nil {
+			return nil, errors.New("指定的工作流团队不存在")
+		}
+		workflowID = overrideWorkflowID
+	} else if project.WorkflowTemplateID != nil {
+		// 使用项目绑定的团队
 		_, err := s.workflowRepo.FindByID(ctx, *project.WorkflowTemplateID)
 		if err != nil {
 			return nil, errors.New("项目绑定的工作流不存在，请重新配置")
 		}
 		workflowID = project.WorkflowTemplateID
 	} else {
-		// 3. 查询默认工作流
+		// 使用默认团队
 		defaultWorkflow, err := s.workflowRepo.GetDefault(ctx)
 		if err != nil {
 			return nil, errors.New("请先在项目设置中绑定工作流，或设置系统默认工作流")
@@ -52,7 +61,7 @@ func (s *Service) Create(ctx context.Context, projectID uuid.UUID, name string) 
 		workflowID = &defaultWorkflow.ID
 	}
 
-	// 4. 创建 Thread 并关联工作流
+	// 3. 创建 Thread 并关联工作流
 	thread := &model.Thread{
 		ID:                 uuid.New(),
 		ProjectID:          projectID,

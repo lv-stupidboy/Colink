@@ -60,7 +60,8 @@ func (h *ThreadHandler) Create(c *gin.Context) {
 	}
 
 	var req struct {
-		Name string `json:"name"`
+		Name               string     `json:"name"`
+		WorkflowTemplateID *uuid.UUID `json:"workflowTemplateId,omitempty"` // 可选：指定团队
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		// 如果没有请求体，使用默认名称
@@ -72,7 +73,7 @@ func (h *ThreadHandler) Create(c *gin.Context) {
 		req.Name = "新任务"
 	}
 
-	thread, err := h.service.Create(c.Request.Context(), projectID, req.Name)
+	thread, err := h.service.Create(c.Request.Context(), projectID, req.Name, req.WorkflowTemplateID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

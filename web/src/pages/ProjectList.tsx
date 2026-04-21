@@ -185,7 +185,7 @@ const ProjectList: React.FC = () => {
         onOk={() => form.submit()}
         onCancel={() => setModalVisible(false)}
       >
-        <Form form={form} layout="vertical" onFinish={handleCreate} initialValues={{ type: 'service', mode: 'new' }}>
+        <Form form={form} layout="vertical" onFinish={handleCreate}>
           <Form.Item name="name" label="项目名称" rules={[{ required: true, message: '请输入项目名称' }]}>
             <Input placeholder="请输入项目名称" autoComplete="off" />
           </Form.Item>
@@ -207,18 +207,19 @@ const ProjectList: React.FC = () => {
               }
             />
           </Form.Item>
-          <Form.Item name="type" label="项目类型" rules={[{ required: true }]}>
-            <Select placeholder="选择项目类型">
-              <Select.Option value="service">服务型项目</Select.Option>
-              <Select.Option value="app">应用型项目</Select.Option>
-              <Select.Option value="task">任务型项目</Select.Option>
+          <Form.Item name="workflowTemplateId" label="绑定团队">
+            <Select placeholder="选择Agent团队（可选）" allowClear loading={workflowTemplates.length === 0}>
+              {workflowTemplates.map(t => (
+                <Select.Option key={t.id} value={t.id}>
+                  {t.name} {t.isDefault ? '(默认)' : ''} {t.isSystem ? '[系统]' : ''}
+                </Select.Option>
+              ))}
             </Select>
-          </Form.Item>
-          <Form.Item name="mode" label="创建模式" rules={[{ required: true }]}>
-            <Select placeholder="选择创建模式">
-              <Select.Option value="new">全新项目</Select.Option>
-              <Select.Option value="enhance">增强现有项目</Select.Option>
-            </Select>
+            <div style={{ marginTop: 4 }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                可选，如不选择将使用系统默认团队
+              </Text>
+            </div>
           </Form.Item>
         </Form>
       </Modal>

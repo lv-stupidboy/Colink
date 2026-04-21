@@ -254,8 +254,8 @@ class APIClient {
   threads = {
     list: (projectId: string): Promise<Thread[]> => this.request(`/threads/project/${projectId}`, 'GET'),
     get: (id: string): Promise<Thread> => this.request(`/threads/${id}`, 'GET'),
-    create: (projectId: string, name?: string): Promise<Thread> =>
-      this.request(`/threads/project/${projectId}`, 'POST', name ? { name } : {}),
+    create: (projectId: string, name?: string, workflowTemplateId?: string): Promise<Thread> =>
+      this.request(`/threads/project/${projectId}`, 'POST', { name: name || '新任务', workflowTemplateId }),
     delete: (id: string): Promise<void> => this.request(`/threads/${id}`, 'DELETE'),
     updateStatus: (id: string, status: string): Promise<Thread> =>
       this.request(`/threads/${id}/status`, 'PUT', { status }),
