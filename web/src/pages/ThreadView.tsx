@@ -115,8 +115,6 @@ const ThreadView: React.FC = () => {
   const updateInvocationStatus = useAppStore((s) => s.updateInvocationStatus);
   const updateProgress = useAppStore((s) => s.updateProgress);
   const loadProjectContext = useAppStore((s) => s.loadProjectContext);
-  const loadWorkflowTemplate = useAppStore((s) => s.loadWorkflowTemplate);
-  const clearProjectContext = useAppStore((s) => s.clearProjectContext);
   const clearThreadMessages = useAppStore((s) => s.clearThreadMessages);
   const setCurrentThread = useAppStore((s) => s.setCurrentThread);
   const getFilteredAgents = useAppStore((s) => s.getFilteredAgents);
@@ -510,23 +508,19 @@ const ThreadView: React.FC = () => {
     if (isDebugMode) return;
 
     const loadWorkflowContext = async () => {
-      // 加载Agent团队（用于获取可用 Agent 列表）
-      if (currentThread?.workflowTemplateId) {
-        await loadWorkflowTemplate(currentThread.workflowTemplateId);
-      }
-      // 加载项目上下文（获取 localPath）- 优先用路由参数中的 projectId
+      // loadThread 已经加载了 thread 的 workflowTemplate
+      // 这里只需要加载项目信息（用于 localPath）
+      // loadProjectContext 不会覆盖已设置的 workflowTemplate
       const projectToLoad = projectId || currentThread?.projectId;
-      if (projectToLoad) {
+      if (projectToLoad && currentThread) {
         await loadProjectContext(projectToLoad);
       }
     };
 
-    loadWorkflowContext();
-
-    return () => {
-      clearProjectContext();
-    };
-  }, [currentThread?.workflowTemplateId, currentThread?.projectId, projectId, loadWorkflowTemplate, loadProjectContext, clearProjectContext, isDebugMode]);
+    if (currentThread) {
+      loadWorkflowContext();
+    }
+  }, [currentThread, projectId, loadProjectContext, isDebugMode]);
 
   
   // 沙箱面板拖拽调整大小

@@ -300,6 +300,8 @@ export const useAppStore = create<AppState & AppActions>()(
         progressToolName: null,
         progressToolInput: null,
         currentThread: null,
+        // 不清除 currentWorkflowTemplate，因为马上会设置新的
+        // 不清除 currentProject，loadProjectContext 会加载新的
         activeAgents: [],
       });
 
@@ -309,6 +311,16 @@ export const useAppStore = create<AppState & AppActions>()(
           api.messages.list(threadId),
           api.invocations.list(threadId),
         ]);
+
+        // 加载 workflowTemplate（如果有绑定）
+        let workflowTemplate: WorkflowTemplate | null = null;
+        if (thread.workflowTemplateId) {
+          try {
+            workflowTemplate = await api.workflows.get(thread.workflowTemplateId);
+          } catch (e) {
+            console.error('Failed to load workflow template:', e);
+          }
+        }
 
         // API 返回 { messages, total, hasMore }
         const messages = messagesResult.messages || [];
@@ -352,6 +364,7 @@ export const useAppStore = create<AppState & AppActions>()(
 
         set({
           currentThread: thread,
+          currentWorkflowTemplate: workflowTemplate,
           messages: updatedMessages,
           messagesHasMore: hasMore,
           messagesTotal: total,
@@ -685,9 +698,11 @@ export const useAppStore = create<AppState & AppActions>()(
         // Load project to get workflowTemplateId
         const project = await api.projects.get(projectId);
 
-        // Load workflow template if project has one bound
-        let workflowTemplate: WorkflowTemplate | null = null;
-        if ((project as unknown as Project).workflowTemplateId) {
+        // 只在 currentWorkflowTemplate 未设置时才加载项目的团队
+        // 这样可以保留 thread 级别的团队设置
+        const currentTemplate = get().currentWorkflowTemplate;
+        let workflowTemplate: WorkflowTemplate | null = currentTemplate;
+        if (!currentTemplate && (project as unknown as Project).workflowTemplateId) {
           workflowTemplate = await api.workflows.get((project as unknown as Project).workflowTemplateId!);
         }
 
