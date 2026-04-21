@@ -569,6 +569,10 @@ func (a *ClaudeAdapter) buildEnv(req *agent.ExecutionRequest) []string {
 	if req.ConfigDir != "" {
 		envMap["CLAUDE_CONFIG_DIR"] = req.ConfigDir
 	}
+	// 设置模型环境变量，覆盖用户级的其他精细化设置的模型或系统默认的模型
+	if a.baseAgent != nil && a.baseAgent.DefaultModel != "" {
+		envMap["ANTHROPIC_MODEL"] = a.baseAgent.DefaultModel
+	}
 
 	// 转换为 slice
 	env := make([]string, 0, len(envMap))
