@@ -639,6 +639,18 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 		if result != nil && result.SessionID != "" {
 			// 保存 sessionId 到 invocation（入库用于问题定位）
 			// 注意：此时 ctx 可能已被取消，使用新的 context
+			// 关键：先检查数据库状态是否已被取消，避免覆盖 cancelled 状态
+			checkCtx, checkCancel := context.WithTimeout(context.Background(), 2*time.Second)
+			currentInvocation, checkErr := es.invocationRepo.FindByID(checkCtx, invocation.ID)
+			checkCancel()
+			if checkErr == nil && currentInvocation != nil && currentInvocation.Status == model.InvocationStatusCancelled {
+				logInfo("Execution failed but invocation was cancelled, skip sessionId save",
+					zap.String("invocationID", invocation.ID.String()))
+				// 直接返回，不覆盖 cancelled 状态
+				es.handleAgentErrorWithContext(ctx, invocation, fmt.Errorf("adapter execution failed: %w", err), execReq)
+				return
+			}
+
 			invocation.SessionID = result.SessionID
 			saveCtx, saveCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer saveCancel()

@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { Table, Button, Card, Modal, Form, Input, Select, message, Space, Tag, Typography, Tooltip, Alert, Spin, Collapse, Switch } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, RobotOutlined, BugOutlined, CopyOutlined, CrownOutlined, ExclamationCircleOutlined, EyeOutlined, SettingOutlined, BookOutlined, ApiOutlined, CodeOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
+import { Table, Button, Card, Modal, Form, Input, Select, message, Space, Tag, Typography, Tooltip, Alert, Spin, Collapse, Switch, Dropdown } from 'antd';
+import { PlusOutlined, EditOutlined, DeleteOutlined, RobotOutlined, BugOutlined, CopyOutlined, CrownOutlined, ExclamationCircleOutlined, EyeOutlined, SettingOutlined, BookOutlined, ApiOutlined, CodeOutlined, SafetyCertificateOutlined, UserOutlined, MoreOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '@/api/client';
 import AgentTypeIcon from '@/components/AgentTypeIcon';
@@ -705,18 +705,16 @@ const AgentRoleList: React.FC = () => {
       ),
     },
     {
-      title: '配置状态',
+      title: '配置',
       key: 'configStatus',
-      width: 120,
+      width: 80,
       render: (_: unknown, record: AgentConfig) => (
         record.configGeneratedAt ? (
-          <Tooltip title={`路径: ${record.configPath}`}>
-            <Tag color="green">
-              已生成 ({new Date(record.configGeneratedAt).toLocaleDateString()})
-            </Tag>
+          <Tooltip title={`路径: ${record.configPath}\n生成时间: ${new Date(record.configGeneratedAt).toLocaleDateString()}`}>
+            <Tag color="green" style={{ margin: 0 }}>已生成</Tag>
           </Tooltip>
         ) : (
-          <Tag color="default">未生成</Tag>
+          <Tag color="default" style={{ margin: 0 }}>未生成</Tag>
         )
       ),
     },
@@ -739,52 +737,62 @@ const AgentRoleList: React.FC = () => {
     {
       title: '操作',
       key: 'actions',
-      width: 360,
+      width: 200,
       fixed: 'right' as const,
-      render: (_: unknown, record: AgentConfig) => (
-        <Space size="small">
-          <Button
-            type="link"
-            size="small"
-            icon={<SettingOutlined />}
-            onClick={() => handlePreviewConfig(record)}
-          >
-            生成配置
-          </Button>
-          <Tooltip title={!record.configPath ? '请先生成配置' : ''}>
-            <Button
-              type="link"
-              size="small"
-              icon={<BugOutlined />}
-              disabled={!record.configPath}
-              onClick={() => handleDebug(record)}
-            >
-              调试
+      render: (_: unknown, record: AgentConfig) => {
+        const moreItems = [
+          {
+            key: 'generate',
+            label: '生成配置',
+            icon: <SettingOutlined />,
+            onClick: () => handlePreviewConfig(record),
+          },
+          {
+            key: 'debug',
+            label: '调试',
+            icon: <BugOutlined />,
+            disabled: !record.configPath,
+            onClick: () => handleDebug(record),
+          },
+          {
+            key: 'refs',
+            label: '引用',
+            icon: <EyeOutlined />,
+            onClick: () => handleViewRefs(record),
+          },
+          {
+            key: 'copy',
+            label: '复制',
+            icon: <CopyOutlined />,
+            onClick: () => handleCopy(record),
+          },
+        ];
+
+        return (
+          <Space size="small">
+            <Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
+              编辑
             </Button>
-          </Tooltip>
-          <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => handleViewRefs(record)}>
-            引用
-          </Button>
-          <Button type="link" size="small" icon={<CopyOutlined />} onClick={() => handleCopy(record)}>
-            复制
-          </Button>
-          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
-            编辑
-          </Button>
-          {!record.isSystem && (
-            <Button
-              type="link"
-              size="small"
-              danger
-              icon={<DeleteOutlined />}
-              onClick={() => handleDelete(record)}
-              loading={deleteLoading === record.id}
-            >
-              删除
-            </Button>
-          )}
-        </Space>
-      ),
+            {!record.isSystem && (
+              <Button
+                type="link"
+                size="small"
+                danger
+                icon={<DeleteOutlined />}
+                onClick={() => handleDelete(record)}
+                loading={deleteLoading === record.id}
+              >
+                删除
+              </Button>
+            )}
+            <Dropdown menu={{ items: moreItems }} trigger={['click']}>
+              <Button type="link" size="small" icon={<MoreOutlined />}>
+                更多
+              </Button>
+            </Dropdown>
+          </Space>
+        );
+      },
     },
   ];
 
@@ -842,7 +850,7 @@ const AgentRoleList: React.FC = () => {
               onShowSizeChange: (_, size) => setSystemPageSize(size),
             }}
             size="small"
-            scroll={{ x: 1130 }}
+            scroll={{ x: 930 }}
           />
         </Card>
       )}
@@ -921,7 +929,7 @@ const AgentRoleList: React.FC = () => {
               onShowSizeChange: (_, size) => setCustomPageSize(size),
             }}
             size="small"
-            scroll={{ x: 1130 }}
+            scroll={{ x: 930 }}
           />
         )}
       </Card>
