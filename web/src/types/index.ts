@@ -33,6 +33,7 @@ export type MessageType = 'text' | 'code' | 'artifact' | 'command';
 export interface Project {
   id: string;
   name: string;
+  description?: string;
   type?: 'service' | 'app' | 'task';
   mode?: 'new' | 'enhance';
   localPath: string; // 本地路径（必填）

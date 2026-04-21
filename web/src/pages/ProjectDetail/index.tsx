@@ -60,7 +60,6 @@ const ProjectDetail: React.FC = () => {
 
   // 任务创建时的团队选择状态
   const [selectedTeamId, setSelectedTeamId] = useState<string | undefined>(undefined);
-  const [teamManuallyChanged, setTeamManuallyChanged] = useState(false);
 
   useEffect(() => {
     if (projectId) {
@@ -117,7 +116,6 @@ const ProjectDetail: React.FC = () => {
   const openCreateThreadModal = () => {
     // 默认继承项目团队
     setSelectedTeamId(project?.workflowTemplateId || undefined);
-    setTeamManuallyChanged(false);
     setCreateThreadModalVisible(true);
   };
 
@@ -303,10 +301,6 @@ const ProjectDetail: React.FC = () => {
     );
   }
 
-  // 获取当前绑定的团队信息
-  const boundTemplate = workflowTemplates.find(t => t.id === project.workflowTemplateId);
-  const defaultTemplate = workflowTemplates.find(t => t.isDefault);
-
   return (
     <div className="project-detail">
       {/* 顶部导航 */}
@@ -358,6 +352,9 @@ const ProjectDetail: React.FC = () => {
                 </Option>
               ))}
             </Select>
+          </Descriptions.Item>
+          <Descriptions.Item label="描述">
+            <Text ellipsis style={{ maxWidth: 200 }}>{project.description || '-'}</Text>
           </Descriptions.Item>
           <Descriptions.Item label="本地路径">
             <Text ellipsis style={{ maxWidth: 300 }}>{project.localPath || '-'}</Text>
@@ -419,6 +416,9 @@ const ProjectDetail: React.FC = () => {
           <Form.Item name="name" label="项目名称" rules={[{ required: true }]}>
             <Input placeholder="请输入项目名称" />
           </Form.Item>
+          <Form.Item name="description" label="项目描述">
+            <Input.TextArea rows={3} placeholder="请输入项目描述" />
+          </Form.Item>
           <Form.Item name="workflowTemplateId" label="绑定团队" rules={[{ required: true, message: '请选择团队' }]}>
             <Select placeholder="选择Agent团队" loading={loadingTemplates}>
               {workflowTemplates.map((t) => (
@@ -427,6 +427,22 @@ const ProjectDetail: React.FC = () => {
                 </Option>
               ))}
             </Select>
+          </Form.Item>
+          <Form.Item name="type" label="项目类型">
+            <Select>
+              <Option value="service">服务</Option>
+              <Option value="app">应用</Option>
+              <Option value="task">任务</Option>
+            </Select>
+          </Form.Item>
+          <Form.Item name="mode" label="项目模式">
+            <Select>
+              <Option value="new">全新开发</Option>
+              <Option value="enhance">功能增强</Option>
+            </Select>
+          </Form.Item>
+          <Form.Item name="gitRepo" label="仓库地址">
+            <Input placeholder="Git 仓库地址（可选）" />
           </Form.Item>
         </Form>
       </Modal>
@@ -456,7 +472,6 @@ const ProjectDetail: React.FC = () => {
                 value={selectedTeamId}
                 onChange={(value) => {
                   setSelectedTeamId(value);
-                  setTeamManuallyChanged(true);
                 }}
                 allowClear
                 loading={loadingTemplates}
@@ -471,19 +486,9 @@ const ProjectDetail: React.FC = () => {
 
               {/* 提示信息 */}
               <div style={{ marginTop: 4 }}>
-                {teamManuallyChanged ? (
-                  <Text type="warning" style={{ fontSize: 12 }}>
-                    ⚠️ 已手动切换团队
-                  </Text>
-                ) : (
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    {project.workflowTemplateId ? (
-                      <>✓ 继承自项目绑定团队：{boundTemplate?.name || '未知'}</>
-                    ) : (
-                      <>✓ 继承自系统默认团队：{defaultTemplate?.name || '默认'}</>
-                    )}
-                  </Text>
-                )}
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  默认继承项目团队，可按任务单独指定
+                </Text>
               </div>
             </Space>
           </Form.Item>

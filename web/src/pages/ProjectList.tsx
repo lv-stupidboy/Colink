@@ -82,6 +82,14 @@ const ProjectList: React.FC = () => {
       ),
     },
     {
+      title: '描述',
+      dataIndex: 'description',
+      key: 'description',
+      width: 200,
+      ellipsis: true,
+      render: (desc?: string) => desc || '-',
+    },
+    {
       title: 'Agent团队',
       dataIndex: 'workflowTemplateId',
       key: 'workflowTemplateId',
