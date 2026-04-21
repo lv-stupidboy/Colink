@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Button, Card, Space, Modal, Form, Input, Select, message, Tag, Typography, Popconfirm } from 'antd';
+import { Table, Button, Card, Space, Modal, Form, Input, Select, message, Typography, Popconfirm } from 'antd';
 import { PlusOutlined, FolderOutlined, FolderOpenOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '@/api/client';
@@ -79,17 +79,6 @@ const ProjectList: React.FC = () => {
       width: 180,
       render: (name: string, record: Project) => (
         <a onClick={() => navigate(`/projects/${record.id}`)}>{name}</a>
-      ),
-    },
-    {
-      title: '状态',
-      dataIndex: 'status',
-      key: 'status',
-      width: 80,
-      render: (status: string) => (
-        <Tag color={status === 'active' ? 'green' : 'default'}>
-          {status === 'active' ? '活跃' : '归档'}
-        </Tag>
       ),
     },
     {
@@ -207,19 +196,14 @@ const ProjectList: React.FC = () => {
               }
             />
           </Form.Item>
-          <Form.Item name="workflowTemplateId" label="绑定团队">
-            <Select placeholder="选择Agent团队（可选）" allowClear loading={workflowTemplates.length === 0}>
+          <Form.Item name="workflowTemplateId" label="绑定团队" rules={[{ required: true, message: '请选择团队' }]}>
+            <Select placeholder="选择Agent团队" loading={workflowTemplates.length === 0}>
               {workflowTemplates.map(t => (
                 <Select.Option key={t.id} value={t.id}>
                   {t.name} {t.isDefault ? '(默认)' : ''} {t.isSystem ? '[系统]' : ''}
                 </Select.Option>
               ))}
             </Select>
-            <div style={{ marginTop: 4 }}>
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                可选，如不选择将使用系统默认团队
-              </Text>
-            </div>
           </Form.Item>
         </Form>
       </Modal>

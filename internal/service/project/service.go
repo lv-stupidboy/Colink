@@ -41,16 +41,27 @@ func (s *Service) GetByID(ctx context.Context, id uuid.UUID) (*model.Project, er
 
 // Create 创建项目
 func (s *Service) Create(ctx context.Context, req *model.CreateProjectRequest) (*model.Project, error) {
+	// 默认值
+	projectType := req.Type
+	if projectType == "" {
+		projectType = model.ProjectTypeService
+	}
+	projectMode := req.Mode
+	if projectMode == "" {
+		projectMode = model.ProjectModeNew
+	}
+
 	project := &model.Project{
-		ID:        uuid.New(),
-		Name:      req.Name,
-		Type:      req.Type,
-		Mode:      req.Mode,
-		Status:    model.ProjectStatusDraft,
-		LocalPath: req.LocalPath,
-		GitRepo:   &req.ExistingRepoURL,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		ID:                 uuid.New(),
+		Name:               req.Name,
+		Type:               projectType,
+		Mode:               projectMode,
+		Status:             model.ProjectStatusDraft,
+		LocalPath:          req.LocalPath,
+		GitRepo:            &req.ExistingRepoURL,
+		WorkflowTemplateID: req.WorkflowTemplateID,
+		CreatedAt:          time.Now(),
+		UpdatedAt:          time.Now(),
 	}
 
 	if err := s.repo.Create(ctx, project); err != nil {

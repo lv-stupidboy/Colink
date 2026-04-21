@@ -56,12 +56,13 @@ func (p *Project) TableName() string {
 
 // CreateProjectRequest 创建项目请求
 type CreateProjectRequest struct {
-	Name            string      `json:"name" binding:"required"`
-	Type            ProjectType `json:"type" binding:"required,oneof=service app task"`
-	Mode            ProjectMode `json:"mode" binding:"required,oneof=new enhance"`
-	LocalPath       string      `json:"localPath" binding:"required"` // 本地路径（必填）
-	ExistingRepoURL string      `json:"existingRepoUrl,omitempty"`
-	Branch          string      `json:"branch,omitempty"`
+	Name               string      `json:"name" binding:"required"`
+	Type               ProjectType `json:"type"` // 可选，默认 service
+	Mode               ProjectMode `json:"mode"` // 可选，默认 new
+	LocalPath          string      `json:"localPath" binding:"required"` // 本地路径（必填）
+	ExistingRepoURL    string      `json:"existingRepoUrl,omitempty"`
+	Branch             string      `json:"branch,omitempty"`
+	WorkflowTemplateID *uuid.UUID  `json:"workflowTemplateId,omitempty"` // 新增：绑定的工作流模板ID
 }
 
 // UpdateProjectRequest 更新项目请求

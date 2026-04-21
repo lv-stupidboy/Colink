@@ -27,8 +27,6 @@ import {
   EditOutlined,
   DeleteOutlined,
   PlayCircleOutlined,
-  SyncOutlined,
-  TeamOutlined,
 } from '@ant-design/icons';
 import api from '@/api/client';
 import type { Project, Thread, WorkflowTemplate } from '@/types';
@@ -36,7 +34,6 @@ import { PhaseLabels, PhaseColors, ThreadStatus } from '@/types';
 
 const { Text } = Typography;
 const { Option } = Select;
-const { TextArea } = Input;
 
 /**
  * 项目详情页
@@ -60,7 +57,6 @@ const ProjectDetail: React.FC = () => {
   const [threadForm] = Form.useForm();
   const [workflowTemplates, setWorkflowTemplates] = useState<WorkflowTemplate[]>([]);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
-  const [syncLoading, setSyncLoading] = useState(false);
 
   // 任务创建时的团队选择状态
   const [selectedTeamId, setSelectedTeamId] = useState<string | undefined>(undefined);
@@ -157,41 +153,6 @@ const ProjectDetail: React.FC = () => {
           navigate('/projects');
         } catch (error) {
           message.error('删除失败');
-        }
-      },
-    });
-  };
-
-  // 同步配置到项目
-  const handleSyncConfig = () => {
-    Modal.confirm({
-      title: '同步 Skill 配置',
-      content: (
-        <div>
-          <p>将 AgentRole 绑定的 Skill 同步到项目配置目录：</p>
-          <p><code>.claude/skills/</code> 或 <code>.opencode/tool/</code></p>
-        </div>
-      ),
-      okText: '同步',
-      cancelText: '取消',
-      onOk: async () => {
-        setSyncLoading(true);
-        try {
-          const response = await fetch(`/api/v1/projects/${projectId}/config/sync`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ baseAgentType: 'claude_code' }),
-          });
-          const result = await response.json();
-          if (result.error) {
-            message.error(result.error);
-          } else {
-            message.success(`配置同步成功：${result.skillsCount} 个 Skills，${result.rulesCount} 个 Rules`);
-          }
-        } catch (error) {
-          message.error('同步失败');
-        } finally {
-          setSyncLoading(false);
         }
       },
     });
@@ -321,19 +282,6 @@ const ProjectDetail: React.FC = () => {
     },
   ];
 
-  // 项目类型配置
-  const projectTypeConfig: Record<string, { label: string; color: string }> = {
-    service: { label: '服务', color: 'blue' },
-    app: { label: '应用', color: 'green' },
-    task: { label: '任务', color: 'orange' },
-  };
-
-  // 项目模式配置
-  const projectModeConfig: Record<string, { label: string; color: string }> = {
-    new: { label: '全新开发', color: 'cyan' },
-    enhance: { label: '功能增强', color: 'purple' },
-  };
-
   if (loading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 400 }}>
@@ -377,9 +325,6 @@ const ProjectDetail: React.FC = () => {
           <Space>
             <FolderOutlined />
             <span style={{ fontSize: 16 }}>{project.name}</span>
-            <Tag color={project.status === 'active' ? 'green' : 'default'}>
-              {project.status === 'active' ? '活跃' : '归档'}
-            </Tag>
           </Space>
         }
         extra={
@@ -390,65 +335,38 @@ const ProjectDetail: React.FC = () => {
             }}>
               编辑
             </Button>
-            <Button size="small" icon={<SyncOutlined spin={syncLoading} />} onClick={handleSyncConfig} loading={syncLoading}>
-              同步配置
-            </Button>
             <Button size="small" danger icon={<DeleteOutlined />} onClick={handleDeleteProject}>
               删除
             </Button>
           </Space>
         }
       >
-        <Descriptions column={4} size="small">
+        <Descriptions column={4} size="small" labelStyle={{ width: 80 }}>
           {/* 第一行：核心信息 */}
           <Descriptions.Item label="绑定团队">
-            <Space>
-              <TeamOutlined />
-              <Select
-                style={{ width: 180 }}
-                placeholder="选择团队"
-                value={project.workflowTemplateId || undefined}
-                loading={loadingTemplates}
-                allowClear
-                onChange={handleTeamChange}
-                size="small"
-              >
-                {workflowTemplates.map((t) => (
-                  <Option key={t.id} value={t.id}>
-                    {t.name} {t.isDefault ? '(默认)' : ''}
-                  </Option>
-                ))}
-              </Select>
-              {project.workflowTemplateId && boundTemplate && (
-                <Tooltip title={boundTemplate.checkpoints?.join(', ') || '无检查点'}>
-                  <Tag color="orange">{boundTemplate.checkpoints?.length || 0} 检查点</Tag>
-                </Tooltip>
-              )}
-            </Space>
+            <Select
+              style={{ width: 180 }}
+              placeholder="选择团队（必填）"
+              value={project.workflowTemplateId || undefined}
+              loading={loadingTemplates}
+              onChange={handleTeamChange}
+              size="small"
+            >
+              {workflowTemplates.map((t) => (
+                <Option key={t.id} value={t.id}>
+                  {t.name} {t.isDefault ? '(默认)' : ''}
+                </Option>
+              ))}
+            </Select>
           </Descriptions.Item>
-          <Descriptions.Item label="任务数">
-            <Tag color="blue">{threads.length}</Tag>
-          </Descriptions.Item>
-          <Descriptions.Item label="类型">
-            <Tag color={projectTypeConfig[project.type || 'service']?.color}>
-              {projectTypeConfig[project.type || 'service']?.label}
-            </Tag>
-          </Descriptions.Item>
-          <Descriptions.Item label="模式">
-            <Tag color={projectModeConfig[project.mode || 'new']?.color}>
-              {projectModeConfig[project.mode || 'new']?.label}
-            </Tag>
-          </Descriptions.Item>
-
-          {/* 第二行：路径和时间 */}
-          <Descriptions.Item label="本地路径" span={2}>
+          <Descriptions.Item label="本地路径">
             <Text ellipsis style={{ maxWidth: 300 }}>{project.localPath || '-'}</Text>
+          </Descriptions.Item>
+          <Descriptions.Item label="仓库地址">
+            <Text ellipsis style={{ maxWidth: 200 }}>{project.gitRepo || '-'}</Text>
           </Descriptions.Item>
           <Descriptions.Item label="创建时间">
             {new Date(project.createdAt).toLocaleDateString()}
-          </Descriptions.Item>
-          <Descriptions.Item label="更新时间">
-            {new Date(project.updatedAt).toLocaleDateString()}
           </Descriptions.Item>
         </Descriptions>
       </Card>
@@ -501,22 +419,13 @@ const ProjectDetail: React.FC = () => {
           <Form.Item name="name" label="项目名称" rules={[{ required: true }]}>
             <Input placeholder="请输入项目名称" />
           </Form.Item>
-          <Form.Item name="description" label="项目描述">
-            <TextArea rows={3} placeholder="请输入项目描述" />
-          </Form.Item>
-          <Form.Item name="workflowTemplateId" label="绑定团队">
-            <Select placeholder="选择Agent团队" allowClear loading={loadingTemplates}>
+          <Form.Item name="workflowTemplateId" label="绑定团队" rules={[{ required: true, message: '请选择团队' }]}>
+            <Select placeholder="选择Agent团队" loading={loadingTemplates}>
               {workflowTemplates.map((t) => (
                 <Option key={t.id} value={t.id}>
                   {t.name} {t.isDefault ? '(默认)' : ''} {t.isSystem ? '[系统]' : ''}
                 </Option>
               ))}
-            </Select>
-          </Form.Item>
-          <Form.Item name="status" label="状态">
-            <Select>
-              <Option value="active">活跃</Option>
-              <Option value="archived">归档</Option>
             </Select>
           </Form.Item>
         </Form>
