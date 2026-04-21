@@ -199,12 +199,10 @@ func TestGovernanceDigestValidation(t *testing.T) {
 	ruleContents := map[string]string{
 		"R1": "出口检查",
 		"R2": "@mention",
-		"R3": "协作守则", // 角色边界在完整规则文件中，摘要简化,
-		"R4": "根因",
-		"R5": "不确定",
-		"R6": "Scope",
-		"R7": "a2a-handoff",
-		"R8": "Token",
+		"R3": "协作守则", // 角色边界在完整规则文件中，摘要简化
+		"R4": "落盘记录",
+		"R5": "阻塞流程",
+		"R6": "工作成果",
 	}
 
 	for ruleNum, content := range ruleContents {

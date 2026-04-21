@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
@@ -232,80 +233,79 @@ func (b *ContextBuilder) getStatusName(status model.ThreadStatus) string {
 
 // BuildChainHistoryLayer 构建链路历史层
 // 提取自 ExecutionService.buildChainHistoryLayer
+// BuildChainHistoryLayer 构建 A2A 链路历史信息块
+// 格式：[对话历史]\n1. 用户/Agent名：内容\n...\n[/对话历史]
+// 优先展示 a2a-handoff 结构化内容，无 handoff 时才展示摘要
 func BuildChainHistoryLayer(chainHistory *A2AChainContext) string {
+	if chainHistory == nil {
+		return ""
+	}
+
+	// 如果没有前序响应，返回空
+	if len(chainHistory.PreviousResponses) == 0 {
+		return ""
+	}
+
 	var sb strings.Builder
 
-	// 1. 链路位置信息
-	sb.WriteString("## 链路位置\n\n")
-	sb.WriteString(fmt.Sprintf("**当前位置**: 第 %d/%d 位\n", chainHistory.ChainIndex, chainHistory.ChainTotal))
-	sb.WriteString(fmt.Sprintf("**A2A 深度**: %d\n", chainHistory.Depth))
-	sb.WriteString(fmt.Sprintf("**A2A 启用**: %v\n", chainHistory.A2AEnabled))
-	sb.WriteString("\n---\n\n")
+	// 计算当前调用编号（ChainIndex + 预计后续调用数）
+	totalCalls := chainHistory.ChainTotal
 
-	// 2. Token 预算信息
-	if chainHistory.TokenBudget != nil {
-		sb.WriteString("## Token 预算\n\n")
-		sb.WriteString(fmt.Sprintf("**已用**: %d / %d\n", chainHistory.TokenBudget.UsedTokens, chainHistory.TokenBudget.MaxTokens))
-		sb.WriteString(fmt.Sprintf("**剩余**: %d\n", chainHistory.TokenBudget.RemainingTokens))
-		sb.WriteString("\n---\n\n")
-	}
+	sb.WriteString(fmt.Sprintf("[对话历史 - 共 %d 次调用]\n", totalCalls))
 
-	// 3. 队友信息
-	if len(chainHistory.Teammates) > 0 {
-		sb.WriteString("## 队友\n\n")
-		sb.WriteString("链路中已参与或即将参与的协作方：\n")
-		for _, teammateID := range chainHistory.Teammates {
-			sb.WriteString(fmt.Sprintf("- %s\n", teammateID.String()[:8]))
+	// 按顺序输出每条记录：编号. Agent名称/用户：内容
+	for i, resp := range chainHistory.PreviousResponses {
+		// 编号从 1 开始
+		callNum := i + 1
+
+		// 获取发送者名称
+		senderName := resp.AgentName
+		if senderName == "" || senderName == "user" || resp.Role == "user" {
+			senderName = "用户"
 		}
-		sb.WriteString("\n---\n\n")
-	}
 
-	// 4. 活跃参与者
-	if len(chainHistory.ActiveParticipants) > 0 {
-		sb.WriteString("## 活跃参与者\n\n")
-		sb.WriteString("当前链路中的活跃 Agent：\n")
-		for _, p := range chainHistory.ActiveParticipants {
-			sb.WriteString(fmt.Sprintf("- %s (消息数: %d)\n", p.AgentID[:8], p.MessageCount))
+		// 添加时间信息（如果有）
+		timeInfo := ""
+		if resp.Timestamp > 0 {
+			t := time.Unix(resp.Timestamp, 0)
+			timeInfo = t.Format("15:04")
 		}
-		sb.WriteString("\n---\n\n")
-	}
 
-	// 5. 前序响应累积（优先提取五件套交接块）
-	if len(chainHistory.PreviousResponses) > 0 {
-		sb.WriteString("## 前序响应\n\n")
-		sb.WriteString("以下是链路中前序 Agent 的输出交接信息：\n\n")
-		for i, resp := range chainHistory.PreviousResponses {
-			sb.WriteString(fmt.Sprintf("### [%d] %s (%s)\n", i+1, resp.AgentName, resp.Role))
-			// 优先尝试提取交接块
-			if handoff, found := ExtractHandoffBlock(resp.Content); found {
-				sb.WriteString(fmt.Sprintf("[上游 Agent: %s 的交接信息]\n\n", resp.AgentName))
-				sb.WriteString(handoff)
-			} else {
-				// 降级：首尾截断保留核心内容
-				content := resp.Content
-				if len(content) > 500 {
-					content = TruncateHeadTail(content, 500)
-				}
-				sb.WriteString(content)
+		// 优先提取 a2a-handoff 结构化内容
+		handoff, hasHandoff := ExtractHandoffBlock(resp.Content)
+
+		var content string
+		var truncated bool
+
+		if hasHandoff {
+			// 有 handoff：直接使用结构化内容（不截断）
+			content = FormatHandoffForA2A(handoff, senderName)
+			truncated = false
+		} else {
+			// 无 handoff：截断摘要展示
+			content = resp.Content
+			if len(content) > 800 {
+				content = TruncateHeadTail(content, 800)
+				truncated = true
 			}
-			sb.WriteString("\n\n")
 		}
-		sb.WriteString("---\n\n")
+
+		// 格式：编号. [时间] 角色：内容（截断提示）
+		if timeInfo != "" {
+			sb.WriteString(fmt.Sprintf("%d. [%s] %s：\n%s", callNum, timeInfo, senderName, content))
+		} else {
+			sb.WriteString(fmt.Sprintf("%d. %s：\n%s", callNum, senderName, content))
+		}
+		if truncated {
+			sb.WriteString("\n...[内容已截断，保留首尾各400字符]...")
+		}
+		sb.WriteString("\n\n")
 	}
 
-	// 6. 原始用户消息
-	if chainHistory.OriginalMessage != "" {
-		sb.WriteString("## 原始用户请求\n\n")
-		sb.WriteString(chainHistory.OriginalMessage)
-		sb.WriteString("\n\n---\n\n")
-	}
+	sb.WriteString("[/对话历史]\n")
 
-	// 7. 直接触发者信息
-	if chainHistory.FromAgent != nil {
-		sb.WriteString(fmt.Sprintf("**Direct message from %s; reply to %s**\n",
-			chainHistory.FromAgent.Name,
-			chainHistory.FromAgent.Name))
-	}
+	// 添加当前位置提示（简洁版）
+	sb.WriteString(fmt.Sprintf("\n**当前**: 第 %d/%d 位\n", chainHistory.ChainIndex, totalCalls))
 
 	return sb.String()
 }
@@ -352,7 +352,6 @@ func BuildDynamicSystemPromptFromContext(tc *ThreadContext, config *model.AgentR
 			}
 			sb.WriteString(fmt.Sprintf("- %s\n", hint))
 		}
-		sb.WriteString("\n**角色边界**：你的职责是输出分析结果，不要直接进行代码实现。实现工作由下游协作方负责。\n")
 	}
 
 	// 跨团队协作方
@@ -765,7 +764,7 @@ func ExtractStructuredHistory(messages []*model.Message, maxMessages int) string
 }
 
 // ExtractHandoffBlock extracts the <a2a-handoff> block from agent output.
-// Returns the raw handoff content and a boolean indicating whether a valid block was found.
+// Returns the raw handoff content (without tags) and a boolean indicating whether a valid block was found.
 func ExtractHandoffBlock(output string) (handoff string, found bool) {
 	re := regexp.MustCompile(`(?s)<a2a-handoff>(.*?)</a2a-handoff>`)
 	matches := re.FindStringSubmatch(output)
@@ -777,6 +776,17 @@ func ExtractHandoffBlock(output string) (handoff string, found bool) {
 		return "", false
 	}
 	return content, true
+}
+
+// ExtractHandoffBlockWithTags extracts the <a2a-handoff> block including tags.
+// Returns the complete block with tags for downstream identification.
+func ExtractHandoffBlockWithTags(output string) (handoffBlock string, found bool) {
+	re := regexp.MustCompile(`(?s)<a2a-handoff>.*?</a2a-handoff>`)
+	match := re.FindString(output)
+	if match == "" {
+		return "", false
+	}
+	return strings.TrimSpace(match), true
 }
 
 // FormatHandoffForA2A formats a handoff block for downstream consumption,

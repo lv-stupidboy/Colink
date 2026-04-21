@@ -163,6 +163,9 @@ type ExecutionService struct {
 	// ChunkListeners 外部 chunk 监听器（如飞书 IM 转发）
 	chunkListeners   []ChunkListener
 	chunkListenersMu sync.RWMutex
+
+	// Token 预算管理器（用于 A2A 深度控制）
+	tokenBudgetManager *TokenBudgetManager
 }
 
 // NewExecutionService 创建统一执行服务
@@ -208,6 +211,7 @@ func NewExecutionService(
 		threadContexts:     make(map[uuid.UUID]*ThreadContext),
 		cliSessions:        make(map[string]string),
 		chunkListeners:     make([]ChunkListener, 0),
+		tokenBudgetManager: NewTokenBudgetManager(),
 	}
 
 	// 启动后台清理 goroutine，定期清理超时的 Agent
@@ -763,6 +767,74 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 	// 广播完成状态
 	es.broadcastStatus(req.ThreadID, invocation.ID, "completed", config.Role, config.Name, config.ID.String(), "")
 
+	// 追加 Agent 输出到 A2AContext.PreviousResponses（链路历史）
+	// 优先提取 a2a-handoff，无 handoff 时降级存储截断摘要
+	es.a2aMu.Lock()
+	if a2aCtx, exists := es.a2aContexts[req.ThreadID]; exists {
+	// 提取 handoff 块（含标签，便于下游识别）
+	handoffBlock, hasHandoff := ExtractHandoffBlockWithTags(output)
+	var storedContent string
+	if hasHandoff {
+		// 有 handoff：存储完整块（含标签）
+		storedContent = handoffBlock
+	logInfo("A2A: 提取到 handoff 块（含标签）",
+		zap.String("agentId", config.ID.String()),
+		zap.String("agentName", config.Name),
+		zap.Int("handoffLen", len(handoffBlock)))
+	} else {
+	 // 无 handoff：降级存储截断摘要
+	 storedContent = output
+	if len(output) > 800 {
+	 storedContent = TruncateHeadTail(output, 800)
+	}
+	logInfo("A2A: 无 handoff，存储截断摘要",
+	 zap.String("agentId", config.ID.String()),
+					zap.String("agentName", config.Name),
+					zap.Int("storedLen", len(storedContent)))
+			}
+			a2aCtx.PreviousResponses = append(a2aCtx.PreviousResponses, ChainResponse{
+				AgentID:   config.ID,
+				AgentName: config.Name,
+				Content:   storedContent,
+				Role:      string(config.Role),
+				Timestamp: time.Now().Unix(),
+			})
+			a2aCtx.ChainIndex++
+			logInfo("A2A: Agent 输出追加到 PreviousResponses",
+				zap.String("agentId", config.ID.String()),
+				zap.String("agentName", config.Name),
+				zap.Int("previousResponsesLen", len(a2aCtx.PreviousResponses)),
+				zap.Int("chainIndex", a2aCtx.ChainIndex),
+				zap.String("threadId", req.ThreadID.String()))
+	} else {
+		// 如果不存在 A2AContext，创建一个新的（兜底）
+		truncatedOutput := output
+		if len(output) > 800 {
+			truncatedOutput = TruncateHeadTail(output, 800)
+		}
+		a2aCtx = &A2AContext{
+			Depth:           0,
+			InvokedAgents:   make(map[uuid.UUID]bool),
+			CompletedAgents: make(map[uuid.UUID]bool),
+			PreviousResponses: []ChainResponse{
+				{
+					AgentID:   config.ID,
+					AgentName: config.Name,
+					Content:   truncatedOutput,
+					Role:      string(config.Role),
+					Timestamp: time.Now().Unix(),
+				},
+			},
+			ChainIndex: 1,
+		}
+		es.a2aContexts[req.ThreadID] = a2aCtx
+		logInfo("A2A: 创建 A2AContext 并追加 Agent 输出",
+			zap.String("agentId", config.ID.String()),
+			zap.String("agentName", config.Name),
+			zap.String("threadId", req.ThreadID.String()))
+	}
+	es.a2aMu.Unlock()
+
 	// 检查是否需要路由到下一个Agent
 	es.checkRouting(ctx, req.ThreadID, config, output)
 
@@ -1236,14 +1308,14 @@ func (es *ExecutionService) buildContextLayers(ctx context.Context, threadID uui
 	// Layer 0: 系统提示（使用缓存的上下文）
 	layers.Layer0 = es.buildDynamicSystemPromptFromContext(tc, config)
 
-	// Layer 1: Thread历史 - 根据会话策略决定是否传递
-	// A2A resume 调用：不传递历史，CLI --resume 会自动恢复会话上下文
-	// A2A new 调用：传递历史，新会话需要历史上下文来理解当前状态
-	// 非 A2A 调用（用户直接触发）：传递历史
-	if req != nil && req.SessionStrategy == SessionStrategyResume {
-		layers.Layer1 = "" // A2A resume 调用不传递历史（CLI会自动恢复）
+	// Layer 1: Thread历史
+	// 有 ChainHistory 时：使用 BuildChainHistoryLayer 显示编号链路
+	// 无 ChainHistory 时：从数据库提取历史
+	if req != nil && req.ChainHistory != nil {
+		// 有 ChainHistory（人类触发或 A2A 触发）：使用链路历史格式（编号 + Agent 输出）
+		layers.Layer1 = BuildChainHistoryLayer(req.ChainHistory)
 	} else {
-		// 非 A2A 调用（用户直接触发）：使用结构化提取而非完整历史
+		// 无 ChainHistory：从数据库提取历史
 		messages, err := es.msgRepo.FindByThreadID(ctx, threadID, 100)
 		if err != nil {
 			return nil, err
@@ -1291,12 +1363,10 @@ func generateTriggerHint(toAgent *model.AgentRoleConfig) string {
 func (es *ExecutionService) buildDynamicSystemPromptFromContext(tc *ThreadContext, config *model.AgentRoleConfig) string {
 	var sb strings.Builder
 
-	// 注入治理摘要（A2A 协作规则）
-	sb.WriteString(BuildGovernanceDigestWithVersion())
-	sb.WriteString("\n")
-
-	// 原始系统提示
+	// 1. 角色定义（最核心，优先注入）
+	sb.WriteString(fmt.Sprintf("你是 %s (%s)。\n\n", config.Name, config.Description))
 	sb.WriteString(config.SystemPrompt)
+	sb.WriteString("\n\n")
 
 	// 从缓存中过滤当前 Agent 的转换规则
 	var transitions []model.Transition
@@ -1313,12 +1383,11 @@ func (es *ExecutionService) buildDynamicSystemPromptFromContext(tc *ThreadContex
 		agentMap[agent.ID.String()] = agent
 	}
 
-	// 注入协作提示（使用 trigger_hint 或智能生成）
+	// 2. 协作方（下游触发列表）
 	if len(transitions) > 0 {
-		sb.WriteString("\n\n## 下游协作方（需要时 @ 触发）\n")
-		sb.WriteString("**重要格式规则**：@mention 必须单独成行，不能嵌入句子中。\n")
-		sb.WriteString("正确示例：\n```\n@后端开发工程师 请实现用户登录 API\n```\n")
-		sb.WriteString("错误示例：\n```\n确认后我将 @后端开发工程师 进行实现  ← 无效，不会触发\n```\n\n")
+		sb.WriteString("## 下游协作方（需要时 @ 触发）\n")
+		sb.WriteString("**格式规则**：@mention 必须行首单独成行，不能嵌入句子。只有行首的@才会触发下游Agent。\n")
+		sb.WriteString("```\n@后端开发工程师 请实现用户登录API ← 正确，会触发\n确认后我将@后端开发工程师进行实现 ← 无效，不会触发\n```\n\n")
 		sb.WriteString("可用的下游协作方：\n")
 		for _, t := range transitions {
 			toAgent := agentMap[t.ToAgentID]
@@ -1335,19 +1404,13 @@ func (es *ExecutionService) buildDynamicSystemPromptFromContext(tc *ThreadContex
 			}
 
 			sb.WriteString(fmt.Sprintf("- %s\n", hint))
-		}
-		sb.WriteString("\n**角色边界**：你的职责是输出分析结果，不要直接进行代码实现。实现工作由下游协作方负责。\n")
-	}
+			}
+			}
 
-	// 注入出口检查提示
-	sb.WriteString("\n\n## 发送消息前的出口检查\n")
-	sb.WriteString("回复前问\"到我这里结束了吗？\"\n")
-	sb.WriteString("- 如果不是，想想谁需要接下来处理 → @ 对方\n")
-	sb.WriteString("- @ 前三问自检（短路规则）：\n")
-	sb.WriteString("  1. 需要对方采取行动？= 是 → 直接 @（跳过后续问题）\n")
-	sb.WriteString("  2. 对方需要知道这个信息？\n")
-	sb.WriteString("  3. 会影响对方的工作？\n")
-	sb.WriteString("  - 三个都否 → 不 @\n")
+	// 3. 协作守则（治理摘要）
+	sb.WriteString("---\n\n")
+	sb.WriteString(BuildGovernanceDigestWithVersion())
+	sb.WriteString("\n---\n\n")
 
 	return sb.String()
 }
@@ -1397,7 +1460,6 @@ func (es *ExecutionService) buildDynamicSystemPrompt(ctx context.Context, thread
 			fmt.Printf("[DEBUG] buildDynamicSystemPrompt: 注入 hint=%s\n", hint)
 			sb.WriteString(fmt.Sprintf("- %s\n", hint))
 		}
-		sb.WriteString("\n**角色边界**：你的职责是输出分析结果，不要直接进行代码实现。实现工作由下游协作方负责。\n")
 	}
 
 	// 注入出口检查提示
@@ -1448,6 +1510,83 @@ func (es *ExecutionService) ClearA2AContext(threadID uuid.UUID) {
 	es.a2aMu.Unlock()
 }
 
+// getRoutableTeamAgents 获取可路由团队的 AllowedAgents
+// 用于 T2T (Team-to-Team) 跨团队协作支持
+// 数据流: Thread → WorkflowTemplate.RoutableTeams → 目标 Team → AgentIDs → AgentConfigs
+func (es *ExecutionService) getRoutableTeamAgents(ctx context.Context, threadID uuid.UUID) []*model.AgentRoleConfig {
+	tc, err := es.getThreadContext(ctx, threadID)
+	if err != nil || tc.WorkflowTemplate == nil {
+		return nil
+	}
+
+	// 解析 RoutableTeams JSON
+	var routableTeamIDs []string
+	if len(tc.WorkflowTemplate.RoutableTeams) > 0 {
+		if err := json.Unmarshal(tc.WorkflowTemplate.RoutableTeams, &routableTeamIDs); err != nil {
+			logError("Failed to parse RoutableTeams", zap.Error(err))
+			return nil
+		}
+	}
+
+	if len(routableTeamIDs) == 0 {
+		return nil
+	}
+
+	logInfo("T2T: 解析 RoutableTeams",
+		zap.String("threadId", threadID.String()),
+		zap.Strings("routableTeamIDs", routableTeamIDs),
+		zap.Int("count", len(routableTeamIDs)))
+
+	// 收集所有可路由团队的 Agent
+	var allAgents []*model.AgentRoleConfig
+	for _, teamIDStr := range routableTeamIDs {
+		teamID, err := uuid.Parse(teamIDStr)
+		if err != nil {
+			logError("Invalid team ID in RoutableTeams", zap.String("teamID", teamIDStr), zap.Error(err))
+			continue
+		}
+
+		// 获取目标团队的工作流模板
+		teamTemplate, err := es.workflowRepo.FindByID(ctx, teamID)
+		if err != nil {
+			logInfo("RoutableTeam not found", zap.String("teamID", teamIDStr), zap.Error(err))
+			continue
+		}
+
+		// 解析目标团队的 AgentIDs
+		var agentIDs []string
+		if len(teamTemplate.AgentIDs) > 0 {
+			if err := json.Unmarshal(teamTemplate.AgentIDs, &agentIDs); err != nil {
+				logError("Failed to parse AgentIDs from RoutableTeam", zap.String("teamID", teamIDStr), zap.Error(err))
+				continue
+			}
+		}
+
+		logInfo("T2T: 获取目标团队 Agent",
+			zap.String("teamID", teamIDStr),
+			zap.String("teamName", teamTemplate.Name),
+			zap.Int("agentCount", len(agentIDs)))
+
+		// 获取每个 Agent 的配置
+		for _, idStr := range agentIDs {
+			id, err := uuid.Parse(idStr)
+			if err != nil {
+				continue
+			}
+			agent, err := es.configSvc.GetByID(ctx, id)
+			if err == nil {
+				allAgents = append(allAgents, agent)
+			}
+		}
+	}
+
+	logInfo("T2T: 可路由团队 Agent 获取完成",
+		zap.String("threadId", threadID.String()),
+		zap.Int("totalAgents", len(allAgents)))
+
+	return allAgents
+}
+
 // checkRouting 检查路由
 // 支持博弈场景：一个 mention 可能匹配多个 Agent
 // mentionIDs 是解析出的 Agent ID 列表
@@ -1481,14 +1620,25 @@ func (es *ExecutionService) checkRouting(ctx context.Context, threadID uuid.UUID
 		return
 	}
 
-	// 获取工作流模板中的 Agent 列表
-	allowedAgents := es.getAllowedAgentsFromWorkflow(ctx, threadID)
+	// 获取工作流模板中的 Agent 列表（当前团队）
+	currentTeamAgents := es.getAllowedAgentsFromWorkflow(ctx, threadID)
+		// 获取可路由团队的 Agent（T2T 支持）
+	routableTeamAgents := es.getRoutableTeamAgents(ctx, threadID)
 
-	// 构建 Agent ID -> AgentConfig 映射（限制在当前团队内）
+	// 构建 Agent ID -> AgentConfig 映射（合并当前团队和可路由团队）
 	agentMap := make(map[string]*model.AgentRoleConfig)
-	for _, agent := range allowedAgents {
-		agentMap[agent.ID.String()] = agent
-	}
+	for _, agent := range currentTeamAgents {
+			agentMap[agent.ID.String()] = agent
+		}
+		for _, agent := range routableTeamAgents {
+			agentMap[agent.ID.String()] = agent // 跨团队 Agent 加入映射
+		}
+
+		logInfo("T2T 路由: Agent 映射构建完成",
+			zap.String("threadId", threadID.String()),
+			zap.Int("currentTeamAgents", len(currentTeamAgents)),
+			zap.Int("routableTeamAgents", len(routableTeamAgents)),
+			zap.Int("totalAgents", len(agentMap)))
 
 	// 获取项目路径
 	var projectPath string
@@ -1523,8 +1673,11 @@ func (es *ExecutionService) checkRouting(ctx context.Context, threadID uuid.UUID
 	}
 
 	// 批量触发 Agent
-	for _, targetConfig := range agentsToTrigger {
-		// 更新 A2A 上下文
+	totalAgentsToTrigger := len(agentsToTrigger)
+	triggeredCount := 0
+		for _, targetConfig := range agentsToTrigger {
+			triggeredCount++
+			// 更新 A2A 上下文
 		es.a2aMu.Lock()
 		if a2aCtx.Depth >= MaxA2ADepth {
 			es.a2aMu.Unlock()
@@ -1590,7 +1743,11 @@ func (es *ExecutionService) checkRouting(ctx context.Context, threadID uuid.UUID
 		// 简化调用 - 不传递 contentBlocks（前序输出已包含工具调用结果）
 		a2aInput := es.buildA2AInput(ctx, threadID, currentConfig, a2aCtx, output, nil, sessionStrategy)
 
-		// 使用构建的 A2A 输入
+		// 构建 ChainHistory（与人类触发统一，使用编号+摘要格式）
+		remainingAgents := totalAgentsToTrigger - triggeredCount
+		chainHistory := BuildA2AChainContext(a2aCtx, sessionStrategy, remainingAgents, es.tokenBudgetManager)
+
+		// 使用构建的 A2A 输入和 ChainHistory（统一：A2A 触发也传递链路历史）
 		es.SpawnAgent(ctx, &SpawnRequest{
 			ThreadID:        threadID,
 			ConfigID:        targetConfig.ID,
@@ -1598,6 +1755,7 @@ func (es *ExecutionService) checkRouting(ctx context.Context, threadID uuid.UUID
 			Input:           a2aInput,
 			ProjectPath:     projectPath,
 			SessionStrategy: sessionStrategy,
+			ChainHistory:    chainHistory, // 统一：A2A 触发也传递链路历史
 		})
 	}
 
@@ -1634,6 +1792,122 @@ func (es *ExecutionService) parseMentions(content string) []string {
 	return result
 }
 
+// getOrCreateHumanChainHistory 构建人类触发的链路历史
+// 使用 a2aContexts[threadID] 统一管理（与 A2A 触发共用同一上下文）
+// 确保人类触发与 A2A 触发的上下文继承行为一致
+func (es *ExecutionService) getOrCreateHumanChainHistory(ctx context.Context, threadID uuid.UUID, userInput string) *A2AChainContext {
+	es.a2aMu.Lock()
+	defer es.a2aMu.Unlock()
+
+	// 获取或创建 A2AContext
+	a2aCtx, exists := es.a2aContexts[threadID]
+	if !exists {
+		// Token 预算保护：截断超长输入
+		content := userInput
+		if len(content) > 500 {
+			content = TruncateHeadTail(content, 500)
+		}
+
+		a2aCtx = &A2AContext{
+			Depth:             0,
+			InvokedAgents:     make(map[uuid.UUID]bool),
+			CompletedAgents:   make(map[uuid.UUID]bool),
+			PreviousResponses: []ChainResponse{
+				{
+					AgentID:   uuid.Nil,
+					AgentName: "User",
+					Content:   content,
+					Role:      "user",
+					Timestamp: time.Now().Unix(),
+				},
+			},
+			OriginalMessage: userInput,
+			ChainIndex:      1, // 人类是链路起点
+			SessionStrategy: SessionStrategyNew,
+		}
+		es.a2aContexts[threadID] = a2aCtx
+		logInfo("getOrCreateHumanChainHistory: 初始化 A2AContext",
+			zap.String("threadID", threadID.String()),
+			zap.Int("inputLen", len(userInput)))
+	} else {
+	// 已有 A2AContext，用户后续消息（与 SpawnAgentForUserMessage 一致）
+
+	// Token 预算保护：截断超长输入
+	content := userInput
+	if len(content) > 500 {
+	content = TruncateHeadTail(content, 500)
+	}
+
+	// 1. Append 用户消息到 PreviousResponses
+	a2aCtx.PreviousResponses = append(a2aCtx.PreviousResponses, ChainResponse{
+	AgentID:   uuid.Nil,
+	AgentName: "User",
+	Content:   content,
+	Role:      "user",
+	Timestamp: time.Now().Unix(),
+	})
+
+	// 2. 覆盖 OriginalMessage（新意图）
+	a2aCtx.OriginalMessage = userInput
+
+	// 3. 增加 ChainIndex
+	a2aCtx.ChainIndex++
+
+	// 4. 重置 InvokedAgents/CompletedAgents
+	 a2aCtx.InvokedAgents = make(map[uuid.UUID]bool)
+			a2aCtx.CompletedAgents = make(map[uuid.UUID]bool)
+
+			// 5. 重置 Depth
+			a2aCtx.Depth = 0
+
+			// 6. Safeguard: 限制 PreviousResponses 长度
+			if len(a2aCtx.PreviousResponses) > MaxPreviousResponses {
+				logInfo("PreviousResponses 达到上限，删除最早的条目",
+					zap.Int("before", len(a2aCtx.PreviousResponses)),
+					zap.Int("after", MaxPreviousResponses))
+				a2aCtx.PreviousResponses = a2aCtx.PreviousResponses[len(a2aCtx.PreviousResponses)-MaxPreviousResponses:]
+			}
+
+			logInfo("getOrCreateHumanChainHistory: 用户后续消息",
+				zap.String("threadID", threadID.String()),
+				zap.Int("previousResponsesLen", len(a2aCtx.PreviousResponses)),
+				zap.Int("chainIndex", a2aCtx.ChainIndex))
+		}
+
+	// 使用 BuildA2AChainContext 构建链路历史（与 A2A 触发统一）
+	return BuildA2AChainContext(a2aCtx, SessionStrategyNew, 1, es.tokenBudgetManager)
+}
+
+// buildHumanChainHistory 构建人类触发的 ChainHistory（已废弃，使用 getOrCreateHumanChainHistory）
+// 将用户输入作为 PreviousResponses 的第一个条目
+// 包含 Token 预算保护：截断超长输入
+func (es *ExecutionService) buildHumanChainHistory(userInput string) *A2AChainContext {
+	// Token 预算保护：截断超长输入
+	content := userInput
+	if len(content) > 500 {
+		content = TruncateHeadTail(content, 500)
+	}
+
+	return &A2AChainContext{
+		ChainIndex:        1,           // 人类是链路起点
+		ChainTotal:        1,           // 预计链路长度
+		PreviousResponses: []ChainResponse{
+			{
+				AgentID:   uuid.Nil,    // 人类无 AgentID
+				AgentName: "User",      // 标识为用户
+				Content:   content,     // 截断后的内容
+				Role:      "user",      // 角色标识
+				Timestamp: time.Now().Unix(),
+			},
+		},
+		OriginalMessage:   userInput,    // 保留完整原始消息
+		FromAgent:         nil,          // nil 表示人类触发
+		SessionStrategy:   SessionStrategyNew,
+		Depth:             0,            // 人类触发深度为 0
+		A2AEnabled:        true,         // 允许后续 A2A
+	}
+}
+
 // buildA2AInput 构建 A2A 输入
 // 参考 clowder-ai 的做法：传递原始用户消息 + 格式化的前序响应上下文
 // 而不是传递包含 @mention 的原始输出
@@ -1649,51 +1923,20 @@ func (es *ExecutionService) buildA2AInput(
 ) string {
 	var sb strings.Builder
 
+	// 方案B：Input 只包含当前输入，历史全部由 Layer1 负责
+	// 移除：原始请求（已在 Layer1 conversation 中）
+	// 移除：前序分析（已在 Layer1 conversation 中）
+	// 移除：会话策略（下游不需要关心）
+	// 保留：协作规则、触发者信息（A2A 特有）
+
 	// 1. 协作规则（有触发者信息时注入）
 	if a2aCtx != nil && a2aCtx.FromAgent != nil {
 		sb.WriteString("## 协作规则\n\n")
-		sb.WriteString("A2A 出口检查：回复前问\"到我这里结束了吗？\"不是 → 谁需要动 → 末尾另起一行行首写 @句柄。\n\n")
+		sb.WriteString("A2A 出口检查：回复前问\"到我这里结束了吗？\"不是 → 末尾另起一行行首写 @句柄 触发下游。\n\n")
 		sb.WriteString("---\n\n")
 	}
 
-	// 2. 会话策略信息（新增）
-	sb.WriteString("## 会话策略\n\n")
-	if sessionStrategy == SessionStrategyResume {
-		sb.WriteString("**类型**: Resume（恢复会话）\n")
-		sb.WriteString("**说明**: CLI 将使用 --resume 恢复之前的会话上下文\n\n")
-	} else {
-		sb.WriteString("**类型**: New（新会话）\n")
-		sb.WriteString("**说明**: CLI 将使用全新会话，不继承历史上下文\n\n")
-	}
-	sb.WriteString("---\n\n")
-
-	// 3. 原始请求
-	originalMessage := es.getLastUserMessage(ctx, threadID)
-	if originalMessage != "" {
-		sb.WriteString("## 原始请求\n\n")
-		sb.WriteString(originalMessage)
-		sb.WriteString("\n\n---\n\n")
-	}
-
-	// 4. 前序分析（使用结构化过滤）
-	if fromAgent != nil {
-		sb.WriteString("## 前序分析（结构化摘要）\n\n")
-		sb.WriteString(fmt.Sprintf("**来自**: %s\n", fromAgent.Name))
-		if fromAgent.Role != "" {
-			sb.WriteString(fmt.Sprintf("**角色**: %s\n", es.getRoleDescription(fromAgent.Role)))
-		}
-		if fromAgent.Description != "" {
-			sb.WriteString(fmt.Sprintf("**擅长**: %s\n", fromAgent.Description))
-		}
-		sb.WriteString("\n")
-
-		// 结构化过滤后的输出
-		filteredOutput := es.filterStructuredOutput(output, contentBlocks)
-		sb.WriteString(filteredOutput)
-		sb.WriteString("\n\n---\n\n")
-	}
-
-	// 5. 触发者信息
+	// 2. 触发者信息（Direct message 提示）
 	if a2aCtx != nil && a2aCtx.FromAgent != nil {
 		sb.WriteString(fmt.Sprintf("**Direct message from %s; reply to %s**\n",
 			a2aCtx.FromAgent.Name,
@@ -1861,32 +2104,47 @@ func (es *ExecutionService) checkSignalRouting(ctx context.Context, threadID uui
 		}
 	}
 
-	// 获取工作流模板中的 Agent 列表
-	allowedAgents := es.getAllowedAgentsFromWorkflow(ctx, threadID)
+	// 获取工作流模板中的 Agent 列表（当前团队）
+	currentTeamAgents := es.getAllowedAgentsFromWorkflow(ctx, threadID)
+		// 获取可路由团队的 Agent（T2T 支持）
+	routableTeamAgents := es.getRoutableTeamAgents(ctx, threadID)
+
+		// 合并 Agent 列表用于 mention 解析（T2T 支持）
+	allAllowedAgents := append(currentTeamAgents, routableTeamAgents...)
 
 	// 收集所有待触发的 Agent（支持并行和博弈）
 	agentsToTrigger := make(map[uuid.UUID]*model.AgentRoleConfig) // 使用 map 去重
 
 	// ========== 1. 解析输出中的 @mention（优先触发，支持博弈场景）==========
-	// 使用 ParseForAgents 限制在当前工作流的 Agent 范围内
+	// 使用 ParseForAgents 限制在当前工作流 + 可路由团队的 Agent 范围内（T2T 支持）
 	var a2aMentions []string
 	if es.mentionParser != nil {
-		var err error
-		a2aMentions, err = es.mentionParser.ParseForAgents(ctx, output, config.ID.String(), allowedAgents)
-		if err != nil {
-			logError("checkSignalRouting: 解析失败", zap.Error(err))
+	 var err error
+	 a2aMentions, err = es.mentionParser.ParseForAgents(ctx, output, config.ID.String(), allAllowedAgents)
+	if err != nil {
+	 logError("checkSignalRouting: 解析失败", zap.Error(err))
+	}
 		}
-	}
-	logInfo("A2A @mention 解析结果（限制在工作流范围内）",
-		zap.String("fromAgent", config.Name),
-		zap.Strings("agentIDs", a2aMentions),
-		zap.Int("count", len(a2aMentions)))
+	logInfo("A2A @mention 解析结果（T2T 扩展范围）",
+	 zap.String("fromAgent", config.Name),
+	 zap.Strings("agentIDs", a2aMentions),
+	zap.Int("count", len(a2aMentions)),
+	 zap.Int("totalAllowedAgents", len(allAllowedAgents)))
 
-	// 构建 Agent ID -> AgentConfig 映射（限制在当前团队内）
-	agentMap := make(map[string]*model.AgentRoleConfig)
-	for _, agent := range allowedAgents {
-		agentMap[agent.ID.String()] = agent
-	}
+		// 构建 Agent ID -> AgentConfig 映射（合并当前团队和可路由团队）
+		agentMap := make(map[string]*model.AgentRoleConfig)
+		for _, agent := range currentTeamAgents {
+			agentMap[agent.ID.String()] = agent
+		}
+		for _, agent := range routableTeamAgents {
+			agentMap[agent.ID.String()] = agent // 跨团队 Agent 加入映射
+		}
+
+		logInfo("T2T 路由: Agent 映射构建完成",
+			zap.String("threadId", threadID.String()),
+			zap.Int("currentTeamAgents", len(currentTeamAgents)),
+			zap.Int("routableTeamAgents", len(routableTeamAgents)),
+			zap.Int("totalAgents", len(agentMap)))
 
 	// 博弈场景：一个 mention 可能匹配多个 Agent
 	for _, agentID := range a2aMentions {
@@ -3444,8 +3702,8 @@ func (es *ExecutionService) formatFullPrompt(layers *ContextLayers, input string
 	}
 
 	// 用户输入部分：区分 A2A 输入和普通输入
-	// A2A 输入包含 "## 会话策略" 或 "## 前序分析" 特征
-	if strings.Contains(input, "## 会话策略") || strings.Contains(input, "## 前序分析") {
+	// A2A 输入包含 "## 协作规则" 或 "Direct message from" 特征
+	if strings.Contains(input, "## 协作规则") || strings.Contains(input, "Direct message from") {
 		sb.WriteString("<a2a_input>\n")
 		sb.WriteString(input)
 		sb.WriteString("\n</a2a_input>\n")

@@ -5,27 +5,52 @@ import (
 )
 
 // GovernanceDigestVersion 治理摘要版本
-const GovernanceDigestVersion = "v1.0.0"
+const GovernanceDigestVersion = "v1.2.1"
 
 // GovernanceDigest 治理规则摘要（嵌入每个 Agent 调用的 L0）
 // 参考 clowder-ai GOVERNANCE_L0_DIGEST 设计：编译后约 150 tokens
 // 单一真相源：docs/governance/shared-rules.md
-var GovernanceDigest = `## 协作守则
-- 出口检查：回复前问"到我这里结束了吗？"→ 三问短路 → @ 或不
-- @mention：必须行首单独成行，不能嵌入句子
+var GovernanceDigest = `## ⚠️ 强制规则（必须遵守）
 
-## 质量约束
-- Bug 先定位根因，不盲目试错
-- 不确定先确认再继续
-- Scope 越界时记录并停止
+**完成工作后必须立即落盘 + 输出交接块** — 这是强制要求。
 
-## 交接规范
-- @ 下游时开头输出 <a2a-handoff> 五件套（What/Why/Tradeoff/Open/Next）
-- 交接块 Token ≤ 800
+执行顺序（不可跳过）：
 
-## Token 预算
-- 窗口：200K（Claude）
-- A2A 深度：动态计算，上限 15 层`
+1. **落盘记录**：docs/{任务名}-时间戳.md
+   - 同一任务所有Agent追加到同一文件
+   - 格式：[{时间}] {Agent名} - 工作成果、决策、tradeoffs
+
+2. **输出"xx完成"**
+
+3. **输出交接块**（在回复中）：
+<a2a-handoff>
+### What
+落盘记录**：docs/{任务名}-时间戳.md
+文件路径 + 操作
+
+### Why
+约束/风险
+
+### Tradeoff
+放弃的备选
+
+### Open
+不确定问题
+
+### Next
+希望下游做什么
+</a2a-handoff>
+
+4. **@mention 触发下游**
+
+**违规后果**：未落盘或缺少交接块 → 下游无上下文 → 任务失败归咎于你。
+
+---
+
+## 协作守则
+出口检查：工作完成后立即执行
+- 有下游：落盘 → "xx完成" → 交接块 → @mention → 触发下游
+- 无下游：落盘 → "xx完成" → 结束`
 
 // BuildGovernanceDigest 编译治理规则摘要
 // 返回约 150 tokens 的精简版本，嵌入 Layer0

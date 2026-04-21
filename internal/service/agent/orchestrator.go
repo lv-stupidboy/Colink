@@ -165,6 +165,10 @@ func NewOrchestrator(
 
 // SpawnAgent 启动Agent
 func (o *Orchestrator) SpawnAgent(ctx context.Context, req *SpawnRequest) (*model.AgentInvocation, error) {
+	// 人类触发：使用统一的 A2AContext 系统（与 SpawnAgentForUserMessage 共用）
+	if req.ChainHistory == nil && req.Input != "" && req.TriggeredBy == uuid.Nil {
+		req.ChainHistory = o.executionService.getOrCreateHumanChainHistory(ctx, req.ThreadID, req.Input)
+	}
 	// 委托给执行服务
 	return o.executionService.SpawnAgent(ctx, req)
 }
@@ -322,6 +326,8 @@ type SpawnRequest struct {
 	ProjectPath     string           // 工作目录
 	SessionID       string           // 会话ID（用于 --resume 复用已有会话）
 	SessionStrategy SessionStrategy  // 会话策略：new 或 resume
+	ChainHistory    *A2AChainContext // A2A 链路历史（人类触发或 A2A 触发）
+	TriggeredBy     uuid.UUID        // 触发者 invocationID（A2A 触发时设置）
 }
 
 // ContextLayers 上下文层
@@ -440,6 +446,11 @@ func (o *Orchestrator) SpawnDebugAgent(ctx context.Context, req *SpawnRequest) (
 		Status:        model.InvocationStatusRunning,
 		Input:         req.Input,
 		StartedAt:     timePtr(time.Now()),
+	}
+
+	// 人类触发：使用统一的 A2AContext 系统
+	if req.ChainHistory == nil && req.Input != "" && req.TriggeredBy == uuid.Nil {
+		req.ChainHistory = o.executionService.getOrCreateHumanChainHistory(ctx, req.ThreadID, req.Input)
 	}
 
 	// 启动goroutine执行Agent

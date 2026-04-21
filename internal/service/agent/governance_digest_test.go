@@ -20,9 +20,9 @@ func TestBuildGovernanceDigest(t *testing.T) {
 		"协作守则",
 		"出口检查",
 		"@mention",
-		"质量约束",
-		"交接规范",
-		"Token 预算",
+		"落盘记录",
+		"阻塞流程",
+		"工作成果",
 	}
 
 	for _, phrase := range keyPhrases {
