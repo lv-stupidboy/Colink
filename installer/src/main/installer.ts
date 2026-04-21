@@ -1113,38 +1113,7 @@ export async function runInstallation(
       }
     }
 
-    // Step 2-3: 安装依赖
-    if (config.installMode === 'auto') {
-      const claudeMissing = config.dependencies.find(d => d.key === 'claude' && !d.installed)
-      if (claudeMissing) {
-        sendProgress('claude', 'running', 0, '安装 Claude CLI...', '正在执行: npm install -g @anthropic-ai/claude-cli')
-        const result = await installNpmPackage('@anthropic-ai/claude-cli')
-        sendProgress('claude', result.success ? 'success' : 'failed', result.success ? 100 : 0,
-          result.success ? 'Claude CLI 安装成功' : 'Claude CLI 安装失败',
-          result.success ? '已安装到全局 npm 目录' : result.error)
-      } else {
-        sendProgress('claude', 'success', 100, 'Claude CLI 已安装', '检测到已安装，跳过')
-      }
-    } else {
-      sendProgress('claude', 'success', 100, '跳过自动安装', '手动模式')
-    }
-
-    if (config.installMode === 'auto') {
-      const opencodeMissing = config.dependencies.find(d => d.key === 'opencode' && !d.installed)
-      if (opencodeMissing) {
-        sendProgress('opencode', 'running', 0, '安装 OpenCode...', '正在执行: npm install -g @anthropic-ai/opencode')
-        const result = await installNpmPackage('@anthropic-ai/opencode')
-        sendProgress('opencode', result.success ? 'success' : 'failed', result.success ? 100 : 0,
-          result.success ? 'OpenCode 安装成功' : 'OpenCode 安装失败',
-          result.success ? '已安装到全局 npm 目录' : result.error)
-      } else {
-        sendProgress('opencode', 'success', 100, 'OpenCode 已安装', '检测到已安装，跳过')
-      }
-    } else {
-      sendProgress('opencode', 'success', 100, '跳过自动安装', '手动模式')
-    }
-
-    // Step 4: 配置文件处理（所见即所得）
+    // Step 2: 配置文件处理（所见即所得）
     sendProgress('config', 'running', 0, '写入配置文件...', `配置路径: ${config.installDir}/data/configs/config.yaml`)
     const configPath = join(config.installDir, 'data', 'configs', 'config.yaml')
 
@@ -1175,7 +1144,7 @@ export async function runInstallation(
       }
     }
 
-    // Step 5: 创建快捷方式
+    // Step 3: 创建快捷方式
     sendProgress('shortcut', 'running', 0, '创建快捷方式...', '桌面和开始菜单')
     if (config.createShortcut !== false) {
       await createDesktopShortcut(config.installDir)
@@ -1185,7 +1154,7 @@ export async function runInstallation(
       sendProgress('shortcut', 'success', 100, '跳过快捷方式', '用户选择不创建')
     }
 
-    // Step 6: 写入注册表
+    // Step 4: 写入注册表
     sendProgress('registry', 'running', 0, '写入注册表...', `版本: ${config.newVersion || '1.0.0'}`)
     await writeRegistry(config.installDir, config.newVersion || '1.0.0')
     sendProgress('registry', 'success', 100, '注册表已写入', `安装信息已注册到系统\n安装目录: ${config.installDir}`)

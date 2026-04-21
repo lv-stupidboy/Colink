@@ -1,8 +1,7 @@
 import { Dependency } from '../types'
 
+// 只检测智能体 CLI，不检测 Node.js 和 Git
 const DEPENDENCIES_CONFIG = [
-  { name: 'Node.js', key: 'nodejs', required: true, command: 'node --version' },
-  { name: 'Git', key: 'git', required: true, command: 'git --version' },
   { name: 'Claude CLI', key: 'claude', required: false, command: 'claude --version' },
   { name: 'OpenCode', key: 'opencode', required: false, command: 'opencode --version' },
 ]

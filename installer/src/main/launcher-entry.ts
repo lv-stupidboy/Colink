@@ -5,6 +5,7 @@ import http from 'http'
 import { ServiceManager } from './service-manager'
 import { getInstalledVersion } from './shared/install-utils'
 import { showCloseConfirm } from './shared/window-utils'
+import { checkDependency, installNpmPackage, generateConfigPreview, writeConfigFile, readExistingConfig } from './installer'
 
 const isDev = !app.isPackaged
 
@@ -144,6 +145,62 @@ ipcMain.handle('open-console', async () => {
   }
 
   shell.openExternal(`http://localhost:${port}`)
+})
+
+// ==================== 依赖管理 ====================
+
+ipcMain.handle('check-dependency', async (_event, key: string) => {
+  return checkDependency(key)
+})
+
+ipcMain.handle('install-dependency', async (_event, key: string) => {
+  const packages: Record<string, string> = {
+    claude: '@anthropic-ai/claude-cli',
+    opencode: '@anthropic-ai/opencode',
+  }
+  if (packages[key]) {
+    return installNpmPackage(packages[key])
+  }
+  return { success: false, error: '未知的依赖' }
+})
+
+ipcMain.handle('check-all-dependencies', async () => {
+  const deps = ['claude', 'opencode']
+  const results = []
+  for (const dep of deps) {
+    const result = await checkDependency(dep)
+    results.push({
+      key: dep,
+      name: dep === 'claude' ? 'Claude CLI' : 'OpenCode',
+      installed: result.installed,
+      version: result.version
+    })
+  }
+  return results
+})
+
+// ==================== 配置编辑 ====================
+
+ipcMain.handle('get-config-preview', async () => {
+  // 读取现有配置，生成预览
+  const existingResult = await readExistingConfig(installDir)
+  if (existingResult.success && existingResult.config) {
+    return generateConfigPreview({
+      installDir,
+      database: existingResult.config.database,
+      serverPort: existingResult.config.serverPort
+    })
+  }
+  return { success: false, error: '读取配置失败' }
+})
+
+ipcMain.handle('save-config', async (_event, yaml: string) => {
+  const configPath = join(installDir, 'data', 'configs', 'config.yaml')
+  return writeConfigFile(configPath, yaml)
+})
+
+ipcMain.handle('get-existing-config', async () => {
+  return readExistingConfig(installDir)
 })
 
 // ==================== 创建窗口 ====================

@@ -48,6 +48,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getServiceStatus: () => ipcRenderer.invoke('get-service-status'),
   getRunningAgents: () => ipcRenderer.invoke('get-running-agents'),
 
+  // 依赖管理（启动器）
+  checkAllDependencies: () => ipcRenderer.invoke('check-all-dependencies'),
+
+  // 配置编辑（启动器）
+  getConfigPreview: () => ipcRenderer.invoke('get-config-preview'),
+  saveConfig: (yaml: string) => ipcRenderer.invoke('save-config', yaml),
+  getExistingConfig: () => ipcRenderer.invoke('get-existing-config'),
+
   // 快捷操作
   openLogs: () => ipcRenderer.invoke('open-logs'),
   openDataDir: () => ipcRenderer.invoke('open-data-dir'),

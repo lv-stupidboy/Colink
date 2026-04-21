@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Spin, Tag } from 'antd'
+import { Spin, Tag, Alert } from 'antd'
 import { CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons'
 import { Dependency, InstallConfig, InstalledVersion } from '../types'
 import { checkAllDependencies } from '../services/dependency-checker'
@@ -66,9 +66,13 @@ export default function DependencyCheck({ onDependenciesUpdate }: DependencyChec
           </div>
 
           {missingCount > 0 && (
-            <p style={{ color: '#fa8c16', fontWeight: 500 }}>
-              检测到 <strong>{missingCount}</strong> 个依赖项缺失
-            </p>
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginTop: 16 }}
+              message="缺失的智能体可在启动器中安装"
+              description="安装完成后，在启动器的「依赖管理」中自助安装 Claude CLI 和 OpenCode。"
+            />
           )}
         </>
       )}

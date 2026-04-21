@@ -11,7 +11,7 @@ export interface Dependency {
 }
 
 // 安装模式
-export type InstallMode = 'auto' | 'manual' | 'skip'
+export type InstallMode = 'launcher-install' | 'skip'
 
 // 数据库配置
 export interface DatabaseConfig {
@@ -139,6 +139,14 @@ declare global {
       stopService: () => Promise<{ success: boolean }>
       getServiceStatus: () => Promise<{ status: 'running' | 'stopped' }>
       getRunningAgents: () => Promise<{ instances: RunningAgentInstance[] }>
+
+      // 依赖管理（启动器）
+      checkAllDependencies: () => Promise<Array<{ key: string; name: string; installed: boolean; version?: string }>>
+
+      // 配置编辑（启动器）
+      getConfigPreview: () => Promise<{ success: boolean; yaml?: string; error?: string }>
+      saveConfig: (yaml: string) => Promise<{ success: boolean; error?: string }>
+      getExistingConfig: () => Promise<{ success: boolean; config?: ExistingConfig; error?: string }>
 
       // 快捷操作
       openLogs: () => Promise<void>
