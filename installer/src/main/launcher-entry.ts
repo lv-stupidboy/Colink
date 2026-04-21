@@ -109,7 +109,24 @@ ipcMain.handle('get-running-agents', async () => {
 
 ipcMain.handle('open-logs', async () => {
   if (installDir) {
-    shell.openPath(join(installDir, 'data', 'logs'))
+    const logsDir = join(installDir, 'data', 'logs')
+    const logFile = join(logsDir, 'colink.log')
+
+    // 使用 PowerShell 的 Get-Content -Wait 实现 tail -f 功能
+    // 启动一个新的 PowerShell 窗口，显示日志最后 100 行并自动跟随新内容
+    if (existsSync(logFile)) {
+      const { spawn } = require('child_process')
+      spawn('powershell', [
+        '-Command',
+        `Get-Content -Path '${logFile}' -Wait -Tail 100`
+      ], {
+        detached: true,
+        stdio: 'ignore'
+      })
+    } else {
+      // 日志文件不存在，打开日志目录
+      shell.openPath(logsDir)
+    }
   }
 })
 

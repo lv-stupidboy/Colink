@@ -27,8 +27,8 @@ const INSTALL_PAGES = {
   6: SystemConfig,
 }
 
-const STEP_LABELS = ['欢迎', '验证邀请码', '目录选择', '依赖检测', '模式选择', '系统配置']
-const UPGRADE_STEP_LABELS = ['欢迎', '验证邀请码', '依赖检测', '系统配置']
+const STEP_LABELS = ['欢迎', '验证邀请码', '目录选择', '智能体检测', '模式选择', '系统配置']
+const UPGRADE_STEP_LABELS = ['欢迎', '验证邀请码', '智能体检测', '系统配置']
 
 export default function App() {
   const [mode, setMode] = useState<AppMode>('checking')

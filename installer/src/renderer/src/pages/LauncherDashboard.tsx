@@ -141,6 +141,13 @@ export function LauncherDashboard({
             </Tag>
           </div>
           <Space>
+            <Button
+              icon={<GlobalOutlined />}
+              onClick={handleOpenConsole}
+              disabled={!isRunning}
+            >
+              打开控制台
+            </Button>
             {isRunning ? (
               <Button
                 icon={<StopOutlined />}
@@ -206,13 +213,6 @@ export function LauncherDashboard({
       {/* 快捷操作 */}
       <Card title="快捷操作" size="small" style={{ marginBottom: 16 }}>
         <Space wrap>
-          <Button
-            icon={<GlobalOutlined />}
-            onClick={handleOpenConsole}
-            disabled={!isRunning}
-          >
-            打开控制台
-          </Button>
           <Button
             icon={<SettingOutlined />}
             onClick={() => setConfigEditorVisible(true)}
