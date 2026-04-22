@@ -31,8 +31,6 @@ const (
 	killGracePeriod = 3 * time.Second
 )
 
-// MaxA2ADepth A2A 最大深度限制
-const MaxA2ADepth = 15
 func killChild(cmd *exec.Cmd, cmdMu *sync.Mutex) {
 	cmdMu.Lock()
 	defer cmdMu.Unlock()
@@ -1685,14 +1683,6 @@ func (es *ExecutionService) checkRouting(ctx context.Context, threadID uuid.UUID
 	}
 	es.a2aMu.Unlock()
 
-	// 深度检查
-	if a2aCtx.Depth >= MaxA2ADepth {
-		logInfo("A2A 深度达到上限，停止路由",
-			zap.String("threadId", threadID.String()),
-			zap.Int("depth", a2aCtx.Depth))
-		return
-	}
-
 	// 获取工作流模板中的 Agent 列表（当前团队）
 	currentTeamAgents := es.getAllowedAgentsFromWorkflow(ctx, threadID)
 		// 获取可路由团队的 Agent（T2T 支持）
@@ -1752,11 +1742,6 @@ func (es *ExecutionService) checkRouting(ctx context.Context, threadID uuid.UUID
 			triggeredCount++
 			// 更新 A2A 上下文
 		es.a2aMu.Lock()
-		if a2aCtx.Depth >= MaxA2ADepth {
-			es.a2aMu.Unlock()
-			break
-		}
-		a2aCtx.Depth++
 		a2aCtx.InvokedAgents[targetConfig.ID] = true
 		// 设置触发者信息（A2A 优化）
 		a2aCtx.FromAgent = &AgentInfo{
@@ -2160,14 +2145,6 @@ func (es *ExecutionService) checkSignalRouting(ctx context.Context, threadID uui
 	a2aCtx.CompletedAgents[config.ID] = true
 	es.a2aMu.Unlock()
 
-	// 深度检查
-	if a2aCtx.Depth >= MaxA2ADepth {
-		logInfo("A2A 深度达到上限，停止自动路由",
-			zap.String("threadId", threadID.String()),
-			zap.Int("depth", a2aCtx.Depth))
-		return
-	}
-
 	// 获取项目路径
 	var projectPath string
 	if es.projectRepo != nil {
@@ -2251,11 +2228,6 @@ func (es *ExecutionService) checkSignalRouting(ctx context.Context, threadID uui
 
 		// 更新 A2A 上下文
 		es.a2aMu.Lock()
-		if a2aCtx.Depth >= MaxA2ADepth {
-			es.a2aMu.Unlock()
-			break
-		}
-		a2aCtx.Depth++
 		a2aCtx.InvokedAgents[targetConfig.ID] = true
 		// 设置触发者信息（A2A 优化）
 		a2aCtx.FromAgent = &AgentInfo{

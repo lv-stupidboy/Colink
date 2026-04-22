@@ -70,7 +70,6 @@ The OpenCode plugin implements ACP (Agent Client Protocol) over stdio:
 
 - `agentExecutionTimeout` = 10 minutes
 - `toolHeartbeatInterval` = 30 seconds
-- `MaxA2ADepth` = 15
 
 ## Session Resumption
 

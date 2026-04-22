@@ -132,5 +132,5 @@ human_task:
 market:
   # Colink官方市场配置（用于一键添加）
   name: "Colink官方市场"
-  url: ""  # 官方市场Git仓库URL，如 https://gitee.com/colink/marketplace.git
-  branch: "main"
+  url: "https://gitee.com/colink_1/colinkmarketplace.git"  # 官方市场Git仓库URL
+  branch: "master"
