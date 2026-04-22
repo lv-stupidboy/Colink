@@ -3,6 +3,10 @@
 
 set -e
 
+# Set mirrors for Chinese users (解决 GitHub 下载慢问题)
+export ELECTRON_MIRROR="https://npmmirror.com/mirrors/electron/"
+export ELECTRON_BUILDER_BINARIES_MIRROR="https://npmmirror.com/mirrors/electron-builder-binaries/"
+
 echo "===== Colink Build Started ====="
 
 # 0. Read version and generate full version with timestamp

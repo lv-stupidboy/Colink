@@ -6,6 +6,10 @@ $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
+# Set mirrors for Chinese users (解决 GitHub 下载慢问题)
+$env:ELECTRON_MIRROR = "https://npmmirror.com/mirrors/electron/"
+$env:ELECTRON_BUILDER_BINARIES_MIRROR = "https://npmmirror.com/mirrors/electron-builder-binaries/"
+
 Write-Host "===== Colink Build Started =====" -ForegroundColor Green
 
 # 0. Read version and generate full version with timestamp

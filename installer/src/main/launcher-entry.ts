@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog, shell, Menu } from 'electron'
 import { join } from 'path'
 import { existsSync, readFileSync } from 'fs'
 import http from 'http'
+import { exec } from 'child_process'
 import { ServiceManager } from './service-manager'
 import { getInstalledVersion } from './shared/install-utils'
 import { showCloseConfirm } from './shared/window-utils'
@@ -161,7 +162,15 @@ ipcMain.handle('open-console', async () => {
     }
   }
 
-  shell.openExternal(`http://localhost:${port}`)
+  const url = `http://localhost:${port}`
+  // 使用系统命令打开浏览器，绕过 Electron shell API 的 chrome_elf.dll 问题
+  if (process.platform === 'win32') {
+    exec(`start "" "${url}"`)
+  } else if (process.platform === 'darwin') {
+    exec(`open "${url}"`)
+  } else {
+    exec(`xdg-open "${url}"`)
+  }
 })
 
 // ==================== 依赖管理 ====================

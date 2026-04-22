@@ -37,7 +37,7 @@ export interface Project {
   type?: 'service' | 'app' | 'task';
   mode?: 'new' | 'enhance';
   localPath: string; // 本地路径（必填）
-  gitRepo?: string; // 仓库地址
+  repositoryUrl?: string; // 仓库地址
   status: 'active' | 'archived';
   workflowTemplateId?: string;
   workflowTemplate?: WorkflowTemplate;

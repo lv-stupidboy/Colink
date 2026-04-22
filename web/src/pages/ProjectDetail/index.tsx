@@ -346,8 +346,8 @@ const ProjectDetail: React.FC = () => {
             </Select>
           </Descriptions.Item>
           <Descriptions.Item label="仓库地址">
-            <Tooltip title={project.gitRepo || '-'} placement="topLeft">
-              <Text ellipsis>{project.gitRepo || '-'}</Text>
+            <Tooltip title={project.repositoryUrl || '-'} placement="topLeft">
+              <Text ellipsis style={{ maxWidth: 200 }}>{project.repositoryUrl || '-'}</Text>
             </Tooltip>
           </Descriptions.Item>
         </Descriptions>
@@ -425,7 +425,7 @@ const ProjectDetail: React.FC = () => {
               <Option value="enhance">功能增强</Option>
             </Select>
           </Form.Item>
-          <Form.Item name="gitRepo" label="仓库地址">
+          <Form.Item name="repositoryUrl" label="仓库地址">
             <Input placeholder="Git 仓库地址（可选）" />
           </Form.Item>
         </Form>

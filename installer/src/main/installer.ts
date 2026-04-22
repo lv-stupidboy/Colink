@@ -1,12 +1,15 @@
 import { exec, spawn, execSync } from 'child_process'
 import { promisify } from 'util'
-import { createWriteStream, existsSync, unlinkSync, rmSync, readdirSync, mkdirSync, writeFileSync, copyFileSync, readFileSync, statSync, renameSync } from 'fs'
+import { createWriteStream, existsSync, unlinkSync, rmSync, readdirSync, mkdirSync, writeFileSync, copyFileSync, readFileSync, statSync, renameSync, Dirent } from 'fs'
 import { join, dirname, basename } from 'path'
 import { BrowserWindow } from 'electron'
 import { https } from 'follow-redirects'
 import YAML from 'yaml'
 
 const execAsync = promisify(exec)
+
+// 让主线程有机会处理 IPC 消息（解决 UI 未响应问题）
+const yieldToMain = () => new Promise(resolve => setImmediate(resolve))
 
 // 使用 Promise 包装 fs 同步函数，避免 fs/promises 在 Electron 打包时被替换为 original-fs/promises 导致错误
 const fsMkdir = (path: string, options?: any) => Promise.resolve(mkdirSync(path, options))
@@ -15,6 +18,9 @@ const fsCopyFile = (src: string, dest: string) => Promise.resolve(copyFileSync(s
 const fsReadFile = (path: string, options?: any) => Promise.resolve(readFileSync(path, options))
 const fsUnlink = (path: string) => Promise.resolve(unlinkSync(path))
 const fsStat = (path: string) => Promise.resolve(statSync(path))
+const fsRm = (path: string, options?: any) => Promise.resolve(rmSync(path, options))
+const fsRename = (src: string, dest: string) => Promise.resolve(renameSync(src, dest))
+const fsReaddir = (path: string, options?: any) => Promise.resolve(readdirSync(path, options))
 
 // 手动递归复制目录（替代 cpSync，因为 original-fs 不支持 cpSync）
 function copyDirRecursive(src: string, dest: string): void {
@@ -426,12 +432,25 @@ export async function copyApplicationFiles(
   }
 }
 
-// 检查 Colink.exe 是否在运行
+// 检查 Colink.exe 和 colink-server.exe 是否在运行
 function checkColinkRunning(): boolean {
   try {
-    const output = execSync(`tasklist /fi "imagename eq Colink.exe" /fo csv`, { encoding: 'utf8' })
-    const lines = output.trim().split('\n')
-    return lines.length > 1
+    // 检查启动器
+    const launcherOutput = execSync(`tasklist /fi "imagename eq Colink.exe" /fo csv`, { encoding: 'utf8' })
+    const launcherLines = launcherOutput.trim().split('\n')
+    if (launcherLines.length > 1) {
+      return true
+    }
+
+    // 检查后端服务进程
+    const serverOutput = execSync(`tasklist /fi "imagename eq colink-server.exe" /fo csv`, { encoding: 'utf8' })
+    const serverLines = serverOutput.trim().split('\n')
+    if (serverLines.length > 1) {
+      console.log('[UninstallOld] colink-server.exe is running')
+      return true
+    }
+
+    return false
   } catch {
     return false
   }
@@ -455,35 +474,49 @@ export async function uninstallOldVersion(
   }
 
   try {
-    // 检查 Colink.exe 是否在运行，不允许自动停止
+    // 检查 Colink.exe 和 colink-server.exe 是否在运行，不允许自动停止
     if (checkColinkRunning()) {
-      const errorMsg = 'Colink.exe 正在运行，请先关闭启动器后重试。'
-      sendProgress('启动器仍在运行', errorMsg)
+      const errorMsg = 'Colink.exe 或 colink-server.exe 正在运行，请先关闭启动器和后端服务后重试。'
+      sendProgress('启动器或服务仍在运行', errorMsg)
       return { success: false, error: errorMsg }
     }
 
     onProgress?.(10)
+    await yieldToMain()
 
     // 删除快捷方式
     sendProgress('删除快捷方式...')
     const desktopPath = process.env.USERPROFILE + '\\Desktop\\Colink.lnk'
     const startMenuPath = process.env.USERPROFILE + '\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Colink.lnk'
-    try { if (existsSync(desktopPath)) rmSync(desktopPath) } catch {}
-    try { if (existsSync(startMenuPath)) rmSync(startMenuPath) } catch {}
+    try { if (existsSync(desktopPath)) await fsRm(desktopPath) } catch {}
+    try { if (existsSync(startMenuPath)) await fsRm(startMenuPath) } catch {}
     onProgress?.(20)
+    await yieldToMain()
 
     // 白名单模式：保留 data、resources 和 backup 目录
     // backup 目录可能是上次升级遗留的，或本次刚创建的，都不需要移动
     const whitelist = ['data', 'resources', 'backup']
-    const entries = readdirSync(installDir, { withFileTypes: true })
+    const entries = await fsReaddir(installDir, { withFileTypes: true }) as Dirent[]
     const entriesToMove = entries.filter(e => !whitelist.includes(e.name))
+    await yieldToMain()
 
     // 清理上次升级遗留的 backup 目录
     const backupDir = join(installDir, 'backup')
     if (existsSync(backupDir)) {
       sendProgress('清理 backup 目录...')
+
+      // 统计 backup 目录大小，用于诊断
       try {
-        rmSync(backupDir, { recursive: true, force: true })
+        const backupEntries = await fsReaddir(backupDir, { withFileTypes: true }) as Dirent[]
+        console.log(`[UninstallOld] backup 目录包含 ${backupEntries.length} 个条目`)
+        await yieldToMain()
+      } catch {}
+
+      const startTime = Date.now()
+      try {
+        await fsRm(backupDir, { recursive: true, force: true })
+        console.log(`[UninstallOld] backup 清理耗时 ${Date.now() - startTime}ms`)
+        await yieldToMain()
       } catch (e) {
         console.warn('[UninstallOld] Failed to clean backup:', e)
         // backup 清理失败不阻止升级，继续尝试
@@ -498,7 +531,8 @@ export async function uninstallOldVersion(
     }
 
     // 创建 backup 目录
-    mkdirSync(backupDir, { recursive: true })
+    await fsMkdir(backupDir, { recursive: true })
+    await yieldToMain()
 
     // 将非白名单内容移动到 backup 目录（替代删除，避免锁定）
     const totalEntries = entriesToMove.length
@@ -509,14 +543,22 @@ export async function uninstallOldVersion(
       const srcPath = join(installDir, entry.name)
       const destPath = join(backupDir, entry.name)
       sendProgress(`移动 ${entry.name} 到 backup...`)
+
+      console.log(`[UninstallOld] 开始移动: ${entry.name}`)
+      const moveStartTime = Date.now()
+
       try {
-        // 使用 renameSync 移动（比删除更不容易触发锁定问题）
-        renameSync(srcPath, destPath)
+        // 使用异步 rename 移动（比删除更不容易触发锁定问题）
+        await fsRename(srcPath, destPath)
         movedCount++
+        console.log(`[UninstallOld] ${entry.name} 移动成功，耗时 ${Date.now() - moveStartTime}ms`)
       } catch (e) {
         console.error(`[UninstallOld] Failed to move:`, srcPath, e)
         failedEntries.push(entry.name)
       }
+
+      // 每处理一个文件后让主线程有机会处理 IPC
+      await yieldToMain()
       onProgress?.(Math.round(20 + ((movedCount + failedEntries.length) / totalEntries) * 70))
     }
 
@@ -531,6 +573,7 @@ export async function uninstallOldVersion(
     sendProgress('清理注册表...')
     deleteRegistry()
     onProgress?.(95)
+    await yieldToMain()
 
     sendProgress('老版本已清理', 'data 和 resources 目录已保留，旧文件已移至 backup')
     onProgress?.(100)
