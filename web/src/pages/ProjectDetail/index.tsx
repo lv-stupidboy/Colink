@@ -17,6 +17,7 @@ import {
   Empty,
   Divider,
   Popconfirm,
+  Tooltip,
 } from 'antd';
 import {
   ArrowLeftOutlined,
@@ -315,13 +316,17 @@ const ProjectDetail: React.FC = () => {
           </Space>
         }
       >
-        <Descriptions column={2} size="small" labelStyle={{ width: 80, paddingBottom: 8 }} contentStyle={{ paddingBottom: 8 }}>
+        <Descriptions column={2} size="small" labelStyle={{ width: 80, paddingBottom: 8 }} contentStyle={{ paddingBottom: 8, flex: 1 }}>
           {/* 第一行 */}
           <Descriptions.Item label="描述">
-            <Text ellipsis style={{ maxWidth: 200 }}>{project.description || '-'}</Text>
+            <Tooltip title={project.description || '-'} placement="topLeft">
+              <Text ellipsis>{project.description || '-'}</Text>
+            </Tooltip>
           </Descriptions.Item>
           <Descriptions.Item label="本地路径">
-            <Text ellipsis style={{ maxWidth: 300 }}>{project.localPath || '-'}</Text>
+            <Tooltip title={project.localPath || '-'} placement="topLeft">
+              <Text ellipsis>{project.localPath || '-'}</Text>
+            </Tooltip>
           </Descriptions.Item>
           {/* 第二行 */}
           <Descriptions.Item label="绑定团队">
@@ -341,7 +346,9 @@ const ProjectDetail: React.FC = () => {
             </Select>
           </Descriptions.Item>
           <Descriptions.Item label="仓库地址">
-            <Text ellipsis style={{ maxWidth: 200 }}>{project.gitRepo || '-'}</Text>
+            <Tooltip title={project.gitRepo || '-'} placement="topLeft">
+              <Text ellipsis>{project.gitRepo || '-'}</Text>
+            </Tooltip>
           </Descriptions.Item>
         </Descriptions>
       </Card>
