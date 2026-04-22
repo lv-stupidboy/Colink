@@ -248,16 +248,16 @@
       "type": "file"
     },
     {
+      "path": "src\\store\\index.ts",
+      "accessCount": 4,
+      "lastAccessed": 1776837795047,
+      "type": "directory"
+    },
+    {
       "path": "src\\components\\thread\\MessageContent.tsx",
       "accessCount": 3,
       "lastAccessed": 1776701355661,
       "type": "file"
-    },
-    {
-      "path": "src\\store\\index.ts",
-      "accessCount": 3,
-      "lastAccessed": 1776738766139,
-      "type": "directory"
     },
     {
       "path": "src",
@@ -288,6 +288,18 @@
       "accessCount": 1,
       "lastAccessed": 1776738766427,
       "type": "directory"
+    },
+    {
+      "path": "C:\\Users\\hw\\AppData\\Local\\Temp\\claude\\D--CoLinkProject-Colink-0421-isdp\\66d11cda-a36a-49d0-89cf-37c7430d10c0\\tasks\\bh3kbmxel.output",
+      "accessCount": 1,
+      "lastAccessed": 1776837910581,
+      "type": "file"
+    },
+    {
+      "path": "C:\\Users\\hw\\AppData\\Local\\Temp\\claude\\D--CoLinkProject-Colink-0421-isdp\\66d11cda-a36a-49d0-89cf-37c7430d10c0\\tasks\\busc21ger.output",
+      "accessCount": 1,
+      "lastAccessed": 1776837910659,
+      "type": "file"
     }
   ],
   "userDirectives": []

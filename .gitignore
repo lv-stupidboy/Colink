@@ -69,3 +69,6 @@ installer/release/
 
 # OpenSpec 工作目录
 openspec/
+
+# oh my claude 工作目录
+.omc/

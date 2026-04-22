@@ -810,8 +810,11 @@ const ThreadView: React.FC = () => {
         const agentName = data.payload.agentName as string;
         const agentId = data.payload.agentId as string || '';
         const input = data.payload.input as string | undefined;
-        console.log('[agent_status] Received:', { status, invocId, agentName, agentId });
-        updateAgentStatus(invocId, status, agentName, input);
+        // failed 状态时获取详细错误信息
+        const errorDetails = status === 'failed' ? (data.payload.errorDetails as string | undefined) : undefined;
+        console.log('[agent_status] Received:', { status, invocId, agentName, agentId, hasErrorDetails: !!errorDetails });
+        // failed 状态时传递 errorDetails 作为 input（用于保存错误信息）
+        updateAgentStatus(invocId, status, agentName, errorDetails || input);
         // Agent 完成或中断时清理工具事件（包括 cancelled）
         if (status === 'completed' || status === 'failed' || status === 'interrupted' || status === 'cancelled') {
           clearToolEvents(invocId);
