@@ -152,7 +152,7 @@
 
 /* React Flow background */
 .react-flow__background {
-  background: var(--bg-layout);
+  background: var(--bg-base);
 }
 
 /* Loading overlay */

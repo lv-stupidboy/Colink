@@ -9,6 +9,8 @@ import {
   type Edge,
   type Connection,
   type OnConnect,
+  type NodeChange,
+  type EdgeChange,
 } from '@xyflow/react';
 import { Empty, Button } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
@@ -71,13 +73,13 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({ onNodeClick, onEdgeClick }) =
     }
   };
 
-  const handleNodesChange = useCallback((_changes: unknown[]) => {
+  const handleNodesChange = useCallback((_changes: NodeChange[]) => {
     if (mode === 'edit') {
       setHasChanges(true);
     }
   }, [mode, setHasChanges]);
 
-  const handleEdgesChange = useCallback((_changes: unknown[]) => {
+  const handleEdgesChange = useCallback((_changes: EdgeChange[]) => {
     if (mode === 'edit') {
       setHasChanges(true);
     }

@@ -12,6 +12,7 @@ interface AgentNodeProps {
 
 const AgentNode: React.FC<AgentNodeProps> = ({ data, selected }) => {
   const { agent } = data;
+  const agentName = agent?.name || 'Unknown';
 
   return (
     <div className={`agent-node ${selected ? 'selected' : ''}`}>
@@ -19,15 +20,15 @@ const AgentNode: React.FC<AgentNodeProps> = ({ data, selected }) => {
 
       <div className="agent-node-icon">
         <AgentTypeIcon
-          requiresHuman={agent.requiresHuman}
-          isSystem={agent.isSystem}
+          requiresHuman={agent?.requiresHuman}
+          isSystem={agent?.isSystem}
           size={24}
         />
       </div>
       <div className="agent-node-name">
-        {agent.name.length > 12 ? agent.name.slice(0, 12) + '...' : agent.name}
+        {agentName.length > 12 ? agentName.slice(0, 12) + '...' : agentName}
       </div>
-      {agent.isSystem && (
+      {agent?.isSystem && (
         <div className="agent-node-badge">系统</div>
       )}
 
