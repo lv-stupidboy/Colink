@@ -2,6 +2,13 @@
 import type { Node, Edge } from '@xyflow/react';
 import type { AgentConfig, Transition, WorkflowTemplate } from '@/types';
 
+// 布局配置
+export const LAYOUT_CONFIG = {
+  direction: 'LR' as const,   // Left-to-Right
+  nodeSep: 50,                // 节点间距
+  rankSep: 100,               // 层级间距
+};
+
 // Convert WorkflowTemplate to React Flow data
 export function toFlowData(
   workflow: WorkflowTemplate,
@@ -48,25 +55,4 @@ export function toWorkflowData(
   }));
 
   return { agentIds, transitions };
-}
-
-// Calculate automatic layout positions
-export function calculateLayout(nodeCount: number): { x: number; y: number }[] {
-  const positions: { x: number; y: number }[] = [];
-  const startX = 100;
-  const startY = 100;
-  const gapX = 150;
-  const gapY = 100;
-  const maxPerRow = 5;
-
-  for (let i = 0; i < nodeCount; i++) {
-    const row = Math.floor(i / maxPerRow);
-    const col = i % maxPerRow;
-    positions.push({
-      x: startX + col * gapX,
-      y: startY + row * gapY,
-    });
-  }
-
-  return positions;
 }
