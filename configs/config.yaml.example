@@ -2,6 +2,13 @@ server:
   port: 26305
   mode: debug
 
+# 前端开发服务器配置
+web:
+  # 前端开发服务器端口
+  port: 26301
+  # 后端 API 地址（前端代理目标）
+  api_url: http://127.0.0.1:26305
+
 # 数据目录配置
 data:
   # 数据根目录，子目录: configs/, logs/, agent-assets/, agent-configs/, repos/
