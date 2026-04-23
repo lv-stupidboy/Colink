@@ -295,14 +295,6 @@ const BaseAgentSettings: React.FC = () => {
                       extra={
                         <div>
                           <Text type="secondary">自定义 API 地址，默认使用官方地址</Text>
-                          <br />
-                          <Text type="warning" style={{ fontSize: 12 }}>
-                            ⚠️ API URL 需要写入配置文件，不支持环境变量。
-                            <br />
-                            Windows: %LOCALAPPDATA%\opencode\opencode.json
-                            <br />
-                            Linux/macOS: ~/.local/share/opencode/opencode.json
-                          </Text>
                         </div>
                       }
                     >
@@ -311,15 +303,7 @@ const BaseAgentSettings: React.FC = () => {
                     <Form.Item
                       name="apiToken"
                       label="API Token"
-                      extra={
-                        <div>
-                          <Text type="secondary">OpenCode API 令牌，用于身份认证</Text>
-                          <br />
-                          <Text type="secondary" style={{ fontSize: 12 }}>
-                            可通过环境变量 OPENCODE_API_KEY 传递，或写入配置文件
-                          </Text>
-                        </div>
-                      }
+                      extra="OpenCode API 令牌，用于身份认证"
                     >
                       <Input.Password placeholder="输入API令牌" />
                     </Form.Item>
