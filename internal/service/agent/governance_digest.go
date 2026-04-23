@@ -5,74 +5,59 @@ import (
 )
 
 // GovernanceDigestVersion 治理摘要版本
-const GovernanceDigestVersion = "v1.2.1"
+const GovernanceDigestVersion = "v1.3.1"
 
 // GovernanceDigest 治理规则摘要（嵌入每个 Agent 调用的 L0）
 // 参考 clowder-ai GOVERNANCE_L0_DIGEST 设计：编译后约 150 tokens
 // 单一真相源：docs/governance/shared-rules.md
+// v1.3.0: 合并协作规则，增加下游接力判断强制要求
+// v1.3.1: 强化 @mention 格式规则，增加正确/错误示例
 var GovernanceDigest = `## ⚠️ 强制规则（必须遵守）
 
-**完成工作后必须立即落盘 + 输出交接块** — 这是强制要求。
+**完成工作后必须判断是否需要下游接力：**
+需要 → 另起一行，行首写 @mention（严禁嵌入句子）
+不需要 → 回复"无需下游：{原因}"
 
-执行顺序（不可跳过）：
+**@mention 格式（强制）**：
+正确：
+@前端开发工程师 请实现登录页面
 
-1. **落盘记录**：docs/{任务名}-时间戳.md
-   - 同一任务所有Agent追加到同一文件
-   - 格式：[{时间}] {Agent名} - 工作成果、决策、tradeoffs
+错误（无效，不会触发）：
+确认后我将@前端开发工程师进行实现
 
-2. **输出"xx完成"**
+**落盘记录**：docs/{任务名}-时间戳.md
 
-3. **输出交接块**（在回复中）：
+**交接块**（触发下游时必须）：
 <a2a-handoff>
-### What
-落盘记录**：docs/{任务名}-时间戳.md
-文件路径 + 操作
-
-### Why
-约束/风险
-
-### Tradeoff
-放弃的备选
-
-### Open
-不确定问题
-
-### Next
-希望下游做什么
-</a2a-handoff>
-
-4. **@mention 触发下游**
-
-**违规后果**：未落盘或缺少交接块 → 下游无上下文 → 任务失败归咎于你。
-
----
-
-## 协作守则
-出口检查：工作完成后立即执行
-- 有下游：落盘 → "xx完成" → 交接块 → @mention → 触发下游
-- 无下游：落盘 → "xx完成" → 结束`
+### What | ### Why | ### Next
+</a2a-handoff>`
 
 // BuildGovernanceDigest 编译治理规则摘要
 // 返回约 150 tokens 的精简版本，嵌入 Layer0
 // 参考 clowder-ai SystemPromptBuilder 中的 GOVERNANCE_L0_DIGEST
+// 支持热更新：优先从配置文件加载，否则使用默认值
 func BuildGovernanceDigest() string {
-	return GovernanceDigest
+	content := GetGovernanceDigestContent()
+	if content == "" {
+		return GovernanceDigest // 使用默认值
+	}
+	return content
 }
 
 // BuildGovernanceDigestWithVersion 带版本的治理摘要
 func BuildGovernanceDigestWithVersion() string {
 	var sb strings.Builder
 	sb.WriteString("<!-- GOVERNANCE_DIGEST_VERSION: ")
-	sb.WriteString(GovernanceDigestVersion)
+	sb.WriteString(GetGovernanceDigestVersion())
 	sb.WriteString(" -->\n\n")
-	sb.WriteString(GovernanceDigest)
+	sb.WriteString(BuildGovernanceDigest())
 	sb.WriteString("\n")
 	return sb.String()
 }
 
 // GovernanceDigestTokens 估算治理摘要 Token 数
 func GovernanceDigestTokens() int {
-	return EstimateTokens(GovernanceDigest)
+	return EstimateTokens(BuildGovernanceDigest())
 }
 
 // ValidateGovernanceDigest 验证摘要 Token 数是否符合约束

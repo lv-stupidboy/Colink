@@ -1454,33 +1454,30 @@ func (es *ExecutionService) buildDynamicSystemPromptFromContext(tc *ThreadContex
 		agentMap[agent.ID.String()] = agent
 	}
 
-	// 2. 协作方（下游触发列表）
+	// 2. 协作治理规则（合并版：治理摘要 + 下游协作方）
+	sb.WriteString("---\n\n")
+	sb.WriteString(BuildGovernanceDigestWithVersion())
+	sb.WriteString("\n")
+
+	// 动态追加下游协作方（合并到 L0）
 	if len(transitions) > 0 {
-		sb.WriteString("## 下游协作方（需要时 @ 触发）\n")
-		sb.WriteString("**格式规则**：@mention 必须行首单独成行，不能嵌入句子。只有行首的@才会触发下游Agent。\n")
-		sb.WriteString("```\n@后端开发工程师 请实现用户登录API ← 正确，会触发\n确认后我将@后端开发工程师进行实现 ← 无效，不会触发\n```\n\n")
-		sb.WriteString("可用的下游协作方：\n")
+		sb.WriteString("\n**你的下游协作方**：\n")
 		for _, t := range transitions {
 			toAgent := agentMap[t.ToAgentID]
 			var hint string
-
-			// 优先使用用户填写的 trigger_hint
 			if t.TriggerHint != "" {
 				hint = t.TriggerHint
 			} else if toAgent != nil {
-				// 智能生成
 				hint = generateTriggerHint(toAgent)
 			} else {
 				hint = fmt.Sprintf("@%s", t.ToAgentID[:8])
 			}
-
 			sb.WriteString(fmt.Sprintf("- %s\n", hint))
-			}
-			}
+		}
+	} else {
+		sb.WriteString("\n**无下游协作方** — 直接结束即可。\n")
+	}
 
-	// 3. 协作守则（治理摘要）
-	sb.WriteString("---\n\n")
-	sb.WriteString(BuildGovernanceDigestWithVersion())
 	sb.WriteString("\n---\n\n")
 
 	return sb.String()
