@@ -1,4 +1,5 @@
 // web/src/pages/Workflow/TeamGraphEditor/GraphCanvas.tsx
+import '@xyflow/react/dist/style.css';
 import React, { useCallback } from 'react';
 import {
   ReactFlow,
