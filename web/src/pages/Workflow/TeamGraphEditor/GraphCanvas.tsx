@@ -14,6 +14,7 @@ import {
   type OnConnect,
   type NodeChange,
   type EdgeChange,
+  MarkerType,
 } from '@xyflow/react';
 import { Empty, Button } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
@@ -30,6 +31,16 @@ interface GraphCanvasProps {
   onNodeClick?: (nodeId: string) => void;
   onEdgeClick?: (edgeId: string) => void;
 }
+
+// Default edge options with arrow marker
+const defaultEdgeOptions = {
+  type: 'default',
+  markerEnd: {
+    type: MarkerType.ArrowClosed,
+    width: 20,
+    height: 20,
+  },
+};
 
 const GraphCanvas: React.FC<GraphCanvasProps> = ({ onNodeClick, onEdgeClick }) => {
   const {
@@ -125,6 +136,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({ onNodeClick, onEdgeClick }) =
       nodesDraggable={mode === 'edit'}
       nodesConnectable={mode === 'edit'}
       elementsSelectable={true}
+      defaultEdgeOptions={defaultEdgeOptions}
       fitView
       fitViewOptions={{ padding: 0.2 }}
     >
