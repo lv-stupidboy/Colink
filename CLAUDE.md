@@ -22,8 +22,8 @@ cd installer && ./build.sh     # Unix/Linux/macOS
 
 ### 端口配置（灵活查找）
 - **后端端口**：查看 `configs/config.yaml.example` 中 `server.port`（默认 26305）
-- **前端端口**：查看 `web/vite.config.ts` 中 `server.port`（默认 26306）
-- **前端代理目标**：查看 `web/vite.config.ts` 中 `server.proxy['/api'].target`
+- **前端端口**：查看 `configs/config.yaml.example` 中 `web.port`（默认 26306）
+- **前端代理目标**：查看 `configs/config.yaml.example` 中 `web.api_url`
 
 ### 启动顺序
 **先启动后端，再启动前端**（前端代理依赖后端）
@@ -40,7 +40,7 @@ cd web && npm run dev
 命令行 `-config` → 环境变量 `ISDP_CONFIG` → `data/configs/config.yaml` → `configs/config.yaml`
 
 ### 前端代理规则
-- `/api/*` 代理到后端地址（查看 `web/vite.config.ts` 中 `server.proxy['/api'].target`）
+- `/api/*` 代理到后端地址（查看 `configs/config.yaml.example` 中 `web.api_url`）
 - WebSocket 代理已启用（`ws: true`）
 
 ### 注意事项
@@ -207,7 +207,7 @@ bin/migrate.exe up --db ./data/sqlite/colink.db --version 1.1.0 --json
 
 ### 服务端口（灵活查找）
 - 后端端口：查看 `configs/config.yaml.example` 中 `server.port`
-- 前端开发端口：查看 `web/vite.config.ts` 中 `server.port`
+- 前端开发端口：查看 `configs/config.yaml.example` 中 `web.port`
 
 ## Data 目录
 
