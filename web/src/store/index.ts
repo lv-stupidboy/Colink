@@ -335,16 +335,27 @@ export const useAppStore = create<AppState & AppActions>()(
         );
 
         // 更新消息中已完成的 content blocks 状态
+        // 同时从 metadata 中提取 agentName 设置到直接属性
         const updatedMessages = (messages || []).map((msg: Message) => {
-          if (msg.contentBlocks && msg.contentBlocks.length > 0) {
+          // 从 metadata 中提取 agentName 并设置到直接属性
+          const metadataAgentName = msg.metadata?.agentName as string | undefined;
+          const metadataAgentRole = msg.metadata?.agentRole as string | undefined;
+
+          let processedMsg = {
+            ...msg,
+            // 确保 agentName 直接属性有值（用于 ChatMessage 组件渲染）
+            agentName: msg.agentName || metadataAgentName || undefined,
+          };
+
+          if (processedMsg.contentBlocks && processedMsg.contentBlocks.length > 0) {
             // 检查消息关联的 invocation 是否已完成
             // 通过 agentId 或消息中的 metadata 判断
-            const msgInvocationId = msg.metadata?.invocationId as string | undefined;
+            const msgInvocationId = processedMsg.metadata?.invocationId as string | undefined;
             const isCompleted = msgInvocationId && completedInvocationIds.has(msgInvocationId);
 
             if (isCompleted) {
               // 更新 content blocks 的状态（只有 thinking 和 tool_use 有 status）
-              const updatedBlocks = msg.contentBlocks.map(block => {
+              const updatedBlocks = processedMsg.contentBlocks.map(block => {
                 if ((block.type === 'thinking' || block.type === 'tool_use') && 'status' in block && block.status === 'streaming') {
                   return {
                     ...block,
@@ -353,13 +364,13 @@ export const useAppStore = create<AppState & AppActions>()(
                 }
                 return block;
               });
-              return {
-                ...msg,
+              processedMsg = {
+                ...processedMsg,
                 contentBlocks: updatedBlocks,
               };
             }
           }
-          return msg;
+          return processedMsg;
         });
 
         set({
@@ -778,13 +789,23 @@ export const useAppStore = create<AppState & AppActions>()(
         );
 
         // 更新历史消息中已完成的 content blocks 状态
+        // 同时从 metadata 中提取 agentName 设置到直接属性
         const updatedNewMessages = newMessages.map((msg: Message) => {
-          if (msg.contentBlocks && msg.contentBlocks.length > 0) {
-            const msgInvocationId = msg.metadata?.invocationId as string | undefined;
+          // 从 metadata 中提取 agentName 并设置到直接属性
+          const metadataAgentName = msg.metadata?.agentName as string | undefined;
+
+          let processedMsg = {
+            ...msg,
+            // 确保 agentName 直接属性有值
+            agentName: msg.agentName || metadataAgentName || undefined,
+          };
+
+          if (processedMsg.contentBlocks && processedMsg.contentBlocks.length > 0) {
+            const msgInvocationId = processedMsg.metadata?.invocationId as string | undefined;
             const isCompleted = msgInvocationId && completedInvocationIds.has(msgInvocationId);
 
             if (isCompleted) {
-              const updatedBlocks = msg.contentBlocks.map(block => {
+              const updatedBlocks = processedMsg.contentBlocks.map(block => {
                 if ((block.type === 'thinking' || block.type === 'tool_use') && 'status' in block && block.status === 'streaming') {
                   return {
                     ...block,
@@ -793,13 +814,13 @@ export const useAppStore = create<AppState & AppActions>()(
                 }
                 return block;
               });
-              return {
-                ...msg,
+              processedMsg = {
+                ...processedMsg,
                 contentBlocks: updatedBlocks,
               };
             }
           }
-          return msg;
+          return processedMsg;
         });
 
         set({

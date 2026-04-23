@@ -418,7 +418,15 @@ const ThreadView: React.FC = () => {
 
         // 加载历史消息（直接替换，不追加）
         api.messages.list(threadId!).then(result => {
-          setDebugMessages(result.messages);
+          // 从 metadata 中提取 agentName 设置到直接属性
+          const processedMessages = (result.messages || []).map((msg: Message) => {
+            const metadataAgentName = msg.metadata?.agentName as string | undefined;
+            return {
+              ...msg,
+              agentName: msg.agentName || metadataAgentName || undefined,
+            };
+          });
+          setDebugMessages(processedMessages);
         }).catch(err => {
           console.error('Failed to load messages:', err);
         });
@@ -1151,7 +1159,15 @@ const ThreadView: React.FC = () => {
       // 加载历史消息
       try {
         const result = await api.messages.list(task.id);
-        result.messages.forEach(msg => addDebugMessage(msg));
+        // 从 metadata 中提取 agentName 设置到直接属性
+        const processedMessages = (result.messages || []).map((msg: Message) => {
+          const metadataAgentName = msg.metadata?.agentName as string | undefined;
+          return {
+            ...msg,
+            agentName: msg.agentName || metadataAgentName || undefined,
+          };
+        });
+        processedMessages.forEach(msg => addDebugMessage(msg));
       } catch (error) {
         console.error('Failed to load messages:', error);
       }
@@ -1163,7 +1179,15 @@ const ThreadView: React.FC = () => {
       setCurrentThread(task);
       try {
         const result = await api.messages.list(task.id);
-        result.messages.forEach(msg => addMessage(msg));
+        // 从 metadata 中提取 agentName 设置到直接属性
+        const processedMessages = (result.messages || []).map((msg: Message) => {
+          const metadataAgentName = msg.metadata?.agentName as string | undefined;
+          return {
+            ...msg,
+            agentName: msg.agentName || metadataAgentName || undefined,
+          };
+        });
+        processedMessages.forEach(msg => addMessage(msg));
       } catch (error) {
         console.error('Failed to load messages:', error);
       }
