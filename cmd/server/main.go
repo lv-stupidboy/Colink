@@ -360,6 +360,12 @@ func main() {
 	startupReconciler := agent.NewStartupReconciler(invocationRepo, contentBlockRepo)
 	startupReconciler.Reconcile(context.Background())
 
+	// 初始化 GovernanceDigest 管理器（热更新支持）
+	configsDir := filepath.Join(cfg.Data.BasePath, "configs")
+	if err := agent.InitGovernanceDigestManager(configsDir); err != nil {
+		logger.Warn("Failed to init GovernanceDigest manager, using default", zap.Error(err))
+	}
+
 	// 连接Message服务和Agent编排器（用户消息触发Agent）
 	messageService.SetAgentSpawner(orchestrator)
 
@@ -606,6 +612,10 @@ func main() {
 	// HumanTask Handler
 	humanTaskHandler := api.NewHumanTaskHandler(humanTaskSvc)
 	humanTaskHandler.RegisterRoutes(v1)
+
+	// Governance Handler（治理规则热更新）
+	governanceHandler := api.NewGovernanceHandler()
+	governanceHandler.RegisterRoutes(v1)
 
 	// 前端静态文件服务
 	router.Static("/assets", "./web/assets")
