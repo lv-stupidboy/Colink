@@ -69,6 +69,7 @@ interface TeamCardProps {
   onRemoveAgent: (index: number) => void;
   onOpenTriggerModal: (agent: TeamAgent, index: number) => void;
   onSaveAgentOrder: (agentIds: string[]) => Promise<void>;
+  onOpenGraphEditor?: () => void;
 }
 
 // 团队名称行内编辑组件
@@ -132,6 +133,7 @@ const TeamCard: React.FC<TeamCardProps> = ({
   onRemoveAgent,
   onOpenTriggerModal,
   onSaveAgentOrder,
+  onOpenGraphEditor,
 }) => {
   // 视图模式切换
   const [viewMode, setViewMode] = useState<ViewMode>('card');
@@ -178,6 +180,17 @@ const TeamCard: React.FC<TeamCardProps> = ({
             onClick={() => setViewMode(viewMode === 'card' ? 'graph' : 'card')}
             title={viewMode === 'card' ? '切换到关系图视图' : '切换到卡片视图'}
           />
+
+          {/* 打开关系图编辑器按钮 */}
+          {onOpenGraphEditor && (
+            <Button
+              type="text"
+              icon={<EditOutlined />}
+              size="small"
+              onClick={onOpenGraphEditor}
+              title="打开关系图编辑器"
+            />
+          )}
 
           {/* 删除按钮 */}
           {!team.isSystem && (
