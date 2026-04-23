@@ -21,9 +21,9 @@ cd installer && ./build.sh     # Unix/Linux/macOS
 ## 启动原则
 
 ### 端口配置（灵活查找）
-- **后端端口**：查看 `configs/config.yaml.example` 中 `server.port`（默认 26305）
-- **前端端口**：查看 `configs/config.yaml.example` 中 `web.port`（默认 26306）
-- **前端代理目标**：查看 `configs/config.yaml.example` 中 `web.api_url`
+- **后端端口**：查看 `data/configs/config.yaml` 中 `server.port`（默认 26305）
+- **前端端口**：查看 `data/configs/config.yaml` 中 `web.port`（默认 26306）
+- **前端代理目标**：查看 `data/configs/config.yaml` 中 `web.api_url`
 
 ### 启动顺序
 **先启动后端，再启动前端**（前端代理依赖后端）
@@ -206,8 +206,8 @@ bin/migrate.exe up --db ./data/sqlite/colink.db --version 1.1.0 --json
 - 过渡期保留 MySQL 支持（通过 `database.type` 配置切换）
 
 ### 服务端口（灵活查找）
-- 后端端口：查看 `configs/config.yaml.example` 中 `server.port`
-- 前端开发端口：查看 `configs/config.yaml.example` 中 `web.port`
+- 后端端口：查看 `configs/config.yaml` 中 `server.port`
+- 前端开发端口：查看 `configs/config.yaml` 中 `web.port`
 
 ## Data 目录
 
