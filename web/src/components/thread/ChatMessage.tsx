@@ -1,5 +1,5 @@
 // isdp/web/src/components/thread/ChatMessage.tsx
-import React, { memo } from 'react';
+import React, { memo, useCallback } from 'react';
 import { Tag, Button, Tooltip, Alert, Card, Space, Avatar } from 'antd';
 import { StopOutlined, ReloadOutlined, FileTextOutlined, ExclamationCircleOutlined, ThunderboltOutlined, UserOutlined } from '@ant-design/icons';
 import AgentTypeIcon from '@/components/AgentTypeIcon';
@@ -42,6 +42,7 @@ interface ChatMessageProps {
   onOpenCodePanel?: (files: FileChange[]) => void;
   onReplyClick?: (messageId: string) => void;  // 点击回复引用跳转
   onQuestionSubmit?: (blockId: string, answers: Record<number, string | string[]>, invocationId: string) => void;  // AskUserQuestion 答案提交
+  onAgentClick?: (agentName: string) => void;  // 点击 Agent 头像/名称的回调
 }
 
 /**
@@ -148,6 +149,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
   onOpenCodePanel: _onOpenCodePanel,
   onReplyClick,
   onQuestionSubmit,
+  onAgentClick,
 }) => {
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
@@ -158,6 +160,16 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
 
   // 头像颜色
   const avatarColor = isUser ? '#52c41a' : 'var(--color-primary)';
+
+  // Agent 名称（用于点击事件）
+  const displayAgentName = agentConfig?.name || message.agentName || roleDisplay;
+
+  // 点击 Agent 头像/名称的处理函数
+  const handleAgentClick = useCallback(() => {
+    if (!isUser && !isSystem && onAgentClick && displayAgentName) {
+      onAgentClick(displayAgentName);
+    }
+  }, [isUser, isSystem, onAgentClick, displayAgentName]);
 
   // 统一使用 contentBlocks，如果没有则从 content 转换
   // 同时过滤掉 a2a-handoff 块（已在调用日志面板中单独展示）
@@ -286,6 +298,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
         />
       ) : (
         <div
+          onClick={handleAgentClick}
           style={{
             width: 36,
             height: 36,
@@ -297,7 +310,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
             marginRight: '12px',
             position: 'relative',
             overflow: 'visible',
+            cursor: onAgentClick ? 'pointer' : 'default',
           }}
+          title={onAgentClick ? `点击 @${displayAgentName}` : undefined}
         >
           <AgentTypeIcon
             requiresHuman={agentConfig?.requiresHuman || false}
@@ -329,13 +344,16 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
           >
             <span
               className="chat-message-name"
+              onClick={handleAgentClick}
               style={{
                 fontWeight: 500,
                 color: '#262626',
                 fontSize: '14px',
+                cursor: onAgentClick ? 'pointer' : 'default',
               }}
+              title={onAgentClick ? `点击 @${displayAgentName}` : undefined}
             >
-              {agentConfig?.name || message.agentName || roleDisplay}
+              {displayAgentName}
             </span>
             {timestamp && (
               <span

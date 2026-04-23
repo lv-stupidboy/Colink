@@ -22,8 +22,10 @@ interface ThreadInputProps {
   agentOptions: AgentOption[];
   onSend: (content: string) => void;
   disabled?: boolean;
-  prefilledMention?: string;       // 预填入的 @mention 名称
+  prefilledMention?: string;       // 预填入的 @mention 名称（替换现有内容）
   onPrefillConsumed?: () => void;  // 预填入被使用后的回调
+  appendMention?: string;          // 追加的 @mention 名称（追加到现有内容后面）
+  onAppendConsumed?: () => void;   // 追加被使用后的回调
 }
 
 /**
@@ -36,8 +38,10 @@ export const ThreadInput: React.FC<ThreadInputProps> = memo(({
   agentOptions,
   onSend,
   disabled = false,
-  prefilledMention,          // 新增
-  onPrefillConsumed,         // 新增
+  prefilledMention,
+  onPrefillConsumed,
+  appendMention,
+  onAppendConsumed,
 }) => {
   const inputRef = useRef<any>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -133,6 +137,31 @@ export const ThreadInput: React.FC<ThreadInputProps> = memo(({
       }
     }
   }, [prefilledMention, agentOptions, onPrefillConsumed]);
+
+  // 追加 @mention（点击 Agent 头像/名称触发）
+  useEffect(() => {
+    if (appendMention && inputRef.current) {
+      // 检查是否在 agentOptions 中
+      const agentExists = agentOptions.some(
+        opt => opt.name === appendMention || opt.label.includes(appendMention)
+      );
+
+      if (agentExists) {
+        // 追加 @mention 到现有内容后面
+        const currentText = inputValue.trim();
+        const newMention = `@${appendMention} `;
+        // 如果已有内容，追加在后面；否则直接设置
+        const newText = currentText ? `${currentText} ${newMention}` : newMention;
+        setInputValue(newText);
+        inputRef.current.focus();
+
+        // 通知父组件追加已使用
+        if (onAppendConsumed) {
+          onAppendConsumed();
+        }
+      }
+    }
+  }, [appendMention, agentOptions, inputValue, onAppendConsumed]);
 
   // 键盘导航 - 上下键选择、Enter 确认、Escape 关闭
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {

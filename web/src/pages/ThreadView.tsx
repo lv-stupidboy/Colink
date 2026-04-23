@@ -208,6 +208,8 @@ const ThreadView: React.FC = () => {
 
   // Agent 完成后预填入状态
   const [prefilledMention, setPrefilledMention] = useState<string | undefined>(undefined);
+  // 点击 Agent 头像/名称追加 @mention 状态
+  const [appendMention, setAppendMention] = useState<string | undefined>(undefined);
   const [rightPanelActiveTab, setRightPanelActiveTab] = useState<'code' | 'sandbox'>('code');
   const [rightPanelWidth, setRightPanelWidth] = useState(520);
   const [isResizing, setIsResizing] = useState(false);
@@ -245,6 +247,11 @@ const ThreadView: React.FC = () => {
     }
     setExpandedFiles(newExpanded);
   };
+
+  // 点击 Agent 头像/名称时追加 @mention
+  const handleAgentClick = useCallback((agentName: string) => {
+    setAppendMention(agentName);
+  }, []);
 
   // 调试模式的 WebSocket 连接
   const connectDebugWebSocket = (id: string) => {
@@ -1896,6 +1903,7 @@ const ThreadView: React.FC = () => {
                     hasMoreHistory={!isDebugMode && messagesHasMore}
                     loadingMore={!isDebugMode && messagesLoadingMore}
                     onLoadMore={!isDebugMode ? loadMoreMessages : undefined}
+                    onAgentClick={handleAgentClick}
                   />
                   <MessageScrollIndicator
                     messages={messages}
@@ -1915,6 +1923,8 @@ const ThreadView: React.FC = () => {
               onSend={handleSend}
               prefilledMention={prefilledMention}
               onPrefillConsumed={() => setPrefilledMention(undefined)}
+              appendMention={appendMention}
+              onAppendConsumed={() => setAppendMention(undefined)}
             />
             </div>
           </div>
@@ -2029,6 +2039,7 @@ const ThreadView: React.FC = () => {
                     hasMoreHistory={!isDebugMode && messagesHasMore}
                     loadingMore={!isDebugMode && messagesLoadingMore}
                     onLoadMore={!isDebugMode ? loadMoreMessages : undefined}
+                    onAgentClick={handleAgentClick}
                   />
                   <MessageScrollIndicator
                     messages={messages}
@@ -2048,6 +2059,8 @@ const ThreadView: React.FC = () => {
               onSend={handleSend}
               prefilledMention={prefilledMention}
               onPrefillConsumed={() => setPrefilledMention(undefined)}
+              appendMention={appendMention}
+              onAppendConsumed={() => setAppendMention(undefined)}
             />
 
             {/* 检查点确认弹窗 */}
