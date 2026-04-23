@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import type { Node, Edge } from '@xyflow/react';
 import type { AgentConfig, Transition } from '@/types';
 import api from '@/api/client';
+import { calculateLayout, applyEdgeStyles } from './useAutoLayout';
 
 interface GraphState {
   // Mode
@@ -42,6 +43,7 @@ interface GraphActions {
   loadData: (teamId: string) => Promise<void>;
   saveChanges: () => Promise<void>;
   refreshAgent: (agentId: string) => Promise<void>;
+  relayout: () => void;
   reset: () => void;
 }
 
@@ -107,7 +109,10 @@ export const useGraphStore = create<GraphStoreState>((set, get) => ({
       target: targetId,
       data: { triggerHint: '' },
     };
+
+    // 添加边后触发 relayout 以应用正确的边样式
     set({ edges: [...edges, newEdge], hasChanges: true, error: null });
+    get().relayout();
   },
 
   removeEdge: (edgeId) => {
@@ -130,6 +135,16 @@ export const useGraphStore = create<GraphStoreState>((set, get) => ({
   })),
   setHasChanges: (hasChanges) => set({ hasChanges }),
 
+  relayout: () => {
+    const { nodes, edges } = get();
+    if (nodes.length === 0) return;
+
+    const { nodes: layoutedNodes, nodeLevels } = calculateLayout(nodes, edges);
+    const styledEdges = applyEdgeStyles(edges, nodeLevels);
+
+    set({ nodes: layoutedNodes, edges: styledEdges });
+  },
+
   loadData: async (teamId) => {
     set({ loading: true, teamId, error: null });
     try {
@@ -138,7 +153,8 @@ export const useGraphStore = create<GraphStoreState>((set, get) => ({
         api.agents.list(),
       ]);
 
-      const nodes = (workflow.agentIds || []).map((agentId: string, index: number) => {
+      // 先设置原始数据
+      const rawNodes = (workflow.agentIds || []).map((agentId: string, index: number) => {
         const agent = agents.find((a: AgentConfig) => a.id === agentId);
         return {
           id: agentId,
@@ -148,17 +164,21 @@ export const useGraphStore = create<GraphStoreState>((set, get) => ({
         };
       });
 
-      const edges = (workflow.transitions || []).map((t: Transition) => ({
+      const rawEdges = (workflow.transitions || []).map((t: Transition) => ({
         id: `${t.fromAgentId}-${t.toAgentId}`,
         source: t.fromAgentId,
         target: t.toAgentId,
         data: { triggerHint: t.triggerHint || '' },
       }));
 
+      // 计算布局并应用边样式
+      const { nodes: layoutedNodes, nodeLevels } = calculateLayout(rawNodes, rawEdges);
+      const styledEdges = applyEdgeStyles(rawEdges, nodeLevels);
+
       set({
         teamName: workflow.name || '',
-        nodes,
-        edges,
+        nodes: layoutedNodes,
+        edges: styledEdges,
         allAgents: agents || [],
         hasChanges: false,
         error: null,
