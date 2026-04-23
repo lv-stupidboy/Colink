@@ -125,6 +125,7 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({ onNodeClick, onEdgeClick }) =
       nodesDraggable={mode === 'edit'}
       nodesConnectable={mode === 'edit'}
       elementsSelectable={true}
+      panOnDrag={false}
       fitView
       fitViewOptions={{ padding: 0.2 }}
     >
