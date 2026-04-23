@@ -75,8 +75,8 @@ const MainLayout: React.FC = () => {
     if (path.startsWith('/settings') || path.startsWith('/registries')) {
       setOpenKeys(['settings']);
     } else if (path.startsWith('/market')) {
-      // 市场路径
-      setOpenKeys(['market']);
+      // 市场路径 - 需要展开 agents 和 market 两级
+      setOpenKeys(['agents', 'market']);
     } else if (path.startsWith('/agents')) {
       // Agent团队下的路径，需要展开到三级菜单
       if (path.startsWith('/agents/commands') || path.startsWith('/agents/subagents') ||
@@ -179,22 +179,22 @@ const MainLayout: React.FC = () => {
             },
           ],
         },
-      ],
-    },
-    {
-      key: 'market',
-      icon: <ShopOutlined />,
-      label: '市场',
-      children: [
         {
-          key: '/market/management',
+          key: 'market',
           icon: <ShopOutlined />,
-          label: '市场管理',
-        },
-        {
-          key: '/market/team-packages',
-          icon: <TeamOutlined />,
-          label: '团队包',
+          label: '市场',
+          children: [
+            {
+              key: '/market/management',
+              icon: <ShopOutlined />,
+              label: '市场管理',
+            },
+            {
+              key: '/market/team-packages',
+              icon: <TeamOutlined />,
+              label: '团队包',
+            },
+          ],
         },
       ],
     },
