@@ -178,8 +178,8 @@ interface AppActions {
   // 标记 question block 已提交（用于过滤历史消息中的重复渲染）
   markQuestionSubmitted: (blockId: string) => void;
 
-  // 用真实消息替换临时消息（完整替换，包括 contentBlocks）
-  replaceMessageId: (tempId: string, realId: string, realContentBlocks?: MessageContentBlock[]) => void;
+  // 用真实消息替换临时消息（完整替换，包括 contentBlocks 和 metadata）
+  replaceMessageId: (tempId: string, realId: string, realContentBlocks?: MessageContentBlock[], agentName?: string, agentRole?: string) => void;
 
   // 更新进度状态
   updateProgress: (invocationId: string, status: string, toolName?: string, toolInput?: Record<string, unknown>) => void;
@@ -495,6 +495,7 @@ export const useAppStore = create<AppState & AppActions>()(
               threadId: state.currentThread?.id || '',
               role: 'agent',
               agentId: state.streamingAgentId || '',
+              agentName: state.streamingAgentName || undefined,  // 设置直接属性
               content: state.streamingContentBlocks
                 .filter(b => b.type === 'text')
                 .map(b => b.type === 'text' ? b.content : '')
@@ -911,6 +912,7 @@ export const useAppStore = create<AppState & AppActions>()(
           threadId: state.currentThread?.id || '',
           role: 'agent',
           agentId: state.streamingAgentId || '',
+          agentName: state.streamingAgentName || undefined,  // 设置直接属性
           content,
           messageType: 'text',
           metadata: {
@@ -951,7 +953,7 @@ export const useAppStore = create<AppState & AppActions>()(
       });
     },
 
-    replaceMessageId: (tempId, realId, realContentBlocks) => {
+    replaceMessageId: (tempId, realId, realContentBlocks, agentName, agentRole) => {
       set((state) => {
         const messages = state.messages.map((m) =>
           m.id === tempId ? {
@@ -959,6 +961,14 @@ export const useAppStore = create<AppState & AppActions>()(
             id: realId,
             // 如果提供了真实的 contentBlocks，用真实的替换（避免重复渲染 question blocks）
             contentBlocks: realContentBlocks || m.contentBlocks,
+            // 更新 agentName 直接属性（用于 ChatMessage 组件渲染）
+            agentName: agentName || m.agentName,
+            // 更新 metadata（包含 agentName 和 agentRole）
+            metadata: {
+              ...m.metadata,
+              agentName: agentName || m.metadata?.agentName,
+              agentRole: agentRole || m.metadata?.agentRole,
+            },
           } : m
         );
         return { messages };

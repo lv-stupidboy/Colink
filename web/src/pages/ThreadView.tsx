@@ -749,14 +749,15 @@ const ThreadView: React.FC = () => {
           // 先完成流式消息（添加临时消息）- finalizeStreamingMessage 会将 question block IDs 加入 submittedQuestionBlockIds
           finalizeStreamingMessage(invocationId);
           // 然后用真实ID和真实contentBlocks替换临时消息（避免重复渲染 question blocks）
-          useAppStore.getState().replaceMessageId(tempId, realMessageId, contentBlocks);
+          // 同时更新 agentName 和 agentRole
+          useAppStore.getState().replaceMessageId(tempId, realMessageId, contentBlocks, agentName, agentRole);
         } else {
           // 非流式场景：检查是否已有临时消息（可能由 agent_status/completed 创建）
           const tempId = `agent-${realMessageId}`;
           const existingTemp = state.messages.find(m => m.id === tempId);
           if (existingTemp) {
-            // 替换临时ID为真实ID，同时替换contentBlocks
-            useAppStore.getState().replaceMessageId(tempId, realMessageId, contentBlocks);
+            // 替换临时ID为真实ID，同时替换contentBlocks和metadata
+            useAppStore.getState().replaceMessageId(tempId, realMessageId, contentBlocks, agentName, agentRole);
           } else {
             // 直接添加新消息（使用真实ID）
             addMessage({
@@ -764,6 +765,7 @@ const ThreadView: React.FC = () => {
               threadId: threadId!,
               role: 'agent',
               agentId: agentId,
+              agentName: agentName,  // 设置直接属性
               content: content,
               contentBlocks: contentBlocks,
               messageType: 'text',
