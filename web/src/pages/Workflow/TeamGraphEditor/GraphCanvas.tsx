@@ -1,10 +1,12 @@
 // web/src/pages/Workflow/TeamGraphEditor/GraphCanvas.tsx
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback } from 'react';
 import {
   ReactFlow,
   Background,
   Controls,
   MiniMap,
+  applyNodeChanges,
+  applyEdgeChanges,
   type Node,
   type Edge,
   type Connection,
@@ -42,15 +44,6 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({ onNodeClick, onEdgeClick }) =
     setMode,
   } = useGraphStore();
 
-  // Update store when nodes/edges change from store
-  useEffect(() => {
-    setNodes(storeNodes);
-  }, [storeNodes, setNodes]);
-
-  useEffect(() => {
-    setEdges(storeEdges);
-  }, [storeEdges, setEdges]);
-
   const onConnect: OnConnect = useCallback((connection: Connection) => {
     if (mode === 'edit' && connection.source && connection.target) {
       addEdgeToStore(connection.source, connection.target);
@@ -73,17 +66,25 @@ const GraphCanvas: React.FC<GraphCanvasProps> = ({ onNodeClick, onEdgeClick }) =
     }
   };
 
-  const handleNodesChange = useCallback((_changes: NodeChange[]) => {
-    if (mode === 'edit') {
-      setHasChanges(true);
-    }
-  }, [mode, setHasChanges]);
+  const handleNodesChange = useCallback(
+    (changes: NodeChange[]) => {
+      if (mode === 'edit') {
+        setNodes((nds) => applyNodeChanges(changes, nds));
+        setHasChanges(true);
+      }
+    },
+    [mode, setNodes, setHasChanges]
+  );
 
-  const handleEdgesChange = useCallback((_changes: EdgeChange[]) => {
-    if (mode === 'edit') {
-      setHasChanges(true);
-    }
-  }, [mode, setHasChanges]);
+  const handleEdgesChange = useCallback(
+    (changes: EdgeChange[]) => {
+      if (mode === 'edit') {
+        setEdges((eds) => applyEdgeChanges(changes, eds));
+        setHasChanges(true);
+      }
+    },
+    [mode, setEdges, setHasChanges]
+  );
 
   if (storeNodes.length === 0) {
     return (

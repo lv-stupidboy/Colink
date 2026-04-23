@@ -35,8 +35,8 @@ interface GraphActions {
   addEdge: (sourceId: string, targetId: string) => void;
   removeEdge: (edgeId: string) => void;
   updateEdgeTriggerHint: (edgeId: string, triggerHint: string) => void;
-  setNodes: (nodes: Node[]) => void;
-  setEdges: (edges: Edge[]) => void;
+  setNodes: (nodes: Node[] | ((nodes: Node[]) => Node[])) => void;
+  setEdges: (edges: Edge[] | ((edges: Edge[]) => Edge[])) => void;
   setHasChanges: (hasChanges: boolean) => void;
   setError: (error: string | null) => void;
   loadData: (teamId: string) => Promise<void>;
@@ -121,8 +121,12 @@ export const useGraphStore = create<GraphStoreState>((set, get) => ({
     set({ edges, hasChanges: true, error: null });
   },
 
-  setNodes: (nodes) => set({ nodes }),
-  setEdges: (edges) => set({ edges }),
+  setNodes: (nodes) => set((state) => ({
+    nodes: typeof nodes === 'function' ? nodes(state.nodes) : nodes
+  })),
+  setEdges: (edges) => set((state) => ({
+    edges: typeof edges === 'function' ? edges(state.edges) : edges
+  })),
   setHasChanges: (hasChanges) => set({ hasChanges }),
 
   loadData: async (teamId) => {
