@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
   Card, Table, Button, Space, Tag, message, Spin, Modal,
-  Descriptions, Collapse, Typography, Divider, Progress,
-  Alert, Popconfirm  // 新增：用于冲突提示和确认
+  Descriptions, Collapse, Typography, Divider,
+  Alert, Popconfirm  // 用于冲突提示和确认
 } from 'antd';
 import {
   CloudDownloadOutlined, ShopOutlined, CheckSquareOutlined,
@@ -27,16 +27,17 @@ const TeamPackages: React.FC = () => {
   const [previewData, setPreviewData] = useState<PackagePreviewResponse | null>(null);
   const [previewModalVisible, setPreviewModalVisible] = useState(false);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
-  const [batchImporting, setBatchImporting] = useState(false);
   const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0, success: 0, failed: 0 });
   const [batchResults, setBatchResults] = useState<Array<{ name: string; status: 'success' | 'failed'; error?: string }>>([]);
   const [batchModalVisible, setBatchModalVisible] = useState(false);
   const [confirmModalVisible, setConfirmModalVisible] = useState(false);
   const [pendingImportPackages, setPendingImportPackages] = useState<MarketPackage[]>([]);
-  // 批量导入预览状态（新增）
+  // 批量导入预览状态
   const [batchPreviewData, setBatchPreviewData] = useState<Map<string, PackagePreviewResponse>>(new Map());
   const [loadingBatchPreview, setLoadingBatchPreview] = useState(false);
   const [batchConflictTotal, setBatchConflictTotal] = useState(0);
+  // 批量导入确认按钮loading状态
+  const [confirmingBatch, setConfirmingBatch] = useState(false);
 
   useEffect(() => {
     loadPackages();
@@ -134,7 +135,7 @@ const TeamPackages: React.FC = () => {
 
       await api.teamPackages.syncPackage(pkg.name, confirm, pkg.marketId);
       message.success(`团队包 ${pkg.name} 导入成功`);
-      loadPackages();
+      loadPackages(true);  // 强制刷新以更新最近导入时间
       setPreviewModalVisible(false);
     } catch (error: any) {
       message.error(error.response?.data?.error || '导入失败');
@@ -143,7 +144,7 @@ const TeamPackages: React.FC = () => {
     }
   };
 
-  // 点击批量导入按钮 -> 使用批量预览API（并行处理）
+  // 点击批量导入按钮 -> 立即显示确认弹框（预览loading）
   const handleBatchImportClick = async () => {
     if (selectedRowKeys.length === 0) {
       message.warning('请先选择要导入的团队包');
@@ -154,7 +155,10 @@ const TeamPackages: React.FC = () => {
       selectedRowKeys.includes(`${pkg.marketId}-${pkg.name}`)
     );
     setPendingImportPackages(toImport);
+    setBatchPreviewData(new Map());  // 清空预览数据
+    setBatchConflictTotal(0);
     setLoadingBatchPreview(true);
+    setConfirmModalVisible(true);  // 立即显示弹框，用户看到loading反馈
 
     try {
       // 使用批量预览API（并行处理）
@@ -187,76 +191,61 @@ const TeamPackages: React.FC = () => {
       setBatchConflictTotal(result.totalConflicts);
     } catch (error: any) {
       message.error(error.response?.data?.error || '批量预览失败');
+      setConfirmModalVisible(false);  // 预览失败关闭弹框
       setPendingImportPackages([]);
     } finally {
       setLoadingBatchPreview(false);
-      setConfirmModalVisible(true);
     }
   };
 
-  // 确认后执行批量导入（使用批量API并行执行）
+  // 导入进度状态（用于逐项导入实时进度展示）
+  const [importProgressVisible, setImportProgressVisible] = useState(false);
+
+  // 确认后执行批量导入（逐项执行以展示实时进度）
   const handleBatchImportConfirm = async (mode: 'overwrite' | 'skip') => {
-    setConfirmModalVisible(false);
-    setBatchImporting(true);
+    // 进度弹框独立显示，不再关闭确认弹框（由调用方处理）
     setBatchProgress({ current: 0, total: pendingImportPackages.length, success: 0, failed: 0 });
     setBatchResults([]);
-    setBatchModalVisible(true);
+    setImportProgressVisible(true);
+
+    const results: Array<{ name: string; status: 'success' | 'failed'; error?: string }> = [];
+    let successCount = 0;
+    let failedCount = 0;
 
     try {
-      // 构建批量导入请求
-      const batchRequests = pendingImportPackages.map(pkg => {
+      // 逐项导入以展示实时进度
+      for (let i = 0; i < pendingImportPackages.length; i++) {
+        const pkg = pendingImportPackages[i];
         const preview = batchPreviewData.get(pkg.name);
         const confirm = buildImportConfirm(preview, mode);
-        return {
-          name: pkg.name,
-          marketId: pkg.marketId,
-          confirm,
-        };
-      });
 
-      // 使用批量API并行导入
-      const batchResult = await api.teamPackages.syncPackagesBatch(batchRequests);
+        try {
+          await api.teamPackages.syncPackage(pkg.name, confirm, pkg.marketId);
+          results.push({ name: pkg.name, status: 'success' });
+          successCount++;
+        } catch (error: any) {
+          results.push({ name: pkg.name, status: 'failed', error: error.response?.data?.error || '导入失败' });
+          failedCount++;
+        }
 
-      // 处理结果
-      const results: Array<{ name: string; status: 'success' | 'failed'; error?: string }> =
-        batchResult.results.map(r => ({
-          name: r.name,
-          status: r.error ? 'failed' : 'success',
-          error: r.error,
-        }));
-
-      setBatchResults(results);
-      setBatchProgress({
-        current: pendingImportPackages.length,
-        total: pendingImportPackages.length,
-        success: batchResult.successCount,
-        failed: batchResult.failedCount,
-      });
+        // 更新进度
+        setBatchResults([...results]);
+        setBatchProgress({ current: i + 1, total: pendingImportPackages.length, success: successCount, failed: failedCount });
+      }
     } catch (error: any) {
-      const errorMsg = error.response?.data?.error || '批量导入失败';
-      message.error(errorMsg);
-      // 全部标记为失败
-      const results = pendingImportPackages.map(pkg => ({
-        name: pkg.name,
-        status: 'failed' as const,
-        error: errorMsg,
-      }));
-      setBatchResults(results);
-      setBatchProgress({
-        current: pendingImportPackages.length,
-        total: pendingImportPackages.length,
-        success: 0,
-        failed: pendingImportPackages.length,
-      });
+      // 不应该到达这里，但作为兜底
+      message.error(error.response?.data?.error || '批量导入异常');
     }
 
-    setBatchImporting(false);
+    // 导入完成，进度弹框变为结果弹框
+    setImportProgressVisible(false);
+    setBatchModalVisible(true);
+    setConfirmingBatch(false);
     setSelectedRowKeys([]);
     setPendingImportPackages([]);
     setBatchPreviewData(new Map());
     setBatchConflictTotal(0);
-
-    loadPackages();
+    loadPackages(true);  // 强制刷新以更新最近导入时间
   };
 
   const getStatusTag = (status: string) => {
@@ -612,8 +601,8 @@ const TeamPackages: React.FC = () => {
               type="primary"
               icon={<CheckSquareOutlined />}
               onClick={handleBatchImportClick}
-              disabled={selectedRowKeys.length === 0 || batchImporting}
-              loading={batchImporting}
+              disabled={selectedRowKeys.length === 0}
+              loading={confirmingBatch || loadingBatchPreview}
             >
               批量导入
             </Button>
@@ -634,17 +623,51 @@ const TeamPackages: React.FC = () => {
         </Spin>
       </Card>
 
-      {/* 批量导入进度/结果弹框 */}
+      {/* 批量导入进度弹框 */}
       <Modal
-        title="批量导入"
+        title="导入进度"
+        open={importProgressVisible}
+        footer={null}
+        closable={false}
+        width={500}
+      >
+        <div>
+          <div style={{ marginBottom: 12 }}>
+            <Text strong>正在导入...</Text>
+            <Text type="secondary" style={{ marginLeft: 12 }}>
+              {batchProgress.current} / {batchProgress.total}
+            </Text>
+          </div>
+          <div style={{ marginBottom: 8 }}>
+            <Text type="secondary">成功: {batchProgress.success} 个 | 失败: {batchProgress.failed} 个</Text>
+          </div>
+          <Space direction="vertical" size="small" style={{ width: '100%' }}>
+            {batchResults.map((result, idx) => (
+              <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Tag color={result.status === 'success' ? 'green' : 'red'}>
+                  {result.status === 'success' ? '成功' : '失败'}
+                </Tag>
+                <Text>{result.name}</Text>
+                {result.error && (
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    ({result.error})
+                  </Text>
+                )}
+              </div>
+            ))}
+          </Space>
+        </div>
+      </Modal>
+
+      {/* 批量导入结果弹框 */}
+      <Modal
+        title="批量导入结果"
         open={batchModalVisible}
         onCancel={() => {
-          if (!batchImporting) {
-            setBatchModalVisible(false);
-            setBatchResults([]);
-          }
+          setBatchModalVisible(false);
+          setBatchResults([]);
         }}
-        footer={batchImporting ? null : [
+        footer={[
           <Button key="close" onClick={() => {
             setBatchModalVisible(false);
             setBatchResults([]);
@@ -654,42 +677,29 @@ const TeamPackages: React.FC = () => {
         ]}
         width={500}
       >
-        {batchImporting ? (
-          <div>
-            <Progress
-              percent={batchProgress.total > 0 ? Math.round(batchProgress.current / batchProgress.total * 100) : 0}
-              status="active"
-              format={() => `${batchProgress.current}/${batchProgress.total}`}
-            />
-            <Text type="secondary" style={{ marginTop: 8 }}>
-              成功: {batchProgress.success} | 失败: {batchProgress.failed}
+        <div>
+          <div style={{ marginBottom: 12 }}>
+            <Text strong>导入完成</Text>
+            <Text type="secondary" style={{ marginLeft: 12 }}>
+              成功 {batchProgress.success} 个，失败 {batchProgress.failed} 个
             </Text>
           </div>
-        ) : (
-          <div>
-            <div style={{ marginBottom: 12 }}>
-              <Text strong>导入结果</Text>
-              <Text type="secondary" style={{ marginLeft: 12 }}>
-                成功 {batchProgress.success} 个，失败 {batchProgress.failed} 个
-              </Text>
-            </div>
-            <Space direction="vertical" size="small" style={{ width: '100%' }}>
-              {batchResults.map((result, idx) => (
-                <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <Tag color={result.status === 'success' ? 'green' : 'red'}>
-                    {result.status === 'success' ? '成功' : '失败'}
-                  </Tag>
-                  <Text>{result.name}</Text>
-                  {result.error && (
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      ({result.error})
-                    </Text>
-                  )}
-                </div>
-              ))}
-            </Space>
-          </div>
-        )}
+          <Space direction="vertical" size="small" style={{ width: '100%' }}>
+            {batchResults.map((result, idx) => (
+              <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Tag color={result.status === 'success' ? 'green' : 'red'}>
+                  {result.status === 'success' ? '成功' : '失败'}
+                </Tag>
+                <Text>{result.name}</Text>
+                {result.error && (
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    ({result.error})
+                  </Text>
+                )}
+              </div>
+            ))}
+          </Space>
+        </div>
       </Modal>
 
       {/* 批量导入确认弹框（改为显示冲突汇总） */}
@@ -799,13 +809,14 @@ const TeamPackages: React.FC = () => {
                 setConfirmModalVisible(false);
                 setBatchPreviewData(new Map());
                 setBatchConflictTotal(0);
-              }}>
+              }} disabled={confirmingBatch}>
                 取消
               </Button>
               {batchConflictTotal === 0 ? (
                 <Button
                   type="primary"
                   icon={<CloudDownloadOutlined />}
+                  loading={confirmingBatch}
                   onClick={() => handleBatchImportConfirm('overwrite')}
                 >
                   确认导入
@@ -814,17 +825,27 @@ const TeamPackages: React.FC = () => {
                 <>
                   <Popconfirm
                     title="确定要覆盖所有冲突项吗？"
-                    onConfirm={() => handleBatchImportConfirm('overwrite')}
-                    okText="确定"
+                    description="此操作将覆盖已存在的 Team、Roles 和 Assets。"
+                    onConfirm={() => {
+                      setConfirmModalVisible(false);  // 先关闭确认弹框
+                      handleBatchImportConfirm('overwrite');
+                    }}
+                    okText="确定覆盖"
                     cancelText="取消"
                   >
-                    <Button type="primary" icon={<CloudDownloadOutlined />}>
+                    <Button
+                      type="primary"
+                      icon={<CloudDownloadOutlined />}
+                    >
                       全部覆盖
                     </Button>
                   </Popconfirm>
                   <Button
                     icon={<CloudDownloadOutlined />}
-                    onClick={() => handleBatchImportConfirm('skip')}
+                    onClick={() => {
+                      setConfirmModalVisible(false);  // 先关闭确认弹框
+                      handleBatchImportConfirm('skip');
+                    }}
                   >
                     全部跳过
                   </Button>
