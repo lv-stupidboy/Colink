@@ -37,6 +37,7 @@ func (h *MarketHandler) RegisterRoutes(r *gin.RouterGroup) {
 	g.DELETE("/:id", h.DeleteMarket)
 	g.POST("/:id/refresh", h.RefreshMarket)
 	g.GET("/packages", h.GetTeamPackages)
+	g.POST("/packages/refresh", h.RefreshPackages) // 新增
 }
 
 // ListMarkets 获取市场列表
@@ -173,11 +174,24 @@ func (h *MarketHandler) RefreshMarket(c *gin.Context) {
 
 // GetTeamPackages 获取所有市场的团队包
 func (h *MarketHandler) GetTeamPackages(c *gin.Context) {
-	packages, err := h.marketSvc.GetTeamPackages(c.Request.Context())
+	// 解析 forceRefresh 参数
+	forceRefresh := c.Query("forceRefresh") == "true"
+
+	packages, err := h.marketSvc.GetTeamPackages(c.Request.Context(), forceRefresh)
 	if err != nil {
 		h.logger.Error("get team packages failed", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": packages, "total": len(packages)})
+}
+
+// RefreshPackages 手动刷新所有市场缓存
+func (h *MarketHandler) RefreshPackages(c *gin.Context) {
+	if err := h.marketSvc.RefreshPackages(c.Request.Context()); err != nil {
+		h.logger.Error("refresh packages failed", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "packages refreshed"})
 }

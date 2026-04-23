@@ -714,8 +714,25 @@ class APIClient {
       this.request('/team-package-sync/check-update', 'GET'),
     previewPackage: (packageName: string, marketId?: string): Promise<PackagePreviewResponse> =>
       this.request('/team-package-sync/preview', 'POST', { packageName, marketId }),
+    previewPackagesBatch: (packages: Array<{ name: string; marketId: string }>): Promise<{
+      previews: Array<{ name: string; data: PackagePreviewResponse; error?: string }>;
+      totalConflicts: number;
+      successCount: number;
+      failedCount: number;
+    }> =>
+      this.request('/team-package-sync/preview-batch', 'POST', { packages }),
     syncPackage: (packageName: string, confirm?: ImportConfirm, marketId?: string): Promise<ImportResult> =>
       this.request('/team-package-sync/sync', 'POST', { packageName, confirm, marketId }),
+    syncPackagesBatch: (packages: Array<{
+      name: string;
+      marketId: string;
+      confirm?: ImportConfirm;
+    }>): Promise<{
+      results: Array<{ name: string; data: ImportResult; error?: string }>;
+      successCount: number;
+      failedCount: number;
+    }> =>
+      this.request('/team-package-sync/sync-batch', 'POST', { packages }),
     listLocalVersions: (): Promise<{ data: TeamPackageVersion[]; total: number }> =>
       this.request('/team-package-sync/local-versions', 'GET'),
   };
@@ -736,8 +753,14 @@ class APIClient {
       this.request(`/markets/${id}`, 'DELETE'),
     refresh: (id: string): Promise<{ message: string; plugins: number }> =>
       this.request(`/markets/${id}/refresh`, 'POST'),
-    getTeamPackages: (): Promise<{ data: MarketPackage[]; total: number }> =>
-      this.request('/markets/packages', 'GET'),
+    getTeamPackages: (forceRefresh?: boolean): Promise<{ data: MarketPackage[]; total: number }> => {
+      const url = forceRefresh
+        ? '/markets/packages?forceRefresh=true'
+        : '/markets/packages';
+      return this.request(url, 'GET');
+    },
+    refreshPackages: (): Promise<{ message: string }> =>
+      this.request('/markets/packages/refresh', 'POST'),
   };
 
   // Settings API
