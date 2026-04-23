@@ -77,6 +77,9 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 	env := a.buildEnv(req)
 	cmd.Env = env
 
+	// 构建可复制的完整命令（方便调试）
+	a.logCLICommand(cmd, args, env, "ExecuteWithStream")
+
 	stdinPipe, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, fmt.Errorf("ACP: failed to create stdin pipe: %w", err)
@@ -227,6 +230,9 @@ func (a *BaseACPAdapter) StartSession(ctx context.Context, sessionID string, req
 	env := a.buildEnv(req)
 	cmd.Env = env
 
+	// 构建可复制的完整命令（方便调试）
+	a.logCLICommand(cmd, args, env, "StartSession")
+
 	stdinPipe, err := cmd.StdinPipe()
 	if err != nil {
 		return fmt.Errorf("ACP: failed to create stdin pipe: %w", err)
@@ -373,7 +379,11 @@ func (a *BaseACPAdapter) CheckHealth(ctx context.Context) error {
 	args := a.config.buildArgs(&agent.ExecutionRequest{BaseAgent: a.baseAgent})
 	cmd := exec.CommandContext(ctx, a.config.cliPath, args...)
 	cmd.Dir = os.TempDir()
-	cmd.Env = a.buildEnv(&agent.ExecutionRequest{BaseAgent: a.baseAgent})
+	env := a.buildEnv(&agent.ExecutionRequest{BaseAgent: a.baseAgent})
+	cmd.Env = env
+
+	// 构建可复制的完整命令（方便调试）
+	a.logCLICommand(cmd, args, env, "CheckHealth")
 
 	stdinPipe, err := cmd.StdinPipe()
 	if err != nil {
@@ -693,4 +703,45 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// logCLICommand 构建并打印 PowerShell 格式的完整命令（方便调试）
+func (a *BaseACPAdapter) logCLICommand(cmd *exec.Cmd, args []string, env []string, method string) {
+	// 提取关键环境变量用于日志，对敏感信息脱敏
+	var envVarsForLog []string
+	for _, e := range env {
+		if strings.HasPrefix(e, "OPENCODE_") {
+			idx := strings.Index(e, "=")
+			if idx > 0 {
+				key := e[:idx]
+				value := e[idx+1:]
+				// 对 CONFIG_CONTENT 中的 JSON 内容进行截断（可能很长）
+				if key == "OPENCODE_CONFIG_CONTENT" && len(value) > 200 {
+					value = value[:200] + "...(truncated)"
+				}
+				envVarsForLog = append(envVarsForLog, fmt.Sprintf("$env:%s=\"%s\"", key, value))
+			}
+		}
+	}
+
+	// 构建 PowerShell 格式的完整命令
+	cliCmd := a.config.cliPath + " " + strings.Join(args, " ")
+	var cmdForCopy strings.Builder
+	if cmd.Dir != "" {
+		cmdForCopy.WriteString(fmt.Sprintf("cd \"%s\"; ", cmd.Dir))
+	}
+	for _, envLine := range envVarsForLog {
+		cmdForCopy.WriteString(envLine)
+		cmdForCopy.WriteString("; ")
+	}
+	cmdForCopy.WriteString(cliCmd)
+
+	logInfo("OpenCode: CLI command (PowerShell, copy to test)",
+		zap.String("method", method),
+		zap.String("workDir", cmd.Dir),
+		zap.Strings("envVars", envVarsForLog),
+		zap.String("cliPath", a.config.cliPath),
+		zap.Strings("args", args),
+		zap.String("fullCommand", cmdForCopy.String()),
+	)
 }
