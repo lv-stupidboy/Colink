@@ -339,7 +339,7 @@ export const useAppStore = create<AppState & AppActions>()(
         const updatedMessages = (messages || []).map((msg: Message) => {
           // 从 metadata 中提取 agentName 并设置到直接属性
           const metadataAgentName = msg.metadata?.agentName as string | undefined;
-          const metadataAgentRole = msg.metadata?.agentRole as string | undefined;
+          // metadataAgentRole 用于将来扩展，当前暂不使用
 
           let processedMsg = {
             ...msg,
