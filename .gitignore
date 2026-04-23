@@ -72,3 +72,6 @@ openspec/
 
 # oh my claude 工作目录
 .omc/
+
+# Git worktrees
+.worktrees/
