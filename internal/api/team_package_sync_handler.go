@@ -29,7 +29,9 @@ func (h *TeamPackageSyncHandler) RegisterRoutes(r *gin.RouterGroup) {
 	g.GET("/check-update", h.CheckUpdates)
 	g.GET("/local-versions", h.GetLocalVersions)
 	g.POST("/preview", h.PreviewPackage)
+	g.POST("/preview-batch", h.PreviewPackagesBatch) // 新增：批量预览
 	g.POST("/sync", h.SyncPackage)
+	g.POST("/sync-batch", h.SyncPackagesBatch)       // 新增：批量同步
 }
 
 // CheckUpdates 检查可用更新
@@ -86,4 +88,49 @@ func (h *TeamPackageSyncHandler) SyncPackage(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, result)
+}
+
+// PreviewPackagesBatch 批量预览团队包
+func (h *TeamPackageSyncHandler) PreviewPackagesBatch(c *gin.Context) {
+	var req teampackagesync.BatchPreviewRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	result, err := h.syncSvc.PreviewPackagesBatch(c.Request.Context(), req.Packages)
+	if err != nil {
+		h.logger.Error("batch preview failed", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"previews":       result.Previews,
+		"totalConflicts": result.TotalConflicts,
+		"successCount":   result.SuccessCount,
+		"failedCount":    result.FailedCount,
+	})
+}
+
+// SyncPackagesBatch 批量同步团队包
+func (h *TeamPackageSyncHandler) SyncPackagesBatch(c *gin.Context) {
+	var req teampackagesync.BatchSyncRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	result, err := h.syncSvc.SyncPackagesBatch(c.Request.Context(), req.Packages)
+	if err != nil {
+		h.logger.Error("batch sync failed", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"results":      result.Results,
+		"successCount": result.SuccessCount,
+		"failedCount":  result.FailedCount,
+	})
 }

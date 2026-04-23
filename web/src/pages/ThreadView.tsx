@@ -418,7 +418,15 @@ const ThreadView: React.FC = () => {
 
         // 加载历史消息（直接替换，不追加）
         api.messages.list(threadId!).then(result => {
-          setDebugMessages(result.messages);
+          // 从 metadata 中提取 agentName 设置到直接属性
+          const processedMessages = (result.messages || []).map((msg: Message) => {
+            const metadataAgentName = msg.metadata?.agentName as string | undefined;
+            return {
+              ...msg,
+              agentName: msg.agentName || metadataAgentName || undefined,
+            };
+          });
+          setDebugMessages(processedMessages);
         }).catch(err => {
           console.error('Failed to load messages:', err);
         });
@@ -749,14 +757,15 @@ const ThreadView: React.FC = () => {
           // 先完成流式消息（添加临时消息）- finalizeStreamingMessage 会将 question block IDs 加入 submittedQuestionBlockIds
           finalizeStreamingMessage(invocationId);
           // 然后用真实ID和真实contentBlocks替换临时消息（避免重复渲染 question blocks）
-          useAppStore.getState().replaceMessageId(tempId, realMessageId, contentBlocks);
+          // 同时更新 agentName 和 agentRole
+          useAppStore.getState().replaceMessageId(tempId, realMessageId, contentBlocks, agentName, agentRole);
         } else {
           // 非流式场景：检查是否已有临时消息（可能由 agent_status/completed 创建）
           const tempId = `agent-${realMessageId}`;
           const existingTemp = state.messages.find(m => m.id === tempId);
           if (existingTemp) {
-            // 替换临时ID为真实ID，同时替换contentBlocks
-            useAppStore.getState().replaceMessageId(tempId, realMessageId, contentBlocks);
+            // 替换临时ID为真实ID，同时替换contentBlocks和metadata
+            useAppStore.getState().replaceMessageId(tempId, realMessageId, contentBlocks, agentName, agentRole);
           } else {
             // 直接添加新消息（使用真实ID）
             addMessage({
@@ -764,6 +773,7 @@ const ThreadView: React.FC = () => {
               threadId: threadId!,
               role: 'agent',
               agentId: agentId,
+              agentName: agentName,  // 设置直接属性
               content: content,
               contentBlocks: contentBlocks,
               messageType: 'text',
@@ -1149,7 +1159,15 @@ const ThreadView: React.FC = () => {
       // 加载历史消息
       try {
         const result = await api.messages.list(task.id);
-        result.messages.forEach(msg => addDebugMessage(msg));
+        // 从 metadata 中提取 agentName 设置到直接属性
+        const processedMessages = (result.messages || []).map((msg: Message) => {
+          const metadataAgentName = msg.metadata?.agentName as string | undefined;
+          return {
+            ...msg,
+            agentName: msg.agentName || metadataAgentName || undefined,
+          };
+        });
+        processedMessages.forEach(msg => addDebugMessage(msg));
       } catch (error) {
         console.error('Failed to load messages:', error);
       }
@@ -1161,7 +1179,15 @@ const ThreadView: React.FC = () => {
       setCurrentThread(task);
       try {
         const result = await api.messages.list(task.id);
-        result.messages.forEach(msg => addMessage(msg));
+        // 从 metadata 中提取 agentName 设置到直接属性
+        const processedMessages = (result.messages || []).map((msg: Message) => {
+          const metadataAgentName = msg.metadata?.agentName as string | undefined;
+          return {
+            ...msg,
+            agentName: msg.agentName || metadataAgentName || undefined,
+          };
+        });
+        processedMessages.forEach(msg => addMessage(msg));
       } catch (error) {
         console.error('Failed to load messages:', error);
       }

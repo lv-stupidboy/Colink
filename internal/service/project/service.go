@@ -50,15 +50,20 @@ func (s *Service) Create(ctx context.Context, req *model.CreateProjectRequest) (
 	if projectMode == "" {
 		projectMode = model.ProjectModeNew
 	}
-
+	// 处理 RepositoryUrl，优先使用新字段，兼容旧字段
+	repositoryUrl := req.RepositoryUrl
+	if repositoryUrl == nil && req.ExistingRepoURL != "" {
+		repositoryUrl = &req.ExistingRepoURL
+	}
 	project := &model.Project{
 		ID:                 uuid.New(),
 		Name:               req.Name,
+		Description:        req.Description,
 		Type:               projectType,
 		Mode:               projectMode,
 		Status:             model.ProjectStatusDraft,
 		LocalPath:          req.LocalPath,
-		GitRepo:            &req.ExistingRepoURL,
+		RepositoryUrl: repositoryUrl,
 		WorkflowTemplateID: req.WorkflowTemplateID,
 		CreatedAt:          time.Now(),
 		UpdatedAt:          time.Now(),
@@ -90,6 +95,9 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, req *model.UpdatePro
 	if req.Name != nil {
 		project.Name = *req.Name
 	}
+	if req.Description != nil {
+		project.Description = req.Description
+	}
 	if req.Type != nil {
 		project.Type = *req.Type
 	}
@@ -102,8 +110,8 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, req *model.UpdatePro
 	if req.LocalPath != nil {
 		project.LocalPath = *req.LocalPath
 	}
-	if req.GitRepo != nil {
-		project.GitRepo = req.GitRepo
+	if req.RepositoryUrl != nil {
+		project.RepositoryUrl = req.RepositoryUrl
 	}
 	project.WorkflowTemplateID = req.WorkflowTemplateID
 

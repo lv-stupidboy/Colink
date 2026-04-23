@@ -294,9 +294,11 @@ func main() {
 	// 初始化 MarketService
 	marketSvc := market.NewService(marketRepo, teamPackageVersionRepo, cfg.Data.BasePath+"/temp", logger)
 
-	// 创建 TeamPackageSync Service
+	// 创建 TeamPackageSync Service（扩展：支持冲突检测）
 	teamPackageSyncSvc := teampackagesync.NewSyncService(
-		teamPackageVersionRepo, workflowRepo, teamPackageSvc, marketSvc,
+		teamPackageVersionRepo, workflowRepo,
+		agentConfigRepo, skillRepo, commandRepo, subagentRepo, ruleRepo, settingsRepo,
+		teamPackageSvc, marketSvc,
 		cfg.TeamPackageSync, cfg.Data.BasePath, logger,
 	)
 
