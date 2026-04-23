@@ -60,6 +60,7 @@ git commit -m "chore: add @dagrejs/dagre dependency for graph layout"
 ```typescript
 // web/src/pages/Workflow/TeamGraphEditor/useAutoLayout.ts
 import dagre from '@dagrejs/dagre';
+import { MarkerType } from '@xyflow/react';
 import type { Node, Edge } from '@xyflow/react';
 
 export interface LayoutResult {
@@ -149,12 +150,50 @@ export function isBackEdge(
 }
 
 /**
+ * 应用边样式，区分正向边和回边
+ * @param edges 边列表
+ * @param nodeLevels 节点层级映射
+ * @returns 样式化的边列表
+ */
+export function applyEdgeStyles(
+  edges: Edge[],
+  nodeLevels: Map<string, number>
+): Edge[] {
+  return edges.map((edge) => {
+    if (isBackEdge(edge, nodeLevels)) {
+      return {
+        ...edge,
+        type: 'smoothstep',
+        style: { stroke: '#fa8c16', strokeWidth: 2 },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          width: 20,
+          height: 20,
+          color: '#fa8c16',
+        },
+      };
+    }
+    return {
+      ...edge,
+      type: 'default',
+      style: { stroke: 'var(--color-primary)', strokeWidth: 2 },
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        width: 20,
+        height: 20,
+      },
+    };
+  });
+}
+
+/**
  * Hook: 提供自动布局功能
  */
 export function useAutoLayout() {
   return {
     calculateLayout,
     isBackEdge,
+    applyEdgeStyles,
   };
 }
 ```
@@ -215,7 +254,8 @@ git commit -m "refactor: add layout config, remove old calculateLayout"
 在文件顶部添加导入：
 
 ```typescript
-import { calculateLayout, isBackEdge } from './useAutoLayout';
+import { calculateLayout, applyEdgeStyles } from './useAutoLayout';
+import { MarkerType } from '@xyflow/react';
 ```
 
 - [ ] **Step 2: 添加 relayout action 到 GraphActions 接口**
@@ -236,47 +276,17 @@ relayout: () => {
   if (nodes.length === 0) return;
   
   const { nodes: layoutedNodes, nodeLevels } = calculateLayout(nodes, edges);
-  
-  // 更新边样式（区分正向边和回边）
-  const styledEdges = edges.map((edge) => {
-    if (isBackEdge(edge, nodeLevels)) {
-      return {
-        ...edge,
-        type: 'smoothstep',
-        style: { stroke: '#fa8c16', strokeWidth: 2 },
-        markerEnd: {
-          type: MarkerType.ArrowClosed,
-          width: 20,
-          height: 20,
-          color: '#fa8c16',
-        },
-      };
-    }
-    return {
-      ...edge,
-      type: 'default',
-      style: { stroke: 'var(--color-primary)', strokeWidth: 2 },
-      markerEnd: {
-        type: MarkerType.ArrowClosed,
-        width: 20,
-        height: 20,
-      },
-    };
-  });
+  const styledEdges = applyEdgeStyles(edges, nodeLevels);
   
   set({ nodes: layoutedNodes, edges: styledEdges });
 },
 ```
 
-需要在文件顶部导入 MarkerType：
-
-```typescript
-import { MarkerType } from '@xyflow/react';
-```
+注意：MarkerType 导入已在 Step 1 中添加。
 
 - [ ] **Step 4: 修改 loadData 调用布局**
 
-修改 `loadData` 方法，在设置 nodes 和 edges 后调用 relayout：
+修改 `loadData` 方法，在设置 nodes 和 edges 后调用布局：
 
 找到约第158-165行的 set 调用，修改为：
 
@@ -299,35 +309,9 @@ const rawEdges = (workflow.transitions || []).map((t: Transition) => ({
   data: { triggerHint: t.triggerHint || '' },
 }));
 
-// 计算布局
+// 计算布局并应用边样式
 const { nodes: layoutedNodes, nodeLevels } = calculateLayout(rawNodes, rawEdges);
-
-// 设置边样式
-const styledEdges = rawEdges.map((edge) => {
-  if (isBackEdge(edge, nodeLevels)) {
-    return {
-      ...edge,
-      type: 'smoothstep',
-      style: { stroke: '#fa8c16', strokeWidth: 2 },
-      markerEnd: {
-        type: MarkerType.ArrowClosed,
-        width: 20,
-        height: 20,
-        color: '#fa8c16',
-      },
-    };
-  }
-  return {
-    ...edge,
-    type: 'default',
-    style: { stroke: 'var(--color-primary)', strokeWidth: 2 },
-    markerEnd: {
-      type: MarkerType.ArrowClosed,
-      width: 20,
-      height: 20,
-    },
-  };
-});
+const styledEdges = applyEdgeStyles(rawEdges, nodeLevels);
 
 set({
   teamName: workflow.name || '',
@@ -339,7 +323,39 @@ set({
 });
 ```
 
-- [ ] **Step 5: 提交修改**
+- [ ] **Step 5: 修改 addEdge 触发 relayout**
+
+修改 `addEdge` 方法（约第92-110行），添加边后触发 relayout：
+
+```typescript
+addEdge: (sourceId, targetId) => {
+  const edges = get().edges;
+  const existingEdge = edges.find(
+    e => (e.source === sourceId && e.target === targetId) ||
+         (e.source === targetId && e.target === sourceId)
+  );
+
+  if (existingEdge) {
+    set({ error: '该 Agent 之间已存在连线，无需重复添加' });
+    return;
+  }
+
+  const newEdge: Edge = {
+    id: `${sourceId}-${targetId}`,
+    source: sourceId,
+    target: targetId,
+    data: { triggerHint: '' },
+  };
+
+  // 添加边后触发 relayout 以应用正确的边样式
+  set({ edges: [...edges, newEdge], hasChanges: true, error: null });
+  get().relayout();
+},
+```
+
+注意：这里调用 `get().relayout()` 确保新添加的边获得正确的样式（正向边或回边）。
+
+- [ ] **Step 6: 提交修改**
 
 ```bash
 git add web/src/pages/Workflow/TeamGraphEditor/useGraphStore.ts
@@ -510,6 +526,12 @@ cd web && npm run dev
 - 回边（C → A）显示为橙色
 - 正向边（A → B, B → C）显示为默认颜色
 
+- [ ] **Step 6: 验证新增边样式**
+
+添加一条新边（例如 D → A 形成新环路），验证：
+- 新边自动获得正确的样式（正向边或回边）
+- 点击"自动布局"后，边样式保持正确
+
 ---
 
 ## Self-Review Checklist
@@ -519,13 +541,19 @@ cd web && npm run dev
 | Spec Requirement | Task |
 |------------------|------|
 | 新增 @dagrejs/dagre 依赖 | Task 1 |
-| useAutoLayout Hook | Task 2 |
+| useAutoLayout Hook + applyEdgeStyles | Task 2 |
 | 布局配置 LAYOUT_CONFIG | Task 3 |
 | relayout 方法 | Task 4 |
 | loadData 集成布局 | Task 4 |
-| 边样式区分回边 | Task 4, Task 5 |
+| addEdge 触发 relayout | Task 4 |
+| 边样式区分回边 | Task 2, Task 4, Task 5 |
 | Toolbar 自动布局按钮 | Task 6 |
 | 测试验证 | Task 7 |
+
+### Code Quality
+
+- ✅ 边样式代码统一使用 `applyEdgeStyles` 函数，无重复
+- ✅ addEdge 添加边后触发 relayout，确保新边获得正确样式
 
 ### Placeholder Scan
 
@@ -538,4 +566,5 @@ cd web && npm run dev
 
 - ✅ `calculateLayout` 返回 `{ nodes: Node[], nodeLevels: Map<string, number> }`
 - ✅ `isBackEdge` 参数 `(edge: Edge, nodeLevels: Map<string, number>)`
+- ✅ `applyEdgeStyles` 参数 `(edges: Edge[], nodeLevels: Map<string, number>)` 返回 `Edge[]`
 - ✅ `relayout` 在 GraphActions 接口和实现中签名一致
