@@ -18,6 +18,36 @@ cd installer && ./build.ps1    # Windows
 cd installer && ./build.sh     # Unix/Linux/macOS
 ```
 
+## 启动原则
+
+### 端口配置（灵活查找）
+- **后端端口**：查看 `configs/config.yaml.example` 中 `server.port`（默认 26305）
+- **前端端口**：查看 `web/vite.config.ts` 中 `server.port`（默认 26306）
+- **前端代理目标**：查看 `web/vite.config.ts` 中 `server.proxy['/api'].target`
+
+### 启动顺序
+**先启动后端，再启动前端**（前端代理依赖后端）
+
+```bash
+# 1. 启动后端（项目根目录）
+go run ./cmd/server
+
+# 2. 启动前端
+cd web && npm run dev
+```
+
+### 配置查找顺序（后端）
+命令行 `-config` → 环境变量 `ISDP_CONFIG` → `data/configs/config.yaml` → `configs/config.yaml`
+
+### 前端代理规则
+- `/api/*` 代理到后端地址（查看 `web/vite.config.ts` 中 `server.proxy['/api'].target`）
+- WebSocket 代理已启用（`ws: true`）
+
+### 注意事项
+- 前端 `strictPort: true`：端口冲突时报错，不会自动切换端口
+- 后端构建会自动生成插件注册（`make genplugins`）
+- 前端构建会先执行 TypeScript 检查（`tsc && vite build`）
+
 ## 架构
 
 ```
@@ -175,9 +205,9 @@ bin/migrate.exe up --db ./data/sqlite/colink.db --version 1.1.0 --json
 - 默认使用 SQLite（`modernc.org/sqlite` 纯 Go 驱动，无需 CGO）
 - 过渡期保留 MySQL 支持（通过 `database.type` 配置切换）
 
-### 服务端口
-- 后端: 26305
-- 前端开发: 26306
+### 服务端口（灵活查找）
+- 后端端口：查看 `configs/config.yaml.example` 中 `server.port`
+- 前端开发端口：查看 `web/vite.config.ts` 中 `server.port`
 
 ## Data 目录
 
