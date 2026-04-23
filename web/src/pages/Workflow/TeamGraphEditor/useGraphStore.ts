@@ -41,6 +41,7 @@ interface GraphActions {
   setError: (error: string | null) => void;
   loadData: (teamId: string) => Promise<void>;
   saveChanges: () => Promise<void>;
+  refreshAgent: (agentId: string) => Promise<void>;
   reset: () => void;
 }
 
@@ -192,6 +193,33 @@ export const useGraphStore = create<GraphStoreState>((set, get) => ({
       throw error;
     } finally {
       set({ saving: false });
+    }
+  },
+
+  refreshAgent: async (agentId) => {
+    try {
+      const updatedAgent = await api.agents.get(agentId);
+      const { nodes, allAgents } = get();
+
+      // Update node data
+      const updatedNodes = nodes.map(n =>
+        n.id === agentId
+          ? { ...n, data: { agent: updatedAgent } }
+          : n
+      );
+
+      // Update allAgents list
+      const updatedAllAgents = allAgents.map(a =>
+        a.id === agentId ? updatedAgent : a
+      );
+
+      set({
+        nodes: updatedNodes,
+        allAgents: updatedAllAgents,
+        error: null,
+      });
+    } catch (error) {
+      console.error('Failed to refresh agent:', error);
     }
   },
 
