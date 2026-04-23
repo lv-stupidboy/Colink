@@ -20,10 +20,16 @@ import (
 	"go.uber.org/zap"
 )
 
-// SyncService 团队包同步服务
+// SyncService 团队包同步服务（扩展：支持冲突检测）
 type SyncService struct {
 	versionRepo    *repo.TeamPackageVersionRepository
 	workflowRepo   *repo.WorkflowTemplateRepository
+	agentRepo      *repo.AgentConfigRepository      // 新增：用于检测 Role 冲突
+	skillRepo      *repo.SkillRepository            // 新增：用于检测 Skill 冲突
+	commandRepo    *repo.CommandRepository          // 新增：用于检测 Command 冲突
+	subagentRepo   *repo.SubagentRepository         // 新增：用于检测 Subagent 冲突
+	ruleRepo       *repo.RuleRepository             // 新增：用于检测 Rule 冲突
+	settingsRepo   *repo.SettingsRepository         // 新增：用于检测 Settings 冲突
 	teamPackageSvc *teampackage.Service
 	marketSvc      *market.Service // 市场服务
 	config         config.TeamPackageSyncConfig
@@ -31,12 +37,18 @@ type SyncService struct {
 	logger         *zap.Logger
 }
 
-// NewSyncService 创建同步服务
+// NewSyncService 创建同步服务（扩展：支持冲突检测）
 func NewSyncService(
 	versionRepo *repo.TeamPackageVersionRepository,
 	workflowRepo *repo.WorkflowTemplateRepository,
+	agentRepo *repo.AgentConfigRepository,      // 新增
+	skillRepo *repo.SkillRepository,            // 新增
+	commandRepo *repo.CommandRepository,        // 新增
+	subagentRepo *repo.SubagentRepository,      // 新增
+	ruleRepo *repo.RuleRepository,              // 新增
+	settingsRepo *repo.SettingsRepository,      // 新增
 	teamPackageSvc *teampackage.Service,
-	marketSvc *market.Service, // 新增参数
+	marketSvc *market.Service,
 	cfg config.TeamPackageSyncConfig,
 	basePath string,
 	logger *zap.Logger,
@@ -44,8 +56,14 @@ func NewSyncService(
 	return &SyncService{
 		versionRepo:    versionRepo,
 		workflowRepo:   workflowRepo,
+		agentRepo:      agentRepo,
+		skillRepo:      skillRepo,
+		commandRepo:    commandRepo,
+		subagentRepo:   subagentRepo,
+		ruleRepo:       ruleRepo,
+		settingsRepo:   settingsRepo,
 		teamPackageSvc: teamPackageSvc,
-		marketSvc:      marketSvc, // 新增
+		marketSvc:      marketSvc,
 		config:         cfg,
 		gitClient:      NewGitClient(cfg, basePath, logger),
 		logger:         logger,
@@ -452,18 +470,49 @@ func (s *SyncService) PreviewPackage(ctx context.Context, packageName string, ma
 		Workflow: PreviewWorkflowInfo{
 			Name:        manifest.Workflow.Name,
 			Description: manifest.Workflow.Description,
+			Exists:      false, // 默认值，后续检测
 		},
-		Roles:  []PreviewRoleInfo{},
-		Assets: PreviewAssetsInfo{},
+		Roles:         []PreviewRoleInfo{},
+		Assets: PreviewAssetsInfo{
+			Skills:    []PreviewAssetInfo{},
+			Commands:  []PreviewAssetInfo{},
+			Subagents: []PreviewAssetInfo{},
+			Rules:     []PreviewAssetInfo{},
+			Settings:  []PreviewAssetInfo{},
+		},
+		ConflictCount: 0, // 默认值，后续计算
 	}
 
-	// 收集角色信息
+	// === 冲突检测逻辑 ===
+	// 检查工作流是否已存在（按名称匹配）
+	workflows, err := s.workflowRepo.FindAll(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("获取工作流列表失败: %w", err)
+	}
+	for _, wf := range workflows {
+		if wf.Name == manifest.Workflow.Name {
+			response.Workflow.Exists = true
+			break
+		}
+	}
+
+	// 收集角色信息并检测冲突
 	for _, role := range manifest.Roles {
 		roleInfo := PreviewRoleInfo{
 			Name:        role.Name,
 			Role:        role.Role,
 			Description: role.Description,
 			Assets:      []string{},
+			Exists:      false, // 默认值，后续检测
+		}
+
+		// 检查角色是否已存在（按ID匹配）
+		roleID, err := uuid.Parse(role.ID)
+		if err == nil {
+			existing, err := s.agentRepo.FindByID(ctx, roleID)
+			if err == nil && existing != nil {
+				roleInfo.Exists = true
+			}
 		}
 
 		// 收集角色绑定的资产名称
@@ -486,37 +535,119 @@ func (s *SyncService) PreviewPackage(ctx context.Context, packageName string, ma
 		response.Roles = append(response.Roles, roleInfo)
 	}
 
-	// 收集资产信息
+	// 收集资产信息并检测冲突
 	for _, skill := range manifest.Assets.Skills {
-		response.Assets.Skills = append(response.Assets.Skills, PreviewAssetInfo{
+		info := PreviewAssetInfo{
 			Name:        skill.Name,
 			Description: skill.Description,
-		})
+			Exists:      false,
+		}
+		// 检查 Skill 是否已存在
+		if s.skillRepo != nil {
+			existing, err := s.skillRepo.FindByName(ctx, skill.Name)
+			if err == nil && existing != nil {
+				info.Exists = true
+			}
+		}
+		response.Assets.Skills = append(response.Assets.Skills, info)
 	}
 	for _, cmd := range manifest.Assets.Commands {
-		response.Assets.Commands = append(response.Assets.Commands, PreviewAssetInfo{
+		info := PreviewAssetInfo{
 			Name:        cmd.Name,
 			Description: cmd.Description,
-		})
+			Exists:      false,
+		}
+		// 检查 Command 是否已存在
+		if s.commandRepo != nil {
+			existing, err := s.commandRepo.FindByName(ctx, cmd.Name)
+			if err == nil && existing != nil {
+				info.Exists = true
+			}
+		}
+		response.Assets.Commands = append(response.Assets.Commands, info)
 	}
 	for _, sub := range manifest.Assets.Subagents {
-		response.Assets.Subagents = append(response.Assets.Subagents, PreviewAssetInfo{
+		info := PreviewAssetInfo{
 			Name:        sub.Name,
 			Description: sub.Description,
-		})
+			Exists:      false,
+		}
+		// 检查 Subagent 是否已存在
+		if s.subagentRepo != nil {
+			existing, err := s.subagentRepo.FindByName(ctx, sub.Name)
+			if err == nil && existing != nil {
+				info.Exists = true
+			}
+		}
+		response.Assets.Subagents = append(response.Assets.Subagents, info)
 	}
 	for _, rule := range manifest.Assets.Rules {
-		response.Assets.Rules = append(response.Assets.Rules, PreviewAssetInfo{
+		info := PreviewAssetInfo{
 			Name:        rule.Name,
 			Description: rule.Description,
-		})
+			Exists:      false,
+		}
+		// 检查 Rule 是否已存在
+		if s.ruleRepo != nil {
+			existing, err := s.ruleRepo.FindByName(ctx, rule.Name)
+			if err == nil && existing != nil {
+				info.Exists = true
+			}
+		}
+		response.Assets.Rules = append(response.Assets.Rules, info)
 	}
 	for _, settings := range manifest.Assets.Settings {
-		response.Assets.Settings = append(response.Assets.Settings, PreviewAssetInfo{
+		info := PreviewAssetInfo{
 			Name:        settings.Name,
 			Description: settings.Description,
-		})
+			Exists:      false,
+		}
+		// 检查 Settings 是否已存在
+		if s.settingsRepo != nil {
+			existing, err := s.settingsRepo.FindByName(ctx, settings.Name)
+			if err == nil && existing != nil {
+				info.Exists = true
+			}
+		}
+		response.Assets.Settings = append(response.Assets.Settings, info)
 	}
+
+	// 计算冲突总数
+	conflictCount := 0
+	if response.Workflow.Exists {
+		conflictCount++
+	}
+	for _, role := range response.Roles {
+		if role.Exists {
+			conflictCount++
+		}
+	}
+	for _, skill := range response.Assets.Skills {
+		if skill.Exists {
+			conflictCount++
+		}
+	}
+	for _, cmd := range response.Assets.Commands {
+		if cmd.Exists {
+			conflictCount++
+		}
+	}
+	for _, sub := range response.Assets.Subagents {
+		if sub.Exists {
+			conflictCount++
+		}
+	}
+	for _, rule := range response.Assets.Rules {
+		if rule.Exists {
+			conflictCount++
+		}
+	}
+	for _, settings := range response.Assets.Settings {
+		if settings.Exists {
+			conflictCount++
+		}
+	}
+	response.ConflictCount = conflictCount
 
 	s.logger.Info("团队包预览完成",
 		zap.String("package", packageName),

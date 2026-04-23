@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1776751374808,
+  "lastScanned": 1776845858638,
   "projectRoot": "D:\\CoLinkProject\\Colink-0421\\isdp",
   "techStack": {
     "languages": [
@@ -57,14 +57,14 @@
       "path": "bin",
       "purpose": "Executable scripts",
       "fileCount": 0,
-      "lastAccessed": 1776751374729,
+      "lastAccessed": 1776845858483,
       "keyFiles": []
     },
     "cmd": {
       "path": "cmd",
       "purpose": null,
       "fileCount": 1,
-      "lastAccessed": 1776751374730,
+      "lastAccessed": 1776845858484,
       "keyFiles": [
         "check_agents.go"
       ]
@@ -73,7 +73,7 @@
       "path": "configs",
       "purpose": null,
       "fileCount": 1,
-      "lastAccessed": 1776751374730,
+      "lastAccessed": 1776845858484,
       "keyFiles": [
         "config.yaml.example"
       ]
@@ -82,14 +82,14 @@
       "path": "data",
       "purpose": "Data files",
       "fileCount": 0,
-      "lastAccessed": 1776751374731,
+      "lastAccessed": 1776845858485,
       "keyFiles": []
     },
     "docs": {
       "path": "docs",
       "purpose": "Documentation",
-      "fileCount": 11,
-      "lastAccessed": 1776751374731,
+      "fileCount": 12,
+      "lastAccessed": 1776845858485,
       "keyFiles": [
         "a2a-clowder-ai-analysis.md",
         "a2a-collaboration.md",
@@ -102,7 +102,7 @@
       "path": "installer",
       "purpose": null,
       "fileCount": 11,
-      "lastAccessed": 1776751374732,
+      "lastAccessed": 1776845858486,
       "keyFiles": [
         "AGENTS.md",
         "build.ps1",
@@ -115,21 +115,21 @@
       "path": "internal",
       "purpose": null,
       "fileCount": 0,
-      "lastAccessed": 1776751374733,
+      "lastAccessed": 1776845858487,
       "keyFiles": []
     },
     "pkg": {
       "path": "pkg",
       "purpose": null,
       "fileCount": 0,
-      "lastAccessed": 1776751374733,
+      "lastAccessed": 1776845858487,
       "keyFiles": []
     },
     "scripts": {
       "path": "scripts",
       "purpose": "Build/utility scripts",
       "fileCount": 1,
-      "lastAccessed": 1776751374734,
+      "lastAccessed": 1776845858488,
       "keyFiles": [
         "export_schema.py"
       ]
@@ -138,7 +138,7 @@
       "path": "sql-change",
       "purpose": null,
       "fileCount": 1,
-      "lastAccessed": 1776751374734,
+      "lastAccessed": 1776845858488,
       "keyFiles": [
         "AGENTS.md"
       ]
@@ -147,7 +147,7 @@
       "path": "teams",
       "purpose": null,
       "fileCount": 2,
-      "lastAccessed": 1776751374735,
+      "lastAccessed": 1776845858488,
       "keyFiles": [
         "全功能开发团队.zip",
         "全栈工程师单人模式.zip"
@@ -157,14 +157,14 @@
       "path": "tools",
       "purpose": null,
       "fileCount": 0,
-      "lastAccessed": 1776751374735,
+      "lastAccessed": 1776845858489,
       "keyFiles": []
     },
     "web": {
       "path": "web",
       "purpose": null,
       "fileCount": 8,
-      "lastAccessed": 1776751374736,
+      "lastAccessed": 1776845858489,
       "keyFiles": [
         "AGENTS.md",
         "index.html",
@@ -177,7 +177,7 @@
       "path": "installer\\build",
       "purpose": "Build output",
       "fileCount": 2,
-      "lastAccessed": 1776751374738,
+      "lastAccessed": 1776845858491,
       "keyFiles": [
         "icon.ico",
         "installer.nsh"
@@ -187,7 +187,7 @@
       "path": "internal\\api",
       "purpose": "API routes",
       "fileCount": 26,
-      "lastAccessed": 1776751374739,
+      "lastAccessed": 1776845858492,
       "keyFiles": [
         "agent_handler.go",
         "artifact_handler.go",
@@ -198,7 +198,7 @@
       "path": "internal\\config",
       "purpose": "Configuration files",
       "fileCount": 1,
-      "lastAccessed": 1776751374740,
+      "lastAccessed": 1776845858492,
       "keyFiles": [
         "logging.go"
       ]
@@ -207,7 +207,7 @@
       "path": "internal\\middleware",
       "purpose": "Middleware",
       "fileCount": 1,
-      "lastAccessed": 1776751374740,
+      "lastAccessed": 1776845858492,
       "keyFiles": [
         "invite.go"
       ]
@@ -216,7 +216,7 @@
       "path": "pkg\\config",
       "purpose": "Configuration files",
       "fileCount": 3,
-      "lastAccessed": 1776751374741,
+      "lastAccessed": 1776845858493,
       "keyFiles": [
         "config.go",
         "config_test.go",
@@ -227,7 +227,7 @@
       "path": "web\\dist",
       "purpose": "Distribution/build output",
       "fileCount": 3,
-      "lastAccessed": 1776751374742,
+      "lastAccessed": 1776845858494,
       "keyFiles": [
         "favicon.ico",
         "favicon.svg",
@@ -238,14 +238,14 @@
       "path": "web\\node_modules",
       "purpose": "Dependencies",
       "fileCount": 1,
-      "lastAccessed": 1776751374744,
+      "lastAccessed": 1776845858496,
       "keyFiles": []
     },
     "web\\public": {
       "path": "web\\public",
       "purpose": "Public files",
       "fileCount": 2,
-      "lastAccessed": 1776751374744,
+      "lastAccessed": 1776845858497,
       "keyFiles": [
         "favicon.ico",
         "favicon.svg"
@@ -255,7 +255,7 @@
       "path": "web\\src",
       "purpose": "Source code",
       "fileCount": 3,
-      "lastAccessed": 1776751374745,
+      "lastAccessed": 1776845858497,
       "keyFiles": [
         "App.tsx",
         "index.css",
@@ -265,303 +265,45 @@
   },
   "hotPaths": [
     {
-      "path": "isdp\\web\\src\\store\\index.ts",
-      "accessCount": 60,
-      "lastAccessed": 1775577811836,
-      "type": "file"
-    },
-    {
-      "path": "isdp\\web\\src\\components\\thread\\ChatMessage.tsx",
-      "accessCount": 29,
-      "lastAccessed": 1775612014071,
-      "type": "file"
-    },
-    {
-      "path": "isdp\\web\\src\\types\\index.ts",
-      "accessCount": 20,
-      "lastAccessed": 1775576937691,
-      "type": "file"
-    },
-    {
-      "path": "isdp\\internal\\service\\agent\\execution_service.go",
-      "accessCount": 19,
-      "lastAccessed": 1775576253980,
-      "type": "file"
-    },
-    {
-      "path": "isdp\\web\\src\\pages\\ThreadView.tsx",
-      "accessCount": 18,
-      "lastAccessed": 1775532262808,
-      "type": "file"
-    },
-    {
-      "path": "",
-      "accessCount": 11,
-      "lastAccessed": 1776743892713,
-      "type": "directory"
-    },
-    {
-      "path": "isdp\\internal\\service\\agent\\claude_adapter.go",
-      "accessCount": 9,
-      "lastAccessed": 1775525063991,
-      "type": "file"
-    },
-    {
-      "path": "isdp\\internal\\model\\agent_invocation.go",
-      "accessCount": 8,
-      "lastAccessed": 1775577228510,
-      "type": "file"
-    },
-    {
-      "path": "isdp",
-      "accessCount": 7,
-      "lastAccessed": 1775577228543,
-      "type": "directory"
-    },
-    {
-      "path": "isdp\\web\\src",
-      "accessCount": 7,
-      "lastAccessed": 1775577795441,
-      "type": "directory"
-    },
-    {
-      "path": "isdp\\web\\src\\components\\thread\\ChatMessageList.tsx",
-      "accessCount": 6,
-      "lastAccessed": 1775187625006,
-      "type": "file"
-    },
-    {
-      "path": "C:\\Users\\DELL\\.claude\\plans\\rippling-launching-deer.md",
-      "accessCount": 5,
-      "lastAccessed": 1775123781578,
-      "type": "file"
-    },
-    {
-      "path": "isdp\\internal\\service\\agent\\types.go",
-      "accessCount": 5,
-      "lastAccessed": 1775134517814,
-      "type": "file"
-    },
-    {
-      "path": "isdp\\web\\src\\components\\thread\\StatusPanel\\AgentHistoryCard.tsx",
-      "accessCount": 5,
-      "lastAccessed": 1775576937760,
-      "type": "file"
-    },
-    {
-      "path": "isdp\\web\\src\\layouts\\MainLayout.tsx",
-      "accessCount": 4,
-      "lastAccessed": 1775130421892,
-      "type": "file"
-    },
-    {
-      "path": "isdp\\web\\src\\components\\thread\\index.ts",
-      "accessCount": 4,
-      "lastAccessed": 1775535692999,
-      "type": "file"
-    },
-    {
-      "path": "C:\\Users\\DELL\\.claude\\settings.json",
+      "path": "data\\agent-configs\\fbc7c8d4-a321-41d8-bef8-b4f79985948f\\开发工程师.md",
       "accessCount": 3,
-      "lastAccessed": 1775101711112,
+      "lastAccessed": 1776847458627,
       "type": "file"
     },
     {
-      "path": "isdp\\internal",
-      "accessCount": 3,
-      "lastAccessed": 1775133042487,
+      "path": "web",
+      "accessCount": 2,
+      "lastAccessed": 1776848217243,
       "type": "directory"
     },
     {
-      "path": "isdp\\web\\src\\components\\thread\\StatusPanel\\StatusPanel.css",
-      "accessCount": 3,
-      "lastAccessed": 1775577811736,
-      "type": "file"
-    },
-    {
-      "path": "isdp\\web\\src\\config\\version.ts",
-      "accessCount": 3,
-      "lastAccessed": 1775612021232,
-      "type": "file"
-    },
-    {
-      "path": "isdp\\web",
-      "accessCount": 2,
-      "lastAccessed": 1775102104410,
-      "type": "directory"
-    },
-    {
-      "path": "isdp\\internal\\service\\agent",
-      "accessCount": 2,
-      "lastAccessed": 1775113526827,
-      "type": "directory"
-    },
-    {
-      "path": "isdp\\web\\src\\components\\thread\\MessageContent.tsx",
-      "accessCount": 2,
-      "lastAccessed": 1775115441002,
-      "type": "file"
-    },
-    {
-      "path": "isdp\\web\\src\\components\\thread\\MessageCard.tsx",
-      "accessCount": 2,
-      "lastAccessed": 1775115441049,
-      "type": "file"
-    },
-    {
-      "path": "isdp\\web\\src\\components\\thread",
-      "accessCount": 2,
-      "lastAccessed": 1775116012681,
-      "type": "directory"
-    },
-    {
-      "path": "isdp\\web\\src\\components\\thread\\MessageContentEnhanced.tsx",
-      "accessCount": 2,
-      "lastAccessed": 1775123294481,
-      "type": "file"
-    },
-    {
-      "path": "isdp\\web\\src\\utils\\contentDetector.ts",
-      "accessCount": 2,
-      "lastAccessed": 1775123323935,
-      "type": "file"
-    },
-    {
-      "path": "isdp\\web\\src\\config\\agentStyles.ts",
-      "accessCount": 2,
-      "lastAccessed": 1775135259156,
-      "type": "file"
-    },
-    {
-      "path": "isdp\\web\\src\\components\\thread\\ChatMessage.css",
-      "accessCount": 2,
-      "lastAccessed": 1775135259226,
-      "type": "file"
-    },
-    {
-      "path": "isdp\\web\\src\\components\\thread\\ThinkingBlock.tsx",
-      "accessCount": 2,
-      "lastAccessed": 1775531906549,
-      "type": "file"
-    },
-    {
-      "path": "isdp\\web\\src\\utils\\mentionHighlight.tsx",
-      "accessCount": 2,
-      "lastAccessed": 1775553418016,
-      "type": "file"
-    },
-    {
-      "path": "isdp\\web\\src\\components\\thread\\RightPanel.tsx",
-      "accessCount": 2,
-      "lastAccessed": 1775576914585,
-      "type": "file"
-    },
-    {
-      "path": "C:\\Users\\DELL\\AppData\\Local\\Temp\\claude\\D--Tools-ASDP-gittee-isdp\\dbe61630-d5f7-472c-a5e4-0566732661f6\\tasks\\b5wxtykfg.output",
+      "path": "web\\tests\\USAGE.md",
       "accessCount": 1,
-      "lastAccessed": 1775100542511,
+      "lastAccessed": 1776848189311,
       "type": "file"
     },
     {
-      "path": "C:\\Users\\DELL\\.claude\\plugins\\marketplaces\\omc\\skills\\omc-setup\\phases\\01-install-claude-md.md",
+      "path": "web\\tests\\README.md",
       "accessCount": 1,
-      "lastAccessed": 1775100564576,
+      "lastAccessed": 1776848189806,
       "type": "file"
     },
     {
-      "path": "C:\\Users\\DELL\\.claude\\plugins\\marketplaces\\omc\\skills\\omc-setup\\phases\\02-configure.md",
+      "path": "web\\playwright.config.ts",
       "accessCount": 1,
-      "lastAccessed": 1775100564679,
+      "lastAccessed": 1776848190403,
       "type": "file"
     },
     {
-      "path": "C:\\Users\\DELL\\.claude\\plugins\\marketplaces\\omc\\skills\\omc-setup\\phases\\04-welcome.md",
+      "path": "web\\tests\\test-runner.ts",
       "accessCount": 1,
-      "lastAccessed": 1775100564683,
+      "lastAccessed": 1776848190515,
       "type": "file"
     },
     {
-      "path": "C:\\Users\\DELL\\.claude\\plugins\\marketplaces\\omc\\skills\\omc-setup\\phases\\03-integrations.md",
+      "path": "web\\package.json",
       "accessCount": 1,
-      "lastAccessed": 1775100564732,
-      "type": "file"
-    },
-    {
-      "path": "C:\\Users\\DELL\\.claude\\hud\\omc-hud.mjs",
-      "accessCount": 1,
-      "lastAccessed": 1775100725732,
-      "type": "file"
-    },
-    {
-      "path": "isdp\\internal\\service\\agent\\adapter.go",
-      "accessCount": 1,
-      "lastAccessed": 1775102741319,
-      "type": "file"
-    },
-    {
-      "path": "C:\\Users\\DELL\\.claude\\projects\\D--Tools-ASDP-gittee-isdp\\e438bc79-1a7e-434b-b5e6-587f528efece\\tool-results\\toolu_tool-4505a64a0d0041e1bd50222e9f8e9163.txt",
-      "accessCount": 1,
-      "lastAccessed": 1775102837314,
-      "type": "file"
-    },
-    {
-      "path": "isdp\\internal\\model",
-      "accessCount": 1,
-      "lastAccessed": 1775103174124,
-      "type": "directory"
-    },
-    {
-      "path": "isdp\\web\\src\\types\\status.ts",
-      "accessCount": 1,
-      "lastAccessed": 1775103760091,
-      "type": "file"
-    },
-    {
-      "path": "isdp\\sql-change\\migrations\\202604020001_add_invocation_usage.sql",
-      "accessCount": 1,
-      "lastAccessed": 1775103760592,
-      "type": "file"
-    },
-    {
-      "path": "isdp\\internal\\service\\mention\\parser.go",
-      "accessCount": 1,
-      "lastAccessed": 1775113526669,
-      "type": "file"
-    },
-    {
-      "path": "isdp\\internal\\parser\\mention.go",
-      "accessCount": 1,
-      "lastAccessed": 1775113526751,
-      "type": "file"
-    },
-    {
-      "path": "isdp\\sql-change",
-      "accessCount": 1,
-      "lastAccessed": 1775113566756,
-      "type": "directory"
-    },
-    {
-      "path": "isdp\\web\\src\\utils\\mentionHighlight.ts",
-      "accessCount": 1,
-      "lastAccessed": 1775115660713,
-      "type": "file"
-    },
-    {
-      "path": "isdp\\web\\src\\components\\thread\\FilePathLink.tsx",
-      "accessCount": 1,
-      "lastAccessed": 1775115661212,
-      "type": "file"
-    },
-    {
-      "path": "isdp\\web\\src\\utils",
-      "accessCount": 1,
-      "lastAccessed": 1775123307874,
-      "type": "directory"
-    },
-    {
-      "path": "isdp\\internal\\ws\\hub.go",
-      "accessCount": 1,
-      "lastAccessed": 1775123351468,
+      "lastAccessed": 1776848215080,
       "type": "file"
     }
   ],

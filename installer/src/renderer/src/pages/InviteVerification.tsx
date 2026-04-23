@@ -11,13 +11,15 @@ interface InviteVerificationProps {
   installedVersion?: InstalledVersion
   isUpgrade?: boolean
   onValidationChange?: (valid: boolean) => void
+  onVerifyingChange?: (verifying: boolean) => void // 验证中状态回调
 }
 
 export default function InviteVerification({
   config,
   onConfigUpdate,
   isUpgrade,
-  onValidationChange
+  onValidationChange,
+  onVerifyingChange
 }: InviteVerificationProps) {
   const [code, setCode] = useState('')
   const [username, setUsername] = useState('')
@@ -25,6 +27,11 @@ export default function InviteVerification({
   const [loadingSaved, setLoadingSaved] = useState(isUpgrade || !!config.installDir) // 尝试加载已保存的邀请码
   const [error, setError] = useState<string | null>(null)
   const [verified, setVerified] = useState(false)
+
+  // 组件加载时通知父组件验证状态
+  useEffect(() => {
+    onValidationChange?.(false)
+  }, [])
 
   // 组件加载时自动获取系统用户名
   useEffect(() => {
@@ -73,6 +80,7 @@ export default function InviteVerification({
 
     setLoading(true)
     setError(null)
+    onVerifyingChange?.(true) // 通知父组件开始验证
 
     try {
       const response = await window.electronAPI.verifyInviteCode({
@@ -104,6 +112,7 @@ export default function InviteVerification({
       onValidationChange?.(false)
     } finally {
       setLoading(false)
+      onVerifyingChange?.(false) // 通知父组件验证结束
     }
   }
 

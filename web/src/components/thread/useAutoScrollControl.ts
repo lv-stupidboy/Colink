@@ -12,11 +12,11 @@ interface AutoScrollControlResult {
  * 使用 IntersectionObserver 监听底部锚点，判断用户是否接近底部
  *
  * @param containerRef - 消息列表容器 ref
- * @param threshold - 底部阈值（px），在此范围内视为接近底部
+ * @param threshold - 底部阈值（px），在此范围内视为接近底部，默认 50px
  */
 export const useAutoScrollControl = (
   containerRef: RefObject<HTMLElement>,
-  threshold: number = 100
+  threshold: number = 50
 ): AutoScrollControlResult => {
   const [isNearBottom, setIsNearBottom] = useState(true);
   const bottomAnchorRef = useRef<HTMLDivElement>(null);
@@ -32,7 +32,7 @@ export const useAutoScrollControl = (
       },
       {
         root: containerRef.current,
-        threshold: 0.1,
+        threshold: 0, // 改为 0：只要有任何部分可见就认为是 intersecting
         rootMargin: `0px 0px ${threshold}px 0px`, // 扩大底部检测范围
       }
     );

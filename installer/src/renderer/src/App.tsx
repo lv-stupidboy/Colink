@@ -47,6 +47,7 @@ export default function App() {
   const [hasMissingDeps, setHasMissingDeps] = useState(false)
   const [dirValid, setDirValid] = useState(true)
   const [inviteVerified, setInviteVerified] = useState(false)
+  const [inviteVerifying, setInviteVerifying] = useState(false) // 验证中状态
   const [oldISDPVersion, setOldISDPVersion] = useState<InstalledVersion | null>(null)
   const [uninstallingOld, setUninstallingOld] = useState(false)
 
@@ -343,6 +344,9 @@ export default function App() {
           if (currentStep === 2) setDirValid(valid)
           if (currentStep === 3) setInviteVerified(valid)
         }}
+        onVerifyingChange={(verifying) => {
+          setInviteVerifying(verifying)
+        }}
         installedVersion={installedVersion}
         isUpgrade={isUpgrade}
       />
@@ -361,8 +365,8 @@ export default function App() {
           {currentStep === 2 && dirValid && (
             <Button type="primary" onClick={handleNext}>下一步</Button>
           )}
-          {/* 步骤3：验证邀请码 */}
-          {currentStep === 3 && inviteVerified && (
+          {/* 步骤3：验证邀请码 - 只有验证成功且不在验证中才显示下一步 */}
+          {currentStep === 3 && inviteVerified && !inviteVerifying && (
             <Button type="primary" onClick={handleNext}>下一步</Button>
           )}
           {/* 步骤4：智能体检测 */}

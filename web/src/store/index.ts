@@ -522,6 +522,10 @@ export const useAppStore = create<AppState & AppActions>()(
                   ...completedAgent,
                   status: status as 'completed' | 'failed' | 'cancelled' | 'interrupted',
                   completedAt: new Date().toISOString(),
+                  // failed 状态时保存错误详情到 output
+                  output: status === 'failed' ? (input || '') : completedAgent.output,
+                  // 保留原有 input（用户输入）
+                  input: completedAgent.input || '',
                 },
               ]
             : state.completedAgents;

@@ -5,7 +5,6 @@ import type { AgentConfig, ToolEvent } from '@/types';
 import type { FileChange } from '@/types/content';
 import { ChatMessage } from './ChatMessage';
 import { StreamingMessage } from './StreamingMessage';
-import { useAutoScrollControl } from './useAutoScrollControl';
 // Collapsible panels imported for future integration
 // import ToolOutputPanel from '@/components/ToolOutputPanel';
 // import ThinkingPanel from '@/components/ThinkingPanel';
@@ -89,8 +88,9 @@ export const ChatMessageList = forwardRef<HTMLDivElement, ChatMessageListProps>(
     const internalRef = useRef<HTMLDivElement>(null);
     const listRef = (ref as RefObject<HTMLDivElement>) || internalRef;
 
-  // 使用自动滚动控制 hook
-  const { isNearBottom, bottomAnchorRef } = useAutoScrollControl(listRef);
+  // 用户是否接近底部（用于控制自动滚动）
+  const [isNearBottom, setIsNearBottom] = useState(true);
+  const bottomAnchorRef = useRef<HTMLDivElement>(null);
 
   // 订阅流式内容块变化（用于滚动控制）
   const streamingContentBlocks = useAppStore((s) => s.streamingContentBlocks);
@@ -99,13 +99,18 @@ export const ChatMessageList = forwardRef<HTMLDivElement, ChatMessageListProps>(
   const [isLoadingFromTop, setIsLoadingFromTop] = useState(false);
   const prevScrollHeightRef = useRef(0);
 
-  // 检测滚动到顶部
+  // 检测滚动位置：用于加载历史和控制自动滚动
   const handleScroll = useCallback(() => {
-    if (!listRef.current || !onLoadMore || loadingMore || !hasMoreHistory) return;
+    if (!listRef.current) return;
 
-    const { scrollTop, scrollHeight } = listRef.current;
-    // 当滚动到顶部附近（小于 100px）时触发加载
-    if (scrollTop < 100) {
+    const { scrollTop, scrollHeight, clientHeight } = listRef.current;
+
+    // 检测是否接近底部（距离底部小于 50px）
+    const nearBottom = scrollHeight - scrollTop - clientHeight < 50;
+    setIsNearBottom(nearBottom);
+
+    // 加载历史逻辑
+    if (onLoadMore && !loadingMore && hasMoreHistory && scrollTop < 100) {
       // 记录当前滚动高度，用于加载后恢复位置
       prevScrollHeightRef.current = scrollHeight;
       setIsLoadingFromTop(true);
@@ -128,19 +133,18 @@ export const ChatMessageList = forwardRef<HTMLDivElement, ChatMessageListProps>(
   }, [loadingMore, isLoadingFromTop, listRef]);
 
   // 条件自动滚动：只有接近底部时才滚动
-  // 监听已完成消息数量和流式内容变化
+  // 监听已完成消息数量变化
   useEffect(() => {
     if (autoScroll && isNearBottom && bottomAnchorRef.current) {
-      bottomAnchorRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      bottomAnchorRef.current.scrollIntoView({ behavior: 'instant', block: 'end' });
     }
   }, [messages.length, autoScroll, isNearBottom]);
 
-  // 流式内容变化时的滚动：只有接近底部时才滚动
-  // 使用整个 streamingContentBlocks 数组作为依赖，这样内容更新也会触发滚动
+  // 流式内容变化时的滚动：只在用户接近底部时才滚动
+  // 依赖 streamingContentBlocks（内容变化就触发），但用 isNearBottom 判断是否滚动
   useEffect(() => {
-    if (autoScroll && isNearBottom && streamingContentBlocks.length > 0 && bottomAnchorRef.current) {
-      bottomAnchorRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
-    }
+    if (!autoScroll || streamingContentBlocks.length === 0 || !isNearBottom || !bottomAnchorRef.current) return;
+    bottomAnchorRef.current.scrollIntoView({ behavior: 'instant', block: 'end' });
   }, [streamingContentBlocks, autoScroll, isNearBottom]);
 
   // 空状态
