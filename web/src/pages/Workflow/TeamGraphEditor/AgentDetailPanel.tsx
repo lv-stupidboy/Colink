@@ -43,12 +43,12 @@ const AgentDetailPanel: React.FC<AgentDetailPanelProps> = ({ nodeId, readOnly = 
     loadAssetLists();
   }, []);
 
-  // Load agent's bound assets when editing starts
+  // Load agent's bound assets when agent is selected
   useEffect(() => {
-    if (editing && agent) {
+    if (agent?.id) {
       loadAgentAssets(agent.id);
     }
-  }, [editing, agent?.id]);
+  }, [agent?.id]);
 
   const loadAssetLists = async () => {
     setLoadingAssets(true);
@@ -304,6 +304,11 @@ const AgentDetailPanel: React.FC<AgentDetailPanelProps> = ({ nodeId, readOnly = 
     );
   }
 
+  // Helper function to get asset name by ID
+  const getAssetNames = (ids: string[], assets: { id: string; name: string }[]) => {
+    return ids.map(id => assets.find(a => a.id === id)?.name || id);
+  };
+
   // Render view mode
   return (
     <div className="panel-content">
@@ -352,6 +357,68 @@ const AgentDetailPanel: React.FC<AgentDetailPanelProps> = ({ nodeId, readOnly = 
           ) : '-'}
         </Descriptions.Item>
       </Descriptions>
+
+      {/* Asset bindings display */}
+      {(selectedSkillIds.length > 0 || selectedSubagentIds.length > 0 || selectedCommandIds.length > 0 || selectedRuleIds.length > 0 || selectedSettingsIds.length > 0) && (
+        <>
+          <Divider />
+          <div className="panel-section">
+            <div className="panel-section-title">绑定资产</div>
+            <Space direction="vertical" style={{ width: '100%' }} size="small">
+              {selectedSkillIds.length > 0 && (
+                <div>
+                  <Space><BookOutlined /> Skills</Space>
+                  <div style={{ marginTop: 4 }}>
+                    {getAssetNames(selectedSkillIds, skills).map(name => (
+                      <Tag key={name} style={{ margin: '2px' }}>{name}</Tag>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {selectedSubagentIds.length > 0 && (
+                <div>
+                  <Space><ApiOutlined /> Subagents</Space>
+                  <div style={{ marginTop: 4 }}>
+                    {getAssetNames(selectedSubagentIds, subagents).map(name => (
+                      <Tag key={name} style={{ margin: '2px' }}>{name}</Tag>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {selectedCommandIds.length > 0 && (
+                <div>
+                  <Space><CodeOutlined /> Commands</Space>
+                  <div style={{ marginTop: 4 }}>
+                    {getAssetNames(selectedCommandIds, commands).map(name => (
+                      <Tag key={name} style={{ margin: '2px' }}>{name}</Tag>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {selectedRuleIds.length > 0 && (
+                <div>
+                  <Space><SafetyCertificateOutlined /> Rules</Space>
+                  <div style={{ marginTop: 4 }}>
+                    {getAssetNames(selectedRuleIds, rules).map(name => (
+                      <Tag key={name} style={{ margin: '2px' }}>{name}</Tag>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {selectedSettingsIds.length > 0 && (
+                <div>
+                  <Space><SettingOutlined /> Settings</Space>
+                  <div style={{ marginTop: 4 }}>
+                    {getAssetNames(selectedSettingsIds, settings).map(name => (
+                      <Tag key={name} style={{ margin: '2px' }}>{name}</Tag>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </Space>
+          </div>
+        </>
+      )}
 
       {!readOnly && mode === 'edit' && !agent.isSystem && (
         <>
