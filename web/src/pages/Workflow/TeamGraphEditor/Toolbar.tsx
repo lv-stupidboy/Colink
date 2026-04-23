@@ -6,6 +6,7 @@ import {
   SaveOutlined,
   EyeOutlined,
   EditOutlined,
+  ApartmentOutlined,
 } from '@ant-design/icons';
 import { useGraphStore } from './useGraphStore';
 import type { MenuProps } from 'antd';
@@ -20,6 +21,7 @@ const Toolbar: React.FC = () => {
     hasChanges,
     saveChanges,
     saving,
+    relayout,
   } = useGraphStore();
 
   const availableAgents = allAgents.filter(
@@ -75,6 +77,14 @@ const Toolbar: React.FC = () => {
               添加 Agent
             </Button>
           </Dropdown>
+
+          <Button
+            icon={<ApartmentOutlined />}
+            onClick={relayout}
+            disabled={nodes.length === 0}
+          >
+            自动布局
+          </Button>
 
           {hasChanges && (
             <Button
