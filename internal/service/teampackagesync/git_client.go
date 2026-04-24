@@ -65,6 +65,35 @@ func (g *GitClient) CloneFromURL(ctx context.Context, url string, branch string)
 	return tempDir, nil
 }
 
+// CloneWithCache 使用缓存克隆（如果缓存存在则直接返回）
+func (g *GitClient) CloneWithCache(ctx context.Context, url string, branch string, cache *CloneCache) (string, error) {
+	// 1. 尝试从缓存获取
+	if cache != nil {
+		dir, exists := cache.Get(url, branch)
+		if exists {
+			g.logger.Info("using cached clone",
+				zap.String("url", url),
+				zap.String("branch", branch),
+				zap.String("cachedDir", dir),
+			)
+			return dir, nil
+		}
+	}
+
+	// 2. 缓存不存在，执行克隆
+	cloneDir, err := g.CloneFromURL(ctx, url, branch)
+	if err != nil {
+		return "", err
+	}
+
+	// 3. 存入缓存（如果有缓存）
+	if cache != nil {
+		cache.Set(url, branch, cloneDir)
+	}
+
+	return cloneDir, nil
+}
+
 // Cleanup removes the temp directory
 func (g *GitClient) Cleanup(cloneDir string) {
 	if cloneDir == "" {
