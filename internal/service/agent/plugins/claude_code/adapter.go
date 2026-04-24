@@ -167,7 +167,7 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execut
 				if key == "ANTHROPIC_AUTH_TOKEN" {
 					value = maskToken(value)
 				}
-				envVarsForLog = append(envVarsForLog, fmt.Sprintf("$env:%s=\"%s\"", key, value))
+				envVarsForLog = append(envVarsForLog, fmt.Sprintf("$env:%s='%s'", key, value))
 			}
 		}
 	}
@@ -176,7 +176,7 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execut
 	cliCmd := a.cliPath + " " + strings.Join(args, " ")
 	var cmdForCopy strings.Builder
 	if cmd.Dir != "" {
-		cmdForCopy.WriteString(fmt.Sprintf("cd \"%s\"; ", cmd.Dir))
+		cmdForCopy.WriteString(fmt.Sprintf("cd '%s'; ", cmd.Dir))
 	}
 	for _, envLine := range envVarsForLog {
 		cmdForCopy.WriteString(envLine)
@@ -184,12 +184,18 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execut
 	}
 	cmdForCopy.WriteString(cliCmd)
 
-	logInfo("Claude: CLI command (PowerShell, copy to test)",
+
+	// 打印完整命令到 zap 日志
+	logInfo("Claude: CLI full command",
 		zap.String("workDir", cmd.Dir),
+		zap.String("command", cmdForCopy.String()),
+	)
+	logInfo("Claude: CLI env vars",
 		zap.Strings("envVars", envVarsForLog),
+	)
+	logInfo("Claude: CLI args",
 		zap.String("cliPath", a.cliPath),
 		zap.Strings("args", args),
-		zap.String("fullCommand", cmdForCopy.String()),
 	)
 
 	cliStartTime := time.Now()
@@ -634,7 +640,7 @@ func (a *ClaudeAdapter) CheckHealth(ctx context.Context) error {
 				if key == "ANTHROPIC_AUTH_TOKEN" {
 					value = maskToken(value)
 				}
-				envVarsForLog = append(envVarsForLog, fmt.Sprintf("$env:%s=\"%s\"", key, value))
+				envVarsForLog = append(envVarsForLog, fmt.Sprintf("$env:%s='%s'", key, value))
 			}
 		}
 	}
@@ -642,19 +648,25 @@ func (a *ClaudeAdapter) CheckHealth(ctx context.Context) error {
 	// 构建 PowerShell 格式的完整命令
 	cliCmd := a.cliPath + " " + strings.Join(args, " ")
 	var cmdForCopy strings.Builder
-	cmdForCopy.WriteString(fmt.Sprintf("cd \"%s\"; ", os.TempDir()))
+	cmdForCopy.WriteString(fmt.Sprintf("cd '%s'; ", os.TempDir()))
 	for _, envLine := range envVarsForLog {
 		cmdForCopy.WriteString(envLine)
 		cmdForCopy.WriteString("; ")
 	}
 	cmdForCopy.WriteString(cliCmd)
 
-	logInfo("Claude: CheckHealth command (PowerShell, copy to test)",
+
+	// 打印完整命令到 zap 日志
+	logInfo("Claude: CheckHealth full command",
 		zap.String("workDir", os.TempDir()),
+		zap.String("command", cmdForCopy.String()),
+	)
+	logInfo("Claude: CheckHealth env vars",
 		zap.Strings("envVars", envVarsForLog),
+	)
+	logInfo("Claude: CheckHealth args",
 		zap.String("cliPath", a.cliPath),
 		zap.Strings("args", args),
-		zap.String("fullCommand", cmdForCopy.String()),
 	)
 
 	// 通过stdin传递prompt
@@ -747,7 +759,7 @@ func (a *ClaudeAdapter) SendToolResult(invocationID uuid.UUID, toolCallID string
 	if err != nil {
 		return fmt.Errorf("ClaudeAdapter: failed to marshal result: %w", err)
 	}
-	answerMsg := fmt.Sprintf("{\"type\":\"tool_result\",\"tool_use_id\":\"%s\",\"content\":%s}\n", toolCallID, string(contentJSON))
+	answerMsg := fmt.Sprintf("{\"type\":\"tool_result\",\"tool_use_id\":'%s',\"content\":%s}\n", toolCallID, string(contentJSON))
 
 	logInfo("ClaudeAdapter: sending tool result via stdin",
 		zap.String("invocationID", invocationID.String()),

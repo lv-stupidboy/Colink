@@ -77,9 +77,6 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 	env := a.buildEnv(req)
 	cmd.Env = env
 
-	// 构建可复制的完整命令（方便调试）
-	a.logCLICommand(cmd, args, env, "ExecuteWithStream")
-
 	stdinPipe, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, fmt.Errorf("ACP: failed to create stdin pipe: %w", err)
@@ -96,6 +93,38 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("ACP: failed to start CLI process: %w", err)
 	}
+
+	// 打印 PowerShell 可执行的命令（只打印我们设置的环境变量）
+	customEnv := a.config.buildEnv(req)
+	var psCmd strings.Builder
+	if req.WorkDir != "" {
+		psCmd.WriteString("cd '")
+		psCmd.WriteString(req.WorkDir)
+		psCmd.WriteString("'; ")
+	}
+	// 添加 OPENCODE_PURE（我们在 buildEnv 中强制设置的）
+	psCmd.WriteString("$env:OPENCODE_PURE='1'; ")
+	for _, e := range customEnv {
+		// 环境变量格式: KEY=VALUE，转换为 PowerShell 格式: $env:KEY='VALUE'
+		if idx := strings.Index(e, "="); idx > 0 {
+			key := e[:idx]
+			value := e[idx+1:]
+			psCmd.WriteString("$env:")
+			psCmd.WriteString(key)
+			psCmd.WriteString("='")
+			psCmd.WriteString(value)
+			psCmd.WriteString("'; ")
+		}
+	}
+	psCmd.WriteString(a.config.cliPath)
+	for _, arg := range args {
+		psCmd.WriteString(" '")
+		psCmd.WriteString(arg)
+		psCmd.WriteString("'")
+	}
+	logInfo("ACP: PowerShell command",
+		zap.String("psCommand", psCmd.String()))
+
 	logInfo("[PERF] ACP cmd.Start", zap.Duration("duration", time.Since(cliStartTime)))
 
 	var wg sync.WaitGroup
@@ -230,9 +259,6 @@ func (a *BaseACPAdapter) StartSession(ctx context.Context, sessionID string, req
 	env := a.buildEnv(req)
 	cmd.Env = env
 
-	// 构建可复制的完整命令（方便调试）
-	a.logCLICommand(cmd, args, env, "StartSession")
-
 	stdinPipe, err := cmd.StdinPipe()
 	if err != nil {
 		return fmt.Errorf("ACP: failed to create stdin pipe: %w", err)
@@ -249,6 +275,38 @@ func (a *BaseACPAdapter) StartSession(ctx context.Context, sessionID string, req
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("ACP: failed to start CLI process: %w", err)
 	}
+
+	// 打印 PowerShell 可执行的命令（只打印我们设置的环境变量）
+	customEnv := a.config.buildEnv(req)
+	var psCmd strings.Builder
+	if req.WorkDir != "" {
+		psCmd.WriteString("cd '")
+		psCmd.WriteString(req.WorkDir)
+		psCmd.WriteString("'; ")
+	}
+	// 添加 OPENCODE_PURE（我们在 buildEnv 中强制设置的）
+	psCmd.WriteString("$env:OPENCODE_PURE='1'; ")
+	for _, e := range customEnv {
+		// 环境变量格式: KEY=VALUE，转换为 PowerShell 格式: $env:KEY='VALUE'
+		if idx := strings.Index(e, "="); idx > 0 {
+			key := e[:idx]
+			value := e[idx+1:]
+			psCmd.WriteString("$env:")
+			psCmd.WriteString(key)
+			psCmd.WriteString("='")
+			psCmd.WriteString(value)
+			psCmd.WriteString("'; ")
+		}
+	}
+	psCmd.WriteString(a.config.cliPath)
+	for _, arg := range args {
+		psCmd.WriteString(" '")
+		psCmd.WriteString(arg)
+		psCmd.WriteString("'")
+	}
+	logInfo("ACP: PowerShell command (StartSession)",
+		zap.String("sessionID", sessionID),
+		zap.String("psCommand", psCmd.String()))
 
 	go func() {
 		scanner := bufio.NewScanner(stderrPipe)
@@ -379,11 +437,7 @@ func (a *BaseACPAdapter) CheckHealth(ctx context.Context) error {
 	args := a.config.buildArgs(&agent.ExecutionRequest{BaseAgent: a.baseAgent})
 	cmd := exec.CommandContext(ctx, a.config.cliPath, args...)
 	cmd.Dir = os.TempDir()
-	env := a.buildEnv(&agent.ExecutionRequest{BaseAgent: a.baseAgent})
-	cmd.Env = env
-
-	// 构建可复制的完整命令（方便调试）
-	a.logCLICommand(cmd, args, env, "CheckHealth")
+	cmd.Env = a.buildEnv(&agent.ExecutionRequest{BaseAgent: a.baseAgent})
 
 	stdinPipe, err := cmd.StdinPipe()
 	if err != nil {
@@ -590,6 +644,14 @@ func (a *BaseACPAdapter) buildEnv(req *agent.ExecutionRequest) []string {
 }
 
 func (a *BaseACPAdapter) configureSession(transport *acpTransport, session *acpSession, sessionResp *acpNewSessionResult, req *agent.ExecutionRequest) error {
+	// 如果通过 CONFIG_CONTENT 配置了自定义 provider 和模型，跳过 session/set_model
+	// 因为 CONFIG_CONTENT 中的 model 字段已经指定了完整的 provider/model 格式
+	if a.hasCustomProviderConfig(req) {
+		logInfo("ACP: skipping session/set_model, using CONFIG_CONTENT model",
+			zap.String("configModel", a.getConfigContentModel()))
+		return nil
+	}
+
 	desiredModel := a.baseAgent.DefaultModel
 
 	if len(sessionResp.ConfigOptions) > 0 {
@@ -597,6 +659,33 @@ func (a *BaseACPAdapter) configureSession(transport *acpTransport, session *acpS
 	}
 
 	return a.configureViaLegacyAPI(transport, session, sessionResp, desiredModel)
+}
+
+// hasCustomProviderConfig 检查是否通过 CONFIG_CONTENT 配置了自定义 provider
+func (a *BaseACPAdapter) hasCustomProviderConfig(req *agent.ExecutionRequest) bool {
+	customEnv := a.config.buildEnv(req)
+	for _, e := range customEnv {
+		if strings.HasPrefix(e, "OPENCODE_CONFIG_CONTENT=") {
+			return true
+		}
+	}
+	return false
+}
+
+// getConfigContentModel 从 CONFIG_CONTENT 中获取模型名
+func (a *BaseACPAdapter) getConfigContentModel() string {
+	configContent := buildOpenCodeConfigContent(a.baseAgent)
+	if configContent == "" {
+		return ""
+	}
+	var config map[string]interface{}
+	if err := json.Unmarshal([]byte(configContent), &config); err != nil {
+		return ""
+	}
+	if model, ok := config["model"].(string); ok {
+		return model
+	}
+	return ""
 }
 
 func (a *BaseACPAdapter) configureViaConfigOptions(transport *acpTransport, session *acpSession, sessionResp *acpNewSessionResult, desiredModel string) error {
@@ -703,45 +792,4 @@ func min(a, b int) int {
 		return a
 	}
 	return b
-}
-
-// logCLICommand 构建并打印 PowerShell 格式的完整命令（方便调试）
-func (a *BaseACPAdapter) logCLICommand(cmd *exec.Cmd, args []string, env []string, method string) {
-	// 提取关键环境变量用于日志，对敏感信息脱敏
-	var envVarsForLog []string
-	for _, e := range env {
-		if strings.HasPrefix(e, "OPENCODE_") {
-			idx := strings.Index(e, "=")
-			if idx > 0 {
-				key := e[:idx]
-				value := e[idx+1:]
-				// 对 CONFIG_CONTENT 中的 JSON 内容进行截断（可能很长）
-				if key == "OPENCODE_CONFIG_CONTENT" && len(value) > 200 {
-					value = value[:200] + "...(truncated)"
-				}
-				envVarsForLog = append(envVarsForLog, fmt.Sprintf("$env:%s=\"%s\"", key, value))
-			}
-		}
-	}
-
-	// 构建 PowerShell 格式的完整命令
-	cliCmd := a.config.cliPath + " " + strings.Join(args, " ")
-	var cmdForCopy strings.Builder
-	if cmd.Dir != "" {
-		cmdForCopy.WriteString(fmt.Sprintf("cd \"%s\"; ", cmd.Dir))
-	}
-	for _, envLine := range envVarsForLog {
-		cmdForCopy.WriteString(envLine)
-		cmdForCopy.WriteString("; ")
-	}
-	cmdForCopy.WriteString(cliCmd)
-
-	logInfo("OpenCode: CLI command (PowerShell, copy to test)",
-		zap.String("method", method),
-		zap.String("workDir", cmd.Dir),
-		zap.Strings("envVars", envVarsForLog),
-		zap.String("cliPath", a.config.cliPath),
-		zap.Strings("args", args),
-		zap.String("fullCommand", cmdForCopy.String()),
-	)
 }
