@@ -150,7 +150,7 @@ export const AgentInvocationLogPanel: React.FC = () => {
     setModalState({ visible: true, invocation: inv });
   }, []);
 
-  // 未展开时显示入口按钮
+  // 未展开时显示入口按钮（点击整个区域展开列表）
   if (!expanded) {
     return (
       <div className="log-panel-trigger" onClick={() => setExpanded(true)}>
@@ -162,16 +162,6 @@ export const AgentInvocationLogPanel: React.FC = () => {
             {activeCount > 0 && <span className="active-count">({activeCount} 运行中)</span>}
           </span>
         )}
-        {timeline.length > 0 && (
-          <FullscreenOutlined
-            className="fullscreen-btn"
-            onClick={(e) => {
-              e.stopPropagation();
-              setModalState({ visible: true, invocation: null });
-            }}
-            title="全屏查看"
-          />
-        )}
         <RightOutlined className="expand-arrow" />
       </div>
     );
@@ -182,16 +172,23 @@ export const AgentInvocationLogPanel: React.FC = () => {
     <>
       <div className="status-section log-panel-content">
         {/* 标题栏 */}
-        <div className="section-collapse-header" onClick={() => setExpanded(false)}>
-          <span>
+        <div className="section-collapse-header">
+          <span onClick={() => setExpanded(false)}>
             <FileTextOutlined />
             <span>调用日志</span>
             <span className="section-collapse-count">
               {timeline.length}
               {activeCount > 0 && <span className="active-dot">●{activeCount}</span>}
             </span>
+            <RightOutlined className="collapse-icon expanded" style={{ marginLeft: 8 }} />
           </span>
-          <RightOutlined className="collapse-icon expanded" />
+          {timeline.length > 0 && (
+            <FullscreenOutlined
+              className="fullscreen-btn"
+              onClick={() => setModalState({ visible: true, invocation: null })}
+              title="全屏查看"
+            />
+          )}
         </div>
 
         {/* 时间线列表 */}
