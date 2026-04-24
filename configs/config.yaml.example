@@ -46,11 +46,6 @@ mcp:
   base_url: http://localhost:26305/api/v1/mcp
   token_ttl: 30m
 
-# 认证配置
-auth:
-  # 访问邀请码，为空则不启用验证
-  invite_code: ""
-
 # Agent资产配置
 agent_assets:
   base_path: ./data/agent-assets
