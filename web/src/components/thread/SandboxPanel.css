@@ -101,12 +101,3 @@
 [data-theme='dark'] .sandbox-empty-icon {
   color: #64748b;
 }
-
-/* ========== Solo 模式下的并排样式 ========== */
-
-/* Solo 模式下沙箱面板并排显示 */
-.right-sidebar.solo-mode-panel {
-  border-left: 1px solid var(--border-color);
-  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.08);
-  flex-shrink: 0;
-}

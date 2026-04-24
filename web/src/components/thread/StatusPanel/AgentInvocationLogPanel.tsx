@@ -1,11 +1,21 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { Modal, Collapse } from 'antd';
-import { FileTextOutlined, RightOutlined, FullscreenOutlined, SettingOutlined, MessageOutlined, FileOutlined, EnvironmentOutlined } from '@ant-design/icons';
+import { Modal, Input, Segmented, Empty } from 'antd';
+import {
+  FileTextOutlined,
+  RightOutlined,
+  FullscreenOutlined,
+  SettingOutlined,
+  MessageOutlined,
+  FileOutlined,
+  EnvironmentOutlined,
+  SearchOutlined,
+  CopyOutlined,
+  CheckOutlined,
+} from '@ant-design/icons';
 import { useAppStore } from '@/store';
 import { selectInvocationTimeline } from '@/store/selectors/invocationTimeline';
-import { AgentStatusBadge, TimeDisplay } from './shared';
+import { AgentStatusBadge, TimeDisplay, InvocationStatus } from './shared';
 import { DurationDisplay } from './DurationDisplay';
-import { TimelineItem } from './TimelineItem';
 import type { AgentInvocation } from '@/types';
 
 // Layer Context 解析结果
@@ -64,59 +74,181 @@ const getDisplayName = (inv: AgentInvocation): string => {
 };
 
 /**
- * 折叠区块组件
+ * 格式化 Token 数量
  */
-const CollapsibleInputBlock: React.FC<{ content: string }> = ({ content }) => {
-  const layerInfo = parseLayerContext(content);
+const formatTokens = (n: number): string => {
+  if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
+  return String(n);
+};
 
-  if (!content) {
-    return <span className="empty-content">（无内容）</span>;
-  }
+// 状态过滤选项
+type StatusFilter = 'all' | 'running' | 'completed' | 'failed';
 
-  if (layerInfo.hasLayers) {
-    const layerPanels = [
-      { key: 'system', label: 'System Prompt', icon: <SettingOutlined />, content: layerInfo.systemPrompt, className: 'layer-system' },
-      { key: 'conversation', label: 'Conversation History', icon: <MessageOutlined />, content: layerInfo.conversation, className: 'layer-conversation' },
-      { key: 'artifacts', label: 'Artifacts', icon: <FileOutlined />, content: layerInfo.artifacts, className: 'layer-artifacts' },
-      { key: 'environment', label: 'Environment', icon: <EnvironmentOutlined />, content: layerInfo.environment, className: 'layer-environment' },
-    ].filter(p => p.content);
+/**
+ * Layer 分块卡片组件
+ * 支持外部强制展开，同时也支持用户单独切换
+ */
+const LayerCard: React.FC<{
+  type: 'system' | 'conversation' | 'artifacts' | 'environment' | 'remaining';
+  content: string;
+  allExpanded?: boolean; // 全局展开状态（来自父组件）
+}> = ({ type, content, allExpanded }) => {
+  // 用户手动切换的状态（null 表示未手动切换，使用全局状态）
+  const [userOverride, setUserOverride] = useState<boolean | null>(null);
 
-    if (layerInfo.remainingContent) {
-      layerPanels.push({
-        key: 'remaining', label: '其他内容', icon: <FileTextOutlined />, content: layerInfo.remainingContent, className: 'layer-remaining',
-      });
+  // 实际展开状态：优先使用用户手动设置的，否则使用全局状态
+  const expanded = userOverride !== null ? userOverride : (allExpanded || false);
+
+  const [copied, setCopied] = useState(false);
+
+  const config = {
+    system: { icon: <SettingOutlined />, label: 'System Prompt', color: 'purple' },
+    conversation: { icon: <MessageOutlined />, label: 'Conversation History', color: 'blue' },
+    artifacts: { icon: <FileOutlined />, label: 'Artifacts', color: 'orange' },
+    environment: { icon: <EnvironmentOutlined />, label: 'Environment', color: 'green' },
+    remaining: { icon: <FileTextOutlined />, label: '其他内容', color: 'gray' },
+  }[type];
+
+  const handleCopy = useCallback(async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('复制失败:', err);
     }
+  }, [content]);
 
+  const handleToggle = useCallback(() => {
+    // 切换展开状态：如果当前是跟随全局状态，则切换到相反；如果已有手动状态，则切换
+    const newExpanded = !expanded;
+    setUserOverride(newExpanded);
+  }, [expanded]);
+
+  return (
+    <div className={`layer-card layer-${config.color}`}>
+      <div className="layer-card-header" onClick={handleToggle}>
+        <div className="layer-card-title">
+          {config.icon}
+          <span>{config.label}</span>
+          <span className="layer-card-size">{content.length} 字符</span>
+        </div>
+        <div className="layer-card-actions">
+          <span
+            className={`layer-copy-btn ${copied ? 'copied' : ''}`}
+            onClick={handleCopy}
+            title="复制"
+          >
+            {copied ? <CheckOutlined /> : <CopyOutlined />}
+          </span>
+          <RightOutlined className={`layer-expand-icon ${expanded ? 'expanded' : ''}`} />
+        </div>
+      </div>
+      {expanded && (
+        <div className="layer-card-content">
+          <pre>{content}</pre>
+        </div>
+      )}
+    </div>
+  );
+};
+
+/**
+ * 详情面板右侧组件
+ */
+const DetailPanel: React.FC<{ invocation: AgentInvocation | null }> = ({ invocation }) => {
+  const [allExpanded, setAllExpanded] = useState(false);
+  const [copiedAll, setCopiedAll] = useState(false);
+
+  if (!invocation) {
     return (
-      <div className="layer-context-block">
-        <Collapse
-          defaultActiveKey={[]}
-          size="small"
-          items={layerPanels.map(p => ({
-            key: p.key,
-            label: (
-              <span className="layer-panel-label">
-                {p.icon}
-                <span>{p.label}</span>
-                <span className="layer-panel-size">{p.content.length} 字符</span>
-              </span>
-            ),
-            children: <pre className="collapsed-content">{p.content}</pre>,
-            className: p.className,
-          }))}
-        />
+      <div className="detail-panel-empty">
+        <Empty description="选择左侧记录查看详情" image={Empty.PRESENTED_IMAGE_SIMPLE} />
       </div>
     );
   }
 
+  const content = invocation.fullPrompt || invocation.input || '';
+  const layerInfo = parseLayerContext(content);
+
+  const handleCopyAll = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopiedAll(true);
+      setTimeout(() => setCopiedAll(false), 2000);
+    } catch (err) {
+      console.error('复制失败:', err);
+    }
+  }, [content]);
+
   return (
-    <Collapse
-      defaultActiveKey={[]}
-      size="small"
-      items={[
-        { key: 'input', label: '输入内容', children: <pre className="collapsed-content">{content}</pre> },
-      ]}
-    />
+    <div className="detail-panel">
+      {/* 元信息区 */}
+      <div className="detail-meta-section">
+        <div className="detail-meta-row">
+          <AgentStatusBadge status={invocation.status as InvocationStatus} />
+          <span className="detail-agent-name">{getDisplayName(invocation)}</span>
+          <TimeDisplay isoString={invocation.startedAt} />
+          <DurationDisplay startedAt={invocation.startedAt} completedAt={invocation.completedAt} />
+        </div>
+        {/* Token 使用 */}
+        {(invocation.inputTokens || invocation.outputTokens) && (
+          <div className="detail-token-row">
+            <span className="token-in">{formatTokens(invocation.inputTokens || 0)} ↓</span>
+            <span className="token-out">{formatTokens(invocation.outputTokens || 0)} ↑</span>
+            {invocation.costUsd && invocation.costUsd > 0 && (
+              <span className="token-cost">${invocation.costUsd.toFixed(4)}</span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* 内容区域 */}
+      <div className="detail-content-section">
+        {content ? (
+          <>
+            {/* 操作栏 */}
+            <div className="detail-actions-bar">
+              <button className="action-btn" onClick={() => setAllExpanded(!allExpanded)}>
+                {allExpanded ? '全部收起' : '全部展开'}
+              </button>
+              <button className={`action-btn ${copiedAll ? 'copied' : ''}`} onClick={handleCopyAll}>
+                {copiedAll ? <><CheckOutlined /> 已复制</> : <><CopyOutlined /> 复制全部</>}
+              </button>
+            </div>
+
+            {/* Layer 分块展示 */}
+            {layerInfo.hasLayers ? (
+              <div className="layer-cards-container">
+                {layerInfo.systemPrompt && (
+                  <LayerCard type="system" content={layerInfo.systemPrompt} allExpanded={allExpanded} />
+                )}
+                {layerInfo.conversation && (
+                  <LayerCard type="conversation" content={layerInfo.conversation} allExpanded={allExpanded} />
+                )}
+                {layerInfo.artifacts && (
+                  <LayerCard type="artifacts" content={layerInfo.artifacts} allExpanded={allExpanded} />
+                )}
+                {layerInfo.environment && (
+                  <LayerCard type="environment" content={layerInfo.environment} allExpanded={allExpanded} />
+                )}
+                {layerInfo.remainingContent && (
+                  <LayerCard type="remaining" content={layerInfo.remainingContent} allExpanded={allExpanded} />
+                )}
+              </div>
+            ) : (
+              <div className="simple-content-block">
+                <pre className="content-pre">{content}</pre>
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="empty-content">无内容</div>
+        )}
+      </div>
+    </div>
   );
 };
 
@@ -125,32 +257,62 @@ const CollapsibleInputBlock: React.FC<{ content: string }> = ({ content }) => {
  * 按调用时间倒序排列，最近的在最上面
  */
 export const AgentInvocationLogPanel: React.FC = () => {
-  const [expanded, setExpanded] = useState(true); // 默认展开
+  const [expanded, setExpanded] = useState(true);
 
   // Modal 状态
-  const [modalState, setModalState] = useState<{
-    visible: boolean;
-    invocation: AgentInvocation | null;
-  }>({ visible: false, invocation: null });
+  const [modalVisible, setModalVisible] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
 
   // 从 Store 获取数据
   const activeAgents = useAppStore((state) => state.activeAgents);
   const completedAgents = useAppStore((state) => state.completedAgents);
 
-  // 按时间排序的调用列表（使用 useMemo 缓存）
+  // 按时间排序的调用列表
   const timeline = useMemo(() => {
     return selectInvocationTimeline(activeAgents, completedAgents);
   }, [activeAgents, completedAgents]);
 
+  // 过滤后的列表
+  const filteredTimeline = useMemo(() => {
+    let result = timeline;
+
+    // 状态过滤
+    if (statusFilter !== 'all') {
+      result = result.filter(inv => inv.status === statusFilter);
+    }
+
+    // 搜索过滤
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter(inv => {
+        const name = getDisplayName(inv).toLowerCase();
+        const content = (inv.fullPrompt || inv.input || '').toLowerCase();
+        return name.includes(query) || content.includes(query);
+      });
+    }
+
+    return result;
+  }, [timeline, statusFilter, searchQuery]);
+
+  // 选中的调用
+  const selectedInvocation = useMemo(() => {
+    return timeline.find(inv => inv.id === selectedId) || null;
+  }, [timeline, selectedId]);
+
   // 计算活跃数量
   const activeCount = activeAgents.length;
 
-  // 查看详情回调（使用 useCallback 缓存）
-  const handleViewDetail = useCallback((inv: AgentInvocation) => {
-    setModalState({ visible: true, invocation: inv });
-  }, []);
+  // 打开 Modal 时默认选中第一条
+  const handleOpenModal = useCallback(() => {
+    setModalVisible(true);
+    if (filteredTimeline.length > 0 && !selectedId) {
+      setSelectedId(filteredTimeline[0].id);
+    }
+  }, [filteredTimeline, selectedId]);
 
-  // 未展开时显示入口按钮（点击整个区域展开列表）
+  // 未展开时显示入口按钮
   if (!expanded) {
     return (
       <div className="log-panel-trigger" onClick={() => setExpanded(true)}>
@@ -171,7 +333,7 @@ export const AgentInvocationLogPanel: React.FC = () => {
   return (
     <>
       <div className="status-section log-panel-content">
-        {/* 标题栏 - 整个区域可点击收起 */}
+        {/* 标题栏 */}
         <div className="section-collapse-header" onClick={() => setExpanded(false)}>
           <span>
             <FileTextOutlined />
@@ -185,10 +347,7 @@ export const AgentInvocationLogPanel: React.FC = () => {
           {timeline.length > 0 && (
             <FullscreenOutlined
               className="fullscreen-btn"
-              onClick={(e) => {
-                e.stopPropagation();
-                setModalState({ visible: true, invocation: null });
-              }}
+              onClick={(e) => { e.stopPropagation(); handleOpenModal(); }}
               title="全屏查看"
             />
           )}
@@ -200,49 +359,99 @@ export const AgentInvocationLogPanel: React.FC = () => {
             <div className="idle-status">暂无调用记录</div>
           ) : (
             timeline.map(inv => (
-              <TimelineItem
+              <div
                 key={inv.id}
-                inv={inv}
-                onViewDetail={handleViewDetail}
-              />
+                className={`timeline-item ${selectedId === inv.id ? 'selected' : ''}`}
+                onClick={() => setSelectedId(inv.id)}
+              >
+                <div className="timeline-main-row">
+                  <AgentStatusBadge status={inv.status as InvocationStatus} />
+                  <span className="timeline-agent-name">{getDisplayName(inv)}</span>
+                  <TimeDisplay isoString={inv.startedAt} />
+                  <DurationDisplay startedAt={inv.startedAt} completedAt={inv.completedAt} compact />
+                </div>
+              </div>
             ))
           )}
         </div>
       </div>
 
-      {/* 详情 Modal */}
+      {/* 全屏 Modal */}
       <Modal
-        title={modalState.invocation ? `调用详情 - ${getDisplayName(modalState.invocation)}` : 'Agent 调用日志'}
-        open={modalState.visible}
-        onCancel={() => setModalState({ visible: false, invocation: null })}
-        width={modalState.invocation ? 600 : 800}
+        title="Agent 调用日志"
+        open={modalVisible}
+        onCancel={() => setModalVisible(false)}
+        width={900}
         footer={null}
-        className={modalState.invocation ? 'invocation-detail-modal' : 'invocation-log-modal'}
+        className="invocation-log-modal-v2"
       >
-        {modalState.invocation ? (
-          <>
-            <div className="detail-meta">
-              <AgentStatusBadge status={modalState.invocation.status as any} />
-              <span className="detail-agent-name">{getDisplayName(modalState.invocation)}</span>
-              <TimeDisplay isoString={modalState.invocation.startedAt} />
-              <DurationDisplay startedAt={modalState.invocation.startedAt} completedAt={modalState.invocation.completedAt} />
+        <div className="log-modal-layout">
+          {/* 左侧列表 */}
+          <div className="log-modal-sidebar">
+            {/* 搜索 + 过滤 */}
+            <div className="sidebar-header">
+              <Input
+                placeholder="搜索 Agent..."
+                prefix={<SearchOutlined />}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                allowClear
+                className="sidebar-search"
+              />
+              <Segmented
+                options={[
+                  { label: '全部', value: 'all' },
+                  { label: '运行', value: 'running' },
+                  { label: '完成', value: 'completed' },
+                  { label: '失败', value: 'failed' },
+                ]}
+                value={statusFilter}
+                onChange={(v) => setStatusFilter(v as StatusFilter)}
+                size="small"
+                className="sidebar-filter"
+              />
             </div>
-            <CollapsibleInputBlock content={modalState.invocation.fullPrompt || modalState.invocation.input || ''} />
-          </>
-        ) : (
-          <div className="modal-timeline">
-            {timeline.map(inv => (
-              <div key={inv.id} className="modal-timeline-item">
-                <div className="modal-timeline-header">
-                  <AgentStatusBadge status={inv.status as any} />
-                  <span className="modal-timeline-name">{getDisplayName(inv)}</span>
-                  <TimeDisplay isoString={inv.startedAt} />
-                </div>
-                <CollapsibleInputBlock content={inv.fullPrompt || inv.input || ''} />
-              </div>
-            ))}
+
+            {/* 列表 */}
+            <div className="sidebar-list">
+              {filteredTimeline.length === 0 ? (
+                <Empty description="无匹配记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              ) : (
+                filteredTimeline.map(inv => (
+                  <div
+                    key={inv.id}
+                    className={`sidebar-item ${selectedId === inv.id ? 'selected' : ''}`}
+                    onClick={() => setSelectedId(inv.id)}
+                  >
+                    <div className="sidebar-item-status">
+                      <span className={`status-dot ${inv.status}`} />
+                    </div>
+                    <div className="sidebar-item-content">
+                      <span className="sidebar-item-name">{getDisplayName(inv)}</span>
+                      <span className="sidebar-item-meta">
+                        <TimeDisplay isoString={inv.startedAt} />
+                        <DurationDisplay startedAt={inv.startedAt} completedAt={inv.completedAt} compact />
+                      </span>
+                    </div>
+                    {(inv.inputTokens || inv.outputTokens) && (
+                      <div className="sidebar-item-tokens">
+                        <span>{formatTokens(inv.inputTokens || 0)}↓</span>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* 底部统计 */}
+            <div className="sidebar-footer">
+              <span>共 {filteredTimeline.length} 条记录</span>
+            </div>
           </div>
-        )}
+
+          {/* 右侧详情 */}
+          <DetailPanel invocation={selectedInvocation} />
+        </div>
       </Modal>
     </>
   );
