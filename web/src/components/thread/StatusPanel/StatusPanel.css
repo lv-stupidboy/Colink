@@ -1042,7 +1042,7 @@
 .timeline-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   max-height: 400px;
   overflow-y: auto;
   margin-top: 8px;
@@ -1050,19 +1050,21 @@
 
 /* 单条时间线记录 */
 .timeline-item {
-  padding: 10px;
+  padding: 10px 12px;
   background: #fff;
   border: 1px solid #e5e7eb;
   border-radius: 6px;
-  border-left: 3px solid #3b82f6;
+  cursor: pointer;
+  transition: all 0.15s;
 }
 
-.timeline-item:last-child {
-  border-left-color: #22c55e;
+.timeline-item:hover {
+  background: #f9fafb;
+  border-color: #d1d5db;
 }
 
-/* 状态行 */
-.timeline-status-row {
+/* 主信息行 */
+.timeline-main-row {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1078,100 +1080,79 @@
   white-space: nowrap;
 }
 
+/* 操作按钮区域（内联） */
+.timeline-actions-inline {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.expand-btn {
+  cursor: pointer;
+  padding: 4px;
+  color: #9ca3af;
+  font-size: 10px;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.expand-btn:hover {
+  color: #374151;
+  background: #f3f4f6;
+}
+
+.expand-btn.expanded {
+  color: #374151;
+  transform: rotate(90deg);
+}
+
+.copy-btn {
+  cursor: pointer;
+  padding: 4px;
+  color: #9ca3af;
+  font-size: 12px;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.copy-btn:hover {
+  color: #22c55e;
+  background: #f0fdf4;
+}
+
+.copy-btn.copied {
+  color: #22c55e;
+}
+
 /* Token 使用 */
 .timeline-usage {
   display: flex;
   gap: 8px;
   margin-top: 6px;
+  padding-left: 24px;
   font-size: 10px;
   color: #6b7280;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
-/* 提示词区域 */
-.timeline-prompt {
+/* 提示词展开区域 */
+.timeline-prompt-expanded {
   margin-top: 8px;
-  background: #f0fdf4;
+  background: #f3f4f6;
   border-radius: 4px;
   padding: 8px;
-  border: 1px solid #bbf7d0;
 }
 
-.timeline-prompt-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 6px;
-}
-
-.timeline-prompt-label {
-  font-size: 10px;
-  color: #15803d;
-  font-weight: 500;
-}
-
-.timeline-prompt-actions {
-  display: flex;
-  gap: 4px;
-}
-
-.prompt-action {
-  cursor: pointer;
-  padding: 2px 4px;
-  color: #22c55e;
-  font-size: 12px;
-  border-radius: 3px;
-  transition: all 0.2s;
-}
-
-.prompt-action:hover {
-  color: #16a34a;
-  background: #dcfce7;
-}
-
-.prompt-action.copied {
-  color: #16a34a;
-}
-
-.timeline-prompt pre {
+.prompt-content {
   margin: 0;
   font-size: 11px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  color: #166534;
+  color: #374151;
   white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.5;
-}
-
-.timeline-prompt pre.collapsed {
-  max-height: 60px;
-  overflow: hidden;
-}
-
-.timeline-prompt pre.expanded {
-  max-height: 300px;
+  max-height: 200px;
   overflow-y: auto;
-}
-
-/* 操作按钮 */
-.timeline-actions {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 6px;
-}
-
-.detail-btn {
-  cursor: pointer;
-  padding: 4px 8px;
-  font-size: 11px;
-  color: #6b7280;
-  border-radius: 4px;
-  transition: all 0.2s;
-}
-
-.detail-btn:hover {
-  color: #3b82f6;
-  background: #eff6ff;
 }
 
 /* 活跃数量标记 */
@@ -1206,6 +1187,11 @@
   border-color: var(--border-color);
 }
 
+[data-theme='dark'] .timeline-item:hover {
+  background: var(--bg-elevated);
+  border-color: var(--color-primary-opacity-30);
+}
+
 [data-theme='dark'] .timeline-agent-name {
   color: var(--text-primary);
 }
@@ -1214,22 +1200,22 @@
   color: var(--text-secondary);
 }
 
-[data-theme='dark'] .timeline-prompt {
-  background: var(--color-primary-opacity-10);
-  border-color: var(--color-primary-opacity-30);
+[data-theme='dark'] .expand-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-elevated);
 }
 
-[data-theme='dark'] .timeline-prompt pre {
-  color: var(--color-primary);
-}
-
-[data-theme='dark'] .prompt-action:hover {
-  background: var(--color-primary-opacity-20);
-}
-
-[data-theme='dark'] .detail-btn:hover {
+[data-theme='dark'] .copy-btn:hover {
   color: var(--color-primary);
   background: var(--color-primary-opacity-10);
+}
+
+[data-theme='dark'] .timeline-prompt-expanded {
+  background: var(--bg-elevated);
+}
+
+[data-theme='dark'] .prompt-content {
+  color: var(--text-primary);
 }
 
 [data-theme='dark'] .active-dot {

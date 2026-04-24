@@ -125,7 +125,7 @@ const CollapsibleInputBlock: React.FC<{ content: string }> = ({ content }) => {
  * 按调用时间倒序排列，最近的在最上面
  */
 export const AgentInvocationLogPanel: React.FC = () => {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true); // 默认展开
 
   // Modal 状态
   const [modalState, setModalState] = useState<{
