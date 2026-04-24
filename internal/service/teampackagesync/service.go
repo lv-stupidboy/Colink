@@ -377,6 +377,23 @@ func (s *SyncService) updateVersionRecord(ctx context.Context, packageName strin
 	return s.versionRepo.Create(ctx, newVersion)
 }
 
+// cleanupCache 清理缓存中的所有克隆目录
+func (s *SyncService) cleanupCache(cache *CloneCache) {
+	if cache == nil {
+		return
+	}
+
+	dirs := cache.GetAllDirs()
+	for _, dir := range dirs {
+		s.gitClient.Cleanup(dir)
+	}
+	cache.Clear()
+
+	s.logger.Info("clone cache cleaned up",
+		zap.Int("dirs", len(dirs)),
+	)
+}
+
 // parseMarketplaceJSON 解析 marketplace.json 文件
 func (s *SyncService) parseMarketplaceJSON(cloneDir string) (*model.Marketplace, error) {
 	marketplaceFile := filepath.Join(cloneDir, "marketplace.json")
