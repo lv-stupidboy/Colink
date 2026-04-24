@@ -65,33 +65,41 @@ func (g *GitClient) CloneFromURL(ctx context.Context, url string, branch string)
 	return tempDir, nil
 }
 
-// CloneWithCache 使用缓存克隆（如果缓存存在则直接返回）
+// CloneWithCache 使用缓存克隆（如果缓存存在则直接返回，支持并发安全）
 func (g *GitClient) CloneWithCache(ctx context.Context, url string, branch string, cache *CloneCache) (string, error) {
-	// 1. 尝试从缓存获取
-	if cache != nil {
-		dir, exists := cache.Get(url, branch)
-		if exists {
-			g.logger.Info("using cached clone",
+	if cache == nil {
+		// 无缓存，直接克隆
+		return g.CloneFromURL(ctx, url, branch)
+	}
+
+	// 使用 singleflight 模式获取或标记进行中
+	dir, err, isFirst := cache.GetOrMarkPending(url, branch)
+
+	if !isFirst {
+		// 不是第一个请求，返回等待的结果
+		if err != nil {
+			g.logger.Warn("using failed clone result",
 				zap.String("url", url),
 				zap.String("branch", branch),
-				zap.String("cachedDir", dir),
+				zap.Error(err),
 			)
-			return dir, nil
+			return "", err
 		}
+		g.logger.Info("using cached clone",
+			zap.String("url", url),
+			zap.String("branch", branch),
+			zap.String("cachedDir", dir),
+		)
+		return dir, nil
 	}
 
-	// 2. 缓存不存在，执行克隆
-	cloneDir, err := g.CloneFromURL(ctx, url, branch)
-	if err != nil {
-		return "", err
-	}
+	// 是第一个请求，执行克隆
+	cloneDir, cloneErr := g.CloneFromURL(ctx, url, branch)
 
-	// 3. 存入缓存（如果有缓存）
-	if cache != nil {
-		cache.Set(url, branch, cloneDir)
-	}
+	// 完成并通知等待者
+	cache.Complete(url, branch, cloneDir, cloneErr)
 
-	return cloneDir, nil
+	return cloneDir, cloneErr
 }
 
 // Cleanup removes the temp directory
