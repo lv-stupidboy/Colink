@@ -733,7 +733,12 @@ func initLogger(level, format, logDir string) (*zap.Logger, error) {
 		zapcore.NewCore(zapcore.NewConsoleEncoder(encoderConfig), consoleWriter, zapLevel),
 	)
 
-	return zap.New(core, zap.AddCaller()), nil
+	logger := zap.New(core, zap.AddCaller())
+
+	// 设置全局 logger，使得 zap.L() 能返回此 logger
+	zap.ReplaceGlobals(logger)
+
+	return logger, nil
 }
 
 func corsMiddleware() gin.HandlerFunc {
