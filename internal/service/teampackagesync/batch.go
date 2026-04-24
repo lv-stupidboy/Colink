@@ -59,9 +59,12 @@ type BatchSyncResult struct {
 	FailedCount  int          `json:"failedCount"`
 }
 
-// PreviewPackagesBatch 批量预览团队包（并行）
+// PreviewPackagesBatch 批量预览团队包（并行，使用缓存避免重复克隆）
 func (s *SyncService) PreviewPackagesBatch(ctx context.Context,
 	requests []PreviewRequestItem) (*BatchPreviewResult, error) {
+
+	// 创建请求级缓存
+	cache := NewCloneCache()
 
 	maxConcurrency := 5
 	sem := make(chan struct{}, maxConcurrency)
@@ -82,7 +85,7 @@ func (s *SyncService) PreviewPackagesBatch(ctx context.Context,
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			data, err := s.PreviewPackage(ctx, name, marketId)
+			data, err := s.PreviewPackageWithCache(ctx, name, marketId, cache)
 
 			mu.Lock()
 			results[idx] = PreviewResult{
@@ -102,6 +105,9 @@ func (s *SyncService) PreviewPackagesBatch(ctx context.Context,
 
 	wg.Wait()
 
+	// 批量操作完成后，统一清理所有克隆目录
+	s.cleanupCache(cache)
+
 	return &BatchPreviewResult{
 		Previews:       results,
 		TotalConflicts: totalConflicts,
@@ -110,9 +116,12 @@ func (s *SyncService) PreviewPackagesBatch(ctx context.Context,
 	}, nil
 }
 
-// SyncPackagesBatch 批量同步团队包（并行）
+// SyncPackagesBatch 批量同步团队包（并行，使用缓存避免重复克隆）
 func (s *SyncService) SyncPackagesBatch(ctx context.Context,
 	requests []SyncRequestItem) (*BatchSyncResult, error) {
+
+	// 创建请求级缓存
+	cache := NewCloneCache()
 
 	maxConcurrency := 3
 	sem := make(chan struct{}, maxConcurrency)
@@ -132,7 +141,7 @@ func (s *SyncService) SyncPackagesBatch(ctx context.Context,
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			data, err := s.SyncPackage(ctx, name, marketId, confirm)
+			data, err := s.SyncPackageWithCache(ctx, name, marketId, confirm, cache)
 
 			mu.Lock()
 			results[idx] = SyncResult{
@@ -150,6 +159,9 @@ func (s *SyncService) SyncPackagesBatch(ctx context.Context,
 	}
 
 	wg.Wait()
+
+	// 批量操作完成后，统一清理所有克隆目录
+	s.cleanupCache(cache)
 
 	return &BatchSyncResult{
 		Results:      results,
