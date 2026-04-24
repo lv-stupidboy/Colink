@@ -168,6 +168,32 @@ func (s *ConfigService) List(ctx context.Context) ([]*model.AgentRoleConfig, err
 	return s.repo.List(ctx)
 }
 
+// InvalidateCache 失效指定Agent的缓存（配置生成后需要调用）
+func (s *ConfigService) InvalidateCache(id uuid.UUID) {
+	s.cacheMu.Lock()
+	delete(s.cache, id)
+	s.cacheMu.Unlock()
+}
+
+// RefreshCache 刷新指定Agent的缓存（从数据库重新加载）
+func (s *ConfigService) RefreshCache(ctx context.Context, id uuid.UUID) error {
+	s.cacheMu.Lock()
+	delete(s.cache, id)
+	s.cacheMu.Unlock()
+
+	// 从数据库重新加载并缓存
+	config, err := s.repo.FindByID(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	s.cacheMu.Lock()
+	s.cache[id] = config
+	s.cacheMu.Unlock()
+
+	return nil
+}
+
 var (
 	ErrConfigNotFound = errors.New("agent config not found")
 )

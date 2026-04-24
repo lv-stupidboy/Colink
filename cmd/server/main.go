@@ -231,6 +231,11 @@ func main() {
 		logger,
 	)
 
+		// 设置缓存失效回调：配置生成后刷新 ConfigService 缓存
+		configGenService.SetCacheInvalidateCallback(func(agentRoleID uuid.UUID) {
+			configService.InvalidateCache(agentRoleID)
+		})
+
 	// 创建 Subagent Service
 	subagentSvc := subagent.NewService(
 		subagentRepo, agentSubagentBindingRepo, subagentSkillBindingRepo,
