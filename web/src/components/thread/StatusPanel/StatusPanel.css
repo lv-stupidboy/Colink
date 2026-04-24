@@ -1255,6 +1255,7 @@
   font-size: 12px;
   color: #374151;
   transition: all 0.2s;
+  user-select: none;
 }
 
 .log-panel-trigger:hover {
@@ -1267,8 +1268,17 @@
   color: #6b7280;
 }
 
-.log-panel-count {
+.log-panel-title {
+  flex: 1;
+}
+
+.log-panel-trigger .expand-arrow {
+  font-size: 10px;
+  color: #9ca3af;
   margin-left: auto;
+}
+
+.log-panel-count {
   font-size: 10px;
   background: #dbeafe;
   color: #1d4ed8;

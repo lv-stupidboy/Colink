@@ -155,13 +155,14 @@ export const AgentInvocationLogPanel: React.FC = () => {
     return (
       <div className="log-panel-trigger" onClick={() => setExpanded(true)}>
         <FileTextOutlined />
-        <span>调用日志</span>
+        <span className="log-panel-title">调用日志</span>
         {timeline.length > 0 && (
           <span className="log-panel-count">
             {timeline.length}
             {activeCount > 0 && <span className="active-count">({activeCount} 运行中)</span>}
           </span>
         )}
+        <RightOutlined className="expand-arrow" />
         {timeline.length > 0 && (
           <FullscreenOutlined
             className="fullscreen-btn"
