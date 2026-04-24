@@ -139,6 +139,18 @@
   font-variant-numeric: tabular-nums;
 }
 
+.message-grid.compact .message-count.running {
+  color: #3b82f6;
+}
+
+.message-grid.compact .message-count.completed {
+  color: #22c55e;
+}
+
+.message-grid.compact .message-count.failed {
+  color: #ef4444;
+}
+
 .message-grid.compact .message-label {
   font-size: 9px;
   color: #6b7280;
@@ -1024,6 +1036,196 @@
 
 /* 响应式布局: StatusPanel remains visible at all sizes */
 
+/* ========== Timeline List 样式 ========== */
+
+/* 时间线列表容器 */
+.timeline-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 400px;
+  overflow-y: auto;
+  margin-top: 8px;
+}
+
+/* 单条时间线记录 */
+.timeline-item {
+  padding: 10px 12px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.timeline-item:hover {
+  background: #f9fafb;
+  border-color: #d1d5db;
+}
+
+/* 主信息行 */
+.timeline-main-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.timeline-agent-name {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+  color: #111827;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 操作按钮区域（内联） */
+.timeline-actions-inline {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.expand-btn {
+  cursor: pointer;
+  padding: 4px;
+  color: #9ca3af;
+  font-size: 10px;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.expand-btn:hover {
+  color: #374151;
+  background: #f3f4f6;
+}
+
+.expand-btn.expanded {
+  color: #374151;
+  transform: rotate(90deg);
+}
+
+.copy-btn {
+  cursor: pointer;
+  padding: 4px;
+  color: #9ca3af;
+  font-size: 12px;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.copy-btn:hover {
+  color: #22c55e;
+  background: #f0fdf4;
+}
+
+.copy-btn.copied {
+  color: #22c55e;
+}
+
+/* Token 使用 */
+.timeline-usage {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+  padding-left: 24px;
+  font-size: 10px;
+  color: #6b7280;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* 提示词展开区域 */
+.timeline-prompt-expanded {
+  margin-top: 8px;
+  background: #f3f4f6;
+  border-radius: 4px;
+  padding: 8px;
+}
+
+.prompt-content {
+  margin: 0;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: #374151;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+/* 活跃数量标记 */
+.active-dot {
+  color: #22c55e;
+  font-weight: 600;
+}
+
+/* 标题栏样式 */
+.section-collapse-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+}
+
+.section-collapse-header .collapse-icon {
+  font-size: 10px;
+  color: #6b7280;
+  transition: transform 0.2s ease;
+}
+
+.section-collapse-header .collapse-icon.expanded {
+  transform: rotate(90deg);
+}
+
+/* ========== 深色模式适配 ========== */
+
+[data-theme='dark'] .timeline-item {
+  background: var(--bg-base);
+  border-color: var(--border-color);
+}
+
+[data-theme='dark'] .timeline-item:hover {
+  background: var(--bg-elevated);
+  border-color: var(--color-primary-opacity-30);
+}
+
+[data-theme='dark'] .timeline-agent-name {
+  color: var(--text-primary);
+}
+
+[data-theme='dark'] .timeline-usage {
+  color: var(--text-secondary);
+}
+
+[data-theme='dark'] .expand-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+}
+
+[data-theme='dark'] .copy-btn:hover {
+  color: var(--color-primary);
+  background: var(--color-primary-opacity-10);
+}
+
+[data-theme='dark'] .timeline-prompt-expanded {
+  background: var(--bg-elevated);
+}
+
+[data-theme='dark'] .prompt-content {
+  color: var(--text-primary);
+}
+
+[data-theme='dark'] .active-dot {
+  color: #4ade80;
+}
+
+[data-theme='dark'] .section-collapse-header .collapse-icon {
+  color: var(--text-secondary);
+}
+
 /* ========== Agent Invocation Log Panel ========== */
 
 /* 入口按钮（未展开时） */
@@ -1039,6 +1241,7 @@
   font-size: 12px;
   color: #374151;
   transition: all 0.2s;
+  user-select: none;
 }
 
 .log-panel-trigger:hover {
@@ -1051,8 +1254,22 @@
   color: #6b7280;
 }
 
+.log-panel-title {
+  flex: 1;
+}
+
+.log-panel-trigger .expand-arrow {
+  font-size: 10px;
+  color: #9ca3af;
+  padding: 4px;
+  margin-left: 8px;
+}
+
+.log-panel-trigger:hover .expand-arrow {
+  color: #374151;
+}
+
 .log-panel-count {
-  margin-left: auto;
   font-size: 10px;
   background: #dbeafe;
   color: #1d4ed8;

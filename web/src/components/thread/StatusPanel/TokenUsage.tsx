@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Progress, Collapse } from 'antd';
+import { Progress } from 'antd';
 import { RightOutlined } from '@ant-design/icons';
 import type { TokenUsage as TokenUsageType } from '@/types/status';
 
