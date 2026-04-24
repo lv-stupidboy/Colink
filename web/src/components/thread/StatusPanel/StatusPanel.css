@@ -139,6 +139,18 @@
   font-variant-numeric: tabular-nums;
 }
 
+.message-grid.compact .message-count.running {
+  color: #3b82f6;
+}
+
+.message-grid.compact .message-count.completed {
+  color: #22c55e;
+}
+
+.message-grid.compact .message-count.failed {
+  color: #ef4444;
+}
+
 .message-grid.compact .message-label {
   font-size: 9px;
   color: #6b7280;

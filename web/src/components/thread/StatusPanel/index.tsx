@@ -13,15 +13,15 @@ interface StatusPanelProps {
 }
 
 export const StatusPanel: React.FC<StatusPanelProps> = ({ width = 320, threadId }) => {
-  const { activeAgents, agentUsage, messages, agentTaskProgress } = useAppStore();
+  const { activeAgents, agentUsage, completedAgents, agentTaskProgress } = useAppStore();
   const [copied, setCopied] = useState(false);
 
-  // 计算消息统计
-  const messageStats = {
-    total: messages.length,
-    agent: messages.filter(m => m.role === 'agent').length,
-    system: messages.filter(m => m.role === 'system').length,
-    user: messages.filter(m => m.role === 'user').length,
+  // 计算调用统计
+  const invocationStats = {
+    total: activeAgents.length + completedAgents.length,
+    running: activeAgents.length,
+    completed: completedAgents.filter(a => a.status === 'completed').length,
+    failed: completedAgents.filter(a => a.status === 'failed').length,
   };
 
   // 计算 Token 总计
@@ -47,7 +47,7 @@ export const StatusPanel: React.FC<StatusPanelProps> = ({ width = 320, threadId 
 
   return (
     <aside className="status-panel" style={{ width }}>
-      {/* Thread ID + 消息统计 合并区块 */}
+      {/* Thread ID + 调用统计 合并区块 */}
       <div className="status-section thread-info-section">
         <div className="thread-id-row">
           <span className="thread-id-label">Thread ID</span>
@@ -60,20 +60,20 @@ export const StatusPanel: React.FC<StatusPanelProps> = ({ width = 320, threadId 
         </div>
         <div className="message-grid compact">
           <div className="message-item">
-            <span className="message-count">{messageStats.total}</span>
-            <span className="message-label">消息</span>
+            <span className="message-count">{invocationStats.total}</span>
+            <span className="message-label">调用</span>
           </div>
           <div className="message-item">
-            <span className="message-count">{messageStats.user}</span>
-            <span className="message-label">用户</span>
+            <span className="message-count running">{invocationStats.running}</span>
+            <span className="message-label">运行</span>
           </div>
           <div className="message-item">
-            <span className="message-count">{messageStats.agent}</span>
-            <span className="message-label">Agent</span>
+            <span className="message-count completed">{invocationStats.completed}</span>
+            <span className="message-label">完成</span>
           </div>
           <div className="message-item">
-            <span className="message-count">{messageStats.system}</span>
-            <span className="message-label">系统</span>
+            <span className="message-count failed">{invocationStats.failed}</span>
+            <span className="message-label">失败</span>
           </div>
         </div>
       </div>
