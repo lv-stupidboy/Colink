@@ -1275,7 +1275,12 @@
 .log-panel-trigger .expand-arrow {
   font-size: 10px;
   color: #9ca3af;
-  margin-left: auto;
+  padding: 4px;
+  margin-left: 8px;
+}
+
+.log-panel-trigger:hover .expand-arrow {
+  color: #374151;
 }
 
 .log-panel-count {

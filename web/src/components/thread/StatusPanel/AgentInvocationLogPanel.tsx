@@ -162,7 +162,6 @@ export const AgentInvocationLogPanel: React.FC = () => {
             {activeCount > 0 && <span className="active-count">({activeCount} 运行中)</span>}
           </span>
         )}
-        <RightOutlined className="expand-arrow" />
         {timeline.length > 0 && (
           <FullscreenOutlined
             className="fullscreen-btn"
@@ -173,6 +172,7 @@ export const AgentInvocationLogPanel: React.FC = () => {
             title="全屏查看"
           />
         )}
+        <RightOutlined className="expand-arrow" />
       </div>
     );
   }
