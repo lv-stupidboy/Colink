@@ -1024,6 +1024,210 @@
 
 /* 响应式布局: StatusPanel remains visible at all sizes */
 
+/* ========== Timeline List 样式 ========== */
+
+/* 时间线列表容器 */
+.timeline-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 400px;
+  overflow-y: auto;
+  margin-top: 8px;
+}
+
+/* 单条时间线记录 */
+.timeline-item {
+  padding: 10px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  border-left: 3px solid #3b82f6;
+}
+
+.timeline-item:last-child {
+  border-left-color: #22c55e;
+}
+
+/* 状态行 */
+.timeline-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.timeline-agent-name {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+  color: #111827;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Token 使用 */
+.timeline-usage {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 10px;
+  color: #6b7280;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* 提示词区域 */
+.timeline-prompt {
+  margin-top: 8px;
+  background: #f0fdf4;
+  border-radius: 4px;
+  padding: 8px;
+  border: 1px solid #bbf7d0;
+}
+
+.timeline-prompt-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.timeline-prompt-label {
+  font-size: 10px;
+  color: #15803d;
+  font-weight: 500;
+}
+
+.timeline-prompt-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.prompt-action {
+  cursor: pointer;
+  padding: 2px 4px;
+  color: #22c55e;
+  font-size: 12px;
+  border-radius: 3px;
+  transition: all 0.2s;
+}
+
+.prompt-action:hover {
+  color: #16a34a;
+  background: #dcfce7;
+}
+
+.prompt-action.copied {
+  color: #16a34a;
+}
+
+.timeline-prompt pre {
+  margin: 0;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: #166534;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+}
+
+.timeline-prompt pre.collapsed {
+  max-height: 60px;
+  overflow: hidden;
+}
+
+.timeline-prompt pre.expanded {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+/* 操作按钮 */
+.timeline-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+
+.detail-btn {
+  cursor: pointer;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: #6b7280;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.detail-btn:hover {
+  color: #3b82f6;
+  background: #eff6ff;
+}
+
+/* 活跃数量标记 */
+.active-dot {
+  color: #22c55e;
+  font-weight: 600;
+}
+
+/* 标题栏样式 */
+.section-collapse-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+}
+
+.section-collapse-header .collapse-icon {
+  font-size: 10px;
+  color: #6b7280;
+  transition: transform 0.2s ease;
+}
+
+.section-collapse-header .collapse-icon.expanded {
+  transform: rotate(90deg);
+}
+
+/* ========== 深色模式适配 ========== */
+
+[data-theme='dark'] .timeline-item {
+  background: var(--bg-base);
+  border-color: var(--border-color);
+}
+
+[data-theme='dark'] .timeline-agent-name {
+  color: var(--text-primary);
+}
+
+[data-theme='dark'] .timeline-usage {
+  color: var(--text-secondary);
+}
+
+[data-theme='dark'] .timeline-prompt {
+  background: var(--color-primary-opacity-10);
+  border-color: var(--color-primary-opacity-30);
+}
+
+[data-theme='dark'] .timeline-prompt pre {
+  color: var(--color-primary);
+}
+
+[data-theme='dark'] .prompt-action:hover {
+  background: var(--color-primary-opacity-20);
+}
+
+[data-theme='dark'] .detail-btn:hover {
+  color: var(--color-primary);
+  background: var(--color-primary-opacity-10);
+}
+
+[data-theme='dark'] .active-dot {
+  color: #4ade80;
+}
+
+[data-theme='dark'] .section-collapse-header .collapse-icon {
+  color: var(--text-secondary);
+}
+
 /* ========== Agent Invocation Log Panel ========== */
 
 /* 入口按钮（未展开时） */

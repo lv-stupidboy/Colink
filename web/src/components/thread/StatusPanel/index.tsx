@@ -2,9 +2,8 @@ import React, { useState } from 'react';
 import { useAppStore } from '@/store';
 import { AgentStatusCard } from './AgentStatusCard';
 import { TokenUsage } from './TokenUsage';
-import { AgentHistoryCard } from './AgentHistoryCard';
-import { TaskProgressPanel } from './TaskProgressPanel';
 import { AgentInvocationLogPanel } from './AgentInvocationLogPanel';
+import { TaskProgressPanel } from './TaskProgressPanel';
 import { CopyOutlined, CheckOutlined } from '@ant-design/icons';
 import './StatusPanel.css';
 
@@ -14,7 +13,7 @@ interface StatusPanelProps {
 }
 
 export const StatusPanel: React.FC<StatusPanelProps> = ({ width = 320, threadId }) => {
-  const { activeAgents, agentUsage, messages, completedAgents, agentTaskProgress } = useAppStore();
+  const { activeAgents, agentUsage, messages, agentTaskProgress } = useAppStore();
   const [copied, setCopied] = useState(false);
 
   // 计算消息统计
@@ -80,18 +79,9 @@ export const StatusPanel: React.FC<StatusPanelProps> = ({ width = 320, threadId 
       </div>
 
       {/* Agent 状态 */}
-      <AgentStatusCard
-        activeAgents={activeAgents}
-        agentUsage={agentUsage}
-      />
+      <AgentStatusCard activeAgents={activeAgents} agentUsage={agentUsage} />
 
-      {/* 历史参与 */}
-      <AgentHistoryCard
-        completedAgents={completedAgents}
-        agentUsage={agentUsage}
-      />
-
-      {/* Agent 调用日志 */}
+      {/* Agent 调用日志（合并历史参与） */}
       <AgentInvocationLogPanel />
 
       {/* 任务进度 - 仅在有任务时显示 */}
