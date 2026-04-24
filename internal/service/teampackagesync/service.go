@@ -154,8 +154,8 @@ func (s *SyncService) GetLocalVersions(ctx context.Context) ([]model.TeamPackage
 	return versions, nil
 }
 
-// SyncPackage 同步指定的团队包（必须指定 marketId）
-func (s *SyncService) SyncPackage(ctx context.Context, packageName string, marketId string, confirm *model.TeamPackageImportConfirm) (*model.ImportResult, error) {
+// SyncPackageWithCache 同步团队包（带缓存，用于批量操作）
+func (s *SyncService) SyncPackageWithCache(ctx context.Context, packageName string, marketId string, confirm *model.TeamPackageImportConfirm, cache *CloneCache) (*model.ImportResult, error) {
 	if marketId == "" {
 		return nil, fmt.Errorf("marketId is required")
 	}
@@ -179,12 +179,15 @@ func (s *SyncService) SyncPackage(ctx context.Context, packageName string, marke
 		return nil, fmt.Errorf("market not found: %s", marketId)
 	}
 
-	// 克隆市场仓库获取 marketplace.json
-	marketCloneDir, err := s.gitClient.CloneFromURL(ctx, market.URL, market.Branch)
+	// 克隆市场仓库（使用缓存）
+	marketCloneDir, err := s.gitClient.CloneWithCache(ctx, market.URL, market.Branch, cache)
 	if err != nil {
 		return nil, fmt.Errorf("clone market repo: %w", err)
 	}
-	defer s.gitClient.Cleanup(marketCloneDir)
+	// 批量操作时由缓存统一清理，单包导入时（cache=nil）需要 defer Cleanup
+	if cache == nil {
+		defer s.gitClient.Cleanup(marketCloneDir)
+	}
 
 	// 解析 marketplace.json
 	marketplace, err := s.parseMarketplaceJSON(marketCloneDir)
@@ -199,7 +202,7 @@ func (s *SyncService) SyncPackage(ctx context.Context, packageName string, marke
 				Name:        plugin.Name,
 				Version:     plugin.Version,
 				Description: plugin.Description,
-				Path:        "", // 将在克隆后设置
+				Path:        "",
 				Repository:  plugin.Repository,
 				Source:      plugin.Source,
 			}
@@ -211,12 +214,15 @@ func (s *SyncService) SyncPackage(ctx context.Context, packageName string, marke
 		return nil, fmt.Errorf("package not found in marketplace: %s", packageName)
 	}
 
-	// 克隆包仓库
-	packageCloneDir, err = s.gitClient.CloneFromURL(ctx, remotePkg.Repository, "master")
+	// 克隆包仓库（使用缓存）
+	packageCloneDir, err = s.gitClient.CloneWithCache(ctx, remotePkg.Repository, "master", cache)
 	if err != nil {
 		return nil, fmt.Errorf("clone package repo: %w", err)
 	}
-	defer s.gitClient.Cleanup(packageCloneDir)
+	// 批量操作时由缓存统一清理，单包导入时（cache=nil）需要 defer Cleanup
+	if cache == nil {
+		defer s.gitClient.Cleanup(packageCloneDir)
+	}
 
 	// 设置包的实际路径
 	remotePkg.Path = filepath.Join(packageCloneDir, remotePkg.Source)
@@ -252,6 +258,11 @@ func (s *SyncService) SyncPackage(ctx context.Context, packageName string, marke
 	}
 
 	return result, nil
+}
+
+// SyncPackage 同步团队包（单包导入，不使用缓存，自动清理）
+func (s *SyncService) SyncPackage(ctx context.Context, packageName string, marketId string, confirm *model.TeamPackageImportConfirm) (*model.ImportResult, error) {
+	return s.SyncPackageWithCache(ctx, packageName, marketId, confirm, nil)
 }
 
 // createZipFromDir 将目录创建为 zip 文件
@@ -383,8 +394,8 @@ func (s *SyncService) parseMarketplaceJSON(cloneDir string) (*model.Marketplace,
 	return &marketplace, nil
 }
 
-// PreviewPackage 预览团队包内容（不实际导入，必须指定 marketId）
-func (s *SyncService) PreviewPackage(ctx context.Context, packageName string, marketId string) (*PreviewPackageResponse, error) {
+// PreviewPackageWithCache 预览团队包（带缓存，用于批量操作）
+func (s *SyncService) PreviewPackageWithCache(ctx context.Context, packageName string, marketId string, cache *CloneCache) (*PreviewPackageResponse, error) {
 	if marketId == "" {
 		return nil, fmt.Errorf("marketId is required")
 	}
@@ -408,12 +419,15 @@ func (s *SyncService) PreviewPackage(ctx context.Context, packageName string, ma
 		return nil, fmt.Errorf("market not found: %s", marketId)
 	}
 
-	// 克隆市场仓库获取 marketplace.json
-	marketCloneDir, err := s.gitClient.CloneFromURL(ctx, market.URL, market.Branch)
+	// 克隆市场仓库（使用缓存）
+	marketCloneDir, err := s.gitClient.CloneWithCache(ctx, market.URL, market.Branch, cache)
 	if err != nil {
 		return nil, fmt.Errorf("clone market repo: %w", err)
 	}
-	defer s.gitClient.Cleanup(marketCloneDir)
+	// 批量操作时由缓存统一清理，单包预览时（cache=nil）需要 defer Cleanup
+	if cache == nil {
+		defer s.gitClient.Cleanup(marketCloneDir)
+	}
 
 	// 解析 marketplace.json
 	marketplace, err := s.parseMarketplaceJSON(marketCloneDir)
@@ -440,12 +454,15 @@ func (s *SyncService) PreviewPackage(ctx context.Context, packageName string, ma
 		return nil, fmt.Errorf("package not found in marketplace: %s", packageName)
 	}
 
-	// 克隆包仓库
-	packageCloneDir, err = s.gitClient.CloneFromURL(ctx, remotePkg.Repository, "master")
+	// 克隆包仓库（使用缓存）
+	packageCloneDir, err = s.gitClient.CloneWithCache(ctx, remotePkg.Repository, "master", cache)
 	if err != nil {
 		return nil, fmt.Errorf("clone package repo: %w", err)
 	}
-	defer s.gitClient.Cleanup(packageCloneDir)
+	// 批量操作时由缓存统一清理，单包预览时（cache=nil）需要 defer Cleanup
+	if cache == nil {
+		defer s.gitClient.Cleanup(packageCloneDir)
+	}
 
 	// 设置包的实际路径
 	remotePkg.Path = filepath.Join(packageCloneDir, remotePkg.Source)
@@ -462,7 +479,17 @@ func (s *SyncService) PreviewPackage(ctx context.Context, packageName string, ma
 		return nil, fmt.Errorf("parse manifest.json: %w", err)
 	}
 
-	// 构建预览响应
+	// 构建预览响应（调用抽取的冲突检测方法）
+	return s.buildPreviewResponse(ctx, packageName, remotePkg, manifest)
+}
+
+// PreviewPackage 预览团队包（单包预览，不使用缓存，自动清理）
+func (s *SyncService) PreviewPackage(ctx context.Context, packageName string, marketId string) (*PreviewPackageResponse, error) {
+	return s.PreviewPackageWithCache(ctx, packageName, marketId, nil)
+}
+
+// buildPreviewResponse 构建预览响应（冲突检测）
+func (s *SyncService) buildPreviewResponse(ctx context.Context, packageName string, remotePkg *RemotePackage, manifest model.TeamPackageManifest) (*PreviewPackageResponse, error) {
 	response := &PreviewPackageResponse{
 		PackageName: remotePkg.Name,
 		Version:     remotePkg.Version,
@@ -470,7 +497,7 @@ func (s *SyncService) PreviewPackage(ctx context.Context, packageName string, ma
 		Workflow: PreviewWorkflowInfo{
 			Name:        manifest.Workflow.Name,
 			Description: manifest.Workflow.Description,
-			Exists:      false, // 默认值，后续检测
+			Exists:      false,
 		},
 		Roles:         []PreviewRoleInfo{},
 		Assets: PreviewAssetsInfo{
@@ -480,7 +507,7 @@ func (s *SyncService) PreviewPackage(ctx context.Context, packageName string, ma
 			Rules:     []PreviewAssetInfo{},
 			Settings:  []PreviewAssetInfo{},
 		},
-		ConflictCount: 0, // 默认值，后续计算
+		ConflictCount: 0,
 	}
 
 	// === 冲突检测逻辑 ===
@@ -503,7 +530,7 @@ func (s *SyncService) PreviewPackage(ctx context.Context, packageName string, ma
 			Role:        role.Role,
 			Description: role.Description,
 			Assets:      []string{},
-			Exists:      false, // 默认值，后续检测
+			Exists:      false,
 		}
 
 		// 检查角色是否已存在（按ID匹配）
