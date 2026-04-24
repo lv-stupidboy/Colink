@@ -310,19 +310,25 @@ export const AgentInvocationLogPanel: React.FC = () => {
   // 展开后的面板
   const panelContent = (
     <div className="status-section log-panel-content">
-      {/* 标题栏 */}
-      <div className="section-collapse-header">
-        <span onClick={() => {
+      {/* 标题栏 - 整行可点击收起 */}
+      <div
+        className="section-collapse-header"
+        onClick={() => {
           setExpanded(false);
           setSelectedAgentId(null);
-        }}>
+        }}
+      >
+        <span>
           <FileTextOutlined />
           <span>调用日志</span>
           <span className="section-collapse-count">{agentLogList.length}</span>
         </span>
         <FullscreenOutlined
           className="fullscreen-btn"
-          onClick={() => setModalState({ visible: true, invocation: null })}
+          onClick={(e) => {
+            e.stopPropagation();
+            setModalState({ visible: true, invocation: null });
+          }}
           title="全屏查看"
         />
       </div>
