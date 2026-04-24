@@ -32,6 +32,38 @@
   padding: 12px;
 }
 
+/* Token section - collapsible */
+.token-section {
+  padding: 8px 12px;
+}
+
+.status-section-header.collapsible {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+  margin-bottom: 0;
+}
+
+.status-section-header.collapsible .status-section-title {
+  margin-bottom: 0;
+}
+
+.status-section-header.collapsible:hover {
+  opacity: 0.8;
+}
+
+.collapse-icon {
+  font-size: 10px;
+  color: #6b7280;
+  transition: transform 0.2s ease;
+}
+
+.collapse-icon.expanded {
+  transform: rotate(90deg);
+}
+
 .status-section-title {
   font-size: 11px;
   font-weight: 600;
@@ -46,6 +78,71 @@
 
 .status-section-title .anticon {
   font-size: 12px;
+}
+
+/* Thread ID + 消息统计 合并区块 */
+.thread-info-section {
+  padding: 10px 12px;
+}
+
+.thread-id-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.thread-id-row .thread-id-label {
+  font-size: 10px;
+  color: #6b7280;
+}
+
+.thread-id-row .thread-id-value {
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: #374151;
+}
+
+.thread-id-row .thread-id-copy {
+  padding: 2px 6px;
+  font-size: 10px;
+  color: #6b7280;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.thread-id-row .thread-id-copy:hover {
+  background: #e5e7eb;
+}
+
+/* 消息统计紧凑版 */
+.message-grid.compact {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+}
+
+.message-grid.compact .message-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 4px;
+  border-radius: 4px;
+  background: #fff;
+}
+
+.message-grid.compact .message-count {
+  font-size: 13px;
+  font-weight: 600;
+  color: #111827;
+  font-variant-numeric: tabular-nums;
+}
+
+.message-grid.compact .message-label {
+  font-size: 9px;
+  color: #6b7280;
+  margin-top: 1px;
 }
 
 /* Thread ID */
@@ -661,6 +758,14 @@
   color: var(--text-secondary);
 }
 
+[data-theme='dark'] .status-section-header.collapsible:hover {
+  opacity: 0.8;
+}
+
+[data-theme='dark'] .collapse-icon {
+  color: var(--text-secondary);
+}
+
 [data-theme='dark'] .thread-id-section {
   background: var(--bg-base);
 }
@@ -675,6 +780,31 @@
 
 [data-theme='dark'] .thread-id-copy:hover {
   background: var(--bg-elevated);
+}
+
+/* Thread ID + 消息统计 合并区块深色模式 */
+[data-theme='dark'] .thread-info-section .thread-id-row .thread-id-label {
+  color: var(--text-secondary);
+}
+
+[data-theme='dark'] .thread-info-section .thread-id-row .thread-id-value {
+  color: var(--text-primary);
+}
+
+[data-theme='dark'] .thread-info-section .thread-id-row .thread-id-copy:hover {
+  background: var(--bg-elevated);
+}
+
+[data-theme='dark'] .message-grid.compact .message-item {
+  background: var(--bg-base);
+}
+
+[data-theme='dark'] .message-grid.compact .message-count {
+  color: var(--text-primary);
+}
+
+[data-theme='dark'] .message-grid.compact .message-label {
+  color: var(--text-secondary);
 }
 
 [data-theme='dark'] .idle-status {
