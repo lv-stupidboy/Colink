@@ -91,9 +91,6 @@ mcp:
   base_url: http://localhost:26305/api/v1/mcp
   token_ttl: 30m
 
-auth:
-  invite_code: ""
-
 agent_assets:
   base_path: ./data/agent-assets
 

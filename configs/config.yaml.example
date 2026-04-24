@@ -1,6 +1,6 @@
 server:
   port: 26305
-  mode: debug
+  mode: release
 
 # 前端开发服务器配置
 web:
@@ -15,23 +15,23 @@ data:
   base_path: ./data
 
 database:
-  # 数据库类型: sqlite | mysql
+  # 数据库类型: sqlite | mysql（默认使用 sqlite）
   type: sqlite
 
   # SQLite配置 (type=sqlite时生效)
   path: ./data/sqlite/colink.db
 
-  # MySQL配置 (type=mysql时生效)
-  mysql:
-    host: "localhost"
-    port: 3306
-    database: colink
-    username: "root"
-    password: ""  # 请填写实际密码
-    charset: utf8mb4
-    max_open_conns: 10
-    max_idle_conns: 5
-    conn_max_lifetime: 300
+  # MySQL配置 (type=mysql时生效，已弃用，建议使用 sqlite)
+  # mysql:
+  #   host: "localhost"
+  #   port: 3306
+  #   database: colink
+  #   username: "root"
+  #   password: ""  # 请填写实际密码
+  #   charset: utf8mb4
+  #   max_open_conns: 10
+  #   max_idle_conns: 5
+  #   conn_max_lifetime: 300
 
 redis:
   addr: localhost:6379
@@ -45,11 +45,6 @@ agent:
 mcp:
   base_url: http://localhost:26305/api/v1/mcp
   token_ttl: 30m
-
-# 认证配置
-auth:
-  # 访问邀请码，为空则不启用验证
-  invite_code: ""
 
 # Agent资产配置
 agent_assets:

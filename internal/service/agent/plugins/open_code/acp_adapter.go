@@ -93,6 +93,38 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("ACP: failed to start CLI process: %w", err)
 	}
+
+	// 打印 PowerShell 可执行的命令（只打印我们设置的环境变量）
+	customEnv := a.config.buildEnv(req)
+	var psCmd strings.Builder
+	if req.WorkDir != "" {
+		psCmd.WriteString("cd '")
+		psCmd.WriteString(req.WorkDir)
+		psCmd.WriteString("'; ")
+	}
+	// 添加 OPENCODE_PURE（我们在 buildEnv 中强制设置的）
+	psCmd.WriteString("$env:OPENCODE_PURE='1'; ")
+	for _, e := range customEnv {
+		// 环境变量格式: KEY=VALUE，转换为 PowerShell 格式: $env:KEY='VALUE'
+		if idx := strings.Index(e, "="); idx > 0 {
+			key := e[:idx]
+			value := e[idx+1:]
+			psCmd.WriteString("$env:")
+			psCmd.WriteString(key)
+			psCmd.WriteString("='")
+			psCmd.WriteString(value)
+			psCmd.WriteString("'; ")
+		}
+	}
+	psCmd.WriteString(a.config.cliPath)
+	for _, arg := range args {
+		psCmd.WriteString(" '")
+		psCmd.WriteString(arg)
+		psCmd.WriteString("'")
+	}
+	logInfo("ACP: PowerShell command",
+		zap.String("psCommand", psCmd.String()))
+
 	logInfo("[PERF] ACP cmd.Start", zap.Duration("duration", time.Since(cliStartTime)))
 
 	var wg sync.WaitGroup
@@ -243,6 +275,38 @@ func (a *BaseACPAdapter) StartSession(ctx context.Context, sessionID string, req
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("ACP: failed to start CLI process: %w", err)
 	}
+
+	// 打印 PowerShell 可执行的命令（只打印我们设置的环境变量）
+	customEnv := a.config.buildEnv(req)
+	var psCmd strings.Builder
+	if req.WorkDir != "" {
+		psCmd.WriteString("cd '")
+		psCmd.WriteString(req.WorkDir)
+		psCmd.WriteString("'; ")
+	}
+	// 添加 OPENCODE_PURE（我们在 buildEnv 中强制设置的）
+	psCmd.WriteString("$env:OPENCODE_PURE='1'; ")
+	for _, e := range customEnv {
+		// 环境变量格式: KEY=VALUE，转换为 PowerShell 格式: $env:KEY='VALUE'
+		if idx := strings.Index(e, "="); idx > 0 {
+			key := e[:idx]
+			value := e[idx+1:]
+			psCmd.WriteString("$env:")
+			psCmd.WriteString(key)
+			psCmd.WriteString("='")
+			psCmd.WriteString(value)
+			psCmd.WriteString("'; ")
+		}
+	}
+	psCmd.WriteString(a.config.cliPath)
+	for _, arg := range args {
+		psCmd.WriteString(" '")
+		psCmd.WriteString(arg)
+		psCmd.WriteString("'")
+	}
+	logInfo("ACP: PowerShell command (StartSession)",
+		zap.String("sessionID", sessionID),
+		zap.String("psCommand", psCmd.String()))
 
 	go func() {
 		scanner := bufio.NewScanner(stderrPipe)
@@ -580,6 +644,14 @@ func (a *BaseACPAdapter) buildEnv(req *agent.ExecutionRequest) []string {
 }
 
 func (a *BaseACPAdapter) configureSession(transport *acpTransport, session *acpSession, sessionResp *acpNewSessionResult, req *agent.ExecutionRequest) error {
+	// 如果通过 CONFIG_CONTENT 配置了自定义 provider 和模型，跳过 session/set_model
+	// 因为 CONFIG_CONTENT 中的 model 字段已经指定了完整的 provider/model 格式
+	if a.hasCustomProviderConfig(req) {
+		logInfo("ACP: skipping session/set_model, using CONFIG_CONTENT model",
+			zap.String("configModel", a.getConfigContentModel()))
+		return nil
+	}
+
 	desiredModel := a.baseAgent.DefaultModel
 
 	if len(sessionResp.ConfigOptions) > 0 {
@@ -587,6 +659,33 @@ func (a *BaseACPAdapter) configureSession(transport *acpTransport, session *acpS
 	}
 
 	return a.configureViaLegacyAPI(transport, session, sessionResp, desiredModel)
+}
+
+// hasCustomProviderConfig 检查是否通过 CONFIG_CONTENT 配置了自定义 provider
+func (a *BaseACPAdapter) hasCustomProviderConfig(req *agent.ExecutionRequest) bool {
+	customEnv := a.config.buildEnv(req)
+	for _, e := range customEnv {
+		if strings.HasPrefix(e, "OPENCODE_CONFIG_CONTENT=") {
+			return true
+		}
+	}
+	return false
+}
+
+// getConfigContentModel 从 CONFIG_CONTENT 中获取模型名
+func (a *BaseACPAdapter) getConfigContentModel() string {
+	configContent := buildOpenCodeConfigContent(a.baseAgent)
+	if configContent == "" {
+		return ""
+	}
+	var config map[string]interface{}
+	if err := json.Unmarshal([]byte(configContent), &config); err != nil {
+		return ""
+	}
+	if model, ok := config["model"].(string); ok {
+		return model
+	}
+	return ""
 }
 
 func (a *BaseACPAdapter) configureViaConfigOptions(transport *acpTransport, session *acpSession, sessionResp *acpNewSessionResult, desiredModel string) error {

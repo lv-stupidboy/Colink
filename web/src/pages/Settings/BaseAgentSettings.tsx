@@ -277,7 +277,7 @@ const BaseAgentSettings: React.FC = () => {
             name="defaultModel"
             label="模型"
             rules={[{ required: true, message: '请输入模型' }]}
-            extra="指定Agent使用的模型，如 claude-sonnet-4-20250514"
+            extra="指定Agent使用的模型名称"
           >
             <Input placeholder="如: claude-sonnet-4-20250514" />
           </Form.Item>
@@ -294,7 +294,7 @@ const BaseAgentSettings: React.FC = () => {
                       label="API URL"
                       extra={
                         <div>
-                          <Text type="secondary">自定义 API 地址，默认使用官方地址</Text>
+                          <Text type="secondary">需要配置 OpenAI 协议兼容的 API 地址</Text>
                         </div>
                       }
                     >
@@ -315,7 +315,7 @@ const BaseAgentSettings: React.FC = () => {
                   <Form.Item
                     name="apiUrl"
                     label="API URL"
-                    extra="Anthropic API 地址，如 https://api.anthropic.com"
+                    extra="需要配置 Anthropic 协议的 API 地址"
                   >
                     <Input placeholder="如: https://api.anthropic.com" />
                   </Form.Item>

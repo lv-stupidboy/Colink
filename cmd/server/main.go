@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/anthropic/isdp/internal/api"
-	"github.com/anthropic/isdp/internal/middleware"
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
 	"github.com/anthropic/isdp/internal/reporter"
@@ -471,13 +470,6 @@ func main() {
 	router.Use(gin.Recovery())
 	router.Use(corsMiddleware())
 	router.Use(requestLogger(logger))
-
-	// 邀请码验证中间件
-	inviteMiddleware := middleware.NewInviteMiddleware(cfg.Auth.InviteCode)
-	router.Use(inviteMiddleware.Handler())
-
-	// 邀请码验证接口
-	router.POST("/api/v1/auth/invite", inviteMiddleware.VerifyInvite)
 
 	// 健康检查
 	router.GET("/health", func(c *gin.Context) {

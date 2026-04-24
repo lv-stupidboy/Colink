@@ -30,14 +30,10 @@ func NewOpenCodeAdapter(baseAgent *model.BaseAgent) agent.AgentAdapter {
 				return []string{"acp"}
 			},
 			buildEnv: func(req *agent.ExecutionRequest) []string {
-				env := make([]string, 0, 4)
+				env := make([]string, 0, 3)
 
-				// 使用 OPENCODE_CONFIG_CONTENT 传递完整配置（官方支持的方式）
-				// 参考：https://opencode.ai/docs/zh-cn/config/
-				configContent := buildOpenCodeConfigContent(baseAgent)
-				if configContent != "" {
-					env = append(env, "OPENCODE_CONFIG_CONTENT="+configContent)
-				}
+				// OPENCODE_API_URL 和 OPENCODE_API_KEY 已确认无效，不传递
+				// 使用 OPENCODE_CONFIG_CONTENT 实现实例级配置
 
 				if baseAgent.GitBashPath != "" {
 					env = append(env, "OPENCODE_GIT_BASH_PATH="+baseAgent.GitBashPath)
@@ -45,6 +41,12 @@ func NewOpenCodeAdapter(baseAgent *model.BaseAgent) agent.AgentAdapter {
 
 				if req != nil && req.ConfigDir != "" {
 					env = append(env, "OPENCODE_CONFIG_DIR="+req.ConfigDir)
+				}
+
+				// 构造并传递实例级配置
+				configContent := buildOpenCodeConfigContent(baseAgent)
+				if configContent != "" {
+					env = append(env, "OPENCODE_CONFIG_CONTENT="+configContent)
 				}
 
 				return env
@@ -67,10 +69,12 @@ func buildOpenCodeConfigContent(baseAgent *model.BaseAgent) string {
 	}
 
 	// 构造配置结构
+	// 使用 "@ai-sdk/openai-compatible" 作为 npm 包，支持 OpenAI Compatible API
 	config := openCodeConfig{
 		Provider: map[string]openCodeProvider{
 			"colink": {
 				Name: "Colink Provider",
+				Npm:  "@ai-sdk/openai-compatible",
 				Options: openCodeProviderOptions{
 					APIKey:  baseAgent.ApiToken,
 					BaseURL: baseAgent.ApiURL,
@@ -110,6 +114,8 @@ type openCodeConfig struct {
 // openCodeProvider Provider 配置结构
 type openCodeProvider struct {
 	Name    string                  `json:"name,omitempty"`
+	Npm     string                  `json:"npm,omitempty"`  // npm 包名，如 "@ai-sdk/openai-compatible"
+	Env     []string                `json:"env,omitempty"`  // 环境变量列表
 	Options openCodeProviderOptions `json:"options,omitempty"`
 	Models  map[string]openCodeModel `json:"models,omitempty"`
 }

@@ -1,5 +1,5 @@
 // 安装步骤
-export type StepId = 1 | 2 | 3 | 4 | 5 | 6
+export type StepId = 1 | 2 | 3 | 4
 
 // 依赖项
 export interface Dependency {
@@ -18,33 +18,6 @@ export interface DatabaseConfig {
   type: 'sqlite'
 }
 
-// 验证请求
-export interface InviteVerificationRequest {
-  code: string
-  username: string
-}
-
-// 验证响应
-export interface InviteVerificationResponse {
-  success: boolean
-  message: string
-  token?: string
-  user?: { id?: string; username?: string }
-}
-
-// 验证状态（内存中的验证结果）
-export interface VerificationState {
-  verified: boolean
-  token?: string
-  username?: string
-  verifiedAt?: number
-}
-
-// 持久化的邀请码信息（文件保存）
-export interface SavedInviteCode {
-  inviteCode: string
-}
-
 // 安装配置
 export interface InstallConfig {
   installDir: string
@@ -55,7 +28,6 @@ export interface InstallConfig {
   createShortcut: boolean
   launchNow: boolean
   keepData?: boolean
-  verification?: VerificationState
   configYaml?: string  // 预览的完整配置 YAML（所见即所得）
 }
 
@@ -115,14 +87,6 @@ declare global {
       installDependency: (dep: string) => Promise<{ success: boolean; error?: string }>
       startInstallation: (config: object) => Promise<{ success: boolean; error?: string; dbChanges?: Array<{ version: string; files: string[] }> }>
       createShortcut: (path: string) => Promise<{ success: boolean }>
-
-      // 邀请码验证
-      verifyInviteCode: (request: InviteVerificationRequest) => Promise<InviteVerificationResponse>
-      saveInviteCode: (inviteCode: string, installDir?: string) => Promise<{ success: boolean; message?: string }>
-      loadInviteCode: (installDir?: string) => Promise<{ success: boolean; inviteCode?: string; message?: string }>
-
-      // 获取系统用户名
-      getSystemUsername: () => Promise<string>
 
       // 安装状态
       checkInstalled: () => Promise<InstalledVersion>
