@@ -42,6 +42,39 @@ if (-not $VERSION) { $VERSION = "1.0.0" }
 $BUILD_TIME = Get-Date -Format "yyyyMMdd-HHmmss"
 Write-Host "Version: $VERSION" -ForegroundColor Green
 
+# Step 0: Install dependencies if needed
+Write-Host "`n[0/7] Checking dependencies..." -ForegroundColor Yellow
+
+# Check web dependencies
+$WebNodeModules = Join-Path $ProjectRoot "web/node_modules"
+if (-not (Test-Path $WebNodeModules)) {
+    Write-Host "Installing web dependencies..." -ForegroundColor Cyan
+    Set-Location "$ProjectRoot/web"
+    & npm install
+    if (-not $?) {
+        Write-Host "Web dependencies install failed" -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "Web dependencies installed" -ForegroundColor Green
+} else {
+    Write-Host "Web dependencies already installed" -ForegroundColor Green
+}
+
+# Check installer-tauri dependencies
+$InstallerNodeModules = Join-Path $InstallerDir "node_modules"
+if (-not (Test-Path $InstallerNodeModules)) {
+    Write-Host "Installing installer-tauri dependencies..." -ForegroundColor Cyan
+    Set-Location $InstallerDir
+    & pnpm install
+    if (-not $?) {
+        Write-Host "Installer dependencies install failed" -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "Installer dependencies installed" -ForegroundColor Green
+} else {
+    Write-Host "Installer dependencies already installed" -ForegroundColor Green
+}
+
 # Step 1: Build ISDP backend (server + migrate)
 Write-Host "`n[1/7] Building ISDP backend..." -ForegroundColor Yellow
 Set-Location $ProjectRoot
