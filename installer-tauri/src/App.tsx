@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { Button, Space, Spin, Typography } from 'antd';
+import { useEffect, useState } from 'react';
+import { Button, Space, Spin } from 'antd';
 import { modeApi, installApi, windowApi } from './lib/api';
 import type { InstalledVersion } from './lib/api/types';
 
@@ -16,8 +16,6 @@ import Uninstall from './renderer/src/pages/Uninstall';
 
 // Components
 import Layout from './renderer/src/components/Layout';
-
-const { Text, Title } = Typography;
 
 // 安装配置
 interface InstallConfig {
@@ -60,7 +58,6 @@ function App() {
     dependencies: [],
   });
   const [dirValid, setDirValid] = useState(true);
-  const [serviceStatus, setServiceStatus] = useState<'running' | 'stopped'>('stopped');
 
   // 升级模式跳过目录选择
   const isUpgrade = installType === 'upgrade';
@@ -73,15 +70,6 @@ function App() {
   useEffect(() => {
     checkInstalledVersion();
   }, []);
-
-  // 定期更新服务状态
-  useEffect(() => {
-    if (mode === 'launcher') {
-      updateServiceStatus();
-      const timer = setInterval(updateServiceStatus, 5000);
-      return () => clearInterval(timer);
-    }
-  }, [mode]);
 
   const checkInstalledVersion = async () => {
     try {
@@ -108,15 +96,6 @@ function App() {
       setMode('install');
     } catch {
       setMode('install');
-    }
-  };
-
-  const updateServiceStatus = async () => {
-    try {
-      // TODO: 实现服务状态检查
-      setServiceStatus('stopped');
-    } catch {
-      setServiceStatus('stopped');
     }
   };
 

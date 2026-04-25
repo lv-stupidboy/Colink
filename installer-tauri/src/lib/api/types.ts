@@ -58,13 +58,6 @@ export interface DependencyInfo {
   version?: string;
 }
 
-export interface InviteVerificationResponse {
-  success: boolean;
-  message: string;
-  token?: string;
-  user?: { id?: string; username?: string };
-}
-
 export interface RunningAgentInstance {
   invocationId: string;
   agentName: string;

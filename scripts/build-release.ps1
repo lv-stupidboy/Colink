@@ -112,17 +112,10 @@ $StagingResources = Join-Path $SrcTauriDir "target/release/staging/resources"
 & node scripts/sync-resources.js $StagingResources
 Write-Host "Resources synced to staging" -ForegroundColor Green
 
-# Step 4: Copy VERSION and installer config
-Write-Host "`n[4/7] Copying config files..." -ForegroundColor Yellow
-# VERSION file
+# Step 4: Copy VERSION file
+Write-Host "`n[4/7] Copying VERSION file..." -ForegroundColor Yellow
 Copy-Item "$ProjectRoot/VERSION" $StagingResources -Force
 Write-Host "VERSION copied" -ForegroundColor Green
-# installer-config.json
-$InstallerConfigSrc = Join-Path $InstallerDir "resources/installer-config.json"
-if (Test-Path $InstallerConfigSrc) {
-    Copy-Item $InstallerConfigSrc $StagingResources -Force
-    Write-Host "installer-config.json copied" -ForegroundColor Green
-}
 
 # Step 5: Build installer-tauri frontend renderer
 Write-Host "`n[5/7] Building installer frontend..." -ForegroundColor Yellow

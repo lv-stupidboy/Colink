@@ -16,16 +16,6 @@ pub struct AppState {
     pub install_dir: RwLock<Option<String>>,
     /// Service manager for spawning/controlling colink-server.exe
     pub service_manager: RwLock<Option<ServiceManager>>,
-    /// Installer config (API URLs etc.)
-    pub installer_config: RwLock<InstallerConfig>,
-}
-
-/// Configuration loaded from installer-config.json
-#[derive(Debug, Clone, Default, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct InstallerConfig {
-    pub invite_verify_url: Option<String>,
-    pub backend_url: Option<String>,
 }
 
 impl AppState {
@@ -34,7 +24,6 @@ impl AppState {
             mode: RwLock::new(mode),
             install_dir: RwLock::new(None),
             service_manager: RwLock::new(None),
-            installer_config: RwLock::new(InstallerConfig::default()),
         }
     }
 
@@ -48,15 +37,6 @@ impl AppState {
 
     pub fn get_install_dir(&self) -> Option<String> {
         self.install_dir.read().unwrap().clone()
-    }
-
-    pub fn load_installer_config(&self, config_path: &std::path::Path) -> crate::error::Result<()> {
-        if config_path.exists() {
-            let content = std::fs::read_to_string(config_path)?;
-            let config: InstallerConfig = serde_json::from_str(&content)?;
-            *self.installer_config.write().unwrap() = config;
-        }
-        Ok(())
     }
 }
 

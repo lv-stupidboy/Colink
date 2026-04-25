@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Progress, Button, Alert, Typography, Checkbox, Space } from 'antd';
 import { CheckCircleOutlined, LoadingOutlined, CloseCircleOutlined } from '@ant-design/icons';
 import { uninstallApi } from '../../../lib/api';

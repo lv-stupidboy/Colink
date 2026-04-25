@@ -28,7 +28,6 @@ interface DependencyCheckProps {
 }
 
 const DependencyCheck: React.FC<DependencyCheckProps> = ({
-  config,
   onConfigUpdate
 }) => {
   const [dependencies, setDependencies] = useState<DependencyInfo[]>([]);

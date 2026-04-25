@@ -143,18 +143,11 @@ STAGING_RESOURCES="$SRC_TAURI_DIR/target/release/staging/resources"
 node scripts/sync-resources.js "$STAGING_RESOURCES"
 echo -e "${GREEN}Resources synced to staging${NC}"
 
-# Step 4: Copy VERSION and installer config
+# Step 4: Copy VERSION file
 echo ""
-echo -e "${YELLOW}[4/7] Copying config files...${NC}"
-# VERSION file
+echo -e "${YELLOW}[4/7] Copying VERSION file...${NC}"
 cp "$PROJECT_ROOT/VERSION" "$STAGING_RESOURCES/"
 echo -e "${GREEN}VERSION copied${NC}"
-# installer-config.json
-INSTALLER_CONFIG_SRC="$INSTALLER_DIR/resources/installer-config.json"
-if [[ -f "$INSTALLER_CONFIG_SRC" ]]; then
-    cp "$INSTALLER_CONFIG_SRC" "$STAGING_RESOURCES/"
-    echo -e "${GREEN}installer-config.json copied${NC}"
-fi
 
 # Step 5: Build installer-tauri frontend renderer
 echo ""

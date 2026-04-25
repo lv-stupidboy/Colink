@@ -79,12 +79,6 @@ pub fn run() {
             commands::open_config,
             commands::open_console,
 
-            // Invite commands
-            commands::verify_invite_code,
-            commands::save_invite_code,
-            commands::load_invite_code,
-            commands::get_system_username,
-
             // Window commands
             commands::window_minimize,
             commands::window_maximize,
@@ -94,37 +88,6 @@ pub fn run() {
         .setup(|app| {
             let state = app.state::<AppState>();
             let mode = state.get_mode();
-
-            // Load installer config - try multiple paths
-            let exe_path = std::env::current_exe().unwrap_or_default();
-            let exe_dir = exe_path.parent().unwrap_or(std::path::Path::new("."));
-
-            let config_paths = vec![
-                // 1. Standard resource_dir (packaged app)
-                app.path().resource_dir().unwrap_or_default().join("installer-config.json"),
-                // 2. exe_dir/resources (dev/test mode)
-                exe_dir.join("resources").join("installer-config.json"),
-                // 3. exe_dir/../resources (dev mode from target/release)
-                exe_dir.join("..").join("resources").join("installer-config.json"),
-            ];
-
-            let mut config_loaded = false;
-            for config_path in config_paths {
-                log::info!("Trying config path: {:?}", config_path);
-                if config_path.exists() {
-                    if let Err(e) = state.load_installer_config(&config_path) {
-                        log::warn!("Failed to load installer config from {:?}: {}", config_path, e);
-                    } else {
-                        log::info!("Installer config loaded successfully from {:?}", config_path);
-                        config_loaded = true;
-                        break;
-                    }
-                }
-            }
-
-            if !config_loaded {
-                log::warn!("Installer config file not found in any location");
-            }
 
             // Setup based on mode
             match mode {

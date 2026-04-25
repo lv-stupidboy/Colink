@@ -1,10 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Progress, Button, Tag, Alert, message, Space, Typography } from 'antd';
+import { Progress, Button, Tag, Alert, message, Space } from 'antd';
 import { CheckCircleOutlined, LoadingOutlined, CloseCircleOutlined, RightOutlined, WarningOutlined } from '@ant-design/icons';
 import { installApi, modeApi } from '../../../lib/api';
 import type { InstallProgress } from '../../../lib/api/types';
-
-const { Text } = Typography;
 
 interface InstallConfig {
   installDir: string;

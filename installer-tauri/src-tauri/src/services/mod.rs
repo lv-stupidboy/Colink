@@ -5,7 +5,6 @@ pub mod shortcut;
 pub mod service_manager;
 pub mod dependency;
 pub mod config;
-pub mod invite;
 pub mod uninstall;
 pub mod installer;
 
@@ -16,6 +15,5 @@ pub use shortcut::*;
 pub use service_manager::*;
 pub use dependency::*;
 pub use config::*;
-pub use invite::*;
 pub use uninstall::*;
 pub use installer::*;
