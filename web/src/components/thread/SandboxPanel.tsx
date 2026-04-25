@@ -34,8 +34,6 @@ interface SandboxPanelProps {
   onRunSandbox: (mode: 'local' | 'docker') => void;
   // 停止沙箱
   onStopSandbox: () => void;
-  // Solo 模式（并排显示）
-  soloMode?: boolean;
   // 自定义宽度
   width?: number;
 }
@@ -49,7 +47,6 @@ export const SandboxPanel: React.FC<SandboxPanelProps> = ({
   dockerAvailable,
   onRunSandbox,
   onStopSandbox,
-  soloMode = false,
   width,
 }) => {
   // 刷新预览
@@ -72,7 +69,7 @@ export const SandboxPanel: React.FC<SandboxPanelProps> = ({
 
   return (
     <div
-      className={`right-sidebar sandbox-panel ${soloMode ? 'solo-mode-panel' : ''}`}
+      className="right-sidebar sandbox-panel"
       style={width ? { width, minWidth: width, maxWidth: width } : undefined}
     >
       {/* 标题栏 */}

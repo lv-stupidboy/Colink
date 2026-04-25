@@ -27,7 +27,6 @@ import type { MenuProps } from 'antd';
 import ThemeSwitcher from '@/components/ThemeSwitcher';
 import Logo from '@/components/Logo';
 import { api } from '@/api/client';
-import { useAppStore } from '@/store';
 
 const { Header, Sider, Content } = Layout;
 const { Title } = Typography;
@@ -37,9 +36,6 @@ const MainLayout: React.FC = () => {
   const location = useLocation();
   const [openKeys, setOpenKeys] = useState<string[]>([]);
   const [collapsed, setCollapsed] = useState(false);
-
-  // 从 store 读取 soloMode 状态
-  const soloMode = useAppStore((state) => state.soloMode);
 
   // 从 API 动态获取版本号（避免浏览器缓存问题）
   const [version, setVersion] = useState<string>('');
@@ -311,9 +307,7 @@ const MainLayout: React.FC = () => {
         />
       </Sider>
       <Layout style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
-        {/* Solo 模式下隐藏 Header，因为 ThreadView 有自己的 header */}
-        {!soloMode && (
-          <Header
+        <Header
           style={{
             background: 'var(--bg-container)',
             padding: '0 24px',
@@ -341,13 +335,12 @@ const MainLayout: React.FC = () => {
             <ThemeSwitcher />
           </Space>
         </Header>
-        )}
         <Content
           style={{
             flex: 1,
             margin: 0,
             background: 'var(--bg-container)',
-            padding: soloMode ? 0 : 16,
+            padding: 16,
             boxShadow: 'var(--shadow-sm)',
             overflow: 'auto',
             position: 'relative',

@@ -66,9 +66,6 @@ interface AppState {
   debugAgentConfig: AgentConfig | null;
   debugProjectPath: string;
 
-  // Solo 模式状态
-  soloMode: boolean;
-
   // 沙箱状态
   sandboxServer: SandboxServer | null;
   sandboxLoading: boolean;
@@ -103,7 +100,7 @@ interface AppActions {
   // 加载Thread
   loadThread: (threadId: string) => Promise<void>;
 
-  // 设置当前Thread（用于Solo模式新建对话）
+  // 设置当前Thread
   setCurrentThread: (thread: Thread) => void;
 
   // 发送消息
@@ -145,7 +142,7 @@ interface AppActions {
   // 重置状态
   reset: () => void;
 
-  // 清除当前会话消息（用于Solo模式新建对话）
+  // 清除当前会话消息
   clearThreadMessages: () => void;
 
   // 加载项目上下文（项目和Agent团队）
@@ -191,9 +188,6 @@ interface AppActions {
   setDebugMode: (isDebug: boolean, agentId?: string) => void;
   setDebugAgentConfig: (config: AgentConfig | null) => void;
   setDebugProjectPath: (path: string) => void;
-
-  // Solo 模式 actions
-  setSoloMode: (soloMode: boolean) => void;
 
   // 沙箱 actions
   setSandboxServer: (server: SandboxServer | null) => void;
@@ -247,8 +241,6 @@ const initialState: AppState = {
   debugAgentId: null,
   debugAgentConfig: null,
   debugProjectPath: '',
-  // Solo 模式状态
-  soloMode: false,
   // 沙箱状态
   sandboxServer: null,
   sandboxLoading: false,
@@ -1099,11 +1091,6 @@ export const useAppStore = create<AppState & AppActions>()(
 
     setDebugProjectPath: (path) => {
       set({ debugProjectPath: path });
-    },
-
-    // Solo 模式 actions
-    setSoloMode: (soloMode) => {
-      set({ soloMode });
     },
 
     // 沙箱 actions
