@@ -18,7 +18,7 @@ pub async fn start_service(
 
     let manager = ServiceManager::new(install_dir.clone());
 
-    let result = manager
+    manager
         .start()
         .map_err(|e| {
             log::error!("Failed to start service: {}", e);
