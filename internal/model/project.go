@@ -39,11 +39,12 @@ const (
 type Project struct {
 	ID                 uuid.UUID       `json:"id"`
 	Name               string          `json:"name"`
+	Description        *string         `json:"description,omitempty"`          // 项目描述
 	Type               ProjectType     `json:"type"`
 	Mode               ProjectMode     `json:"mode"`
 	Status             ProjectStatus   `json:"status"`
 	LocalPath          string          `json:"localPath"`                       // 本地路径（必填）
-	GitRepo            *string         `json:"gitRepo,omitempty"`
+	RepositoryUrl      *string         `json:"repositoryUrl,omitempty"`         // 仓库地址
 	Config             json.RawMessage `json:"config,omitempty"`
 	WorkflowTemplateID *uuid.UUID      `json:"workflowTemplateId,omitempty"` // 新增：绑定的工作流模板ID
 	CreatedAt          time.Time       `json:"createdAt"`
@@ -57,10 +58,12 @@ func (p *Project) TableName() string {
 // CreateProjectRequest 创建项目请求
 type CreateProjectRequest struct {
 	Name               string      `json:"name" binding:"required"`
+	Description        *string     `json:"description"`                      // 项目描述
 	Type               ProjectType `json:"type"` // 可选，默认 service
 	Mode               ProjectMode `json:"mode"` // 可选，默认 new
 	LocalPath          string      `json:"localPath" binding:"required"` // 本地路径（必填）
 	ExistingRepoURL    string      `json:"existingRepoUrl,omitempty"`
+	RepositoryUrl      *string     `json:"repositoryUrl"`                 // 仓库地址
 	Branch             string      `json:"branch,omitempty"`
 	WorkflowTemplateID *uuid.UUID  `json:"workflowTemplateId,omitempty"` // 新增：绑定的工作流模板ID
 }
@@ -68,11 +71,12 @@ type CreateProjectRequest struct {
 // UpdateProjectRequest 更新项目请求
 type UpdateProjectRequest struct {
 	Name               *string        `json:"name"`
+	Description        *string        `json:"description"`                // 项目描述
 	Type               *ProjectType   `json:"type"`
 	Mode               *ProjectMode   `json:"mode"`
 	Status             *ProjectStatus `json:"status"`
 	LocalPath          *string        `json:"localPath"`
-	GitRepo            *string        `json:"gitRepo"`
+	RepositoryUrl      *string        `json:"repositoryUrl"`              // 仓库地址
 	WorkflowTemplateID *uuid.UUID     `json:"workflowTemplateId"` // 可为null表示解绑
 }
 

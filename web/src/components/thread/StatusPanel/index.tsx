@@ -2,10 +2,8 @@ import React, { useState } from 'react';
 import { useAppStore } from '@/store';
 import { AgentStatusCard } from './AgentStatusCard';
 import { TokenUsage } from './TokenUsage';
-import { MessageStats } from './MessageStats';
-import { AgentHistoryCard } from './AgentHistoryCard';
-import { TaskProgressPanel } from './TaskProgressPanel';
 import { AgentInvocationLogPanel } from './AgentInvocationLogPanel';
+import { TaskProgressPanel } from './TaskProgressPanel';
 import { CopyOutlined, CheckOutlined } from '@ant-design/icons';
 import './StatusPanel.css';
 
@@ -15,15 +13,15 @@ interface StatusPanelProps {
 }
 
 export const StatusPanel: React.FC<StatusPanelProps> = ({ width = 320, threadId }) => {
-  const { activeAgents, agentUsage, messages, completedAgents, agentTaskProgress } = useAppStore();
+  const { activeAgents, agentUsage, completedAgents, agentTaskProgress } = useAppStore();
   const [copied, setCopied] = useState(false);
 
-  // 计算消息统计
-  const messageStats = {
-    total: messages.length,
-    agent: messages.filter(m => m.role === 'agent').length,
-    system: messages.filter(m => m.role === 'system').length,
-    user: messages.filter(m => m.role === 'user').length,
+  // 计算调用统计
+  const invocationStats = {
+    total: activeAgents.length + completedAgents.length,
+    running: activeAgents.length,
+    completed: completedAgents.filter(a => a.status === 'completed').length,
+    failed: completedAgents.filter(a => a.status === 'failed').length,
   };
 
   // 计算 Token 总计
@@ -49,42 +47,50 @@ export const StatusPanel: React.FC<StatusPanelProps> = ({ width = 320, threadId 
 
   return (
     <aside className="status-panel" style={{ width }}>
-      {/* Thread ID */}
-      <div className="thread-id-section">
-        <span className="thread-id-label">Thread ID</span>
-        <span className="thread-id-value">{displayThreadId}</span>
-        {threadId && (
-          <span className="thread-id-copy" onClick={copyThreadId}>
-            {copied ? <CheckOutlined /> : <CopyOutlined />}
-          </span>
-        )}
+      {/* Thread ID + 调用统计 合并区块 */}
+      <div className="status-section thread-info-section">
+        <div className="thread-id-row">
+          <span className="thread-id-label">Thread ID</span>
+          <span className="thread-id-value">{displayThreadId}</span>
+          {threadId && (
+            <span className="thread-id-copy" onClick={copyThreadId}>
+              {copied ? <CheckOutlined /> : <CopyOutlined />}
+            </span>
+          )}
+        </div>
+        <div className="message-grid compact">
+          <div className="message-item">
+            <span className="message-count">{invocationStats.total}</span>
+            <span className="message-label">调用</span>
+          </div>
+          <div className="message-item">
+            <span className="message-count running">{invocationStats.running}</span>
+            <span className="message-label">运行</span>
+          </div>
+          <div className="message-item">
+            <span className="message-count completed">{invocationStats.completed}</span>
+            <span className="message-label">完成</span>
+          </div>
+          <div className="message-item">
+            <span className="message-count failed">{invocationStats.failed}</span>
+            <span className="message-label">失败</span>
+          </div>
+        </div>
       </div>
 
       {/* Agent 状态 */}
-      <AgentStatusCard
-        activeAgents={activeAgents}
-        agentUsage={agentUsage}
-      />
+      <AgentStatusCard activeAgents={activeAgents} agentUsage={agentUsage} />
 
-      {/* 历史参与 */}
-      <AgentHistoryCard
-        completedAgents={completedAgents}
-        agentUsage={agentUsage}
-      />
-
-      {/* 消息统计 */}
-      <MessageStats stats={messageStats} />
-
-      {/* Token 统计 - 始终显示 */}
-      <TokenUsage usage={agentUsage} totalUsage={totalUsage} />
+      {/* Agent 调用日志（合并历史参与） */}
+      <AgentInvocationLogPanel />
 
       {/* 任务进度 - 仅在有任务时显示 */}
       {Object.keys(agentTaskProgress).length > 0 && (
         <TaskProgressPanel progress={agentTaskProgress} />
       )}
 
-      {/* Agent 调用日志 */}
-      <AgentInvocationLogPanel />
+      {/* Token 统计 - 默认收起 */}
+      <TokenUsage usage={agentUsage} totalUsage={totalUsage} defaultCollapsed />
     </aside>
   );
 };

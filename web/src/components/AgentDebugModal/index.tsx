@@ -54,9 +54,11 @@ const AgentDebugModal: React.FC<AgentDebugModalProps> = ({ open, agent, onClose 
           setLoading(false);
           stopPolling();
           if (status === 'failed') {
-            setOutput(prev => prev + '\n❌ 执行失败\n');
+            // 展示详细错误信息（来自 errorDetails）
+            const errorDetails = msg.payload.errorDetails as string;
+            setOutput(prev => prev + `\n${errorDetails || '执行失败'}\n`);
           } else if (status === 'cancelled') {
-            setOutput(prev => prev + '\n⚠️ 执行已取消\n');
+            setOutput(prev => prev + '\n执行已取消\n');
           }
         }
       }

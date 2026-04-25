@@ -66,9 +66,6 @@ interface AppState {
   debugAgentConfig: AgentConfig | null;
   debugProjectPath: string;
 
-  // Solo 模式状态
-  soloMode: boolean;
-
   // 沙箱状态
   sandboxServer: SandboxServer | null;
   sandboxLoading: boolean;
@@ -103,7 +100,7 @@ interface AppActions {
   // 加载Thread
   loadThread: (threadId: string) => Promise<void>;
 
-  // 设置当前Thread（用于Solo模式新建对话）
+  // 设置当前Thread
   setCurrentThread: (thread: Thread) => void;
 
   // 发送消息
@@ -145,7 +142,7 @@ interface AppActions {
   // 重置状态
   reset: () => void;
 
-  // 清除当前会话消息（用于Solo模式新建对话）
+  // 清除当前会话消息
   clearThreadMessages: () => void;
 
   // 加载项目上下文（项目和Agent团队）
@@ -178,8 +175,8 @@ interface AppActions {
   // 标记 question block 已提交（用于过滤历史消息中的重复渲染）
   markQuestionSubmitted: (blockId: string) => void;
 
-  // 用真实消息替换临时消息（完整替换，包括 contentBlocks）
-  replaceMessageId: (tempId: string, realId: string, realContentBlocks?: MessageContentBlock[]) => void;
+  // 用真实消息替换临时消息（完整替换，包括 contentBlocks 和 metadata）
+  replaceMessageId: (tempId: string, realId: string, realContentBlocks?: MessageContentBlock[], agentName?: string, agentRole?: string) => void;
 
   // 更新进度状态
   updateProgress: (invocationId: string, status: string, toolName?: string, toolInput?: Record<string, unknown>) => void;
@@ -191,9 +188,6 @@ interface AppActions {
   setDebugMode: (isDebug: boolean, agentId?: string) => void;
   setDebugAgentConfig: (config: AgentConfig | null) => void;
   setDebugProjectPath: (path: string) => void;
-
-  // Solo 模式 actions
-  setSoloMode: (soloMode: boolean) => void;
 
   // 沙箱 actions
   setSandboxServer: (server: SandboxServer | null) => void;
@@ -247,8 +241,6 @@ const initialState: AppState = {
   debugAgentId: null,
   debugAgentConfig: null,
   debugProjectPath: '',
-  // Solo 模式状态
-  soloMode: false,
   // 沙箱状态
   sandboxServer: null,
   sandboxLoading: false,
@@ -335,16 +327,27 @@ export const useAppStore = create<AppState & AppActions>()(
         );
 
         // 更新消息中已完成的 content blocks 状态
+        // 同时从 metadata 中提取 agentName 设置到直接属性
         const updatedMessages = (messages || []).map((msg: Message) => {
-          if (msg.contentBlocks && msg.contentBlocks.length > 0) {
+          // 从 metadata 中提取 agentName 并设置到直接属性
+          const metadataAgentName = msg.metadata?.agentName as string | undefined;
+          // metadataAgentRole 用于将来扩展，当前暂不使用
+
+          let processedMsg = {
+            ...msg,
+            // 确保 agentName 直接属性有值（用于 ChatMessage 组件渲染）
+            agentName: msg.agentName || metadataAgentName || undefined,
+          };
+
+          if (processedMsg.contentBlocks && processedMsg.contentBlocks.length > 0) {
             // 检查消息关联的 invocation 是否已完成
             // 通过 agentId 或消息中的 metadata 判断
-            const msgInvocationId = msg.metadata?.invocationId as string | undefined;
+            const msgInvocationId = processedMsg.metadata?.invocationId as string | undefined;
             const isCompleted = msgInvocationId && completedInvocationIds.has(msgInvocationId);
 
             if (isCompleted) {
               // 更新 content blocks 的状态（只有 thinking 和 tool_use 有 status）
-              const updatedBlocks = msg.contentBlocks.map(block => {
+              const updatedBlocks = processedMsg.contentBlocks.map(block => {
                 if ((block.type === 'thinking' || block.type === 'tool_use') && 'status' in block && block.status === 'streaming') {
                   return {
                     ...block,
@@ -353,13 +356,13 @@ export const useAppStore = create<AppState & AppActions>()(
                 }
                 return block;
               });
-              return {
-                ...msg,
+              processedMsg = {
+                ...processedMsg,
                 contentBlocks: updatedBlocks,
               };
             }
           }
-          return msg;
+          return processedMsg;
         });
 
         set({
@@ -495,6 +498,7 @@ export const useAppStore = create<AppState & AppActions>()(
               threadId: state.currentThread?.id || '',
               role: 'agent',
               agentId: state.streamingAgentId || '',
+              agentName: state.streamingAgentName || undefined,  // 设置直接属性
               content: state.streamingContentBlocks
                 .filter(b => b.type === 'text')
                 .map(b => b.type === 'text' ? b.content : '')
@@ -522,6 +526,10 @@ export const useAppStore = create<AppState & AppActions>()(
                   ...completedAgent,
                   status: status as 'completed' | 'failed' | 'cancelled' | 'interrupted',
                   completedAt: new Date().toISOString(),
+                  // failed 状态时保存错误详情到 output
+                  output: status === 'failed' ? (input || '') : completedAgent.output,
+                  // 保留原有 input（用户输入）
+                  input: completedAgent.input || '',
                 },
               ]
             : state.completedAgents;
@@ -773,13 +781,23 @@ export const useAppStore = create<AppState & AppActions>()(
         );
 
         // 更新历史消息中已完成的 content blocks 状态
+        // 同时从 metadata 中提取 agentName 设置到直接属性
         const updatedNewMessages = newMessages.map((msg: Message) => {
-          if (msg.contentBlocks && msg.contentBlocks.length > 0) {
-            const msgInvocationId = msg.metadata?.invocationId as string | undefined;
+          // 从 metadata 中提取 agentName 并设置到直接属性
+          const metadataAgentName = msg.metadata?.agentName as string | undefined;
+
+          let processedMsg = {
+            ...msg,
+            // 确保 agentName 直接属性有值
+            agentName: msg.agentName || metadataAgentName || undefined,
+          };
+
+          if (processedMsg.contentBlocks && processedMsg.contentBlocks.length > 0) {
+            const msgInvocationId = processedMsg.metadata?.invocationId as string | undefined;
             const isCompleted = msgInvocationId && completedInvocationIds.has(msgInvocationId);
 
             if (isCompleted) {
-              const updatedBlocks = msg.contentBlocks.map(block => {
+              const updatedBlocks = processedMsg.contentBlocks.map(block => {
                 if ((block.type === 'thinking' || block.type === 'tool_use') && 'status' in block && block.status === 'streaming') {
                   return {
                     ...block,
@@ -788,13 +806,13 @@ export const useAppStore = create<AppState & AppActions>()(
                 }
                 return block;
               });
-              return {
-                ...msg,
+              processedMsg = {
+                ...processedMsg,
                 contentBlocks: updatedBlocks,
               };
             }
           }
-          return msg;
+          return processedMsg;
         });
 
         set({
@@ -907,6 +925,7 @@ export const useAppStore = create<AppState & AppActions>()(
           threadId: state.currentThread?.id || '',
           role: 'agent',
           agentId: state.streamingAgentId || '',
+          agentName: state.streamingAgentName || undefined,  // 设置直接属性
           content,
           messageType: 'text',
           metadata: {
@@ -947,7 +966,7 @@ export const useAppStore = create<AppState & AppActions>()(
       });
     },
 
-    replaceMessageId: (tempId, realId, realContentBlocks) => {
+    replaceMessageId: (tempId, realId, realContentBlocks, agentName, agentRole) => {
       set((state) => {
         const messages = state.messages.map((m) =>
           m.id === tempId ? {
@@ -955,6 +974,14 @@ export const useAppStore = create<AppState & AppActions>()(
             id: realId,
             // 如果提供了真实的 contentBlocks，用真实的替换（避免重复渲染 question blocks）
             contentBlocks: realContentBlocks || m.contentBlocks,
+            // 更新 agentName 直接属性（用于 ChatMessage 组件渲染）
+            agentName: agentName || m.agentName,
+            // 更新 metadata（包含 agentName 和 agentRole）
+            metadata: {
+              ...m.metadata,
+              agentName: agentName || m.metadata?.agentName,
+              agentRole: agentRole || m.metadata?.agentRole,
+            },
           } : m
         );
         return { messages };
@@ -1064,11 +1091,6 @@ export const useAppStore = create<AppState & AppActions>()(
 
     setDebugProjectPath: (path) => {
       set({ debugProjectPath: path });
-    },
-
-    // Solo 模式 actions
-    setSoloMode: (soloMode) => {
-      set({ soloMode });
     },
 
     // 沙箱 actions

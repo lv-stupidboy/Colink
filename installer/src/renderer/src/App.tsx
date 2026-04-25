@@ -4,7 +4,6 @@ import { PlayCircleOutlined, StopOutlined, SettingOutlined, FileTextOutlined, Fo
 import { InstallConfig, InstalledVersion } from './types'
 import Layout from './components/Layout'
 import Welcome from './pages/Welcome'
-import InviteVerification from './pages/InviteVerification'
 import DirectorySelect from './pages/DirectorySelect'
 import DependencyCheck from './pages/DependencyCheck'
 import ModeSelect from './pages/ModeSelect'
@@ -21,13 +20,12 @@ type AppMode = 'checking' | 'launcher' | 'select-action' | 'old-version-detected
 const INSTALL_PAGES = {
   1: Welcome,
   2: DirectorySelect,
-  3: InviteVerification,
-  4: DependencyCheck,
-  5: SystemConfig,
+  3: DependencyCheck,
+  4: SystemConfig,
 }
 
-const STEP_LABELS = ['欢迎', '目录选择', '验证邀请码', '智能体检测', '系统配置']
-const UPGRADE_STEP_LABELS = ['欢迎', '验证邀请码', '智能体检测', '系统配置']
+const STEP_LABELS = ['欢迎', '目录选择', '智能体检测', '系统配置']
+const UPGRADE_STEP_LABELS = ['欢迎', '智能体检测', '系统配置']
 
 export default function App() {
   const [mode, setMode] = useState<AppMode>('checking')
@@ -46,7 +44,6 @@ export default function App() {
   })
   const [hasMissingDeps, setHasMissingDeps] = useState(false)
   const [dirValid, setDirValid] = useState(true)
-  const [inviteVerified, setInviteVerified] = useState(false)
   const [oldISDPVersion, setOldISDPVersion] = useState<InstalledVersion | null>(null)
   const [uninstallingOld, setUninstallingOld] = useState(false)
 
@@ -151,13 +148,12 @@ export default function App() {
   const getStepLabels = () => isUpgrade ? UPGRADE_STEP_LABELS : STEP_LABELS
 
   const handleNext = () => {
-    if (currentStep >= 5) return
+    if (currentStep >= 4) return
     let nextStep = currentStep + 1
     if (isUpgrade) {
-      // 升级跳过目录选择(步骤2)：1->3->4->5
-      if (currentStep === 1) nextStep = 3  // Welcome -> InviteVerification
-      else if (currentStep === 3) nextStep = 4  // InviteVerification -> DependencyCheck
-      else if (currentStep === 4) nextStep = 5  // DependencyCheck -> SystemConfig
+      // 升级跳过目录选择(步骤2)：1->3->4
+      if (currentStep === 1) nextStep = 3  // Welcome -> DependencyCheck
+      else if (currentStep === 3) nextStep = 4  // DependencyCheck -> SystemConfig
     }
     setCurrentStep(nextStep)
   }
@@ -166,10 +162,9 @@ export default function App() {
     if (currentStep <= 1) return
     let prevStep = currentStep - 1
     if (isUpgrade) {
-      // 升级跳过目录选择(步骤2)：5->4->3->1
-      if (currentStep === 5) prevStep = 4  // SystemConfig -> DependencyCheck
-      else if (currentStep === 4) prevStep = 3  // DependencyCheck -> InviteVerification
-      else if (currentStep === 3) prevStep = 1  // InviteVerification -> Welcome
+      // 升级跳过目录选择(步骤2)：4->3->1
+      if (currentStep === 4) prevStep = 3  // SystemConfig -> DependencyCheck
+      else if (currentStep === 3) prevStep = 1  // DependencyCheck -> Welcome
     }
     setCurrentStep(prevStep)
   }
@@ -323,9 +318,9 @@ export default function App() {
 
   // 安装向导
   const PageComponent = INSTALL_PAGES[currentStep as keyof typeof INSTALL_PAGES]
-  // 升级跳过目录选择(步骤2)：1->0(欢迎), 3->1(验证邀请码), 4->2(智能体检测), 5->3(系统配置)
+  // 升级跳过目录选择(步骤2)：1->0(欢迎), 3->1(智能体检测), 4->2(系统配置)
   const stepIndex = isUpgrade
-    ? (currentStep === 1 ? 0 : currentStep === 3 ? 1 : currentStep === 4 ? 2 : 3)
+    ? (currentStep === 1 ? 0 : currentStep === 3 ? 1 : 2)
     : currentStep - 1
 
   return (
@@ -338,10 +333,9 @@ export default function App() {
           setHasMissingDeps(deps.some(d => !d.installed))
         }}
         onValidationChange={(valid) => {
-          // 首次安装：步骤2是目录选择，步骤3是验证邀请码
-          // 升级：跳过步骤2，步骤3是验证邀请码
+          // 首次安装：步骤2是目录选择
+          // 升级：跳过步骤2，步骤3是智能体检测（无需验证）
           if (currentStep === 2) setDirValid(valid)
-          if (currentStep === 3) setInviteVerified(valid)
         }}
         installedVersion={installedVersion}
         isUpgrade={isUpgrade}
@@ -361,15 +355,11 @@ export default function App() {
           {currentStep === 2 && dirValid && (
             <Button type="primary" onClick={handleNext}>下一步</Button>
           )}
-          {/* 步骤3：验证邀请码 */}
-          {currentStep === 3 && inviteVerified && (
+          {/* 步骤3：智能体检测 */}
+          {currentStep === 3 && (
             <Button type="primary" onClick={handleNext}>下一步</Button>
           )}
-          {/* 步骤4：智能体检测 */}
           {currentStep === 4 && (
-            <Button type="primary" onClick={handleNext}>下一步</Button>
-          )}
-          {currentStep === 5 && (
             <Button type="primary" onClick={handleInstall}>
               {isUpgrade ? '升级' : '安装'}
             </Button>

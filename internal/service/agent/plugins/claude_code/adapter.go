@@ -155,44 +155,47 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execut
 	env := a.buildEnv(req)
 	cmd.Env = env
 
-	// 构建可复制的命令（方便调试）
+	// 构建可复制的命令（PowerShell 格式，方便调试）
 	// 提取关键环境变量用于日志，对敏感信息脱敏
 	var envVarsForLog []string
 	for _, e := range env {
 		if strings.HasPrefix(e, "ANTHROPIC_") || strings.HasPrefix(e, "CLAUDE_") {
-			if strings.HasPrefix(e, "ANTHROPIC_AUTH_TOKEN=") {
-				token := strings.TrimPrefix(e, "ANTHROPIC_AUTH_TOKEN=")
-				maskedToken := maskToken(token)
-				envVarsForLog = append(envVarsForLog, fmt.Sprintf("ANTHROPIC_AUTH_TOKEN=\"%s\"", maskedToken))
-			} else {
-				envVarsForLog = append(envVarsForLog, e)
+			idx := strings.Index(e, "=")
+			if idx > 0 {
+				key := e[:idx]
+				value := e[idx+1:]
+				if key == "ANTHROPIC_AUTH_TOKEN" {
+					value = maskToken(value)
+				}
+				envVarsForLog = append(envVarsForLog, fmt.Sprintf("$env:%s='%s'", key, value))
 			}
 		}
 	}
 
-	// 构建可复制的完整命令
+	// 构建 PowerShell 格式的完整命令
 	cliCmd := a.cliPath + " " + strings.Join(args, " ")
 	var cmdForCopy strings.Builder
 	if cmd.Dir != "" {
-		cmdForCopy.WriteString(fmt.Sprintf("cd \"%s\" && ", cmd.Dir))
+		cmdForCopy.WriteString(fmt.Sprintf("cd '%s'; ", cmd.Dir))
 	}
-	for i, envLine := range envVarsForLog {
+	for _, envLine := range envVarsForLog {
 		cmdForCopy.WriteString(envLine)
-		if i < len(envVarsForLog)-1 {
-			cmdForCopy.WriteString(" ")
-		}
-	}
-	if len(envVarsForLog) > 0 {
-		cmdForCopy.WriteString(" ")
+		cmdForCopy.WriteString("; ")
 	}
 	cmdForCopy.WriteString(cliCmd)
 
-	logInfo("Claude: CLI command (copy to test)",
+
+	// 打印完整命令到 zap 日志
+	logInfo("Claude: CLI full command",
 		zap.String("workDir", cmd.Dir),
+		zap.String("command", cmdForCopy.String()),
+	)
+	logInfo("Claude: CLI env vars",
 		zap.Strings("envVars", envVarsForLog),
+	)
+	logInfo("Claude: CLI args",
 		zap.String("cliPath", a.cliPath),
 		zap.Strings("args", args),
-		zap.String("fullCommand", cmdForCopy.String()),
 	)
 
 	cliStartTime := time.Now()
@@ -268,7 +271,7 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execut
 		}
 		logInfo("ExecuteWithStream: scanner goroutine finished, closed lineChan")
 	}()
-	
+
 	// 主 goroutine 处理行数据，使用 select 监听多个 channel
 	// 添加超时机制防止永久阻塞（如果 CLI 进程结束但 stdout 未正确关闭）
 	lineCount := 0
@@ -371,13 +374,13 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execut
 	// 使用带超时的等待，避免永久阻塞
 	waitCtx, waitCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer waitCancel()
-	
+
 	waitDone := make(chan struct{})
 	go func() {
 		wg.Wait()
 		close(waitDone)
 	}()
-	
+
 	select {
 	case <-waitDone:
 		logInfo("ExecuteWithStream: scanner goroutine completed normally")
@@ -630,37 +633,40 @@ func (a *ClaudeAdapter) CheckHealth(ctx context.Context) error {
 	var envVarsForLog []string
 	for _, e := range env {
 		if strings.HasPrefix(e, "ANTHROPIC_") || strings.HasPrefix(e, "CLAUDE_") {
-			if strings.HasPrefix(e, "ANTHROPIC_AUTH_TOKEN=") {
-				token := strings.TrimPrefix(e, "ANTHROPIC_AUTH_TOKEN=")
-				maskedToken := maskToken(token)
-				envVarsForLog = append(envVarsForLog, fmt.Sprintf("ANTHROPIC_AUTH_TOKEN=\"%s\"", maskedToken))
-			} else {
-				envVarsForLog = append(envVarsForLog, e)
+			idx := strings.Index(e, "=")
+			if idx > 0 {
+				key := e[:idx]
+				value := e[idx+1:]
+				if key == "ANTHROPIC_AUTH_TOKEN" {
+					value = maskToken(value)
+				}
+				envVarsForLog = append(envVarsForLog, fmt.Sprintf("$env:%s='%s'", key, value))
 			}
 		}
 	}
 
-	// 构建可复制的完整命令
+	// 构建 PowerShell 格式的完整命令
 	cliCmd := a.cliPath + " " + strings.Join(args, " ")
 	var cmdForCopy strings.Builder
-	cmdForCopy.WriteString(fmt.Sprintf("cd \"%s\" && ", os.TempDir()))
-	for i, envLine := range envVarsForLog {
+	cmdForCopy.WriteString(fmt.Sprintf("cd '%s'; ", os.TempDir()))
+	for _, envLine := range envVarsForLog {
 		cmdForCopy.WriteString(envLine)
-		if i < len(envVarsForLog)-1 {
-			cmdForCopy.WriteString(" ")
-		}
-	}
-	if len(envVarsForLog) > 0 {
-		cmdForCopy.WriteString(" ")
+		cmdForCopy.WriteString("; ")
 	}
 	cmdForCopy.WriteString(cliCmd)
 
-	logInfo("Claude: CheckHealth command (copy to test)",
+
+	// 打印完整命令到 zap 日志
+	logInfo("Claude: CheckHealth full command",
 		zap.String("workDir", os.TempDir()),
+		zap.String("command", cmdForCopy.String()),
+	)
+	logInfo("Claude: CheckHealth env vars",
 		zap.Strings("envVars", envVarsForLog),
+	)
+	logInfo("Claude: CheckHealth args",
 		zap.String("cliPath", a.cliPath),
 		zap.Strings("args", args),
-		zap.String("fullCommand", cmdForCopy.String()),
 	)
 
 	// 通过stdin传递prompt
@@ -735,6 +741,7 @@ func logDebug(msg string, fields ...zap.Field) {
 		logger.Debug(msg, fields...)
 	}
 }
+
 // SendToolResult 发送工具结果给 CLI（用于 AskUserQuestion 等需要用户输入的工具）
 // CLI 使用 stdin 接收用户答案
 func (a *ClaudeAdapter) SendToolResult(invocationID uuid.UUID, toolCallID string, result string) error {
@@ -752,7 +759,7 @@ func (a *ClaudeAdapter) SendToolResult(invocationID uuid.UUID, toolCallID string
 	if err != nil {
 		return fmt.Errorf("ClaudeAdapter: failed to marshal result: %w", err)
 	}
-	answerMsg := fmt.Sprintf("{\"type\":\"tool_result\",\"tool_use_id\":\"%s\",\"content\":%s}\n", toolCallID, string(contentJSON))
+	answerMsg := fmt.Sprintf("{\"type\":\"tool_result\",\"tool_use_id\":'%s',\"content\":%s}\n", toolCallID, string(contentJSON))
 
 	logInfo("ClaudeAdapter: sending tool result via stdin",
 		zap.String("invocationID", invocationID.String()),

@@ -28,16 +28,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   }) => ipcRenderer.invoke('generate-config-preview', params),
   createShortcut: (path: string) => ipcRenderer.invoke('create-shortcut', path),
 
-  // 邀请码验证
-  verifyInviteCode: (request: { code: string; username: string }) =>
-    ipcRenderer.invoke('verify-invite-code', request),
-  saveInviteCode: (inviteCode: string, installDir?: string) =>
-    ipcRenderer.invoke('save-invite-code', inviteCode, installDir),
-  loadInviteCode: (installDir?: string) => ipcRenderer.invoke('load-invite-code', installDir),
-
-  // 获取系统用户名
-  getSystemUsername: () => ipcRenderer.invoke('get-system-username'),
-
   // 安装状态
   checkInstalled: () => ipcRenderer.invoke('check-installed'),
   checkOldISDP: () => ipcRenderer.invoke('check-old-isdp'),

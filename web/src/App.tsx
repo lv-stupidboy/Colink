@@ -17,6 +17,7 @@ import MarketManagement from '@/pages/Market/MarketManagement';
 import TeamPackages from '@/pages/Market/TeamPackages';
 import TeamPackageManagement from '@/pages/TeamPackage';
 import WorkflowPage from '@/pages/Workflow';
+import TeamGraphEditor from '@/pages/Workflow/TeamGraphEditor';
 import SkillLibrary from '@/pages/SkillLibrary';
 import RegistryManagement from '@/pages/RegistryManagement';
 import KnowledgeManagement from '@/pages/KnowledgeManagement';
@@ -159,6 +160,7 @@ const App: React.FC = () => {
               <Route path="subagents" element={<Navigate to="/agents/subagents" replace />} />
 
               <Route path="workflow" element={<WorkflowPage />} />
+              <Route path="workflow/team/:teamId/graph" element={<TeamGraphEditor />} />
               <Route path="sandbox" element={<SandboxPage />} />
               <Route path="registries" element={<RegistryManagement />} />
               <Route path="knowledge" element={<Navigate to="/agents/knowledge" replace />} />

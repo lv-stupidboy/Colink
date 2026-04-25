@@ -31,9 +31,6 @@ import {
   MenuUnfoldOutlined,
   DesktopOutlined,
   UnorderedListOutlined,
-  FullscreenOutlined,
-  ThunderboltOutlined,
-  ApartmentOutlined,
   TeamOutlined,
 } from '@ant-design/icons';
 import { useAppStore } from '@/store';
@@ -42,7 +39,7 @@ import type { Message, Artifact, ReviewIssue, MergeCheckResult, AgentConfig, Too
 import type { FileChange } from '@/types/content';
 import { ArtifactTypeLabels } from '@/types';
 import { ReviewReport } from '@/components/ReviewReport';
-import { RightPanel, TaskList, ThreadInput } from '@/components/thread';
+import { RightPanel, ThreadInput } from '@/components/thread';
 import { FilePreviewPanel } from '@/components/thread/FilePreviewPanel';
 import { BlockingDetector } from '@/utils/blockingDetector';
 import { sendAgentCompletionNotification, requestNotificationPermission, isNotificationGranted, clearPendingNotifications } from '@/utils/systemNotification';
@@ -51,7 +48,6 @@ import { StatusPanel } from '@/components/thread/StatusPanel';
 import MessageScrollIndicator from '@/components/thread/MessageScrollIndicator';
 import FileTree from '@/components/FileTree';
 import api from '@/api/client';
-import type { Thread } from '@/types';
 import './ThreadView.css';
 
 const { Title, Text } = Typography;
@@ -91,7 +87,6 @@ const ThreadView: React.FC = () => {
   const sandboxServer = useAppStore((s) => s.sandboxServer);
   const sandboxLoading = useAppStore((s) => s.sandboxLoading);
   const dockerAvailable = useAppStore((s) => s.dockerAvailable);
-  const soloMode = useAppStore((s) => s.soloMode);
 
   // 高频状态 - 只订阅 messages（流式消息由 StreamingMessage 组件独立处理）
   const workflowMessages = useAppStore((s) => s.messages);
@@ -115,14 +110,11 @@ const ThreadView: React.FC = () => {
   const updateInvocationStatus = useAppStore((s) => s.updateInvocationStatus);
   const updateProgress = useAppStore((s) => s.updateProgress);
   const loadProjectContext = useAppStore((s) => s.loadProjectContext);
-  const clearThreadMessages = useAppStore((s) => s.clearThreadMessages);
-  const setCurrentThread = useAppStore((s) => s.setCurrentThread);
   const getFilteredAgents = useAppStore((s) => s.getFilteredAgents);
   const loadAgentConfigs = useAppStore((s) => s.loadAgentConfigs);
   const setDebugMode = useAppStore((s) => s.setDebugMode);
   const setDebugAgentConfig = useAppStore((s) => s.setDebugAgentConfig);
   const setDebugProjectPath = useAppStore((s) => s.setDebugProjectPath);
-  const setSoloMode = useAppStore((s) => s.setSoloMode);
   const setSandboxServer = useAppStore((s) => s.setSandboxServer);
   const setSandboxLoading = useAppStore((s) => s.setSandboxLoading);
   const setDockerAvailable = useAppStore((s) => s.setDockerAvailable);
@@ -172,9 +164,6 @@ const ThreadView: React.FC = () => {
     }, delay);
   }, []);
 
-  // 任务抽屉状态（默认收起）
-  const [taskDrawerOpen, setTaskDrawerOpen] = useState(false);
-
   // 根据模式选择使用哪个状态
   const messages = isDebugMode ? debugMessages : workflowMessages;
 
@@ -208,6 +197,8 @@ const ThreadView: React.FC = () => {
 
   // Agent 完成后预填入状态
   const [prefilledMention, setPrefilledMention] = useState<string | undefined>(undefined);
+  // 点击 Agent 头像/名称追加 @mention 状态
+  const [appendMention, setAppendMention] = useState<string | undefined>(undefined);
   const [rightPanelActiveTab, setRightPanelActiveTab] = useState<'code' | 'sandbox'>('code');
   const [rightPanelWidth, setRightPanelWidth] = useState(520);
   const [isResizing, setIsResizing] = useState(false);
@@ -217,11 +208,6 @@ const ThreadView: React.FC = () => {
   // 代码文件列表
   const [codeFiles, setCodeFiles] = useState<FileChange[]>([]);
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
-
-  // Solo 模式任务管理
-  const [soloTasks, setSoloTasks] = useState<Thread[]>([]);
-  const [soloActiveTask, setSoloActiveTask] = useState<Thread | null>(null);
-  const [soloNewTaskPending, setSoloNewTaskPending] = useState(false); // 是否正在创建新任务
 
   // 打开右侧面板显示代码
   const openCodePanel = (files: FileChange[]) => {
@@ -245,6 +231,11 @@ const ThreadView: React.FC = () => {
     }
     setExpandedFiles(newExpanded);
   };
+
+  // 点击 Agent 头像/名称时追加 @mention
+  const handleAgentClick = useCallback((agentName: string) => {
+    setAppendMention(agentName);
+  }, []);
 
   // 调试模式的 WebSocket 连接
   const connectDebugWebSocket = (id: string) => {
@@ -408,17 +399,22 @@ const ThreadView: React.FC = () => {
 
       if (hasExistingThread) {
         // URL 中有 threadId，恢复现有会话
-        // 不清空消息，不设置 soloNewTaskPending = true
         setDebugMode(true, agentId);
-        setSoloActiveTask(null);
-        setSoloNewTaskPending(false); // 恢复模式
 
         // 设置 threadId
         setDebugThreadId(threadId!);
 
         // 加载历史消息（直接替换，不追加）
         api.messages.list(threadId!).then(result => {
-          setDebugMessages(result.messages);
+          // 从 metadata 中提取 agentName 设置到直接属性
+          const processedMessages = (result.messages || []).map((msg: Message) => {
+            const metadataAgentName = msg.metadata?.agentName as string | undefined;
+            return {
+              ...msg,
+              agentName: msg.agentName || metadataAgentName || undefined,
+            };
+          });
+          setDebugMessages(processedMessages);
         }).catch(err => {
           console.error('Failed to load messages:', err);
         });
@@ -441,9 +437,6 @@ const ThreadView: React.FC = () => {
         }
         wsConnectedRef.current = false;
         setDebugWsConnected(false);
-        // 重置 Solo 模式任务状态
-        setSoloActiveTask(null);
-        setSoloNewTaskPending(true); // 新会话模式
         // 加载 Agent 配置
         api.agents.get(agentId).then((config: AgentConfig) => {
           setDebugAgentConfig(config);
@@ -462,8 +455,6 @@ const ThreadView: React.FC = () => {
     } else {
       setDebugMode(false);
       setDebugAgentConfig(null);
-      // 退出调试模式时关闭 Solo 模式
-      setSoloMode(false);
     }
 
     return () => {
@@ -475,18 +466,6 @@ const ThreadView: React.FC = () => {
       wsConnectedRef.current = false;
     };
   }, [isDebugMode, agentId, threadId]);
-
-  // Solo 模式 - 从任务列表设置活跃任务（仅用于 UI 显示）
-  // 注意：会话恢复已在初始化 useEffect 中处理，这里只更新 soloActiveTask 用于任务列表 UI
-  useEffect(() => {
-    if (soloMode && threadId && soloTasks.length > 0 && !soloActiveTask) {
-      const task = soloTasks.find(t => t.id === threadId);
-      if (task) {
-        setSoloActiveTask(task);
-        // soloNewTaskPending 已在初始化逻辑中设置，不需要重复设置
-      }
-    }
-  }, [soloMode, threadId, soloTasks, soloActiveTask]);
 
   // 调试模式 - 当 debugThreadId 变化时连接 WebSocket
   useEffect(() => {
@@ -749,14 +728,15 @@ const ThreadView: React.FC = () => {
           // 先完成流式消息（添加临时消息）- finalizeStreamingMessage 会将 question block IDs 加入 submittedQuestionBlockIds
           finalizeStreamingMessage(invocationId);
           // 然后用真实ID和真实contentBlocks替换临时消息（避免重复渲染 question blocks）
-          useAppStore.getState().replaceMessageId(tempId, realMessageId, contentBlocks);
+          // 同时更新 agentName 和 agentRole
+          useAppStore.getState().replaceMessageId(tempId, realMessageId, contentBlocks, agentName, agentRole);
         } else {
           // 非流式场景：检查是否已有临时消息（可能由 agent_status/completed 创建）
           const tempId = `agent-${realMessageId}`;
           const existingTemp = state.messages.find(m => m.id === tempId);
           if (existingTemp) {
-            // 替换临时ID为真实ID，同时替换contentBlocks
-            useAppStore.getState().replaceMessageId(tempId, realMessageId, contentBlocks);
+            // 替换临时ID为真实ID，同时替换contentBlocks和metadata
+            useAppStore.getState().replaceMessageId(tempId, realMessageId, contentBlocks, agentName, agentRole);
           } else {
             // 直接添加新消息（使用真实ID）
             addMessage({
@@ -764,6 +744,7 @@ const ThreadView: React.FC = () => {
               threadId: threadId!,
               role: 'agent',
               agentId: agentId,
+              agentName: agentName,  // 设置直接属性
               content: content,
               contentBlocks: contentBlocks,
               messageType: 'text',
@@ -810,8 +791,11 @@ const ThreadView: React.FC = () => {
         const agentName = data.payload.agentName as string;
         const agentId = data.payload.agentId as string || '';
         const input = data.payload.input as string | undefined;
-        console.log('[agent_status] Received:', { status, invocId, agentName, agentId });
-        updateAgentStatus(invocId, status, agentName, input);
+        // failed 状态时获取详细错误信息
+        const errorDetails = status === 'failed' ? (data.payload.errorDetails as string | undefined) : undefined;
+        console.log('[agent_status] Received:', { status, invocId, agentName, agentId, hasErrorDetails: !!errorDetails });
+        // failed 状态时传递 errorDetails 作为 input（用于保存错误信息）
+        updateAgentStatus(invocId, status, agentName, errorDetails || input);
         // Agent 完成或中断时清理工具事件（包括 cancelled）
         if (status === 'completed' || status === 'failed' || status === 'interrupted' || status === 'cancelled') {
           clearToolEvents(invocId);
@@ -1030,9 +1014,8 @@ const ThreadView: React.FC = () => {
     }
 
     // 判断是否需要创建新会话
-    // soloNewTaskPending 为 true 表示用户明确要新建任务
-    // 或者 debugThreadId 为空表示还没有会话
-    const needNewSession = soloNewTaskPending || !debugThreadId;
+    // debugThreadId 为空表示还没有会话
+    const needNewSession = !debugThreadId;
 
     // 添加用户消息
     const userMsg: Message = {
@@ -1064,7 +1047,6 @@ const ThreadView: React.FC = () => {
         const newThreadId = threadResult.threadId;
 
         setDebugThreadId(newThreadId);
-        setSoloNewTaskPending(false);
 
         // 主动连接 WebSocket（不依赖 useEffect）
         connectDebugWebSocket(newThreadId);
@@ -1101,189 +1083,6 @@ const ThreadView: React.FC = () => {
       console.error('[Debug] Error:', error);
     }
   };
-
-  // ========== Solo 模式任务管理 ==========
-
-  // 加载 Solo 模式任务列表
-  const loadSoloTasks = useCallback(async () => {
-    if (!projectId) return;
-    try {
-      const data = await api.threads.list(projectId);
-      const sorted = (data || []).sort((a, b) =>
-        new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-      );
-      setSoloTasks(sorted);
-    } catch (error) {
-      console.error('Failed to load solo tasks:', error);
-    }
-  }, [projectId]);
-
-  // Solo 模式 - 加载任务列表
-  useEffect(() => {
-    if (soloMode && projectId) {
-      loadSoloTasks();
-    }
-  }, [soloMode, projectId, loadSoloTasks]);
-
-  // 选择任务
-  const handleSelectSoloTask = useCallback(async (task: Thread) => {
-    // 1. 清空当前消息
-    if (isDebugMode) {
-      clearDebugAll();
-    } else {
-      // 团队模式：清除团队消息
-      clearThreadMessages();
-    }
-
-    // 2. 设置活跃任务
-    setSoloActiveTask(task);
-    setSoloNewTaskPending(false);
-
-    // 3. 调试模式：设置 threadId + 加载消息 + 连接 WebSocket
-    if (isDebugMode) {
-      setDebugThreadId(task.id);
-
-      // 加载历史消息
-      try {
-        const result = await api.messages.list(task.id);
-        result.messages.forEach(msg => addDebugMessage(msg));
-      } catch (error) {
-        console.error('Failed to load messages:', error);
-      }
-
-      // 连接 WebSocket（函数内部会先关闭现有连接）
-      connectDebugWebSocket(task.id);
-    } else {
-      // 团队模式：设置 currentThread + 加载历史消息
-      setCurrentThread(task);
-      try {
-        const result = await api.messages.list(task.id);
-        result.messages.forEach(msg => addMessage(msg));
-      } catch (error) {
-        console.error('Failed to load messages:', error);
-      }
-    }
-
-    // 4. 更新 URL（不触发重新渲染）
-    if (isDebugMode && agentId) {
-      navigate(`/agents/${agentId}?threadId=${task.id}`, { replace: true });
-    } else if (projectId) {
-      navigate(`/projects/${projectId}/threads/${task.id}`, { replace: true });
-    }
-  }, [isDebugMode, agentId, projectId, navigate, clearDebugAll, clearThreadMessages, setCurrentThread, setDebugThreadId, addDebugMessage, connectDebugWebSocket, addMessage]);
-
-  // 新建任务
-  const handleCreateSoloTask = useCallback(() => {
-    // 1. 清空当前消息和状态
-    if (isDebugMode) {
-      clearDebugAll();
-    } else {
-      // 团队模式：清除团队消息
-      clearThreadMessages();
-    }
-
-    // 2. 重置活跃任务状态，标记为新任务待创建
-    setSoloActiveTask(null);
-    setSoloNewTaskPending(true);
-
-    // 3. 不再导航跳转，保持在当前页面
-  }, [isDebugMode, clearDebugAll, clearThreadMessages]);
-
-  // Solo 模式发送消息（处理新任务命名）
-  const handleSoloSend = useCallback(async (content: string) => {
-    // 用户发送新消息时，清除之前的阻塞项（开始新的交互）
-    const state = useAppStore.getState();
-    if (state.blockingItems.length > 0) {
-      state.blockingItems.forEach(b => removeBlockingItem(b.id));
-    }
-
-    // 如果是新任务，先创建 thread
-    if (soloNewTaskPending) {
-      try {
-        // 用第一条消息的前 30 个字符作为任务名
-        const taskName = content.slice(0, 30) + (content.length > 30 ? '...' : '');
-
-        let newThread: Thread;
-
-        if (isDebugMode) {
-          // 调试模式：使用 createDebugThread API（不需要 projectId）
-          const threadResult = await api.agents.createDebugThread(debugProjectPath || undefined);
-          // 更新 thread 名称
-          newThread = await api.threads.get(threadResult.threadId);
-          // 如果需要更新名称，可以调用 updateStatus 或其他 API
-        } else if (projectId) {
-          // 团队模式：使用 threads.create API
-          newThread = await api.threads.create(projectId, taskName);
-        } else {
-          message.error('无法创建任务：缺少项目信息');
-          return;
-        }
-
-        setSoloActiveTask(newThread);
-        setSoloNewTaskPending(false);
-        // 更新任务列表
-        setSoloTasks(prev => [newThread, ...prev]);
-        // 设置 threadId
-        if (isDebugMode) {
-          setDebugThreadId(newThread.id);
-          // 连接 WebSocket
-          connectDebugWebSocket(newThread.id);
-
-          // 添加用户消息
-          const userMsg: Message = {
-            id: Date.now().toString(),
-            threadId: newThread.id,
-            role: 'user',
-            content,
-            messageType: 'text',
-            createdAt: new Date().toISOString(),
-          };
-          addDebugMessage(userMsg);
-          setDebugStatus('running');
-
-          // 等待 WebSocket 连接
-          await new Promise<void>((resolve, reject) => {
-            const startTime = Date.now();
-            const check = () => {
-              if (wsConnectedRef.current) {
-                resolve();
-              } else if (Date.now() - startTime > 5000) {
-                reject(new Error('WebSocket connection timeout'));
-              } else {
-                setTimeout(check, 100);
-              }
-            };
-            check();
-          });
-
-          // 直接调用 debug API，使用 newThread.id 而不是依赖 state
-          if (debugAgentConfig) {
-            await api.agents.debug(debugAgentConfig.id, content, debugProjectPath || undefined, newThread.id);
-          }
-        } else {
-          // 团队模式：设置 currentThread 以便 sendMessage 能正常工作
-          setCurrentThread(newThread);
-        }
-        // 更新 URL
-        if (isDebugMode && agentId) {
-          navigate(`/agents/${agentId}?threadId=${newThread.id}`, { replace: true });
-        } else if (projectId) {
-          navigate(`/projects/${projectId}/threads/${newThread.id}`, { replace: true });
-        }
-      } catch (error) {
-        console.error('Failed to create new task:', error);
-        message.error('创建任务失败');
-        return;
-      }
-    } else {
-      // 不是新任务，调用原有的发送逻辑
-      if (isDebugMode) {
-        await handleDebugSend(content);
-      } else {
-        await sendMessage(content);
-      }
-    }
-  }, [soloNewTaskPending, projectId, isDebugMode, agentId, navigate, setDebugThreadId, handleDebugSend, sendMessage, debugProjectPath, connectDebugWebSocket, setCurrentThread, debugAgentConfig, addDebugMessage, setDebugStatus]);
 
   /**
    * 处理终止Agent
@@ -1662,12 +1461,6 @@ const ThreadView: React.FC = () => {
       requestNotificationPermission();
     }
 
-    // Solo 模式 - 使用特殊的发送逻辑（处理新任务创建）
-    if (soloMode) {
-      await handleSoloSend(content);
-      return;
-    }
-
     // 调试模式
     if (isDebugMode) {
       await handleDebugSend(content);
@@ -1695,7 +1488,7 @@ const ThreadView: React.FC = () => {
     } else {
       await sendMessage(content);
     }
-  }, [soloMode, isDebugMode, agentOptions, sendMessage, spawnAgent, handleSoloSend, handleDebugSend]);
+  }, [isDebugMode, agentOptions, sendMessage, spawnAgent, handleDebugSend]);
 
   if (loading) {
     return (
@@ -1710,17 +1503,6 @@ const ThreadView: React.FC = () => {
   // 获取工作目录
   const displayProjectPath = isDebugMode ? debugProjectPath : (currentProject?.localPath || '');
 
-  // 切换 Solo 模式
-  const toggleSoloMode = () => {
-    setSoloMode(!soloMode);
-    if (!soloMode) {
-      // 进入 Solo 模式时，收起侧边栏
-      setFileSidebarVisible(false);
-      setArtifactsSidebarVisible(false);
-      setRightPanelVisible(false);
-    }
-  };
-
   // 右侧面板拖拽调整大小
   const handleResizeStart = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -1732,51 +1514,9 @@ const ThreadView: React.FC = () => {
   };
 
   return (
-    <div className={`thread-view-wrapper ${soloMode ? 'solo-mode' : ''}`}>
-      {/* Solo 模式下的顶部切换栏 */}
-      {soloMode && (
-        <div className="solo-mode-header">
-          <div className="solo-mode-tabs">
-            {/* 任务抽屉切换按钮 */}
-            <Button
-              type="text"
-              className={`solo-mode-tab ${taskDrawerOpen ? 'active' : ''}`}
-              icon={<UnorderedListOutlined />}
-              onClick={() => setTaskDrawerOpen(!taskDrawerOpen)}
-            >
-              任务
-            </Button>
-            <Button
-              type="text"
-              className="solo-mode-tab"
-              icon={<ApartmentOutlined />}
-              onClick={() => setSoloMode(false)}
-            >
-              代码模式
-            </Button>
-            <Button
-              type="text"
-              className="solo-mode-tab active"
-              icon={<ThunderboltOutlined />}
-            >
-              Solo 模式
-            </Button>
-          </div>
-          <Button
-            className={`solo-mode-action-btn ${rightPanelVisible ? 'primary' : ''}`}
-            icon={<DesktopOutlined />}
-            onClick={() => {
-              setRightPanelVisible(!rightPanelVisible);
-              setFilePreviewVisible(false);  // 关闭文件预览，互斥
-            }}
-          >
-            面板
-          </Button>
-        </div>
-      )}
-
-      {/* 正常模式下的左侧文件树侧边栏 */}
-      {!soloMode && fileSidebarVisible && (isDebugMode || projectId) && (
+    <div className="thread-view-wrapper">
+      {/* 左侧文件树侧边栏 */}
+      {fileSidebarVisible && (isDebugMode || projectId) && (
         <div className="file-sidebar">
           {/* 工作目录显示/输入 */}
           <div className="file-sidebar-path">
@@ -1812,229 +1552,119 @@ const ThreadView: React.FC = () => {
         </div>
       )}
 
-      {/* Solo 模式下：任务列表 + 消息区 + 沙箱 并排显示 */}
-      {soloMode ? (
-        /* Solo 模式：任务列表 + 消息区 + 沙箱 并排 */
-        <div className="solo-mode-body">
-          {/* 任务抽屉 */}
-          <div className={`solo-task-drawer ${!taskDrawerOpen ? 'collapsed' : ''}`}>
-            <TaskList
-              tasks={soloTasks}
-              activeThreadId={soloActiveTask?.id || null}
-              onSelectTask={handleSelectSoloTask}
-              onCreateTask={handleCreateSoloTask}
-              onDeleteTask={(taskId) => {
-                // 如果删除的是当前任务，清空状态
-                if (soloActiveTask?.id === taskId) {
-                  setSoloActiveTask(null);
-                  clearDebugAll();
-                }
-                // 刷新任务列表
-                loadSoloTasks();
-              }}
-              isRunning={debugStatus === 'running'}
-            />
-          </div>
-
-          {/* 消息区 */}
-          <div className="solo-mode-content">
-            <div className="thread-view">
-              {/* 消息区域 */}
-              <div className="thread-messages">
-              {messages.length === 0 ? (
-                <div className="solo-mode-welcome">
-                  <RobotOutlined className="solo-mode-welcome-icon" />
-                  <Title level={3} type="secondary" className="solo-mode-welcome-title">
-                    开始您的开发任务
-                  </Title>
-                  <Text type="secondary" className="solo-mode-welcome-desc">
-                    在下方输入您的需求，全栈工程师将协助您完成开发
-                  </Text>
-                </div>
-              ) : (
-                <>
-                  <ChatMessageList
-                    ref={chatMessageListRef}
-                    messages={messages}
-                    agentConfigs={mentionableAgents}
-                    projectPath={displayProjectPath}
-                    toolEvents={toolEvents}
-                    onStopAgent={handleStopAgent}
-                    onRetryAgent={handleRetryAgent}
-                    onOpenCodePanel={openCodePanel}
-                    autoScroll={true}
-                    onQuestionSubmit={handleInlineQuestionSubmit}
-                    hasMoreHistory={!isDebugMode && messagesHasMore}
-                    loadingMore={!isDebugMode && messagesLoadingMore}
-                    onLoadMore={!isDebugMode ? loadMoreMessages : undefined}
-                  />
-                  <MessageScrollIndicator
-                    messages={messages}
-                    agentConfigs={mentionableAgents}
-                    containerRef={chatMessageListRef}
-                  />
-                </>
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-
-            {/* 底部输入区 - 独立组件 */}
-            <ThreadInput
-              placeholder="输入您的需求..."
-              loadingContext={loadingProjectContext}
-              agentOptions={agentOptions}
-              onSend={handleSend}
-              prefilledMention={prefilledMention}
-              onPrefillConsumed={() => setPrefilledMention(undefined)}
-            />
-            </div>
-          </div>
-
-          {/* Solo 模式下的右侧面板 */}
-          {rightPanelVisible && (
-            <>
-              <div className={`resize-handle ${isResizing ? 'resizing' : ''}`} onMouseDown={handleResizeStart} style={{ width: isResizing ? 3 : 6 }} />
-              <div style={{ position: 'relative', display: 'flex' }}>
-                {isResizing && <div className="resize-overlay" />}
-                <RightPanel
-                  visible={rightPanelVisible}
-                  onClose={closeRightPanel}
-                  activeTab={rightPanelActiveTab}
-                  onTabChange={setRightPanelActiveTab}
-                  codeFiles={codeFiles}
-                  expandedFiles={expandedFiles}
-                  onToggleFile={toggleFileExpand}
-                  sandboxServer={currentSandboxServer}
-                  sandboxLoading={currentSandboxLoading}
-                  dockerAvailable={dockerAvailable}
-                  hasProjectPath={Boolean(getProjectPath())}
-                  isDebugMode={isDebugMode}
-                  onRunSandbox={handleRunSandbox}
-                  onStopSandbox={handleStopSandbox}
-                  width={rightPanelWidth}
-                />
-              </div>
-            </>
-          )}
-
-          {/* Solo 模式下的状态栏 */}
-          <StatusPanel width={320} threadId={threadId || debugThreadId || undefined} />
-        </div>
-      ) : (
-        /* 非Solo模式：原有结构 */
-        <>
-          <div className="thread-view">
-            {/* 干预控制面板 */}
-            <div className="intervention-bar">
-              <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-                <Space>
-                  <Tooltip title={fileSidebarVisible ? '隐藏文件树' : '显示文件树'}>
-                    <Button icon={fileSidebarVisible ? <MenuFoldOutlined /> : <MenuUnfoldOutlined />} onClick={() => setFileSidebarVisible(!fileSidebarVisible)} size="small" />
-                  </Tooltip>
-                  <Button icon={<ArrowLeftOutlined />} onClick={() => isDebugMode ? navigate('/agents') : navigate(`/projects/${projectId || currentThread?.projectId}`)} size="small">
-                    {isDebugMode ? '返回 Agent 列表' : '返回项目'}
-                  </Button>
-                  <Tag color={wsConnected ? 'green' : 'red'}>{wsConnected ? '已连接' : '未连接'}</Tag>
-                  {isDebugMode && debugAgentConfig && <Tag color="purple">调试: {debugAgentConfig.name}</Tag>}
-                  {isRunning && <Badge status="processing" text={`${activeAgents.length} 个 Agent 运行中`} />}
-                </Space>
-                {/* 中间：任务名和团队名 */}
-                <Space style={{ flex: 1, justifyContent: 'center' }}>
-                  {currentThread?.name && (
-                    <Text strong style={{ fontSize: 14 }}>{currentThread.name}</Text>
-                  )}
-                  {currentWorkflowTemplate?.name && (
-                    <Tag icon={<TeamOutlined />} color="blue">{currentWorkflowTemplate.name}</Tag>
-                  )}
-                </Space>
-                <Space>
-                  <Tooltip title="进入 Solo 模式">
-                    <Button icon={<FullscreenOutlined />} onClick={toggleSoloMode} size="small" type={soloMode ? 'primary' : 'default'}>Solo</Button>
-                  </Tooltip>
-                  <Tooltip title={artifactsSidebarVisible ? '隐藏产物' : '查看产物列表'}>
-                    <Button
-                      icon={<UnorderedListOutlined />}
-                      onClick={() => { setArtifactsSidebarVisible(!artifactsSidebarVisible); setRightPanelVisible(false); }}
-                      size="small"
-                      type={artifactsSidebarVisible ? 'primary' : 'default'}
-                    >产物</Button>
-                  </Tooltip>
-                  <Tooltip title={rightPanelVisible ? '隐藏面板' : '打开代码/沙箱面板'}>
-                    <Button
-                      icon={<DesktopOutlined />}
-                      onClick={() => {
-                        setRightPanelVisible(!rightPanelVisible);
-                        setFilePreviewVisible(false);  // 关闭文件预览，互斥
-                        setArtifactsSidebarVisible(false);
-                        setFileSidebarVisible(false);
-                      }}
-                      size="small"
-                      type={rightPanelVisible || currentSandboxServer ? 'primary' : 'default'}
-                    >面板</Button>
-                  </Tooltip>
-                </Space>
+      {/* 消息区域 */}
+        <div className="thread-view">
+          {/* 干预控制面板 */}
+          <div className="intervention-bar">
+            <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+              <Space>
+                <Tooltip title={fileSidebarVisible ? '隐藏文件树' : '显示文件树'}>
+                  <Button icon={fileSidebarVisible ? <MenuFoldOutlined /> : <MenuUnfoldOutlined />} onClick={() => setFileSidebarVisible(!fileSidebarVisible)} size="small" />
+                </Tooltip>
+                <Button icon={<ArrowLeftOutlined />} onClick={() => isDebugMode ? navigate('/agents') : navigate(`/projects/${projectId || currentThread?.projectId}`)} size="small">
+                  {isDebugMode ? '返回 Agent 列表' : '返回项目'}
+                </Button>
+                <Tag color={wsConnected ? 'green' : 'red'}>{wsConnected ? '已连接' : '未连接'}</Tag>
+                {isDebugMode && debugAgentConfig && <Tag color="purple">调试: {debugAgentConfig.name}</Tag>}
+                {isRunning && <Badge status="processing" text={`${activeAgents.length} 个 Agent 运行中`} />}
               </Space>
-            </div>
-
-            {/* 消息区域 */}
-            <div className="thread-messages">
-              {messages.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '60px 20px', color: '#999' }}>
-                  <RobotOutlined style={{ fontSize: 48, marginBottom: 16 }} />
-                  <Title level={4} type="secondary">开始您的开发任务</Title>
-                  <Text type="secondary">在下方输入您的需求，或使用 @需求分析师、@架构师、@开发者 等 Agent 协助开发</Text>
-                </div>
-              ) : (
-                <>
-                  <ChatMessageList
-                    ref={chatMessageListRef}
-                    messages={messages}
-                    agentConfigs={mentionableAgents}
-                    projectPath={displayProjectPath}
-                    toolEvents={toolEvents}
-                    onStopAgent={handleStopAgent}
-                    onRetryAgent={handleRetryAgent}
-                    onOpenCodePanel={openCodePanel}
-                    autoScroll={true}
-                    onQuestionSubmit={handleInlineQuestionSubmit}
-                    hasMoreHistory={!isDebugMode && messagesHasMore}
-                    loadingMore={!isDebugMode && messagesLoadingMore}
-                    onLoadMore={!isDebugMode ? loadMoreMessages : undefined}
-                  />
-                  <MessageScrollIndicator
-                    messages={messages}
-                    agentConfigs={mentionableAgents}
-                    containerRef={chatMessageListRef}
-                  />
-                </>
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-
-            {/* 底部输入区 - 独立组件 */}
-            <ThreadInput
-              placeholder="输入消息或使用 @需求分析师 @架构师 @开发者 等触发 Agent..."
-              loadingContext={loadingProjectContext}
-              agentOptions={agentOptions}
-              onSend={handleSend}
-              prefilledMention={prefilledMention}
-              onPrefillConsumed={() => setPrefilledMention(undefined)}
-            />
-
-            {/* 检查点确认弹窗 */}
-            <Modal
-              title={<Space><ExclamationCircleOutlined style={{ color: '#faad14' }} /><span>{currentCheckpoint?.title || '确认检查点'}</span></Space>}
-              open={checkpointModalVisible}
-              onOk={handleCheckpointConfirm}
-              onCancel={handleCheckpointReject}
-              okText="确认通过"
-              cancelText="需要修改"
-              width={600}
-            >
-              <Alert type="info" message="请确认以下内容是否符合预期" description={currentCheckpoint?.content} showIcon style={{ marginBottom: 16 }} />
-              <Text type="secondary">确认后将进入下一阶段，如需修改请点击"需要修改"并在对话中描述您的修改要求。</Text>
-            </Modal>
+              {/* 中间：任务名和团队名 */}
+              <Space style={{ flex: 1, justifyContent: 'center' }}>
+                {currentThread?.name && (
+                  <Text strong style={{ fontSize: 14 }}>{currentThread.name}</Text>
+                )}
+                {currentWorkflowTemplate?.name && (
+                  <Tag icon={<TeamOutlined />} color="blue">{currentWorkflowTemplate.name}</Tag>
+                )}
+              </Space>
+              <Space>
+                <Tooltip title={artifactsSidebarVisible ? '隐藏产物' : '查看产物列表'}>
+                  <Button
+                    icon={<UnorderedListOutlined />}
+                    onClick={() => { setArtifactsSidebarVisible(!artifactsSidebarVisible); setRightPanelVisible(false); }}
+                    size="small"
+                    type={artifactsSidebarVisible ? 'primary' : 'default'}
+                  >产物</Button>
+                </Tooltip>
+                <Tooltip title={rightPanelVisible ? '隐藏面板' : '打开代码/沙箱面板'}>
+                  <Button
+                    icon={<DesktopOutlined />}
+                    onClick={() => {
+                      setRightPanelVisible(!rightPanelVisible);
+                      setFilePreviewVisible(false);  // 关闭文件预览，互斥
+                      setArtifactsSidebarVisible(false);
+                      setFileSidebarVisible(false);
+                    }}
+                    size="small"
+                    type={rightPanelVisible || currentSandboxServer ? 'primary' : 'default'}
+                  >面板</Button>
+                </Tooltip>
+              </Space>
+            </Space>
           </div>
+
+          {/* 消息列表 */}
+          <div className="thread-messages">
+            {messages.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '60px 20px', color: '#999' }}>
+                <RobotOutlined style={{ fontSize: 48, marginBottom: 16 }} />
+                <Title level={4} type="secondary">开始您的开发任务</Title>
+                <Text type="secondary">在下方输入您的需求，或使用 @需求分析师、@架构师、@开发者 等 Agent 协助开发</Text>
+              </div>
+            ) : (
+              <>
+                <ChatMessageList
+                  ref={chatMessageListRef}
+                  messages={messages}
+                  agentConfigs={mentionableAgents}
+                  projectPath={displayProjectPath}
+                  toolEvents={toolEvents}
+                  onStopAgent={handleStopAgent}
+                  onRetryAgent={handleRetryAgent}
+                  onOpenCodePanel={openCodePanel}
+                  autoScroll={true}
+                  onQuestionSubmit={handleInlineQuestionSubmit}
+                  hasMoreHistory={!isDebugMode && messagesHasMore}
+                  loadingMore={!isDebugMode && messagesLoadingMore}
+                  onLoadMore={!isDebugMode ? loadMoreMessages : undefined}
+                  onAgentClick={handleAgentClick}
+                />
+                <MessageScrollIndicator
+                  messages={messages}
+                  agentConfigs={mentionableAgents}
+                  containerRef={chatMessageListRef}
+                />
+              </>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* 底部输入区 - 独立组件 */}
+          <ThreadInput
+            placeholder="输入消息或使用 @需求分析师 @架构师 @开发者 等触发 Agent..."
+            loadingContext={loadingProjectContext}
+            agentOptions={agentOptions}
+            onSend={handleSend}
+            prefilledMention={prefilledMention}
+            onPrefillConsumed={() => setPrefilledMention(undefined)}
+            appendMention={appendMention}
+            onAppendConsumed={() => setAppendMention(undefined)}
+          />
+
+          {/* 检查点确认弹窗 */}
+          <Modal
+            title={<Space><ExclamationCircleOutlined style={{ color: '#faad14' }} /><span>{currentCheckpoint?.title || '确认检查点'}</span></Space>}
+            open={checkpointModalVisible}
+            onOk={handleCheckpointConfirm}
+            onCancel={handleCheckpointReject}
+            okText="确认通过"
+            cancelText="需要修改"
+            width={600}
+          >
+            <Alert type="info" message="请确认以下内容是否符合预期" description={currentCheckpoint?.content} showIcon style={{ marginBottom: 16 }} />
+            <Text type="secondary">确认后将进入下一阶段，如需修改请点击"需要修改"并在对话中描述您的修改要求。</Text>
+          </Modal>
+        </div>
 
           {/* 产物侧边栏 */}
           {artifactsSidebarVisible && (
@@ -2106,10 +1736,7 @@ const ThreadView: React.FC = () => {
               </div>
             </>
           )}
-        </>
-      )}
-
-      </div>
+        </div>
   );
 };
 

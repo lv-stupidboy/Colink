@@ -1,7 +1,7 @@
 {
   "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"sleep 3 && tail -3 C:/Users/DELL/AppData/Local/Temp/claude/D--Tools-ASDP-gittee-isdp/fb6fbd73-7326-4f36-adff-41810513069c/tasks/b703l5c14.output\",\"timeout\":10000,\"description\":\"Check serve...",
-  "error": "Exit code 143",
-  "timestamp": "2026-04-20T15:51:16.345Z",
+  "tool_input_preview": "{\"command\":\"taskkill /F /PID 15308 && taskkill /F /PID 13040\"}",
+  "error": "Exit code 1\n����: ��Ч����/ѡ�� - 'F:/'��\r\n���� \"TASKKILL /?\" ���˽��÷���",
+  "timestamp": "2026-04-22T06:05:47.941Z",
   "retry_count": 1
 }

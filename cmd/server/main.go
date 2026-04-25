@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/anthropic/isdp/internal/api"
-	"github.com/anthropic/isdp/internal/middleware"
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
 	"github.com/anthropic/isdp/internal/reporter"
@@ -231,6 +230,11 @@ func main() {
 		logger,
 	)
 
+		// 设置缓存失效回调：配置生成后刷新 ConfigService 缓存
+		configGenService.SetCacheInvalidateCallback(func(agentRoleID uuid.UUID) {
+			configService.InvalidateCache(agentRoleID)
+		})
+
 	// 创建 Subagent Service
 	subagentSvc := subagent.NewService(
 		subagentRepo, agentSubagentBindingRepo, subagentSkillBindingRepo,
@@ -294,9 +298,11 @@ func main() {
 	// 初始化 MarketService
 	marketSvc := market.NewService(marketRepo, teamPackageVersionRepo, cfg.Data.BasePath+"/temp", logger)
 
-	// 创建 TeamPackageSync Service
+	// 创建 TeamPackageSync Service（扩展：支持冲突检测）
 	teamPackageSyncSvc := teampackagesync.NewSyncService(
-		teamPackageVersionRepo, workflowRepo, teamPackageSvc, marketSvc,
+		teamPackageVersionRepo, workflowRepo,
+		agentConfigRepo, skillRepo, commandRepo, subagentRepo, ruleRepo, settingsRepo,
+		teamPackageSvc, marketSvc,
 		cfg.TeamPackageSync, cfg.Data.BasePath, logger,
 	)
 
@@ -359,6 +365,12 @@ func main() {
 	// 启动恢复：检测并标记孤儿 invocation（后台执行支持）
 	startupReconciler := agent.NewStartupReconciler(invocationRepo, contentBlockRepo)
 	startupReconciler.Reconcile(context.Background())
+
+	// 初始化 GovernanceDigest 管理器（热更新支持）
+	configsDir := filepath.Join(cfg.Data.BasePath, "configs")
+	if err := agent.InitGovernanceDigestManager(configsDir); err != nil {
+		logger.Warn("Failed to init GovernanceDigest manager, using default", zap.Error(err))
+	}
 
 	// 连接Message服务和Agent编排器（用户消息触发Agent）
 	messageService.SetAgentSpawner(orchestrator)
@@ -458,13 +470,6 @@ func main() {
 	router.Use(gin.Recovery())
 	router.Use(corsMiddleware())
 	router.Use(requestLogger(logger))
-
-	// 邀请码验证中间件
-	inviteMiddleware := middleware.NewInviteMiddleware(cfg.Auth.InviteCode)
-	router.Use(inviteMiddleware.Handler())
-
-	// 邀请码验证接口
-	router.POST("/api/v1/auth/invite", inviteMiddleware.VerifyInvite)
 
 	// 健康检查
 	router.GET("/health", func(c *gin.Context) {
@@ -607,6 +612,10 @@ func main() {
 	humanTaskHandler := api.NewHumanTaskHandler(humanTaskSvc)
 	humanTaskHandler.RegisterRoutes(v1)
 
+	// Governance Handler（治理规则热更新）
+	governanceHandler := api.NewGovernanceHandler()
+	governanceHandler.RegisterRoutes(v1)
+
 	// 前端静态文件服务
 	router.Static("/assets", "./web/assets")
 	router.StaticFile("/favicon.svg", "./web/favicon.svg")
@@ -721,7 +730,12 @@ func initLogger(level, format, logDir string) (*zap.Logger, error) {
 		zapcore.NewCore(zapcore.NewConsoleEncoder(encoderConfig), consoleWriter, zapLevel),
 	)
 
-	return zap.New(core, zap.AddCaller()), nil
+	logger := zap.New(core, zap.AddCaller())
+
+	// 设置全局 logger，使得 zap.L() 能返回此 logger
+	zap.ReplaceGlobals(logger)
+
+	return logger, nil
 }
 
 func corsMiddleware() gin.HandlerFunc {

@@ -1183,10 +1183,12 @@ export interface UpdateCheckResult {
   total: number;
 }
 
-// ImportConfirm 导入确认配置
+// ImportConfirm 导入确认配置（扩展：与后端 model.TeamPackageImportConfirm 对齐）
 export interface ImportConfirm {
-  overwrite?: boolean;
-  skipExisting?: boolean;
+  mode: 'overwrite' | 'skip' | 'selective';
+  workflowAction: 'overwrite' | 'skip';
+  roleActions: Array<{ name: string; action: 'overwrite' | 'skip' }>;
+  assetActions: Array<{ assetType: string; name: string; action: 'overwrite' | 'skip' }>;
 }
 
 // ========== Market 相关类型 ==========
@@ -1220,27 +1222,31 @@ export interface MarketPackage {
   lastImportedAt?: string;
 }
 
-// PackagePreviewResponse 团队包预览响应
+// PackagePreviewResponse 团队包预览响应（扩展：包含冲突检测信息）
 export interface PackagePreviewResponse {
   packageName: string;
   version: string;
   description: string;
+  conflictCount: number;  // 新增：冲突总数
+  previewFailed?: boolean; // 前端标记：预览失败（用于批量导入时的错误提示）
   workflow: {
     name: string;
     description: string;
+    exists: boolean;  // 新增：是否已存在
   };
   roles: Array<{
     name: string;
     role: string;
     description: string;
     assets: string[]; // 如 "Skill: xxx", "Command: xxx"
+    exists: boolean;  // 新增：是否已存在
   }>;
   assets: {
-    skills: Array<{ name: string; description: string }>;
-    commands: Array<{ name: string; description: string }>;
-    subagents: Array<{ name: string; description: string }>;
-    rules: Array<{ name: string; description: string }>;
-    settings: Array<{ name: string; description: string }>;
+    skills: Array<{ name: string; description: string; exists: boolean }>;  // 新增 exists
+    commands: Array<{ name: string; description: string; exists: boolean }>;
+    subagents: Array<{ name: string; description: string; exists: boolean }>;
+    rules: Array<{ name: string; description: string; exists: boolean }>;
+    settings: Array<{ name: string; description: string; exists: boolean }>;
   };
 }
 

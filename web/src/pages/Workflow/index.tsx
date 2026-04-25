@@ -9,6 +9,7 @@ import {
   Empty,
 } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import { api } from '@/api/client';
 import type { AgentConfig, Transition } from '@/types';
 import AgentTriggerModal from './AgentTriggerModal';
@@ -45,6 +46,7 @@ function transitionsToTeamView(
 }
 
 const WorkflowPage: React.FC = () => {
+  const navigate = useNavigate();
   const [teams, setTeams] = useState<TeamView[]>([]);
   const [agents, setAgents] = useState<AgentConfig[]>([]);
   const [loading, setLoading] = useState(false);
@@ -337,6 +339,7 @@ const WorkflowPage: React.FC = () => {
               onRemoveAgent={(index) => handleRemoveAgent(team.id, index)}
               onOpenTriggerModal={(agent, index) => handleOpenTriggerModal(team.id, agent, index)}
               onSaveAgentOrder={(agentIds) => handleUpdateAgentOrder(team.id, agentIds)}
+              onOpenGraphEditor={() => navigate(`/workflow/team/${team.id}/graph`)}
             />
           ))
         )}

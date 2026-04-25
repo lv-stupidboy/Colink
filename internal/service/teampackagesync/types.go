@@ -33,19 +33,21 @@ type PreviewPackageRequest struct {
 	MarketId    string `json:"marketId"` // 可选：指定从哪个市场预览
 }
 
-// PreviewPackageResponse 包预览响应
+// PreviewPackageResponse 包预览响应（扩展：包含冲突检测信息）
 type PreviewPackageResponse struct {
-	PackageName string                      `json:"packageName"`
-	Version     string                      `json:"version"`
-	Description string                      `json:"description"`
-	Workflow    PreviewWorkflowInfo         `json:"workflow"`
-	Roles       []PreviewRoleInfo           `json:"roles"`
-	Assets      PreviewAssetsInfo           `json:"assets"`
+	PackageName   string              `json:"packageName"`
+	Version       string              `json:"version"`
+	Description   string              `json:"description"`
+	Workflow      PreviewWorkflowInfo `json:"workflow"`
+	Roles         []PreviewRoleInfo   `json:"roles"`
+	Assets        PreviewAssetsInfo   `json:"assets"`
+	ConflictCount int                 `json:"conflictCount"` // 新增：冲突总数
 }
 
 type PreviewWorkflowInfo struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	Exists      bool   `json:"exists"` // 新增：是否已存在
 }
 
 type PreviewRoleInfo struct {
@@ -53,6 +55,7 @@ type PreviewRoleInfo struct {
 	Role        string   `json:"role"`
 	Description string   `json:"description"`
 	Assets      []string `json:"assets"` // 角色绑定的资产名称列表
+	Exists      bool     `json:"exists"` // 新增：是否已存在
 }
 
 type PreviewAssetsInfo struct {
@@ -66,4 +69,5 @@ type PreviewAssetsInfo struct {
 type PreviewAssetInfo struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	Exists      bool   `json:"exists"` // 新增：是否已存在
 }

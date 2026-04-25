@@ -37,6 +37,8 @@ type Service struct {
 	ruleStoragePath          string
 	dataDir                  string
 	logger                   *zap.Logger
+	// 缓存失效回调（配置生成后需要刷新 ConfigService 的缓存）
+	onCacheInvalidate func(agentRoleID uuid.UUID)
 }
 
 // NewService 创建配置生成服务
@@ -85,6 +87,12 @@ func NewService(
 		dataDir:                  dataDir,
 		logger:                   logger,
 	}
+}
+
+// SetCacheInvalidateCallback 设置缓存失效回调
+// 配置生成后会调用此回调通知 ConfigService 刷新缓存
+func (s *Service) SetCacheInvalidateCallback(callback func(agentRoleID uuid.UUID)) {
+	s.onCacheInvalidate = callback
 }
 
 // GenerateConfigRequest 配置生成请求（项目级，保留兼容）
@@ -475,6 +483,11 @@ func (s *Service) GenerateAgentConfig(ctx context.Context, req *GenerateAgentCon
 	// 12. 更新Agent配置生成时间
 	if err := s.agentRepo.UpdateConfigGeneratedAt(ctx, req.AgentRoleID, configPath); err != nil {
 		s.logger.Warn("更新配置生成时间失败", zap.Error(err))
+	}
+
+	// 13. 通知 ConfigService 刷新缓存（确保 ConfigPath 更新生效）
+	if s.onCacheInvalidate != nil {
+		s.onCacheInvalidate(req.AgentRoleID)
 	}
 
 	s.logger.Info("Agent配置生成完成",

@@ -20,6 +20,7 @@ type Service struct {
 	gitClient   *GitClient
 	tempBase    string
 	logger      *zap.Logger
+	cache       *MarketCache // 新增：缓存模块
 }
 
 // NewService 创建市场服务
@@ -35,6 +36,7 @@ func NewService(
 		gitClient:   NewGitClient(logger),
 		tempBase:    tempBase,
 		logger:      logger,
+		cache:       NewMarketCache(5 * time.Minute), // 5分钟缓存
 	}
 }
 
@@ -151,9 +153,23 @@ func (s *Service) RefreshMarket(ctx context.Context, id uuid.UUID) (*model.Marke
 }
 
 // GetTeamPackages 获取所有市场的团队包列表
-func (s *Service) GetTeamPackages(ctx context.Context) ([]model.MarketPackage, error) {
+func (s *Service) GetTeamPackages(ctx context.Context, forceRefresh bool) ([]model.MarketPackage, error) {
+	// 非强制刷新时，先尝试从缓存读取
+	if !forceRefresh {
+		cached := s.cache.GetTeamPackages()
+		if cached != nil && len(cached) > 0 {
+			return cached, nil
+		}
+	}
+
 	markets, err := s.marketRepo.List(ctx)
 	if err != nil {
+		// 降级：尝试使用过期缓存
+		cached := s.cache.GetExpiredTeamPackages()
+		if cached != nil && len(cached) > 0 {
+			s.logger.Warn("using expired cache due to market list failure", zap.Error(err))
+			return cached, nil
+		}
 		return nil, err
 	}
 
@@ -171,6 +187,7 @@ func (s *Service) GetTeamPackages(ctx context.Context) ([]model.MarketPackage, e
 	}
 
 	packages := []model.MarketPackage{}
+	hasErrors := false
 
 	for _, market := range markets {
 		if !market.Enabled {
@@ -184,6 +201,7 @@ func (s *Service) GetTeamPackages(ctx context.Context) ([]model.MarketPackage, e
 				zap.String("market", market.Name),
 				zap.Error(err),
 			)
+			hasErrors = true
 			continue
 		}
 
@@ -218,6 +236,20 @@ func (s *Service) GetTeamPackages(ctx context.Context) ([]model.MarketPackage, e
 
 			packages = append(packages, pkg)
 		}
+	}
+
+	// 如果有错误且没有获取到任何数据，尝试使用过期缓存
+	if hasErrors && len(packages) == 0 {
+		cached := s.cache.GetExpiredTeamPackages()
+		if cached != nil && len(cached) > 0 {
+			s.logger.Warn("using expired cache due to all markets failed")
+			return cached, nil
+		}
+	}
+
+	// 更新缓存
+	if len(packages) > 0 {
+		s.cache.SetTeamPackages(packages)
 	}
 
 	return packages, nil
@@ -307,4 +339,13 @@ func (s *Service) scheduleAutoUpdate(ctx context.Context, market model.Market) {
 		zap.String("market", market.Name),
 		zap.Duration("interval", duration),
 	)
+}
+
+// RefreshPackages 手动刷新所有市场缓存
+func (s *Service) RefreshPackages(ctx context.Context) error {
+	s.cache.InvalidateTeamPackages()
+
+	// 强制刷新，获取最新数据
+	_, err := s.GetTeamPackages(ctx, true)
+	return err
 }

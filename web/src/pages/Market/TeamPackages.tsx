@@ -1,46 +1,118 @@
 import React, { useState, useEffect } from 'react';
 import {
   Card, Table, Button, Space, Tag, message, Spin, Modal,
-  Descriptions, Collapse, Typography, Divider, Progress
+  Descriptions, Collapse, Typography, Divider,
+  Alert, Popconfirm  // 用于冲突提示和确认
 } from 'antd';
 import {
-  CloudDownloadOutlined, ShopOutlined, CheckSquareOutlined
+  CloudDownloadOutlined, ShopOutlined, CheckSquareOutlined,
+  ReloadOutlined,  // 新增：用于刷新按钮
+  WarningOutlined  // 新增：用于冲突提示图标
 } from '@ant-design/icons';
 import api from '@/api/client';
-import type { MarketPackage, PackagePreviewResponse } from '@/types';
+import type { MarketPackage, PackagePreviewResponse, ImportConfirm } from '@/types';
+import { getCachedPackages, setCachedPackages, clearCache } from '@/utils/teamPackageCache';
 
 const { Title, Text } = Typography;
+
+// 跳过规则说明文本（统一常量）
+const SKIP_RULE_DESCRIPTION = "跳过规则：按资产粒度处理。选择「全部跳过」将保留已存在的 Workflow、Roles 和 Assets，仅导入新增项。";
 
 const TeamPackages: React.FC = () => {
   const [packages, setPackages] = useState<MarketPackage[]>([]);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);  // 新增：刷新状态
   const [syncingPackage, setSyncingPackage] = useState<string | null>(null);
   const [previewingPackage, setPreviewingPackage] = useState<string | null>(null);
   const [previewData, setPreviewData] = useState<PackagePreviewResponse | null>(null);
   const [previewModalVisible, setPreviewModalVisible] = useState(false);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
-  const [batchImporting, setBatchImporting] = useState(false);
   const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0, success: 0, failed: 0 });
   const [batchResults, setBatchResults] = useState<Array<{ name: string; status: 'success' | 'failed'; error?: string }>>([]);
   const [batchModalVisible, setBatchModalVisible] = useState(false);
   const [confirmModalVisible, setConfirmModalVisible] = useState(false);
   const [pendingImportPackages, setPendingImportPackages] = useState<MarketPackage[]>([]);
+  // 批量导入预览状态
+  const [batchPreviewData, setBatchPreviewData] = useState<Map<string, PackagePreviewResponse>>(new Map());
+  const [loadingBatchPreview, setLoadingBatchPreview] = useState(false);
+  const [batchConflictTotal, setBatchConflictTotal] = useState(0);
+  // 批量导入确认按钮loading状态
+  const [confirmingBatch, setConfirmingBatch] = useState(false);
 
   useEffect(() => {
     loadPackages();
   }, []);
 
-  const loadPackages = async () => {
+  // 修改：支持缓存和强制刷新
+  const loadPackages = async (forceRefresh = false) => {
+    // 非强制刷新时，先尝试读取缓存
+    if (!forceRefresh) {
+      const cached = getCachedPackages();
+      if (cached && cached.length > 0) {
+        setPackages(cached);
+        setLoading(false);
+        return;
+      }
+    }
+
     setLoading(true);
     try {
-      const result = await api.markets.getTeamPackages();
+      const result = await api.markets.getTeamPackages(forceRefresh);
       setPackages(result.data);
+      setCachedPackages(result.data);  // 写入缓存
       setSelectedRowKeys([]);
     } catch (error: any) {
       message.error(error.response?.data?.error || '加载团队包列表失败');
     } finally {
       setLoading(false);
     }
+  };
+
+  // 新增：手动刷新处理函数
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    clearCache();
+    await loadPackages(true);
+    setRefreshing(false);
+  };
+
+  // 构建 ImportConfirm 参数的公共函数
+  const buildImportConfirm = (preview: PackagePreviewResponse | null | undefined, mode: 'overwrite' | 'skip'): ImportConfirm => {
+    return {
+      mode,
+      workflowAction: preview?.workflow?.exists ? mode : 'overwrite',
+      roleActions: preview?.roles?.map(r => ({
+        name: r.name,
+        action: r.exists ? mode : 'overwrite',
+      })) || [],
+      assetActions: [
+        ...(preview?.assets?.skills?.map(s => ({
+          assetType: 'skill',
+          name: s.name,
+          action: s.exists ? mode : 'overwrite',
+        })) || []),
+        ...(preview?.assets?.commands?.map(c => ({
+          assetType: 'command',
+          name: c.name,
+          action: c.exists ? mode : 'overwrite',
+        })) || []),
+        ...(preview?.assets?.subagents?.map(s => ({
+          assetType: 'subagent',
+          name: s.name,
+          action: s.exists ? mode : 'overwrite',
+        })) || []),
+        ...(preview?.assets?.rules?.map(r => ({
+          assetType: 'rule',
+          name: r.name,
+          action: r.exists ? mode : 'overwrite',
+        })) || []),
+        ...(preview?.assets?.settings?.map(s => ({
+          assetType: 'settings',
+          name: s.name,
+          action: s.exists ? mode : 'overwrite',
+        })) || []),
+      ],
+    };
   };
 
   const handlePreview = async (pkg: MarketPackage) => {
@@ -56,12 +128,14 @@ const TeamPackages: React.FC = () => {
     }
   };
 
-  const handleSync = async (pkg: MarketPackage) => {
+  const handleSync = async (pkg: MarketPackage, mode: 'overwrite' | 'skip') => {
     setSyncingPackage(pkg.name);
     try {
-      await api.teamPackages.syncPackage(pkg.name, undefined, pkg.marketId);
+      const confirm = buildImportConfirm(previewData, mode);
+
+      await api.teamPackages.syncPackage(pkg.name, confirm, pkg.marketId);
       message.success(`团队包 ${pkg.name} 导入成功`);
-      loadPackages();
+      loadPackages(true);  // 强制刷新以更新最近导入时间
       setPreviewModalVisible(false);
     } catch (error: any) {
       message.error(error.response?.data?.error || '导入失败');
@@ -70,8 +144,8 @@ const TeamPackages: React.FC = () => {
     }
   };
 
-  // 点击批量导入按钮 -> 显示确认弹框
-  const handleBatchImportClick = () => {
+  // 点击批量导入按钮 -> 立即显示确认弹框（预览loading）
+  const handleBatchImportClick = async () => {
     if (selectedRowKeys.length === 0) {
       message.warning('请先选择要导入的团队包');
       return;
@@ -81,40 +155,97 @@ const TeamPackages: React.FC = () => {
       selectedRowKeys.includes(`${pkg.marketId}-${pkg.name}`)
     );
     setPendingImportPackages(toImport);
-    setConfirmModalVisible(true);
+    setBatchPreviewData(new Map());  // 清空预览数据
+    setBatchConflictTotal(0);
+    setLoadingBatchPreview(true);
+    setConfirmModalVisible(true);  // 立即显示弹框，用户看到loading反馈
+
+    try {
+      // 使用批量预览API（并行处理）
+      const result = await api.teamPackages.previewPackagesBatch(
+        toImport.map(pkg => ({ name: pkg.name, marketId: pkg.marketId }))
+      );
+
+      // 构建预览Map
+      const previewMap = new Map<string, PackagePreviewResponse>();
+      result.previews.forEach(p => {
+        if (p.data) {
+          previewMap.set(p.name, p.data);
+        } else if (p.error) {
+          // 预览失败的包也记录
+          const pkg = toImport.find(pkg => pkg.name === p.name);
+          previewMap.set(p.name, {
+            packageName: p.name,
+            version: pkg?.version || '',
+            description: pkg?.description || '',
+            conflictCount: 0,
+            previewFailed: true,
+            workflow: { name: '', description: '', exists: false },
+            roles: [],
+            assets: { skills: [], commands: [], subagents: [], rules: [], settings: [] },
+          } as PackagePreviewResponse);
+        }
+      });
+
+      setBatchPreviewData(previewMap);
+      setBatchConflictTotal(result.totalConflicts);
+    } catch (error: any) {
+      message.error(error.response?.data?.error || '批量预览失败');
+      setConfirmModalVisible(false);  // 预览失败关闭弹框
+      setPendingImportPackages([]);
+    } finally {
+      setLoadingBatchPreview(false);
+    }
   };
 
-  // 确认后执行批量导入
-  const handleBatchImportConfirm = async () => {
-    setConfirmModalVisible(false);
-    setBatchImporting(true);
+  // 导入进度状态（用于逐项导入实时进度展示）
+  const [importProgressVisible, setImportProgressVisible] = useState(false);
+
+  // 确认后执行批量导入（逐项执行以展示实时进度）
+  const handleBatchImportConfirm = async (mode: 'overwrite' | 'skip') => {
+    // 进度弹框独立显示，不再关闭确认弹框（由调用方处理）
     setBatchProgress({ current: 0, total: pendingImportPackages.length, success: 0, failed: 0 });
     setBatchResults([]);
-    setBatchModalVisible(true);
+    setImportProgressVisible(true);
 
     const results: Array<{ name: string; status: 'success' | 'failed'; error?: string }> = [];
+    let successCount = 0;
+    let failedCount = 0;
 
-    for (let i = 0; i < pendingImportPackages.length; i++) {
-      const pkg = pendingImportPackages[i];
-      setBatchProgress(prev => ({ ...prev, current: i + 1 }));
+    try {
+      // 逐项导入以展示实时进度
+      for (let i = 0; i < pendingImportPackages.length; i++) {
+        const pkg = pendingImportPackages[i];
+        const preview = batchPreviewData.get(pkg.name);
+        const confirm = buildImportConfirm(preview, mode);
 
-      try {
-        await api.teamPackages.syncPackage(pkg.name, undefined, pkg.marketId);
-        results.push({ name: pkg.name, status: 'success' });
-        setBatchProgress(prev => ({ ...prev, success: prev.success + 1 }));
-      } catch (error: any) {
-        const errorMsg = error.response?.data?.error || '导入失败';
-        results.push({ name: pkg.name, status: 'failed', error: errorMsg });
-        setBatchProgress(prev => ({ ...prev, failed: prev.failed + 1 }));
+        try {
+          await api.teamPackages.syncPackage(pkg.name, confirm, pkg.marketId);
+          results.push({ name: pkg.name, status: 'success' });
+          successCount++;
+        } catch (error: any) {
+          results.push({ name: pkg.name, status: 'failed', error: error.response?.data?.error || '导入失败' });
+          failedCount++;
+        }
+
+        // 更新进度
+        setBatchResults([...results]);
+        setBatchProgress({ current: i + 1, total: pendingImportPackages.length, success: successCount, failed: failedCount });
       }
+    } catch (error: any) {
+      // 不应该到达这里，但作为兜底
+      message.error(error.response?.data?.error || '批量导入异常');
     }
 
-    setBatchResults(results);
-    setBatchImporting(false);
+    // 导入完成，进度弹框变为结果弹框
+    setImportProgressVisible(false);
+    setBatchModalVisible(true);
+    setConfirmingBatch(false);
     setSelectedRowKeys([]);
     setPendingImportPackages([]);
-
-    loadPackages();
+    setBatchPreviewData(new Map());
+    setBatchConflictTotal(0);
+    loadPackages(true);  // 强制刷新以更新最近导入时间
   };
 
   const getStatusTag = (status: string) => {
@@ -129,6 +260,20 @@ const TeamPackages: React.FC = () => {
       latest: '已导入',
     };
     return <Tag color={colors[status]}>{labels[status]}</Tag>;
+  };
+
+  // 渲染资产折叠面板标题（显示数量和冲突数）
+  const renderAssetCollapseLabel = (type: string, assets: Array<{ name: string; exists: boolean }>) => {
+    const count = assets?.length || 0;
+    const conflictCount = assets?.filter(a => a.exists)?.length || 0;
+    return (
+      <span>
+        {type} ({count})
+        {conflictCount > 0 && (
+          <Tag color="warning" style={{ marginLeft: 8 }}>{conflictCount} 个已存在</Tag>
+        )}
+      </span>
+    );
   };
 
   const columns = [
@@ -203,6 +348,17 @@ const TeamPackages: React.FC = () => {
       { title: '角色类型', dataIndex: 'role', key: 'role', width: 100 },
       { title: '描述', dataIndex: 'description', key: 'description' },
       {
+        title: '状态',  // 新增：状态列
+        dataIndex: 'exists',
+        key: 'exists',
+        width: 80,
+        render: (exists: boolean) => (
+          <Tag color={exists ? 'warning' : 'success'}>
+            {exists ? '已存在' : '新增'}
+          </Tag>
+        ),
+      },
+      {
         title: '绑定资产',
         dataIndex: 'assets',
         key: 'assets',
@@ -227,6 +383,17 @@ const TeamPackages: React.FC = () => {
     const assetColumns = [
       { title: '名称', dataIndex: 'name', key: 'name', width: 200 },
       { title: '描述', dataIndex: 'description', key: 'description' },
+      {
+        title: '状态',  // 新增：状态列
+        dataIndex: 'exists',
+        key: 'exists',
+        width: 80,
+        render: (exists: boolean) => (
+          <Tag color={exists ? 'warning' : 'success'}>
+            {exists ? '已存在' : '新增'}
+          </Tag>
+        ),
+      },
     ];
 
     return (
@@ -234,8 +401,9 @@ const TeamPackages: React.FC = () => {
         title={`导入预览 - ${previewData.packageName}`}
         open={previewModalVisible}
         onCancel={() => setPreviewModalVisible(false)}
-        width={800}
-        footer={[
+        width={700}
+        styles={{ body: { maxHeight: '60vh', overflow: 'auto' } }}
+        footer={previewData.conflictCount === 0 ? [
           <Button key="cancel" onClick={() => setPreviewModalVisible(false)}>
             取消
           </Button>,
@@ -246,30 +414,85 @@ const TeamPackages: React.FC = () => {
             loading={syncingPackage === previewData.packageName}
             onClick={() => {
               const pkg = packages.find(p => p.name === previewData.packageName);
-              if (pkg) handleSync(pkg);
+              if (pkg) handleSync(pkg, 'overwrite');
             }}
           >
             确认导入
           </Button>,
+        ] : [
+          <Button key="cancel" onClick={() => setPreviewModalVisible(false)}>
+            取消
+          </Button>,
+          <Popconfirm
+            key="overwrite"
+            title="确定要覆盖所有冲突项吗？"
+            onConfirm={() => {
+              const pkg = packages.find(p => p.name === previewData.packageName);
+              if (pkg) handleSync(pkg, 'overwrite');
+            }}
+            okText="确定"
+            cancelText="取消"
+          >
+            <Button
+              type="primary"
+              icon={<CloudDownloadOutlined />}
+              loading={syncingPackage === previewData.packageName}
+            >
+              全部覆盖
+            </Button>
+          </Popconfirm>,
+          <Button
+            key="skip"
+            icon={<CloudDownloadOutlined />}
+            loading={syncingPackage === previewData.packageName}
+            onClick={() => {
+              const pkg = packages.find(p => p.name === previewData.packageName);
+              if (pkg) handleSync(pkg, 'skip');
+            }}
+          >
+            全部跳过
+          </Button>,
         ]}
       >
+        {/* 冲突提示 Alert */}
+        {previewData.conflictCount > 0 && (
+          <Alert
+            type="warning"
+            icon={<WarningOutlined />}
+            message={`检测到 ${previewData.conflictCount} 个冲突项`}
+            description={SKIP_RULE_DESCRIPTION}
+            showIcon
+            style={{ marginBottom: 16 }}
+          />
+        )}
+
         <Descriptions bordered column={2} size="small">
           <Descriptions.Item label="团队包名称">{previewData.packageName}</Descriptions.Item>
           <Descriptions.Item label="版本">{previewData.version}</Descriptions.Item>
           <Descriptions.Item label="描述" span={2}>{previewData.description}</Descriptions.Item>
         </Descriptions>
 
-        <Divider />
+        <Divider style={{ margin: '12px 0' }} />
 
-        <Title level={5}>团队信息</Title>
+        <Title level={5} style={{ marginBottom: 8 }}>
+          团队信息
+          {previewData.workflow.exists && <Tag color="warning" style={{ marginLeft: 8 }}>已存在</Tag>}
+        </Title>
         <Descriptions bordered column={1} size="small">
           <Descriptions.Item label="团队名称">{previewData.workflow.name}</Descriptions.Item>
           <Descriptions.Item label="团队描述">{previewData.workflow.description}</Descriptions.Item>
         </Descriptions>
 
-        <Divider />
+        <Divider style={{ margin: '12px 0' }} />
 
-        <Title level={5}>角色 Agent ({previewData.roles.length} 个)</Title>
+        <Title level={5} style={{ marginBottom: 8 }}>
+          角色 Agent ({previewData.roles.length} 个)
+          {previewData.roles.some(r => r.exists) && (
+            <Tag color="warning" style={{ marginLeft: 8 }}>
+              {previewData.roles.filter(r => r.exists).length} 个已存在
+            </Tag>
+          )}
+        </Title>
         <Table
           dataSource={previewData.roles}
           columns={roleColumns}
@@ -278,13 +501,13 @@ const TeamPackages: React.FC = () => {
           size="small"
         />
 
-        <Divider />
+        <Divider style={{ margin: '12px 0' }} />
 
         <Collapse
           items={[
             {
               key: 'skills',
-              label: `Skills (${previewData.assets.skills?.length || 0})`,
+              label: renderAssetCollapseLabel('Skills', previewData.assets.skills),
               children: (
                 <Table
                   dataSource={previewData.assets.skills || []}
@@ -297,7 +520,7 @@ const TeamPackages: React.FC = () => {
             },
             {
               key: 'commands',
-              label: `Commands (${previewData.assets.commands?.length || 0})`,
+              label: renderAssetCollapseLabel('Commands', previewData.assets.commands),
               children: (
                 <Table
                   dataSource={previewData.assets.commands || []}
@@ -310,7 +533,7 @@ const TeamPackages: React.FC = () => {
             },
             {
               key: 'subagents',
-              label: `Subagents (${previewData.assets.subagents?.length || 0})`,
+              label: renderAssetCollapseLabel('Subagents', previewData.assets.subagents),
               children: (
                 <Table
                   dataSource={previewData.assets.subagents || []}
@@ -323,7 +546,7 @@ const TeamPackages: React.FC = () => {
             },
             {
               key: 'rules',
-              label: `Rules (${previewData.assets.rules?.length || 0})`,
+              label: renderAssetCollapseLabel('Rules', previewData.assets.rules),
               children: (
                 <Table
                   dataSource={previewData.assets.rules || []}
@@ -336,7 +559,7 @@ const TeamPackages: React.FC = () => {
             },
             {
               key: 'settings',
-              label: `Settings (${previewData.assets.settings?.length || 0})`,
+              label: renderAssetCollapseLabel('Settings', previewData.assets.settings),
               children: (
                 <Table
                   dataSource={previewData.assets.settings || []}
@@ -364,6 +587,13 @@ const TeamPackages: React.FC = () => {
         }
         extra={
           <Space>
+            <Button
+              icon={<ReloadOutlined />}
+              loading={refreshing}
+              onClick={handleRefresh}
+            >
+              刷新
+            </Button>
             <Text type="secondary">
               已选 {selectedRowKeys.length} 项
             </Text>
@@ -371,8 +601,8 @@ const TeamPackages: React.FC = () => {
               type="primary"
               icon={<CheckSquareOutlined />}
               onClick={handleBatchImportClick}
-              disabled={selectedRowKeys.length === 0 || batchImporting}
-              loading={batchImporting}
+              disabled={selectedRowKeys.length === 0}
+              loading={confirmingBatch || loadingBatchPreview}
             >
               批量导入
             </Button>
@@ -393,17 +623,51 @@ const TeamPackages: React.FC = () => {
         </Spin>
       </Card>
 
-      {/* 批量导入进度/结果弹框 */}
+      {/* 批量导入进度弹框 */}
       <Modal
-        title="批量导入"
+        title="导入进度"
+        open={importProgressVisible}
+        footer={null}
+        closable={false}
+        width={500}
+      >
+        <div>
+          <div style={{ marginBottom: 12 }}>
+            <Text strong>正在导入...</Text>
+            <Text type="secondary" style={{ marginLeft: 12 }}>
+              {batchProgress.current} / {batchProgress.total}
+            </Text>
+          </div>
+          <div style={{ marginBottom: 8 }}>
+            <Text type="secondary">成功: {batchProgress.success} 个 | 失败: {batchProgress.failed} 个</Text>
+          </div>
+          <Space direction="vertical" size="small" style={{ width: '100%' }}>
+            {batchResults.map((result, idx) => (
+              <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Tag color={result.status === 'success' ? 'green' : 'red'}>
+                  {result.status === 'success' ? '成功' : '失败'}
+                </Tag>
+                <Text>{result.name}</Text>
+                {result.error && (
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    ({result.error})
+                  </Text>
+                )}
+              </div>
+            ))}
+          </Space>
+        </div>
+      </Modal>
+
+      {/* 批量导入结果弹框 */}
+      <Modal
+        title="批量导入结果"
         open={batchModalVisible}
         onCancel={() => {
-          if (!batchImporting) {
-            setBatchModalVisible(false);
-            setBatchResults([]);
-          }
+          setBatchModalVisible(false);
+          setBatchResults([]);
         }}
-        footer={batchImporting ? null : [
+        footer={[
           <Button key="close" onClick={() => {
             setBatchModalVisible(false);
             setBatchResults([]);
@@ -413,66 +677,183 @@ const TeamPackages: React.FC = () => {
         ]}
         width={500}
       >
-        {batchImporting ? (
-          <div>
-            <Progress
-              percent={Math.round(batchProgress.current / batchProgress.total * 100)}
-              status="active"
-              format={() => `${batchProgress.current}/${batchProgress.total}`}
-            />
-            <Text type="secondary" style={{ marginTop: 8 }}>
-              成功: {batchProgress.success} | 失败: {batchProgress.failed}
+        <div>
+          <div style={{ marginBottom: 12 }}>
+            <Text strong>导入完成</Text>
+            <Text type="secondary" style={{ marginLeft: 12 }}>
+              成功 {batchProgress.success} 个，失败 {batchProgress.failed} 个
             </Text>
           </div>
-        ) : (
-          <div>
-            <div style={{ marginBottom: 12 }}>
-              <Text strong>导入结果</Text>
-              <Text type="secondary" style={{ marginLeft: 12 }}>
-                成功 {batchProgress.success} 个，失败 {batchProgress.failed} 个
-              </Text>
-            </div>
-            <Space direction="vertical" size="small" style={{ width: '100%' }}>
-              {batchResults.map((result, idx) => (
-                <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <Tag color={result.status === 'success' ? 'green' : 'red'}>
-                    {result.status === 'success' ? '成功' : '失败'}
-                  </Tag>
-                  <Text>{result.name}</Text>
-                  {result.error && (
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      ({result.error})
-                    </Text>
-                  )}
-                </div>
-              ))}
-            </Space>
-          </div>
-        )}
+          <Space direction="vertical" size="small" style={{ width: '100%' }}>
+            {batchResults.map((result, idx) => (
+              <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Tag color={result.status === 'success' ? 'green' : 'red'}>
+                  {result.status === 'success' ? '成功' : '失败'}
+                </Tag>
+                <Text>{result.name}</Text>
+                {result.error && (
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    ({result.error})
+                  </Text>
+                )}
+              </div>
+            ))}
+          </Space>
+        </div>
       </Modal>
 
-      {/* 批量导入确认弹框 */}
+      {/* 批量导入确认弹框（改为显示冲突汇总） */}
       <Modal
-        title="确认批量导入"
+        title="批量导入确认"
         open={confirmModalVisible}
-        onCancel={() => setConfirmModalVisible(false)}
-        onOk={handleBatchImportConfirm}
-        okText="确认导入"
-        cancelText="取消"
-        width={500}
+        onCancel={() => {
+          setConfirmModalVisible(false);
+          setBatchPreviewData(new Map());
+          setBatchConflictTotal(0);
+        }}
+        footer={null}  // 自定义 footer
+        width={700}
       >
-        <Text>将导入以下 {pendingImportPackages.length} 个团队包：</Text>
-        <div style={{ marginTop: 12, maxHeight: 200, overflow: 'auto' }}>
-          {pendingImportPackages.map((pkg, idx) => (
-            <div key={idx} style={{ padding: '4px 0' }}>
-              <Text>{pkg.name}</Text>
-              <Tag color="blue" style={{ marginLeft: 8 }}>{pkg.version}</Tag>
-              <Tag color={pkg.localStatus === 'new' ? 'blue' : pkg.localStatus === 'update' ? 'orange' : 'green'} style={{ marginLeft: 4 }}>
-                {pkg.localStatus === 'new' ? '未导入' : pkg.localStatus === 'update' ? '待更新' : '已导入'}
-              </Tag>
-            </div>
-          ))}
-        </div>
+        <Spin spinning={loadingBatchPreview}>
+          <div style={{ marginBottom: 16 }}>
+            <Text>将导入以下 {pendingImportPackages.length} 个团队包：</Text>
+            {batchConflictTotal > 0 && (
+              <Alert
+                type="warning"
+                message={`共检测到 ${batchConflictTotal} 个冲突项`}
+                description={SKIP_RULE_DESCRIPTION}
+                showIcon
+                style={{ marginTop: 12 }}
+              />
+            )}
+          </div>
+
+          {/* 包列表和冲突明细 */}
+          <Collapse
+            style={{ marginBottom: 16 }}
+            items={pendingImportPackages.map((pkg, idx) => {
+              const preview = batchPreviewData.get(pkg.name);
+              const hasError = preview?.previewFailed === true;
+
+              // 构建冲突明细内容
+              let conflictDetails: React.ReactNode = null;
+              if (preview && !hasError && preview.conflictCount > 0) {
+                const conflicts: string[] = [];
+                if (preview.workflow?.exists) conflicts.push('Team');
+                (preview.roles || []).forEach(r => { if (r.exists) conflicts.push(`Role: ${r.name}`); });
+                (preview.assets?.skills || []).forEach(s => { if (s.exists) conflicts.push(`Skill: ${s.name}`); });
+                (preview.assets?.commands || []).forEach(c => { if (c.exists) conflicts.push(`Command: ${c.name}`); });
+                (preview.assets?.subagents || []).forEach(s => { if (s.exists) conflicts.push(`Subagent: ${s.name}`); });
+                (preview.assets?.rules || []).forEach(r => { if (r.exists) conflicts.push(`Rule: ${r.name}`); });
+                (preview.assets?.settings || []).forEach(s => { if (s.exists) conflicts.push(`Settings: ${s.name}`); });
+
+                conflictDetails = (
+                  <div style={{ marginTop: 8 }}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      冲突明细（{conflicts.length} 个）：
+                    </Text>
+                    <div style={{ marginTop: 4 }}>
+                      {conflicts.map((c, i) => (
+                        <Tag key={i} color="warning" style={{ marginBottom: 4 }}>
+                          {c}
+                        </Tag>
+                      ))}
+                    </div>
+                  </div>
+                );
+              }
+
+              return {
+                key: idx.toString(),
+                label: (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Text strong>{pkg.name}</Text>
+                    <Tag color="blue">{pkg.version}</Tag>
+                    <Tag color={pkg.localStatus === 'new' ? 'blue' : pkg.localStatus === 'update' ? 'orange' : 'green'}>
+                      {pkg.localStatus === 'new' ? '未导入' : pkg.localStatus === 'update' ? '待更新' : '已导入'}
+                    </Tag>
+                    {preview && !hasError && preview.conflictCount > 0 && (
+                      <Tag color="warning">{preview.conflictCount} 个冲突</Tag>
+                    )}
+                    {hasError && (
+                      <Tag color="red">预览失败</Tag>
+                    )}
+                  </div>
+                ),
+                children: hasError ? (
+                  <Text type="danger">预览失败，导入时可能报错</Text>
+                ) : preview ? (
+                  <div>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      Team: {preview.workflow.name} ({preview.workflow.exists ? '已存在' : '新增'})
+                      {' | '} Roles: {preview.roles.length} 个
+                      {' | '} Skills: {preview.assets.skills.length} 个
+                      {' | '} Commands: {preview.assets.commands.length} 个
+                      {' | '} Subagents: {preview.assets.subagents.length} 个
+                      {' | '} Rules: {preview.assets.rules.length} 个
+                      {' | '} Settings: {preview.assets.settings.length} 个
+                    </Text>
+                    {conflictDetails}
+                  </div>
+                ) : (
+                  <Text type="secondary">加载中...</Text>
+                ),
+              };
+            })}
+          />
+
+          {/* 处理方式按钮 */}
+          <div style={{ textAlign: 'right', borderTop: '1px solid var(--border-color)', paddingTop: 16 }}>
+            <Space>
+              <Button onClick={() => {
+                setConfirmModalVisible(false);
+                setBatchPreviewData(new Map());
+                setBatchConflictTotal(0);
+              }} disabled={confirmingBatch}>
+                取消
+              </Button>
+              {batchConflictTotal === 0 ? (
+                <Button
+                  type="primary"
+                  icon={<CloudDownloadOutlined />}
+                  loading={confirmingBatch}
+                  onClick={() => handleBatchImportConfirm('overwrite')}
+                >
+                  确认导入
+                </Button>
+              ) : (
+                <>
+                  <Popconfirm
+                    title="确定要覆盖所有冲突项吗？"
+                    description="此操作将覆盖已存在的 Team、Roles 和 Assets。"
+                    onConfirm={() => {
+                      setConfirmModalVisible(false);  // 先关闭确认弹框
+                      handleBatchImportConfirm('overwrite');
+                    }}
+                    okText="确定覆盖"
+                    cancelText="取消"
+                  >
+                    <Button
+                      type="primary"
+                      icon={<CloudDownloadOutlined />}
+                    >
+                      全部覆盖
+                    </Button>
+                  </Popconfirm>
+                  <Button
+                    icon={<CloudDownloadOutlined />}
+                    onClick={() => {
+                      setConfirmModalVisible(false);  // 先关闭确认弹框
+                      handleBatchImportConfirm('skip');
+                    }}
+                  >
+                    全部跳过
+                  </Button>
+                </>
+              )}
+            </Space>
+          </div>
+        </Spin>
       </Modal>
 
       {renderPreviewModal()}

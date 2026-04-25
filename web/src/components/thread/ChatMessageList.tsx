@@ -44,6 +44,7 @@ interface ChatMessageListProps {
   hasMoreHistory?: boolean;
   loadingMore?: boolean;
   onLoadMore?: () => void;
+  onAgentClick?: (agentName: string) => void;  // 点击 Agent 头像/名称的回调
 }
 
 /**
@@ -82,6 +83,7 @@ export const ChatMessageList = forwardRef<HTMLDivElement, ChatMessageListProps>(
       hasMoreHistory = false,
       loadingMore = false,
       onLoadMore,
+      onAgentClick,
     } = props;
 
     // Use passed ref or create internal one
@@ -220,6 +222,7 @@ export const ChatMessageList = forwardRef<HTMLDivElement, ChatMessageListProps>(
             onRetry={onRetryAgent ? () => onRetryAgent(message) : undefined}
             onOpenCodePanel={onOpenCodePanel}
             onQuestionSubmit={onQuestionSubmit}
+            onAgentClick={onAgentClick}
           />
         );
       })}

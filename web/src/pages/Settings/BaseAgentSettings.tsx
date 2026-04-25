@@ -277,7 +277,7 @@ const BaseAgentSettings: React.FC = () => {
             name="defaultModel"
             label="模型"
             rules={[{ required: true, message: '请输入模型' }]}
-            extra="指定Agent使用的模型，如 claude-sonnet-4-20250514"
+            extra="指定Agent使用的模型名称"
           >
             <Input placeholder="如: claude-sonnet-4-20250514" />
           </Form.Item>
@@ -294,15 +294,7 @@ const BaseAgentSettings: React.FC = () => {
                       label="API URL"
                       extra={
                         <div>
-                          <Text type="secondary">自定义 API 地址，默认使用官方地址</Text>
-                          <br />
-                          <Text type="warning" style={{ fontSize: 12 }}>
-                            ⚠️ API URL 需要写入配置文件，不支持环境变量。
-                            <br />
-                            Windows: %LOCALAPPDATA%\opencode\opencode.json
-                            <br />
-                            Linux/macOS: ~/.local/share/opencode/opencode.json
-                          </Text>
+                          <Text type="secondary">需要配置 OpenAI 协议兼容的 API 地址</Text>
                         </div>
                       }
                     >
@@ -311,15 +303,7 @@ const BaseAgentSettings: React.FC = () => {
                     <Form.Item
                       name="apiToken"
                       label="API Token"
-                      extra={
-                        <div>
-                          <Text type="secondary">OpenCode API 令牌，用于身份认证</Text>
-                          <br />
-                          <Text type="secondary" style={{ fontSize: 12 }}>
-                            可通过环境变量 OPENCODE_API_KEY 传递，或写入配置文件
-                          </Text>
-                        </div>
-                      }
+                      extra="OpenCode API 令牌，用于身份认证"
                     >
                       <Input.Password placeholder="输入API令牌" />
                     </Form.Item>
@@ -331,7 +315,7 @@ const BaseAgentSettings: React.FC = () => {
                   <Form.Item
                     name="apiUrl"
                     label="API URL"
-                    extra="Anthropic API 地址，如 https://api.anthropic.com"
+                    extra="需要配置 Anthropic 协议的 API 地址"
                   >
                     <Input placeholder="如: https://api.anthropic.com" />
                   </Form.Item>

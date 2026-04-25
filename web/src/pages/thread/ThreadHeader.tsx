@@ -5,7 +5,6 @@ import {
   ArrowLeftOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
-  FullscreenOutlined,
   UnorderedListOutlined,
   DesktopOutlined,
   TeamOutlined,
@@ -21,7 +20,6 @@ interface ThreadHeaderProps {
   artifactsSidebarVisible: boolean;
   rightPanelVisible: boolean;
   hasSandboxServer: boolean;
-  soloMode: boolean;
   isRunning: boolean;
   debugAgentName?: string;
   activeAgentCount: number;
@@ -30,7 +28,6 @@ interface ThreadHeaderProps {
   onToggleFileSidebar: () => void;
   onToggleArtifactsSidebar: () => void;
   onToggleRightPanel: () => void;
-  onToggleSoloMode: () => void;
 }
 
 /**
@@ -44,7 +41,6 @@ export const ThreadHeader: React.FC<ThreadHeaderProps> = memo(({
   artifactsSidebarVisible,
   rightPanelVisible,
   hasSandboxServer,
-  soloMode,
   isRunning,
   debugAgentName,
   activeAgentCount,
@@ -53,7 +49,6 @@ export const ThreadHeader: React.FC<ThreadHeaderProps> = memo(({
   onToggleFileSidebar,
   onToggleArtifactsSidebar,
   onToggleRightPanel,
-  onToggleSoloMode,
 }) => {
   const navigate = useNavigate();
   const { projectId } = useParams<{ projectId: string }>();
@@ -96,16 +91,6 @@ export const ThreadHeader: React.FC<ThreadHeaderProps> = memo(({
           )}
         </Space>
         <Space>
-          <Tooltip title="进入 Solo 模式">
-            <Button
-              icon={<FullscreenOutlined />}
-              onClick={onToggleSoloMode}
-              size="small"
-              type={soloMode ? 'primary' : 'default'}
-            >
-              Solo
-            </Button>
-          </Tooltip>
           <Tooltip title={artifactsSidebarVisible ? '隐藏产物' : '查看产物列表'}>
             <Button
               icon={<UnorderedListOutlined />}

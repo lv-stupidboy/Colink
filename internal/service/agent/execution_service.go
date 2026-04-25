@@ -1050,14 +1050,29 @@ func (es *ExecutionService) handleAgentErrorWithContext(ctx context.Context, inv
 	// 输出详细诊断日志
 	es.logErrorDiagnostics(ctx, invocation, err, execReq)
 
+	// 获取 sessionID 和 isResumeAttempt 用于生成建议
+	var sessionID string
+	var isResumeAttempt bool
+	if execReq != nil {
+		sessionID = execReq.SessionID
+		isResumeAttempt = sessionID != ""
+	}
+
+	// 生成建议
+	suggestions := generateErrorSuggestions(err, sessionID, isResumeAttempt)
+
+	// 构建详细错误输出（用于前端展示）
+	errorOutput := buildDetailedErrorOutput(err, execReq, suggestions)
+
 	invocation.Status = model.InvocationStatusFailed
-	invocation.Output = fmt.Sprintf("执行失败: %s\n\n详细信息请查看 server.log", err.Error())
+	invocation.Output = errorOutput
 	invocation.CompletedAt = timePtr(time.Now())
 	if updateErr := es.invocationRepo.Update(ctx, invocation); updateErr != nil {
 		logError("Failed to update invocation on error", zap.Error(updateErr))
 	}
 
-	es.broadcastStatus(invocation.ThreadID, invocation.ID, "failed", invocation.Role, "", invocation.AgentConfigID.String(), "")
+	// 广播失败状态，包含详细错误信息（通过 input 参数传递）
+	es.broadcastStatus(invocation.ThreadID, invocation.ID, "failed", invocation.Role, "", invocation.AgentConfigID.String(), errorOutput)
 }
 
 // isResumeFallbackError 判断是否为可降级的 resume 错误
@@ -1187,6 +1202,64 @@ func generateErrorSuggestions(err error, sessionID string, isResumeAttempt bool)
 	}
 
 	return suggestions
+}
+
+// buildDetailedErrorOutput 构建详细的错误输出信息，用于前端展示
+// 包含错误类型、原始错误、诊断信息、解决建议
+func buildDetailedErrorOutput(err error, execReq *ExecutionRequest, suggestions []string) string {
+	var sb strings.Builder
+
+	sb.WriteString("执行失败\n")
+	sb.WriteString(fmt.Sprintf("\n错误类型: %s\n", getErrorType(err)))
+	sb.WriteString(fmt.Sprintf("\n错误详情: %s\n", err.Error()))
+
+	// 诊断信息
+	if execReq != nil {
+		sb.WriteString("\n诊断信息:\n")
+		if execReq.SessionID != "" {
+			sessionIDDisplay := execReq.SessionID
+			if len(sessionIDDisplay) > 8 {
+				sessionIDDisplay = sessionIDDisplay[:8] + "..."
+			}
+			sb.WriteString(fmt.Sprintf("- SessionID: %s\n", sessionIDDisplay))
+		}
+		if execReq.WorkDir != "" {
+			sb.WriteString(fmt.Sprintf("- 工作目录: %s\n", execReq.WorkDir))
+		}
+		if execReq.ConfigDir != "" {
+			sb.WriteString(fmt.Sprintf("- 配置目录: %s\n", execReq.ConfigDir))
+		}
+		if execReq.BaseAgent != nil && execReq.BaseAgent.DefaultModel != "" {
+			sb.WriteString(fmt.Sprintf("- 模型: %s\n", execReq.BaseAgent.DefaultModel))
+		}
+		// 输入长度提示
+		if len(execReq.Input) > 0 {
+			inputLen := len(execReq.Input)
+			sb.WriteString(fmt.Sprintf("- 输入长度: %d 字符\n", inputLen))
+			if inputLen > 10000 {
+				sb.WriteString("  (输入较长，可能影响处理)\n")
+			}
+		}
+		// 历史长度提示
+		if execReq.Context != nil && execReq.Context.Layer1 != "" {
+			historyLines := strings.Count(execReq.Context.Layer1, "\n")
+			sb.WriteString(fmt.Sprintf("- 对话历史: 约 %d 行\n", historyLines))
+			if historyLines > 500 {
+				sb.WriteString("  (历史较长，可能接近上下文限制)\n")
+			}
+		}
+	}
+
+	// 建议
+	if len(suggestions) > 0 {
+		sb.WriteString("\n建议:\n")
+		for _, s := range suggestions {
+			sb.WriteString(fmt.Sprintf("- %s\n", s))
+		}
+	}
+
+	sb.WriteString("\n详细信息请查看 server.log\n")
+	return sb.String()
 }
 
 // loadThreadContext 预加载 Thread 上下文，一次性获取所有需要的数据
@@ -1381,33 +1454,30 @@ func (es *ExecutionService) buildDynamicSystemPromptFromContext(tc *ThreadContex
 		agentMap[agent.ID.String()] = agent
 	}
 
-	// 2. 协作方（下游触发列表）
+	// 2. 协作治理规则（合并版：治理摘要 + 下游协作方）
+	sb.WriteString("---\n\n")
+	sb.WriteString(BuildGovernanceDigestWithVersion())
+	sb.WriteString("\n")
+
+	// 动态追加下游协作方（合并到 L0）
 	if len(transitions) > 0 {
-		sb.WriteString("## 下游协作方（需要时 @ 触发）\n")
-		sb.WriteString("**格式规则**：@mention 必须行首单独成行，不能嵌入句子。只有行首的@才会触发下游Agent。\n")
-		sb.WriteString("```\n@后端开发工程师 请实现用户登录API ← 正确，会触发\n确认后我将@后端开发工程师进行实现 ← 无效，不会触发\n```\n\n")
-		sb.WriteString("可用的下游协作方：\n")
+		sb.WriteString("\n**你的下游协作方**：\n")
 		for _, t := range transitions {
 			toAgent := agentMap[t.ToAgentID]
 			var hint string
-
-			// 优先使用用户填写的 trigger_hint
 			if t.TriggerHint != "" {
 				hint = t.TriggerHint
 			} else if toAgent != nil {
-				// 智能生成
 				hint = generateTriggerHint(toAgent)
 			} else {
 				hint = fmt.Sprintf("@%s", t.ToAgentID[:8])
 			}
-
 			sb.WriteString(fmt.Sprintf("- %s\n", hint))
-			}
-			}
+		}
+	} else {
+		sb.WriteString("\n**无下游协作方** — 直接结束即可。\n")
+	}
 
-	// 3. 协作守则（治理摘要）
-	sb.WriteString("---\n\n")
-	sb.WriteString(BuildGovernanceDigestWithVersion())
 	sb.WriteString("\n---\n\n")
 
 	return sb.String()
@@ -2387,6 +2457,10 @@ func (es *ExecutionService) broadcastStatus(threadID, invocationID uuid.UUID, st
 		// 仅在 started 状态时包含 input
 		if status == "started" && input != "" {
 			payload["input"] = input
+		}
+		// failed 状态时包含详细错误信息
+		if status == "failed" && input != "" {
+			payload["errorDetails"] = input
 		}
 		es.wsHub.BroadcastToThread(threadID.String(), ws.WSMessage{
 			Type:      "agent_status",

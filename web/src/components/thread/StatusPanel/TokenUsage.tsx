@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Progress } from 'antd';
+import { RightOutlined } from '@ant-design/icons';
 import type { TokenUsage as TokenUsageType } from '@/types/status';
 
 interface Props {
@@ -10,6 +11,7 @@ interface Props {
     cache: number;
     cost: number;
   };
+  defaultCollapsed?: boolean;
 }
 
 const formatTokens = (n: number): string => {
@@ -38,7 +40,9 @@ const AnimatedValue: React.FC<{ value: string; className?: string }> = ({ value,
   );
 };
 
-export const TokenUsage: React.FC<Props> = ({ usage, totalUsage }) => {
+export const TokenUsage: React.FC<Props> = ({ usage, totalUsage, defaultCollapsed = true }) => {
+  const [collapsed, setCollapsed] = useState(defaultCollapsed);
+
   // 使用传入的 totalUsage 或自行计算
   const total = totalUsage || Object.values(usage).reduce(
     (acc, u) => ({
@@ -55,52 +59,59 @@ export const TokenUsage: React.FC<Props> = ({ usage, totalUsage }) => {
     : 0;
 
   return (
-    <div className="status-section">
-      <div className="status-section-title">Token 统计</div>
-      <div className="token-grid">
-        <div className="token-item">
-          <span className="token-label">输入</span>
-          <AnimatedValue
-            value={formatTokens(total.input)}
-            className="token-value input"
-          />
-        </div>
-        <div className="token-item">
-          <span className="token-label">输出</span>
-          <AnimatedValue
-            value={formatTokens(total.output)}
-            className="token-value output"
-          />
-        </div>
-        <div className="token-item">
-          <span className="token-label">缓存</span>
-          <AnimatedValue
-            value={formatTokens(total.cache)}
-            className="token-value"
-          />
-        </div>
-        <div className="token-item">
-          <span className="token-label">成本</span>
-          <AnimatedValue
-            value={`$${total.cost.toFixed(4)}`}
-            className="token-value cost"
-          />
-        </div>
+    <div className="status-section token-section">
+      <div className="status-section-header collapsible" onClick={() => setCollapsed(!collapsed)}>
+        <span className="status-section-title">Token 统计</span>
+        <RightOutlined className={`collapse-icon ${collapsed ? '' : 'expanded'}`} />
       </div>
-
-      {cacheRate > 0 && (
-        <div className="cache-rate">
-          <div className="cache-rate-header">
-            <span className="cache-rate-label">缓存命中率</span>
-            <span className="cache-rate-value">{cacheRate}%</span>
+      {!collapsed && (
+        <>
+          <div className="token-grid">
+            <div className="token-item">
+              <span className="token-label">输入</span>
+              <AnimatedValue
+                value={formatTokens(total.input)}
+                className="token-value input"
+              />
+            </div>
+            <div className="token-item">
+              <span className="token-label">输出</span>
+              <AnimatedValue
+                value={formatTokens(total.output)}
+                className="token-value output"
+              />
+            </div>
+            <div className="token-item">
+              <span className="token-label">缓存</span>
+              <AnimatedValue
+                value={formatTokens(total.cache)}
+                className="token-value"
+              />
+            </div>
+            <div className="token-item">
+              <span className="token-label">成本</span>
+              <AnimatedValue
+                value={`$${total.cost.toFixed(4)}`}
+                className="token-value cost"
+              />
+            </div>
           </div>
-          <Progress
-            percent={cacheRate}
-            size="small"
-            showInfo={false}
-            strokeColor="#22c55e"
-          />
-        </div>
+
+          {cacheRate > 0 && (
+            <div className="cache-rate">
+              <div className="cache-rate-header">
+                <span className="cache-rate-label">缓存命中率</span>
+                <span className="cache-rate-value">{cacheRate}%</span>
+              </div>
+              <Progress
+                percent={cacheRate}
+                size="small"
+                showInfo={false}
+                strokeColor="#22c55e"
+              />
+            </div>
+          )}
+        </>
       )}
     </div>
   );
