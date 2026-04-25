@@ -1,0 +1,13 @@
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/
+output/
+*.log
+.env
+.DS_Store
+Thumbs.db
+
+# Generated icons - exclude all, then include only source icon.png
+src-tauri/icons/*
+!src-tauri/icons/icon.png

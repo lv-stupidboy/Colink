@@ -50,7 +50,8 @@ Thumbs.db
 .Spotlight-V100
 .Trashes
 ehthumbs.db
-Icon?
+# macOS custom icon file (Icon with carriage return character)
+[I]icon?
 VolumeIcon.icns
 
 # Agent运行时生成的配置和资产

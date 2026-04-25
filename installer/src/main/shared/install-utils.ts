@@ -7,51 +7,91 @@ import { existsSync, readdirSync } from 'fs'
  */
 export function getInstalledVersion(): { installed: boolean; installDir?: string; version?: string; hasData?: boolean } {
   try {
-    let regQuery: string
+    // 使用 PowerShell 方式读取注册表，更可靠
+    const psCommand = `
+      try {
+        $key = Get-ItemProperty -Path 'HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Colink' -ErrorAction SilentlyContinue
+        if ($key) { $key.InstallLocation }
+      } catch {}
+      try {
+        $key = Get-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Colink' -ErrorAction SilentlyContinue
+        if ($key) { $key.InstallLocation }
+      } catch {}
+    `
+
+    let installDir: string | null = null
+
     try {
-      regQuery = execSync(
-        'reg query "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Colink" /v InstallLocation 2>nul',
-        { encoding: 'utf8' }
+      const output = execSync(
+        `powershell -NoProfile -Command "${psCommand}"`,
+        { encoding: 'utf8', timeout: 5000 }
       )
+
+      // PowerShell 输出可能是多行，找到非空的行
+      const lines = output.trim().split('\n').filter(l => l.trim())
+      if (lines.length > 0 && lines[0].trim()) {
+        installDir = lines[0].trim()
+      }
     } catch {
-      regQuery = execSync(
-        'reg query "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Colink" /v InstallLocation 2>nul',
-        { encoding: 'utf8' }
-      )
+      // PowerShell 失败，回退到 reg query
+      try {
+        let regQuery: string
+        try {
+          regQuery = execSync(
+            'reg query "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Colink" /v InstallLocation 2>nul',
+            { encoding: 'utf8' }
+          )
+        } catch {
+          regQuery = execSync(
+            'reg query "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Colink" /v InstallLocation 2>nul',
+            { encoding: 'utf8' }
+          )
+        }
+
+        // 更宽松的正则匹配，支持不同格式的输出
+        const match = regQuery.match(/InstallLocation\s+REG_SZ\s+(.+)/i)
+        if (match) {
+          installDir = match[1].trim()
+        }
+      } catch {
+        // reg query 也失败
+      }
     }
-    const match = regQuery.match(/InstallLocation\s+REG_SZ\s+(.+)/)
-    if (match) {
-      const dir = match[1].trim()
-      const dataDir = join(dir, 'data')
+
+    if (installDir && existsSync(installDir)) {
+      const dataDir = join(installDir, 'data')
       const hasData = existsSync(dataDir) && readdirSync(dataDir).length > 0
 
       // 从注册表读取已安装版本
       let version: string | undefined
       try {
-        let versionQuery: string
-        try {
-          versionQuery = execSync(
-            'reg query "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Colink" /v DisplayVersion 2>nul',
-            { encoding: 'utf8' }
-          )
-        } catch {
-          versionQuery = execSync(
-            'reg query "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Colink" /v DisplayVersion 2>nul',
-            { encoding: 'utf8' }
-          )
-        }
-        const versionMatch = versionQuery.match(/DisplayVersion\s+REG_SZ\s+(.+)/)
-        if (versionMatch) {
-          version = versionMatch[1].trim()
+        const versionPsCommand = `
+          try {
+            $key = Get-ItemProperty -Path 'HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Colink' -ErrorAction SilentlyContinue
+            if ($key) { $key.DisplayVersion }
+          } catch {}
+          try {
+            $key = Get-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Colink' -ErrorAction SilentlyContinue
+            if ($key) { $key.DisplayVersion }
+          } catch {}
+        `
+        const versionOutput = execSync(
+          `powershell -NoProfile -Command "${versionPsCommand}"`,
+          { encoding: 'utf8', timeout: 5000 }
+        )
+        const versionLines = versionOutput.trim().split('\n').filter(l => l.trim())
+        if (versionLines.length > 0) {
+          version = versionLines[0].trim()
         }
       } catch {
         // 忽略读取错误
       }
 
-      return { installed: true, installDir: dir, version, hasData }
+      console.log('[InstallUtils] Found installation:', installDir, 'version:', version)
+      return { installed: true, installDir, version, hasData }
     }
-  } catch {
-    // 未安装
+  } catch (e) {
+    console.warn('[InstallUtils] Detection failed:', e)
   }
   return { installed: false }
 }

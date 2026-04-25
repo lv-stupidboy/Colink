@@ -312,7 +312,7 @@ if (!gotTheLock) {
     const installed = getInstalledVersion()
 
     if (!installed.installed || !installed.installDir) {
-      dialog.showErrorBox('错误', 'Lights-Out 未安装，请先运行安装程序')
+      dialog.showErrorBox('错误', 'Colink 未安装，请先运行安装程序')
       app.quit()
       return
     }

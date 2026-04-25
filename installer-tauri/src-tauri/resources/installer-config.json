@@ -1,0 +1,4 @@
+{
+  "inviteVerifyUrl": "http://localhost:8081/api/v1/auth/verify",
+  "backendUrl": "http://localhost:8081"
+}

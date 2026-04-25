@@ -1,0 +1,227 @@
+:root {
+  /* Colink 翡翠绿主题 */
+  --primary-color: #10b981;
+  --primary-hover: #34d399;
+  --primary-active: #059669;
+  --primary-bg: #d1fae5;
+  --primary-light: #ecfdf5;
+
+  /* 功能色 */
+  --success-color: #52c41a;
+  --warning-color: #faad14;
+  --error-color: #ff4d4f;
+
+  /* 中性色 */
+  --text-primary: #333333;
+  --text-secondary: #666666;
+  --border-color: #e8e8e8;
+  --bg-base: #ffffff;
+  --bg-secondary: #f5f7fa;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+/* 标题栏样式 */
+.title-bar {
+  height: 48px;
+  background: linear-gradient(90deg, var(--primary-color) 0%, var(--primary-active) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  user-select: none;
+  -webkit-app-region: drag;
+}
+
+.title-bar h1 {
+  color: #fff;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.title-bar-controls {
+  display: flex;
+  gap: 8px;
+  -webkit-app-region: no-drag;
+}
+
+.title-bar-btn {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.title-bar-btn.minimize {
+  background: #ffbd2e;
+  position: relative;
+}
+.title-bar-btn.minimize:hover {
+  background: #e5a800;
+}
+.title-bar-btn.minimize::after {
+  content: '−';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: rgba(0,0,0,0.5);
+  font-size: 10px;
+  font-weight: bold;
+  line-height: 1;
+}
+
+.title-bar-btn.maximize {
+  background: #28c940;
+  position: relative;
+}
+.title-bar-btn.maximize:hover {
+  background: #1da835;
+}
+.title-bar-btn.maximize::after {
+  content: '+';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: rgba(0,0,0,0.5);
+  font-size: 10px;
+  font-weight: bold;
+  line-height: 1;
+}
+
+.title-bar-btn.close {
+  background: #ff5f57;
+  position: relative;
+}
+.title-bar-btn.close:hover {
+  background: #e04040;
+}
+.title-bar-btn.close::after {
+  content: '×';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: rgba(0,0,0,0.5);
+  font-size: 11px;
+  font-weight: bold;
+  line-height: 1;
+}
+
+/* 步骤导航 */
+.step-nav {
+  width: 220px;
+  background: var(--bg-secondary);
+  padding: 24px 16px;
+  border-right: 1px solid var(--border-color);
+}
+
+.step-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  margin-bottom: 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.step-item:hover {
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.step-item.active {
+  background: var(--primary-bg);
+  color: var(--primary-color);
+}
+
+.step-item.completed {
+  color: var(--success-color);
+}
+
+.step-number {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 500;
+  border: 2px solid var(--border-color);
+  background: var(--bg-base);
+}
+
+.step-item.active .step-number {
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+}
+
+.step-item.completed .step-number {
+  border-color: var(--success-color);
+  background: var(--success-color);
+  color: #fff;
+}
+
+/* 内容区域 */
+.content-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 30px 40px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* 底部按钮 */
+.footer-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border-color);
+  margin-top: auto;
+}
+
+/* Ant Design 主题覆盖 */
+.ant-btn-primary {
+  background: var(--primary-color) !important;
+  border-color: var(--primary-color) !important;
+}
+
+.ant-btn-primary:hover {
+  background: var(--primary-hover) !important;
+  border-color: var(--primary-hover) !important;
+}
+
+/* 自定义滚动条 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}

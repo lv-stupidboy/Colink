@@ -1,0 +1,21 @@
+pub mod registry;
+pub mod disk_space;
+pub mod file_ops;
+pub mod shortcut;
+pub mod service_manager;
+pub mod dependency;
+pub mod config;
+pub mod invite;
+pub mod uninstall;
+pub mod installer;
+
+pub use registry::*;
+pub use disk_space::*;
+pub use file_ops::*;
+pub use shortcut::*;
+pub use service_manager::*;
+pub use dependency::*;
+pub use config::*;
+pub use invite::*;
+pub use uninstall::*;
+pub use installer::*;
