@@ -184,7 +184,15 @@ class APIClient {
         localStorage.removeItem('token');
         window.location.href = '/login';
       }
-      throw error;
+
+      // 统一错误处理：优先使用结构化错误
+      const apiError = error.response?.data;
+      if (apiError?.code && apiError?.message) {
+        // 新格式：结构化错误
+        throw { code: apiError.code, message: apiError.message };
+      }
+      // 旧格式兜底
+      throw { code: 'UNKNOWN', message: apiError?.error || '操作失败' };
     }
   }
 
