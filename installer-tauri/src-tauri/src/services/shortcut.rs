@@ -38,6 +38,7 @@ pub fn create_start_menu_shortcut(install_dir: &str) -> Result<()> {
 }
 
 /// Create shortcut using VBScript (Windows)
+/// Uses UTF-16 LE with BOM encoding to support Chinese characters in paths
 fn create_shortcut(target: &PathBuf, shortcut_path: &PathBuf, working_dir: &str) -> Result<()> {
     let vbs_content = format!(
         r#"Set WshShell = WScript.CreateObject("WScript.Shell")
@@ -55,11 +56,8 @@ oShellLink.Save
     let temp_dir = std::env::temp_dir();
     let vbs_path = temp_dir.join("create_shortcut_colink.vbs");
 
-    std::fs::write(&vbs_path, &vbs_content)
-        .map_err(|e| InstallerError::Io {
-            context: "write vbs script".to_string(),
-            source: e,
-        })?;
+    // Write VBS file with UTF-16 LE BOM encoding (Windows Script Host requires this for Unicode)
+    write_vbs_utf16(&vbs_path, &vbs_content)?;
 
     #[cfg(target_os = "windows")]
     let output = Command::new("cscript")
@@ -86,6 +84,40 @@ oShellLink.Save
         }
         Err(e) => Err(InstallerError::Process(e.to_string())),
     }
+}
+
+/// Write VBS content with UTF-16 LE BOM encoding
+/// Windows Script Host (cscript/wscript) requires UTF-16 LE with BOM for Unicode support
+fn write_vbs_utf16(path: &PathBuf, content: &str) -> Result<()> {
+    use std::io::Write;
+
+    // UTF-16 LE BOM: 0xFF 0xFE
+    let bom: [u8; 2] = [0xFF, 0xFE];
+
+    // Convert to UTF-16 LE (Windows native Unicode encoding)
+    let utf16_bytes: Vec<u8> = content
+        .encode_utf16()
+        .flat_map(|u| u.to_le_bytes())
+        .collect();
+
+    let mut file = std::fs::File::create(path).map_err(|e| InstallerError::Io {
+        context: "create vbs script file".to_string(),
+        source: e,
+    })?;
+
+    // Write BOM first
+    file.write_all(&bom).map_err(|e| InstallerError::Io {
+        context: "write vbs bom".to_string(),
+        source: e,
+    })?;
+
+    // Write UTF-16 LE content
+    file.write_all(&utf16_bytes).map_err(|e| InstallerError::Io {
+        context: "write vbs utf16 content".to_string(),
+        source: e,
+    })?;
+
+    Ok(())
 }
 
 /// Delete desktop shortcut
