@@ -9,6 +9,7 @@ import (
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
+	"github.com/anthropic/isdp/pkg/errors"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
@@ -71,10 +72,10 @@ func (s *Service) AddMarket(ctx context.Context, req AddMarketRequest) (*model.M
 func (s *Service) UpdateMarket(ctx context.Context, id uuid.UUID, req UpdateMarketRequest) (*model.Market, error) {
 	market, err := s.marketRepo.FindByID(ctx, id)
 	if err != nil {
-		return nil, err
+		return nil, errors.WrapError(err)
 	}
 	if market == nil {
-		return nil, fmt.Errorf("market not found")
+		return nil, errors.WithDetail(errors.ErrRepoNotFound, "market not found: "+id.String())
 	}
 
 	if req.Name != nil && *req.Name != "" {
@@ -94,13 +95,14 @@ func (s *Service) UpdateMarket(ctx context.Context, id uuid.UUID, req UpdateMark
 	}
 	if req.CheckInterval != nil && *req.CheckInterval != "" {
 		if !ValidateCron(*req.CheckInterval) {
-			return nil, fmt.Errorf("invalid cron expression: %s (format: min hour day month weekday)", *req.CheckInterval)
+			return nil, errors.NewInvalidParam(
+				fmt.Sprintf("invalid cron expression: %s (format: min hour day month weekday)", *req.CheckInterval))
 		}
 		market.CheckInterval = *req.CheckInterval
 	}
 
 	if err := s.marketRepo.Update(ctx, market); err != nil {
-		return nil, err
+		return nil, errors.WrapError(err)
 	}
 
 	return market, nil
@@ -120,14 +122,15 @@ func (s *Service) GetMarketByID(ctx context.Context, id uuid.UUID) (*model.Marke
 func (s *Service) RefreshMarket(ctx context.Context, id uuid.UUID) (*model.Marketplace, error) {
 	market, err := s.marketRepo.FindByID(ctx, id)
 	if err != nil {
-		return nil, err
+		return nil, errors.WrapError(err)
 	}
 	if market == nil {
-		return nil, fmt.Errorf("market not found")
+		return nil, errors.WithDetail(errors.ErrRepoNotFound, "market not found: "+id.String())
 	}
 
 	cloneDir, err := s.gitClient.Clone(ctx, market.URL, market.Branch, s.tempBase)
 	if err != nil {
+		// err 已是 AppError
 		s.marketRepo.UpdateSyncStatus(ctx, id, nil, err.Error())
 		return nil, err
 	}
@@ -135,6 +138,7 @@ func (s *Service) RefreshMarket(ctx context.Context, id uuid.UUID) (*model.Marke
 
 	marketplace, err := s.gitClient.ParseMarketplaceJSON(cloneDir)
 	if err != nil {
+		// err 已是 AppError
 		s.marketRepo.UpdateSyncStatus(ctx, id, nil, err.Error())
 		return nil, err
 	}
