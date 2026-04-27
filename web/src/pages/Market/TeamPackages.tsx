@@ -62,7 +62,8 @@ const TeamPackages: React.FC = () => {
       setCachedPackages(result.data);  // 写入缓存
       setSelectedRowKeys([]);
     } catch (error: any) {
-      message.error(error.response?.data?.error || '加载团队包列表失败');
+      // 使用简化提示
+      message.error(error.message || '加载团队包列表失败');
     } finally {
       setLoading(false);
     }
@@ -122,7 +123,7 @@ const TeamPackages: React.FC = () => {
       setPreviewData(result);
       setPreviewModalVisible(true);
     } catch (error: any) {
-      message.error(error.response?.data?.error || '预览失败');
+      message.error(error.message || '预览失败');
     } finally {
       setPreviewingPackage(null);
     }
@@ -138,7 +139,7 @@ const TeamPackages: React.FC = () => {
       loadPackages(true);  // 强制刷新以更新最近导入时间
       setPreviewModalVisible(false);
     } catch (error: any) {
-      message.error(error.response?.data?.error || '导入失败');
+      message.error(error.message || '导入失败');
     } finally {
       setSyncingPackage(null);
     }
@@ -190,7 +191,7 @@ const TeamPackages: React.FC = () => {
       setBatchPreviewData(previewMap);
       setBatchConflictTotal(result.totalConflicts);
     } catch (error: any) {
-      message.error(error.response?.data?.error || '批量预览失败');
+      message.error(error.message || '批量预览失败');
       setConfirmModalVisible(false);  // 预览失败关闭弹框
       setPendingImportPackages([]);
     } finally {
@@ -224,7 +225,8 @@ const TeamPackages: React.FC = () => {
           results.push({ name: pkg.name, status: 'success' });
           successCount++;
         } catch (error: any) {
-          results.push({ name: pkg.name, status: 'failed', error: error.response?.data?.error || '导入失败' });
+          // 使用简化提示
+          results.push({ name: pkg.name, status: 'failed', error: error.message || '导入失败' });
           failedCount++;
         }
 
@@ -234,7 +236,7 @@ const TeamPackages: React.FC = () => {
       }
     } catch (error: any) {
       // 不应该到达这里，但作为兜底
-      message.error(error.response?.data?.error || '批量导入异常');
+      message.error(error.message || '批量导入异常');
     }
 
     // 导入完成，进度弹框变为结果弹框

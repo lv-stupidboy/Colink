@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/anthropic/isdp/internal/service/teampackagesync"
+	"github.com/anthropic/isdp/pkg/errors"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
@@ -38,8 +39,15 @@ func (h *TeamPackageSyncHandler) RegisterRoutes(r *gin.RouterGroup) {
 func (h *TeamPackageSyncHandler) CheckUpdates(c *gin.Context) {
 	result, err := h.syncSvc.CheckUpdates(c.Request.Context())
 	if err != nil {
-		h.logger.Error("check updates failed", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		appErr := errors.WrapError(err)
+		h.logger.Error("check updates failed",
+			zap.String("code", string(appErr.Code)),
+			zap.String("detail", appErr.Detail))
+		statusCode := errors.ToHTTPStatus(appErr.Code)
+		c.JSON(statusCode, gin.H{
+			"code":    appErr.Code,
+			"message": appErr.Message,
+		})
 		return
 	}
 	c.JSON(http.StatusOK, result)
@@ -49,8 +57,15 @@ func (h *TeamPackageSyncHandler) CheckUpdates(c *gin.Context) {
 func (h *TeamPackageSyncHandler) GetLocalVersions(c *gin.Context) {
 	versions, err := h.syncSvc.GetLocalVersions(c.Request.Context())
 	if err != nil {
-		h.logger.Error("get local versions failed", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		appErr := errors.WrapError(err)
+		h.logger.Error("get local versions failed",
+			zap.String("code", string(appErr.Code)),
+			zap.String("detail", appErr.Detail))
+		statusCode := errors.ToHTTPStatus(appErr.Code)
+		c.JSON(statusCode, gin.H{
+			"code":    appErr.Code,
+			"message": appErr.Message,
+		})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": versions, "total": len(versions)})
@@ -60,14 +75,26 @@ func (h *TeamPackageSyncHandler) GetLocalVersions(c *gin.Context) {
 func (h *TeamPackageSyncHandler) PreviewPackage(c *gin.Context) {
 	var req teampackagesync.PreviewPackageRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		appErr := errors.NewInvalidParam(err.Error())
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    appErr.Code,
+			"message": appErr.Message,
+		})
 		return
 	}
 
 	result, err := h.syncSvc.PreviewPackage(c.Request.Context(), req.PackageName, req.MarketId)
 	if err != nil {
-		h.logger.Error("preview package failed", zap.Error(err), zap.String("package", req.PackageName))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		appErr := errors.WrapError(err)
+		h.logger.Error("preview package failed",
+			zap.String("package", req.PackageName),
+			zap.String("code", string(appErr.Code)),
+			zap.String("detail", appErr.Detail))
+		statusCode := errors.ToHTTPStatus(appErr.Code)
+		c.JSON(statusCode, gin.H{
+			"code":    appErr.Code,
+			"message": appErr.Message,
+		})
 		return
 	}
 	c.JSON(http.StatusOK, result)
@@ -77,14 +104,26 @@ func (h *TeamPackageSyncHandler) PreviewPackage(c *gin.Context) {
 func (h *TeamPackageSyncHandler) SyncPackage(c *gin.Context) {
 	var req teampackagesync.SyncPackageRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		appErr := errors.NewInvalidParam(err.Error())
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    appErr.Code,
+			"message": appErr.Message,
+		})
 		return
 	}
 
 	result, err := h.syncSvc.SyncPackage(c.Request.Context(), req.PackageName, req.MarketId, req.Confirm)
 	if err != nil {
-		h.logger.Error("sync package failed", zap.Error(err), zap.String("package", req.PackageName))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		appErr := errors.WrapError(err)
+		h.logger.Error("sync package failed",
+			zap.String("package", req.PackageName),
+			zap.String("code", string(appErr.Code)),
+			zap.String("detail", appErr.Detail))
+		statusCode := errors.ToHTTPStatus(appErr.Code)
+		c.JSON(statusCode, gin.H{
+			"code":    appErr.Code,
+			"message": appErr.Message,
+		})
 		return
 	}
 	c.JSON(http.StatusOK, result)
@@ -94,14 +133,25 @@ func (h *TeamPackageSyncHandler) SyncPackage(c *gin.Context) {
 func (h *TeamPackageSyncHandler) PreviewPackagesBatch(c *gin.Context) {
 	var req teampackagesync.BatchPreviewRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		appErr := errors.NewInvalidParam(err.Error())
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    appErr.Code,
+			"message": appErr.Message,
+		})
 		return
 	}
 
 	result, err := h.syncSvc.PreviewPackagesBatch(c.Request.Context(), req.Packages)
 	if err != nil {
-		h.logger.Error("batch preview failed", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		appErr := errors.WrapError(err)
+		h.logger.Error("batch preview failed",
+			zap.String("code", string(appErr.Code)),
+			zap.String("detail", appErr.Detail))
+		statusCode := errors.ToHTTPStatus(appErr.Code)
+		c.JSON(statusCode, gin.H{
+			"code":    appErr.Code,
+			"message": appErr.Message,
+		})
 		return
 	}
 
@@ -117,14 +167,25 @@ func (h *TeamPackageSyncHandler) PreviewPackagesBatch(c *gin.Context) {
 func (h *TeamPackageSyncHandler) SyncPackagesBatch(c *gin.Context) {
 	var req teampackagesync.BatchSyncRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		appErr := errors.NewInvalidParam(err.Error())
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    appErr.Code,
+			"message": appErr.Message,
+		})
 		return
 	}
 
 	result, err := h.syncSvc.SyncPackagesBatch(c.Request.Context(), req.Packages)
 	if err != nil {
-		h.logger.Error("batch sync failed", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		appErr := errors.WrapError(err)
+		h.logger.Error("batch sync failed",
+			zap.String("code", string(appErr.Code)),
+			zap.String("detail", appErr.Detail))
+		statusCode := errors.ToHTTPStatus(appErr.Code)
+		c.JSON(statusCode, gin.H{
+			"code":    appErr.Code,
+			"message": appErr.Message,
+		})
 		return
 	}
 
