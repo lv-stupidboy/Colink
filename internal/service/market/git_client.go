@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/anthropic/isdp/internal/model"
+	"github.com/anthropic/isdp/pkg/errors"
 	"go.uber.org/zap"
 )
 
@@ -25,12 +26,12 @@ func NewGitClient(logger *zap.Logger) *GitClient {
 // Clone 克隆市场仓库到临时目录
 func (g *GitClient) Clone(ctx context.Context, url, branch, tempBase string) (string, error) {
 	if err := os.MkdirAll(tempBase, 0755); err != nil {
-		return "", fmt.Errorf("create temp base dir: %w", err)
+		return "", errors.WithDetail(errors.ErrInternal, "create temp base dir: "+err.Error())
 	}
 
 	tempDir, err := os.MkdirTemp(tempBase, "market-sync-")
 	if err != nil {
-		return "", fmt.Errorf("create temp dir: %w", err)
+		return "", errors.WithDetail(errors.ErrInternal, "create temp dir: "+err.Error())
 	}
 
 	g.logger.Info("cloning market repository",
@@ -46,7 +47,7 @@ func (g *GitClient) Clone(ctx context.Context, url, branch, tempBase string) (st
 	if err != nil {
 		g.logger.Error("git clone failed", zap.Error(err), zap.String("output", string(output)))
 		g.Cleanup(tempDir)
-		return "", fmt.Errorf("git clone failed: %w, output: %s", err, string(output))
+		return "", errors.WrapGitError(string(output), err)
 	}
 
 	g.logger.Info("market repository cloned successfully", zap.String("tempDir", tempDir))
@@ -59,20 +60,21 @@ func (g *GitClient) ParseMarketplaceJSON(cloneDir string) (*model.Marketplace, e
 
 	info, err := os.Stat(marketplaceFile)
 	if err != nil {
-		return nil, fmt.Errorf("marketplace.json not found: %w", err)
+		return nil, errors.NewParseFailed("marketplace.json", err)
 	}
 	if info.Size() > 64*1024 {
-		return nil, fmt.Errorf("marketplace.json too large: %d bytes (max 64KB)", info.Size())
+		return nil, errors.WithDetail(errors.ErrParseFailed,
+			fmt.Sprintf("marketplace.json too large: %d bytes (max 64KB)", info.Size()))
 	}
 
 	data, err := os.ReadFile(marketplaceFile)
 	if err != nil {
-		return nil, fmt.Errorf("read marketplace.json: %w", err)
+		return nil, errors.NewParseFailed("marketplace.json", err)
 	}
 
 	var marketplace model.Marketplace
 	if err := json.Unmarshal(data, &marketplace); err != nil {
-		return nil, fmt.Errorf("parse marketplace.json: %w", err)
+		return nil, errors.NewParseFailed("marketplace.json", err)
 	}
 
 	return &marketplace, nil
