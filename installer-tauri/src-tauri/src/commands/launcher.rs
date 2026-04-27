@@ -1,13 +1,6 @@
 use crate::store::AppState;
 use tauri::{AppHandle, State};
 use tauri_plugin_opener::OpenerExt;
-use std::process::Command;
-
-#[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
-
-#[cfg(target_os = "windows")]
-const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 /// Open logs directory
 #[tauri::command]
@@ -78,6 +71,7 @@ pub async fn open_config(
 #[tauri::command]
 pub async fn open_console(
     state: State<'_, AppState>,
+    app: AppHandle,
 ) -> Result<(), String> {
     let install_dir = state
         .get_install_dir()
@@ -91,19 +85,10 @@ pub async fn open_console(
 
     let url = format!("http://localhost:{}", server_port);
 
-    #[cfg(target_os = "windows")]
-    {
-        Command::new("cmd")
-            .args(["/C", "start", &url])
-            .creation_flags(CREATE_NO_WINDOW)
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        Command::new("open").arg(&url).spawn().map_err(|e| e.to_string())?;
-    }
+    // Use opener plugin to open URL directly (avoids cmd.exe being flagged by security software)
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|e| e.to_string())?;
 
     Ok(())
 }
