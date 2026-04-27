@@ -92,7 +92,7 @@ const MarketManagement: React.FC = () => {
       const result = await api.markets.list();
       setMarkets(result.data);
     } catch (error: any) {
-      message.error(error.response?.data?.error || '加载市场列表失败');
+      message.error(error.message || '加载市场列表失败');
     } finally {
       setLoading(false);
     }
@@ -116,7 +116,7 @@ const MarketManagement: React.FC = () => {
       message.success('已添加默认市场');
       loadMarkets();
     } catch (error: any) {
-      message.error(error.response?.data?.error || '添加默认市场失败');
+      message.error(error.message || '添加默认市场失败');
     } finally {
       setAddingDefaultMarket(false);
     }
@@ -145,7 +145,7 @@ const MarketManagement: React.FC = () => {
       message.success('市场已删除');
       loadMarkets();
     } catch (error: any) {
-      message.error(error.response?.data?.error || '删除失败');
+      message.error(error.message || '删除失败');
     }
   };
 
@@ -161,7 +161,7 @@ const MarketManagement: React.FC = () => {
       }
       loadMarkets();
     } catch (error: any) {
-      message.error('操作失败');
+      message.error(error.message || '操作失败');
     }
   };
 
@@ -171,7 +171,7 @@ const MarketManagement: React.FC = () => {
       message.success(autoUpdate ? '已开启自动更新' : '已关闭自动更新');
       loadMarkets();
     } catch (error: any) {
-      message.error('操作失败');
+      message.error(error.message || '操作失败');
     }
   };
 
@@ -196,7 +196,7 @@ const MarketManagement: React.FC = () => {
       setCronModalVisible(false);
       loadMarkets();
     } catch (error: any) {
-      message.error(error.response?.data?.error || '操作失败');
+      message.error(error.message || '操作失败');
     }
   };
 
@@ -222,7 +222,7 @@ const MarketManagement: React.FC = () => {
       setModalVisible(false);
       loadMarkets();
     } catch (error: any) {
-      message.error(error.response?.data?.error || '操作失败');
+      message.error(error.message || '操作失败');
     }
   };
 
