@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Button, Input, Typography, Checkbox, Alert } from 'antd';
 import { FolderOpenOutlined, InfoCircleOutlined } from '@ant-design/icons';
-import { installApi } from '../../../lib/api';
 
 const { Title, Text } = Typography;
 
@@ -34,7 +33,6 @@ const DirectorySelect: React.FC<DirectorySelectProps> = ({
   installType = 'fresh',
   onValidationChange
 }) => {
-  const [freeSpace, setFreeSpace] = useState<number>(0);
   const [dirChanged, setDirChanged] = useState<boolean>(false);
 
   const isReinstall = installType === 'reinstall';
@@ -56,52 +54,21 @@ const DirectorySelect: React.FC<DirectorySelectProps> = ({
     }
   }, [config.installDir, originalDir, isReinstall]);
 
-  const checkDiskSpace = async (path: string) => {
-    if (!path || path.trim() === '') {
-      setFreeSpace(0);
-      onValidationChange?.(true);
-      return;
-    }
-
-    const normalizedPath = path.replace(/\//g, '\\');
-    const windowsPathRegex = /^[A-Za-z]:\\/;
-    if (!windowsPathRegex.test(normalizedPath)) {
-      setFreeSpace(0);
-      onValidationChange?.(true);
-      return;
-    }
-
-    const drive = normalizedPath.substring(0, 2).toUpperCase();
-
-    try {
-      const result = await installApi.getDiskSpace(drive);
-      setFreeSpace(result.free);
-    } catch {
-      setFreeSpace(0);
-    }
-
-    onValidationChange?.(true);
-  };
-
+  // 始终标记为有效（磁盘空间检测已移除，避免输入卡顿）
   useEffect(() => {
-    checkDiskSpace(config.installDir);
-  }, [config.installDir]);
+    onValidationChange?.(true);
+  }, []);
 
   const handleBrowse = async () => {
     try {
-      const result = await installApi.selectDirectory(config.installDir);
+      const { invoke } = await import('@tauri-apps/api/core');
+      const result = await invoke('select_directory', { defaultPath: config.installDir });
       if (result) {
-        onConfigUpdate({ installDir: result });
+        onConfigUpdate({ installDir: result as string });
       }
     } catch (err) {
       console.error('Failed to select directory:', err);
     }
-  };
-
-  const formatSize = (bytes: number) => {
-    if (bytes === 0) return '未知';
-    const gb = bytes / (1024 * 1024 * 1024);
-    return `${gb.toFixed(1)} GB`;
   };
 
   return (
@@ -161,9 +128,9 @@ const DirectorySelect: React.FC<DirectorySelectProps> = ({
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 40, color: '#666', fontSize: 14 }}>
+      {/* 简化的空间提示 */}
+      <div style={{ color: '#666', fontSize: 14 }}>
         <span>所需空间：约 500 MB</span>
-        <span>可用空间：{formatSize(freeSpace)}</span>
       </div>
     </div>
   );
