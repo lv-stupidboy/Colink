@@ -24,14 +24,16 @@ import (
 // SkillHandler Skill API处理器
 type SkillHandler struct {
 	skillSvc    *skill.Service
+	scanner     *skill.SkillScanner
 	storagePath string
 	uploadMax   int64
 }
 
 // NewSkillHandler 创建SkillHandler
-func NewSkillHandler(skillSvc *skill.Service, storagePath string, uploadMax int64) *SkillHandler {
+func NewSkillHandler(skillSvc *skill.Service, scanner *skill.SkillScanner, storagePath string, uploadMax int64) *SkillHandler {
 	return &SkillHandler{
 		skillSvc:    skillSvc,
+		scanner:     scanner,
 		storagePath: storagePath,
 		uploadMax:   uploadMax,
 	}
@@ -237,6 +239,48 @@ func (h *SkillHandler) GetTags(c *gin.Context) {
 func (h *SkillHandler) GetBuiltInTags(c *gin.Context) {
 	categories := h.skillSvc.GetBuiltInTagCategories()
 	c.JSON(http.StatusOK, categories)
+}
+
+// ScanFederatedSkills 扫描联邦源中的 Skill 列表
+func (h *SkillHandler) ScanFederatedSkills(c *gin.Context) {
+	var req struct {
+		RegistryID string `json:"registryId" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "请选择联邦源"})
+		return
+	}
+
+	registryID, err := uuid.Parse(req.RegistryID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的联邦源 ID"})
+		return
+	}
+
+	result, err := h.scanner.ScanRegistry(c.Request.Context(), registryID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
+// BatchImportFederated 批量导入联邦源 Skill
+func (h *SkillHandler) BatchImportFederated(c *gin.Context) {
+	var req model.BatchImportRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	result, err := h.scanner.ImportSkills(c.Request.Context(), &req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
 }
 
 // Upload 上传技能包
@@ -881,6 +925,8 @@ func (h *SkillHandler) RegisterRoutes(r *gin.RouterGroup) {
 		skills.POST("/upload", h.Upload)
 		skills.POST("/import/repo", h.ImportFromRepo)
 		skills.POST("/import/federated", h.ImportFromFederated)
+		skills.POST("/import/federated/scan", h.ScanFederatedSkills)
+		skills.POST("/import/federated/batch", h.BatchImportFederated)
 		skills.GET("/:id", h.Get)
 		skills.PUT("/:id", h.Update)
 		skills.DELETE("/:id", h.Delete)

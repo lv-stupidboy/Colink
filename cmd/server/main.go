@@ -226,6 +226,7 @@ func main() {
 		cfg.GetSkillStoragePath(), logger,
 	)
 	registryService := skill.NewRegistryService(registryRepo, skillRepo)
+	skillScanner := skill.NewSkillScanner(registryRepo, skillRepo, cfg.GetSkillStoragePath(), logger)
 	knowledgeService := knowledge.NewService(knowledgeRepo)
 	configGenService := configgen.NewService(
 		projectRepo, agentConfigRepo, skillRepo, agentSkillBindingRepo,
@@ -551,7 +552,7 @@ func main() {
 	workflowHandler.RegisterRoutes(v1)
 
 	// Skill Handler
-	skillHandler := api.NewSkillHandler(skillService, cfg.GetSkillStoragePath(), cfg.Skill.GetUploadMaxSize())
+	skillHandler := api.NewSkillHandler(skillService, skillScanner, cfg.GetSkillStoragePath(), cfg.Skill.GetUploadMaxSize())
 	skillHandler.RegisterRoutes(v1)
 
 	// Registry Handler

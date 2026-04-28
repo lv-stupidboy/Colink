@@ -70,6 +70,9 @@ import type {
   AddMarketRequest,
   UpdateMarketRequest,
   PackagePreviewResponse,
+  ScanResult,
+  BatchImportRequest,
+  BatchImportResult,
 } from '@/types';
 import {
   transformProjects,
@@ -501,6 +504,12 @@ class APIClient {
       if (skillName) body.skillName = skillName;
       return this.request('/skills/import/federated', 'POST', body);
     },
+    // 扫描联邦源 Skill 列表
+    scanFederatedSkills: (registryId: string): Promise<ScanResult> =>
+      this.request('/skills/import/federated/scan', 'POST', { registryId }),
+    // 批量导入联邦源 Skill
+    batchImportFederated: (req: BatchImportRequest): Promise<BatchImportResult> =>
+      this.request('/skills/import/federated/batch', 'POST', req),
   };
 
   // Registry API

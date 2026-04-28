@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Card, Button, Modal, Form, Input, Select, message, Space, Tag, Typography,
-  Popconfirm, Empty, Spin, Divider, Tooltip, Radio, Pagination
+  Popconfirm, Empty, Spin, Divider, Tooltip, Radio, Pagination, Checkbox, List, Table
 } from 'antd';
 import {
   PlusOutlined,
@@ -15,7 +15,7 @@ import {
 } from '@ant-design/icons';
 import JSZip from 'jszip';
 import api from '@/api/client';
-import type { Skill, SkillSourceType, BuiltInTagCategory, SkillRegistry } from '@/types';
+import type { Skill, SkillSourceType, BuiltInTagCategory, SkillRegistry, RemoteSkill, ScanResult, SkillImportItem } from '@/types';
 
 const { Title, Text, Paragraph } = Typography;
 const { CheckableTag: CheckableTagAnt } = Tag;
@@ -112,6 +112,18 @@ const SkillLibrary: React.FC = () => {
   const [agentTypeFilter, setAgentTypeFilter] = useState<string>('');
   const [allTags, setAllTags] = useState<string[]>([]);
   const [form] = Form.useForm();
+
+  // 联邦源扫描状态
+  const [scanModalVisible, setScanModalVisible] = useState(false);
+  const [scanLoading, setScanLoading] = useState(false);
+  const [scanResult, setScanResult] = useState<ScanResult | null>(null);
+  const [selectedRemoteSkills, setSelectedRemoteSkills] = useState<RemoteSkill[]>([]);
+  const [batchEditMode, setBatchEditMode] = useState(false);
+  const [batchSkills, setBatchSkills] = useState<SkillImportItem[]>([]);
+  const [batchImporting, setBatchImporting] = useState(false);
+  const [unifySettings, setUnifySettings] = useState(false);
+  const [unifiedTags, setUnifiedTags] = useState<string[]>([]);
+  const [unifiedAgents, setUnifiedAgents] = useState<string[]>([]);
 
   // 创建方式状态
   const [sourceType, setSourceType] = useState<SkillSourceType>('personal');
@@ -551,36 +563,118 @@ const SkillLibrary: React.FC = () => {
     }
   };
 
-  // 联邦源导入
+  // 联邦源导入（触发扫描）
   const handleFederatedImport = async () => {
     if (!selectedRegistryId) {
       message.error('请选择联邦源');
       return;
     }
-    setImporting(true);
+    await handleScanFederated();
+  };
+
+  // 扫描联邦源
+  const handleScanFederated = async () => {
+    setScanLoading(true);
     try {
-      const response = await api.skills.importFederated(selectedRegistryId);
-      // 如果返回的是技能对象（已指定技能名称）
-      if ('id' in response) {
-        message.success('联邦源导入成功');
-        setEditingSkill(response);
-        form.setFieldsValue({
-          name: response.name,
-          description: response.description || '',
-          tags: response.tags || [],
-          sourceType: response.sourceType || 'federated',
-          isPublic: response.isPublic !== undefined ? response.isPublic : true,
-        });
-        setSourceType(response.sourceType || 'federated');
-      } else {
-        // 返回的是技能列表
-        message.info('请选择要导入的技能');
-      }
+      const result = await api.skills.scanFederatedSkills(selectedRegistryId);
+      setScanResult(result);
+      setSelectedRemoteSkills([]);
+      setScanModalVisible(true);
     } catch (error: any) {
-      const errorData = error.response?.data;
-      message.error(errorData?.error || '联邦源导入失败');
+      message.error(error.response?.data?.error || '扫描联邦源失败');
     } finally {
-      setImporting(false);
+      setScanLoading(false);
+    }
+  };
+
+  // 确认导入选中的 Skill
+  const handleConfirmImport = () => {
+    if (selectedRemoteSkills.length === 0) {
+      message.error('请选择至少一个 Skill');
+      return;
+    }
+
+    setScanModalVisible(false);
+
+    // 单选：填入表单
+    if (selectedRemoteSkills.length === 1) {
+      const skill = selectedRemoteSkills[0];
+      setEditingSkill({
+        id: '',
+        name: skill.name,
+        description: skill.description,
+        sourceType: 'federated',
+        sourceRegistryId: selectedRegistryId,
+        isPublic: true,
+      } as any);
+      setIsAfterUpload(false);
+      form.setFieldsValue({
+        name: skill.name,
+        description: skill.description || '',
+        tags: [],
+        sourceType: 'federated',
+        supportedAgents: [],
+        isPublic: true,
+      });
+      setSourceType('federated');
+      setModalVisible(true);
+    } else {
+      // 多选：切换为批量编辑模式
+      setBatchSkills(selectedRemoteSkills.map(s => ({
+        name: s.name,
+        path: s.path,
+        description: s.description,
+        tags: [],
+        supportedAgents: [],
+      })));
+      setBatchEditMode(true);
+      setUnifySettings(false);
+      setUnifiedTags([]);
+      setUnifiedAgents([]);
+      setModalVisible(true);
+    }
+  };
+
+  // 批量保存 Skill
+  const handleBatchSave = async () => {
+    // 验证所有 Skill 的 supportedAgents
+    const invalidSkills = batchSkills.filter(s => s.supportedAgents.length === 0);
+    if (!unifySettings && invalidSkills.length > 0) {
+      message.error(`以下 Skill 未设置 Agent：${invalidSkills.map(s => s.name).join(', ')}`);
+      return;
+    }
+    if (unifySettings && unifiedAgents.length === 0) {
+      message.error('请设置统一 Agent');
+      return;
+    }
+
+    setBatchImporting(true);
+    try {
+      const finalSkills = batchSkills.map(s => ({
+        ...s,
+        tags: unifySettings ? [...s.tags, ...unifiedTags] : s.tags,
+        supportedAgents: unifySettings ? unifiedAgents : s.supportedAgents,
+      }));
+
+      const result = await api.skills.batchImportFederated({
+        registryId: selectedRegistryId,
+        skills: finalSkills,
+      });
+
+      message.success(`成功导入 ${result.imported.length} 个 Skill`);
+      if (result.skipped.length > 0) {
+        message.warning(`跳过 ${result.skipped.length} 个：${result.skipped.map(s => s.name).join(', ')}`);
+      }
+
+      setModalVisible(false);
+      setBatchEditMode(false);
+      setBatchSkills([]);
+      setSelectedRemoteSkills([]);
+      loadSkills();
+    } catch (error: any) {
+      message.error(error.response?.data?.error || '批量导入失败');
+    } finally {
+      setBatchImporting(false);
     }
   };
 
@@ -643,7 +737,7 @@ const SkillLibrary: React.FC = () => {
                   options={registries.map(r => ({ label: r.name, value: r.id }))}
                   disabled={isAfterUpload}
                 />
-                <Button type="primary" onClick={handleFederatedImport} loading={importing} disabled={isAfterUpload}>
+                <Button type="primary" onClick={handleFederatedImport} loading={scanLoading || importing} disabled={isAfterUpload}>
                   导入
                 </Button>
               </Space.Compact>
@@ -972,16 +1066,205 @@ const SkillLibrary: React.FC = () => {
 
       {/* 新建/编辑弹窗 */}
       <Modal
-        title={editingSkill ? '编辑 Skill' : '新建 Skill'}
+        title={batchEditMode ? `批量导入 (${batchSkills.length} 个 Skill)` : (editingSkill ? '编辑 Skill' : '新建 Skill')}
         open={modalVisible}
-        onOk={() => form.submit()}
-        onCancel={() => setModalVisible(false)}
-        width={700}
-        okText="保存"
+        onOk={() => batchEditMode ? handleBatchSave() : form.submit()}
+        onCancel={() => {
+          setModalVisible(false);
+          setBatchEditMode(false);
+          setBatchSkills([]);
+        }}
+        width={batchEditMode ? 900 : 700}
+        okText={batchEditMode ? '保存全部' : '保存'}
+        confirmLoading={batchImporting}
       >
-        {renderCreateMethodSelector()}
-        <Divider style={{ margin: '16px 0' }} />
-        {renderBasicForm()}
+        {batchEditMode ? (
+          // 批量编辑模式
+          <>
+            <Text strong style={{ marginBottom: 12, display: 'block' }}>
+              已选择 {batchSkills.length} 个 Skill，请补充属性信息：
+            </Text>
+
+            {/* 统一设置 */}
+            <div style={{ marginBottom: 16, padding: 12, background: 'var(--ant-color-bg-container)', borderRadius: 8 }}>
+              <Checkbox
+                checked={unifySettings}
+                onChange={(e) => setUnifySettings(e.target.checked)}
+              >
+                统一设置：为所有 Skill 应用相同的标签和 Agent
+              </Checkbox>
+              {unifySettings && (
+                <Space style={{ marginTop: 8, width: '100%' }} direction="vertical">
+                  <Select
+                    mode="tags"
+                    placeholder="统一标签"
+                    style={{ width: '100%' }}
+                    value={unifiedTags}
+                    onChange={setUnifiedTags}
+                  />
+                  <Select
+                    mode="multiple"
+                    placeholder="统一 Agent（必填）"
+                    style={{ width: '100%' }}
+                    options={agentTypeOptions}
+                    value={unifiedAgents}
+                    onChange={setUnifiedAgents}
+                  />
+                </Space>
+              )}
+            </div>
+
+            {/* Skill 表格 */}
+            <Table
+              dataSource={batchSkills}
+              columns={[
+                {
+                  title: '名称',
+                  dataIndex: 'name',
+                  key: 'name',
+                  width: 150,
+                  render: (name: string, _record, index) => (
+                    <Input
+                      value={name}
+                      onChange={(e) => {
+                        const updated = [...batchSkills];
+                        updated[index].name = e.target.value;
+                        setBatchSkills(updated);
+                      }}
+                    />
+                  ),
+                },
+                {
+                  title: '描述',
+                  dataIndex: 'description',
+                  key: 'description',
+                  render: (desc: string, _record, index) => (
+                    <Input
+                      value={desc}
+                      onChange={(e) => {
+                        const updated = [...batchSkills];
+                        updated[index].description = e.target.value;
+                        setBatchSkills(updated);
+                      }}
+                    />
+                  ),
+                },
+                {
+                  title: '标签',
+                  dataIndex: 'tags',
+                  key: 'tags',
+                  width: 150,
+                  render: (_, _record, index) => (
+                    unifySettings ? (
+                      <Text type="secondary">使用统一设置</Text>
+                    ) : (
+                      <Select
+                        mode="tags"
+                        placeholder="标签"
+                        style={{ width: '100%' }}
+                        value={batchSkills[index].tags}
+                        onChange={(val) => {
+                          const updated = [...batchSkills];
+                          updated[index].tags = val;
+                          setBatchSkills(updated);
+                        }}
+                      />
+                    )
+                  ),
+                },
+                {
+                  title: 'Agent',
+                  dataIndex: 'supportedAgents',
+                  key: 'supportedAgents',
+                  width: 150,
+                  render: (_, _record, index) => (
+                    unifySettings ? (
+                      <Text type="secondary">使用统一设置</Text>
+                    ) : (
+                      <Select
+                        mode="multiple"
+                        placeholder="Agent（必填）"
+                        style={{ width: '100%' }}
+                        options={agentTypeOptions}
+                        value={batchSkills[index].supportedAgents}
+                        onChange={(val) => {
+                          const updated = [...batchSkills];
+                          updated[index].supportedAgents = val;
+                          setBatchSkills(updated);
+                        }}
+                      />
+                    )
+                  ),
+                },
+              ]}
+              rowKey="name"
+              pagination={false}
+              size="small"
+              scroll={{ y: 300 }}
+            />
+          </>
+        ) : (
+          // 单个编辑模式
+          <>
+            {renderCreateMethodSelector()}
+            <Divider style={{ margin: '16px 0' }} />
+            {renderBasicForm()}
+          </>
+        )}
+      </Modal>
+
+      {/* 联邦源扫描弹窗 */}
+      <Modal
+        title="从联邦源导入 Skill"
+        open={scanModalVisible}
+        onCancel={() => setScanModalVisible(false)}
+        width={600}
+        footer={[
+          <Button key="cancel" onClick={() => setScanModalVisible(false)}>取消</Button>,
+          <Button key="confirm" type="primary" onClick={handleConfirmImport} disabled={selectedRemoteSkills.length === 0}>
+            确认导入（已选择 {selectedRemoteSkills.length} 个）
+          </Button>,
+        ]}
+      >
+        {scanResult && (
+          <>
+            <div style={{ marginBottom: 12 }}>
+              <Text strong>联邦源：</Text>{scanResult.registryName}
+              <br />
+              <Text type="secondary">{scanResult.registryUrl}</Text>
+            </div>
+            <List
+              dataSource={scanResult.skills}
+              renderItem={(skill) => (
+                <List.Item
+                  style={{
+                    opacity: skill.existsLocally ? 0.5 : 1,
+                    background: skill.existsLocally ? 'var(--ant-color-bg-container-disabled)' : undefined,
+                  }}
+                >
+                  <Checkbox
+                    disabled={skill.existsLocally}
+                    checked={selectedRemoteSkills.some(s => s.name === skill.name)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedRemoteSkills([...selectedRemoteSkills, skill]);
+                      } else {
+                        setSelectedRemoteSkills(selectedRemoteSkills.filter(s => s.name !== skill.name));
+                      }
+                    }}
+                  >
+                    <div>
+                      <Text strong>{skill.name}</Text>
+                      {skill.existsLocally && <Tag color="default" style={{ marginLeft: 8 }}>已存在本地</Tag>}
+                      <br />
+                      <Text type="secondary" style={{ fontSize: 12 }}>{skill.description || '暂无描述'}</Text>
+                    </div>
+                  </Checkbox>
+                </List.Item>
+              )}
+            />
+          </>
+        )}
       </Modal>
     </div>
   );
