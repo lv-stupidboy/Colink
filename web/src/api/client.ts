@@ -896,6 +896,17 @@ class APIClient {
       projectName: string;
       workflowName: string;
     }>> => this.request('/dashboard/active-threads', 'GET'),
+    getRecentThreads: (): Promise<Array<{
+      id: string;
+      projectId: string;
+      name: string;
+      status: string;
+      currentPhase: string;
+      workflowTemplateId: string;
+      updatedAt: string;
+      projectName: string;
+      teamName: string;
+    }>> => this.request('/dashboard/recent-threads', 'GET'),
   };
 }
 
