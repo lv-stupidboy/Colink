@@ -1,4 +1,5 @@
 use crate::error::{InstallerError, Result};
+use crate::services::file_ops::remove_file_with_retry;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -127,11 +128,9 @@ pub fn delete_desktop_shortcut() -> Result<()> {
         .map_err(|e| InstallerError::Process(e.to_string()))?;
 
     if desktop_path.exists() {
-        std::fs::remove_file(&desktop_path)
-            .map_err(|e| InstallerError::Io {
-                context: "delete desktop shortcut".to_string(),
-                source: e,
-            })?;
+        // Use retry mechanism for Windows temporary file locks
+        // Windows often locks .lnk files when Explorer is refreshing icons
+        remove_file_with_retry(&desktop_path, 3, 500)?;
     }
     Ok(())
 }
@@ -150,11 +149,9 @@ pub fn delete_start_menu_shortcut() -> Result<()> {
         .map_err(|e| InstallerError::Process(e.to_string()))?;
 
     if start_menu_path.exists() {
-        std::fs::remove_file(&start_menu_path)
-            .map_err(|e| InstallerError::Io {
-                context: "delete start menu shortcut".to_string(),
-                source: e,
-            })?;
+        // Use retry mechanism for Windows temporary file locks
+        // Windows often locks .lnk files when Explorer is refreshing icons or Search Indexer
+        remove_file_with_retry(&start_menu_path, 3, 500)?;
     }
     Ok(())
 }
