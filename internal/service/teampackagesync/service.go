@@ -185,9 +185,11 @@ func (s *SyncService) SyncPackageWithCache(ctx context.Context, packageName stri
 	if err != nil {
 		return nil, err // 已是 AppError
 	}
-	// 批量操作时由缓存统一清理，单包导入时（cache=nil）需要 defer Cleanup
+	// 批量操作时由缓存统一清理，单包导入时（cache=nil）异步清理（避免阻塞响应）
 	if cache == nil {
-		defer s.gitClient.Cleanup(marketCloneDir)
+		defer func() {
+			go s.gitClient.Cleanup(marketCloneDir)
+		}()
 	}
 
 	// 解析 marketplace.json
@@ -220,9 +222,11 @@ func (s *SyncService) SyncPackageWithCache(ctx context.Context, packageName stri
 	if err != nil {
 		return nil, err // 已是 AppError
 	}
-	// 批量操作时由缓存统一清理，单包导入时（cache=nil）需要 defer Cleanup
+	// 批量操作时由缓存统一清理，单包导入时（cache=nil）异步清理（避免阻塞响应）
 	if cache == nil {
-		defer s.gitClient.Cleanup(packageCloneDir)
+		defer func() {
+			go s.gitClient.Cleanup(packageCloneDir)
+		}()
 	}
 
 	// 设置包的实际路径
@@ -442,9 +446,11 @@ func (s *SyncService) PreviewPackageWithCache(ctx context.Context, packageName s
 	if err != nil {
 		return nil, err // 已是 AppError
 	}
-	// 批量操作时由缓存统一清理，单包预览时（cache=nil）需要 defer Cleanup
+	// 批量操作时由缓存统一清理，单包预览时（cache=nil）异步清理（避免阻塞响应）
 	if cache == nil {
-		defer s.gitClient.Cleanup(marketCloneDir)
+		defer func() {
+			go s.gitClient.Cleanup(marketCloneDir)
+		}()
 	}
 
 	// 解析 marketplace.json
@@ -477,9 +483,11 @@ func (s *SyncService) PreviewPackageWithCache(ctx context.Context, packageName s
 	if err != nil {
 		return nil, err // 已是 AppError
 	}
-	// 批量操作时由缓存统一清理，单包预览时（cache=nil）需要 defer Cleanup
+	// 批量操作时由缓存统一清理，单包预览时（cache=nil）异步清理（避免阻塞响应）
 	if cache == nil {
-		defer s.gitClient.Cleanup(packageCloneDir)
+		defer func() {
+			go s.gitClient.Cleanup(packageCloneDir)
+		}()
 	}
 
 	// 设置包的实际路径
