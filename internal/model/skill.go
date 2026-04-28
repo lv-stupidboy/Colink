@@ -205,7 +205,7 @@ type SkillImportItem struct {
 
 // BatchImportRequest 批量导入请求
 type BatchImportRequest struct {
-	RegistryID string            `json:"registryId" binding:"required"`
+	RegistryID uuid.UUID        `json:"registryId" binding:"required"`
 	Skills     []SkillImportItem `json:"skills" binding:"required,min=1"`
 }
 
@@ -223,8 +223,8 @@ type SkippedSkillInfo struct {
 
 // ScanResult 扫描结果
 type ScanResult struct {
-	RegistryID   string         `json:"registryId"`
-	RegistryName string         `json:"registryName"`
-	RegistryURL  string         `json:"registryUrl"`
-	Skills       []*RemoteSkill `json:"skills"`
+	RegistryID   uuid.UUID       `json:"registryId"`
+	RegistryName string          `json:"registryName"`
+	RegistryURL  string          `json:"registryUrl"`
+	Skills       []*RemoteSkill  `json:"skills"`
 }
