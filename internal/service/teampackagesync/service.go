@@ -16,6 +16,7 @@ import (
 	"github.com/anthropic/isdp/internal/service/market"
 	"github.com/anthropic/isdp/internal/service/teampackage"
 	"github.com/anthropic/isdp/pkg/config"
+	"github.com/anthropic/isdp/pkg/errors"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
@@ -157,10 +158,10 @@ func (s *SyncService) GetLocalVersions(ctx context.Context) ([]model.TeamPackage
 // SyncPackageWithCache 同步团队包（带缓存，用于批量操作）
 func (s *SyncService) SyncPackageWithCache(ctx context.Context, packageName string, marketId string, confirm *model.TeamPackageImportConfirm, cache *CloneCache) (*model.ImportResult, error) {
 	if marketId == "" {
-		return nil, fmt.Errorf("marketId is required")
+		return nil, errors.NewInvalidParam("marketId is required")
 	}
 	if s.marketSvc == nil {
-		return nil, fmt.Errorf("market service not available")
+		return nil, errors.WithDetail(errors.ErrInternal, "market service not available")
 	}
 
 	var remotePkg *RemotePackage
@@ -168,21 +169,21 @@ func (s *SyncService) SyncPackageWithCache(ctx context.Context, packageName stri
 
 	marketUUID, err := uuid.Parse(marketId)
 	if err != nil {
-		return nil, fmt.Errorf("invalid market id: %w", err)
+		return nil, errors.NewInvalidParam("invalid market id: "+err.Error())
 	}
 
 	market, err := s.marketSvc.GetMarketByID(ctx, marketUUID)
 	if err != nil {
-		return nil, fmt.Errorf("get market: %w", err)
+		return nil, errors.WrapError(err)
 	}
 	if market == nil {
-		return nil, fmt.Errorf("market not found: %s", marketId)
+		return nil, errors.WithDetail(errors.ErrRepoNotFound, "market not found: "+marketId)
 	}
 
 	// 克隆市场仓库（使用缓存）
 	marketCloneDir, err := s.gitClient.CloneWithCache(ctx, market.URL, market.Branch, cache)
 	if err != nil {
-		return nil, fmt.Errorf("clone market repo: %w", err)
+		return nil, err // 已是 AppError
 	}
 	// 批量操作时由缓存统一清理，单包导入时（cache=nil）需要 defer Cleanup
 	if cache == nil {
@@ -192,7 +193,7 @@ func (s *SyncService) SyncPackageWithCache(ctx context.Context, packageName stri
 	// 解析 marketplace.json
 	marketplace, err := s.parseMarketplaceJSON(marketCloneDir)
 	if err != nil {
-		return nil, fmt.Errorf("parse marketplace.json: %w", err)
+		return nil, err // 已是 AppError
 	}
 
 	// 查找指定的包
@@ -211,13 +212,13 @@ func (s *SyncService) SyncPackageWithCache(ctx context.Context, packageName stri
 	}
 
 	if remotePkg == nil {
-		return nil, fmt.Errorf("package not found in marketplace: %s", packageName)
+		return nil, errors.NewPackageNotFound(packageName)
 	}
 
 	// 克隆包仓库（使用缓存）
 	packageCloneDir, err = s.gitClient.CloneWithCache(ctx, remotePkg.Repository, "master", cache)
 	if err != nil {
-		return nil, fmt.Errorf("clone package repo: %w", err)
+		return nil, err // 已是 AppError
 	}
 	// 批量操作时由缓存统一清理，单包导入时（cache=nil）需要 defer Cleanup
 	if cache == nil {
@@ -230,7 +231,7 @@ func (s *SyncService) SyncPackageWithCache(ctx context.Context, packageName stri
 	// 将目录转换为 zip 数据
 	zipData, err := s.createZipFromDir(remotePkg.Path)
 	if err != nil {
-		return nil, fmt.Errorf("create zip: %w", err)
+		return nil, errors.WithDetail(errors.ErrInternal, "create zip: "+err.Error())
 	}
 
 	// 如果 confirm 为空，创建一个默认的（全部覆盖导入）
@@ -249,7 +250,7 @@ func (s *SyncService) SyncPackageWithCache(ctx context.Context, packageName stri
 	// 调用现有的 ImportConfirm 方法（零侵入复用）
 	result, err := s.teamPackageSvc.ImportConfirm(ctx, zipData, confirm)
 	if err != nil {
-		return nil, fmt.Errorf("import confirm: %w", err)
+		return nil, errors.WithDetail(errors.ErrInternal, "import confirm: "+err.Error())
 	}
 
 	// 更新版本记录
@@ -400,12 +401,12 @@ func (s *SyncService) parseMarketplaceJSON(cloneDir string) (*model.Marketplace,
 
 	data, err := os.ReadFile(marketplaceFile)
 	if err != nil {
-		return nil, fmt.Errorf("read marketplace.json: %w", err)
+		return nil, errors.NewParseFailed("marketplace.json", err)
 	}
 
 	var marketplace model.Marketplace
 	if err := json.Unmarshal(data, &marketplace); err != nil {
-		return nil, fmt.Errorf("parse marketplace.json: %w", err)
+		return nil, errors.NewParseFailed("marketplace.json", err)
 	}
 
 	return &marketplace, nil
@@ -414,10 +415,10 @@ func (s *SyncService) parseMarketplaceJSON(cloneDir string) (*model.Marketplace,
 // PreviewPackageWithCache 预览团队包（带缓存，用于批量操作）
 func (s *SyncService) PreviewPackageWithCache(ctx context.Context, packageName string, marketId string, cache *CloneCache) (*PreviewPackageResponse, error) {
 	if marketId == "" {
-		return nil, fmt.Errorf("marketId is required")
+		return nil, errors.NewInvalidParam("marketId is required")
 	}
 	if s.marketSvc == nil {
-		return nil, fmt.Errorf("market service not available")
+		return nil, errors.WithDetail(errors.ErrInternal, "market service not available")
 	}
 
 	var remotePkg *RemotePackage
@@ -425,21 +426,21 @@ func (s *SyncService) PreviewPackageWithCache(ctx context.Context, packageName s
 
 	marketUUID, err := uuid.Parse(marketId)
 	if err != nil {
-		return nil, fmt.Errorf("invalid market id: %w", err)
+		return nil, errors.NewInvalidParam("invalid market id: "+err.Error())
 	}
 
 	market, err := s.marketSvc.GetMarketByID(ctx, marketUUID)
 	if err != nil {
-		return nil, fmt.Errorf("get market: %w", err)
+		return nil, errors.WrapError(err)
 	}
 	if market == nil {
-		return nil, fmt.Errorf("market not found: %s", marketId)
+		return nil, errors.WithDetail(errors.ErrRepoNotFound, "market not found: "+marketId)
 	}
 
 	// 克隆市场仓库（使用缓存）
 	marketCloneDir, err := s.gitClient.CloneWithCache(ctx, market.URL, market.Branch, cache)
 	if err != nil {
-		return nil, fmt.Errorf("clone market repo: %w", err)
+		return nil, err // 已是 AppError
 	}
 	// 批量操作时由缓存统一清理，单包预览时（cache=nil）需要 defer Cleanup
 	if cache == nil {
@@ -449,7 +450,7 @@ func (s *SyncService) PreviewPackageWithCache(ctx context.Context, packageName s
 	// 解析 marketplace.json
 	marketplace, err := s.parseMarketplaceJSON(marketCloneDir)
 	if err != nil {
-		return nil, fmt.Errorf("parse marketplace.json: %w", err)
+		return nil, err // 已是 AppError
 	}
 
 	// 查找指定的包
@@ -468,13 +469,13 @@ func (s *SyncService) PreviewPackageWithCache(ctx context.Context, packageName s
 	}
 
 	if remotePkg == nil {
-		return nil, fmt.Errorf("package not found in marketplace: %s", packageName)
+		return nil, errors.NewPackageNotFound(packageName)
 	}
 
 	// 克隆包仓库（使用缓存）
 	packageCloneDir, err = s.gitClient.CloneWithCache(ctx, remotePkg.Repository, "master", cache)
 	if err != nil {
-		return nil, fmt.Errorf("clone package repo: %w", err)
+		return nil, err // 已是 AppError
 	}
 	// 批量操作时由缓存统一清理，单包预览时（cache=nil）需要 defer Cleanup
 	if cache == nil {
@@ -488,12 +489,12 @@ func (s *SyncService) PreviewPackageWithCache(ctx context.Context, packageName s
 	manifestPath := filepath.Join(remotePkg.Path, "manifest.json")
 	manifestData, err := os.ReadFile(manifestPath)
 	if err != nil {
-		return nil, fmt.Errorf("read manifest.json: %w", err)
+		return nil, errors.NewParseFailed("manifest.json", err)
 	}
 
 	var manifest model.TeamPackageManifest
 	if err := json.Unmarshal(manifestData, &manifest); err != nil {
-		return nil, fmt.Errorf("parse manifest.json: %w", err)
+		return nil, errors.NewParseFailed("manifest.json", err)
 	}
 
 	// 构建预览响应（调用抽取的冲突检测方法）
@@ -531,7 +532,7 @@ func (s *SyncService) buildPreviewResponse(ctx context.Context, packageName stri
 	// 检查工作流是否已存在（按名称匹配）
 	workflows, err := s.workflowRepo.FindAll(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("获取工作流列表失败: %w", err)
+		return nil, errors.WithDetail(errors.ErrInternal, "获取工作流列表失败: "+err.Error())
 	}
 	for _, wf := range workflows {
 		if wf.Name == manifest.Workflow.Name {

@@ -2,12 +2,12 @@ package teampackagesync
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 
 	"github.com/anthropic/isdp/pkg/config"
+	"github.com/anthropic/isdp/pkg/errors"
 	"go.uber.org/zap"
 )
 
@@ -32,13 +32,13 @@ func (g *GitClient) CloneFromURL(ctx context.Context, url string, branch string)
 
 	// 确保临时目录存在
 	if err := os.MkdirAll(tempBase, 0755); err != nil {
-		return "", fmt.Errorf("create temp base dir: %w", err)
+		return "", errors.WithDetail(errors.ErrInternal, "create temp base dir: "+err.Error())
 	}
 
 	// 在临时目录下创建本次同步的子目录
 	tempDir, err := os.MkdirTemp(tempBase, "team-package-sync-")
 	if err != nil {
-		return "", fmt.Errorf("create temp dir: %w", err)
+		return "", errors.WithDetail(errors.ErrInternal, "create temp dir: "+err.Error())
 	}
 
 	g.logger.Info("cloning remote repository",
@@ -58,7 +58,7 @@ func (g *GitClient) CloneFromURL(ctx context.Context, url string, branch string)
 			zap.String("output", string(output)),
 		)
 		g.Cleanup(tempDir)
-		return "", fmt.Errorf("git clone failed: %w, output: %s", err, string(output))
+		return "", errors.WrapGitError(string(output), err)
 	}
 
 	g.logger.Info("repository cloned successfully", zap.String("tempDir", tempDir))

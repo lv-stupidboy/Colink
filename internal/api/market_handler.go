@@ -5,6 +5,7 @@ import (
 
 	"github.com/anthropic/isdp/internal/service/market"
 	"github.com/anthropic/isdp/pkg/config"
+	"github.com/anthropic/isdp/pkg/errors"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -44,8 +45,15 @@ func (h *MarketHandler) RegisterRoutes(r *gin.RouterGroup) {
 func (h *MarketHandler) ListMarkets(c *gin.Context) {
 	markets, err := h.marketSvc.ListMarkets(c.Request.Context())
 	if err != nil {
-		h.logger.Error("list markets failed", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		appErr := errors.WrapError(err)
+		h.logger.Error("list markets failed",
+			zap.String("code", string(appErr.Code)),
+			zap.String("detail", appErr.Detail))
+		statusCode := errors.ToHTTPStatus(appErr.Code)
+		c.JSON(statusCode, gin.H{
+			"code":    appErr.Code,
+			"message": appErr.Message,
+		})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": markets, "total": len(markets)})
@@ -65,7 +73,11 @@ func (h *MarketHandler) GetDefaultMarketConfig(c *gin.Context) {
 func (h *MarketHandler) AddDefaultMarket(c *gin.Context) {
 	cfg := h.cfg.Market
 	if cfg.URL == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "默认市场URL未配置"})
+		appErr := errors.NewInvalidParam("默认市场URL未配置")
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    appErr.Code,
+			"message": appErr.Message,
+		})
 		return
 	}
 
@@ -86,8 +98,13 @@ func (h *MarketHandler) AddDefaultMarket(c *gin.Context) {
 
 	m, err := h.marketSvc.AddMarket(c.Request.Context(), req)
 	if err != nil {
-		h.logger.Error("add default market failed", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		appErr := errors.WrapError(err)
+		h.logger.Error("add default market failed", zap.String("detail", appErr.Detail))
+		statusCode := errors.ToHTTPStatus(appErr.Code)
+		c.JSON(statusCode, gin.H{
+			"code":    appErr.Code,
+			"message": appErr.Message,
+		})
 		return
 	}
 	c.JSON(http.StatusOK, m)
@@ -97,14 +114,23 @@ func (h *MarketHandler) AddDefaultMarket(c *gin.Context) {
 func (h *MarketHandler) AddMarket(c *gin.Context) {
 	var req market.AddMarketRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		appErr := errors.NewInvalidParam(err.Error())
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    appErr.Code,
+			"message": appErr.Message,
+		})
 		return
 	}
 
 	m, err := h.marketSvc.AddMarket(c.Request.Context(), req)
 	if err != nil {
-		h.logger.Error("add market failed", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		appErr := errors.WrapError(err)
+		h.logger.Error("add market failed", zap.String("detail", appErr.Detail))
+		statusCode := errors.ToHTTPStatus(appErr.Code)
+		c.JSON(statusCode, gin.H{
+			"code":    appErr.Code,
+			"message": appErr.Message,
+		})
 		return
 	}
 	c.JSON(http.StatusOK, m)
@@ -115,20 +141,36 @@ func (h *MarketHandler) UpdateMarket(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid market id"})
+		appErr := errors.NewInvalidParam("invalid market id")
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    appErr.Code,
+			"message": appErr.Message,
+		})
 		return
 	}
 
 	var req market.UpdateMarketRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		appErr := errors.NewInvalidParam(err.Error())
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    appErr.Code,
+			"message": appErr.Message,
+		})
 		return
 	}
 
 	m, err := h.marketSvc.UpdateMarket(c.Request.Context(), id, req)
 	if err != nil {
-		h.logger.Error("update market failed", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		appErr := errors.WrapError(err)
+		h.logger.Error("update market failed",
+			zap.String("marketId", idStr),
+			zap.String("code", string(appErr.Code)),
+			zap.String("detail", appErr.Detail))
+		statusCode := errors.ToHTTPStatus(appErr.Code)
+		c.JSON(statusCode, gin.H{
+			"code":    appErr.Code,
+			"message": appErr.Message,
+		})
 		return
 	}
 	c.JSON(http.StatusOK, m)
@@ -139,13 +181,22 @@ func (h *MarketHandler) DeleteMarket(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid market id"})
+		appErr := errors.NewInvalidParam("invalid market id")
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    appErr.Code,
+			"message": appErr.Message,
+		})
 		return
 	}
 
 	if err := h.marketSvc.DeleteMarket(c.Request.Context(), id); err != nil {
-		h.logger.Error("delete market failed", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		appErr := errors.WrapError(err)
+		h.logger.Error("delete market failed", zap.String("detail", appErr.Detail))
+		statusCode := errors.ToHTTPStatus(appErr.Code)
+		c.JSON(statusCode, gin.H{
+			"code":    appErr.Code,
+			"message": appErr.Message,
+		})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "market deleted"})
@@ -156,14 +207,26 @@ func (h *MarketHandler) RefreshMarket(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := uuid.Parse(idStr)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid market id"})
+		appErr := errors.NewInvalidParam("invalid market id")
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code":    appErr.Code,
+			"message": appErr.Message,
+		})
 		return
 	}
 
 	marketplace, err := h.marketSvc.RefreshMarket(c.Request.Context(), id)
 	if err != nil {
-		h.logger.Error("refresh market failed", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		appErr := errors.WrapError(err)
+		h.logger.Error("refresh market failed",
+			zap.String("marketId", idStr),
+			zap.String("code", string(appErr.Code)),
+			zap.String("detail", appErr.Detail))
+		statusCode := errors.ToHTTPStatus(appErr.Code)
+		c.JSON(statusCode, gin.H{
+			"code":    appErr.Code,
+			"message": appErr.Message,
+		})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
@@ -179,8 +242,15 @@ func (h *MarketHandler) GetTeamPackages(c *gin.Context) {
 
 	packages, err := h.marketSvc.GetTeamPackages(c.Request.Context(), forceRefresh)
 	if err != nil {
-		h.logger.Error("get team packages failed", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		appErr := errors.WrapError(err)
+		h.logger.Error("get team packages failed",
+			zap.String("code", string(appErr.Code)),
+			zap.String("detail", appErr.Detail))
+		statusCode := errors.ToHTTPStatus(appErr.Code)
+		c.JSON(statusCode, gin.H{
+			"code":    appErr.Code,
+			"message": appErr.Message,
+		})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": packages, "total": len(packages)})
@@ -189,8 +259,13 @@ func (h *MarketHandler) GetTeamPackages(c *gin.Context) {
 // RefreshPackages 手动刷新所有市场缓存
 func (h *MarketHandler) RefreshPackages(c *gin.Context) {
 	if err := h.marketSvc.RefreshPackages(c.Request.Context()); err != nil {
-		h.logger.Error("refresh packages failed", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		appErr := errors.WrapError(err)
+		h.logger.Error("refresh packages failed", zap.String("detail", appErr.Detail))
+		statusCode := errors.ToHTTPStatus(appErr.Code)
+		c.JSON(statusCode, gin.H{
+			"code":    appErr.Code,
+			"message": appErr.Message,
+		})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "packages refreshed"})
