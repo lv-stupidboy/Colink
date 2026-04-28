@@ -185,3 +185,46 @@ type SyncResult struct {
 	SkillsRemoved int       `json:"skillsRemoved"`
 	Error         string    `json:"error,omitempty"`
 }
+
+// RemoteSkill 远程 Skill 信息（扫描结果）
+type RemoteSkill struct {
+	Name          string `json:"name"`
+	Description   string `json:"description"`
+	Path          string `json:"path"`          // Skill 在仓库中的相对路径
+	ExistsLocally bool   `json:"existsLocally"` // 是否已存在本地同名 Skill
+}
+
+// SkillImportItem 单个 Skill 导入项
+type SkillImportItem struct {
+	Name            string   `json:"name" binding:"required"`
+	Path            string   `json:"path" binding:"required"`
+	Description     string   `json:"description"`
+	Tags            []string `json:"tags"`
+	SupportedAgents []string `json:"supportedAgents" binding:"required,min=1"`
+}
+
+// BatchImportRequest 批量导入请求
+type BatchImportRequest struct {
+	RegistryID string            `json:"registryId" binding:"required"`
+	Skills     []SkillImportItem `json:"skills" binding:"required,min=1"`
+}
+
+// BatchImportResult 批量导入结果
+type BatchImportResult struct {
+	Imported []*Skill           `json:"imported"`
+	Skipped  []SkippedSkillInfo `json:"skipped"`
+}
+
+// SkippedSkillInfo 跳过的 Skill 信息
+type SkippedSkillInfo struct {
+	Name   string `json:"name"`
+	Reason string `json:"reason"`
+}
+
+// ScanResult 扫描结果
+type ScanResult struct {
+	RegistryID   string         `json:"registryId"`
+	RegistryName string         `json:"registryName"`
+	RegistryURL  string         `json:"registryUrl"`
+	Skills       []*RemoteSkill `json:"skills"`
+}
