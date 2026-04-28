@@ -18,6 +18,13 @@ import (
 	"go.uber.org/zap"
 )
 
+// Package-level regex patterns for skill name cleaning (compiled once)
+var (
+	nonAlphaNumRegex      = regexp.MustCompile(`[^a-z0-9-]`)
+	consecutiveDashRegex  = regexp.MustCompile(`-+`)
+	startsWithLetterRegex = regexp.MustCompile(`^[a-z]`)
+)
+
 // SkillScanner 联邦技能扫描服务
 type SkillScanner struct {
 	registryRepo  *repo.SkillRegistryRepository
@@ -175,7 +182,12 @@ func (s *SkillScanner) scanSkillsConcurrent(ctx context.Context, repoDir string)
 		wg.Add(1)
 		go func(dir string) {
 			defer wg.Done()
-			sem <- struct{}{}        // 获取信号量
+			// Check context cancellation before starting work
+			select {
+			case <-ctx.Done():
+				return // skip work if context cancelled
+			case sem <- struct{}{}:
+			}
 			defer func() { <-sem }() // 释放信号量
 
 			skill, err := s.parseSkillFromDir(dir, repoDir)
@@ -387,18 +399,16 @@ func (s *SkillScanner) cleanSkillName(name string) string {
 	name = strings.ToLower(name)
 
 	// 只保留字母、数字、连字符
-	reg := regexp.MustCompile(`[^a-z0-9-]`)
-	name = reg.ReplaceAllString(name, "-")
+	name = nonAlphaNumRegex.ReplaceAllString(name, "-")
 
 	// 移除连续的连字符
-	regConsecutive := regexp.MustCompile(`-+`)
-	name = regConsecutive.ReplaceAllString(name, "-")
+	name = consecutiveDashRegex.ReplaceAllString(name, "-")
 
 	// 移除两端的连字符
 	name = strings.Trim(name, "-")
 
 	// 确保以字母开头
-	if len(name) > 0 && !regexp.MustCompile(`^[a-z]`).MatchString(name) {
+	if len(name) > 0 && !startsWithLetterRegex.MatchString(name) {
 		// 如果第一个字符不是字母，添加 "skill-" 前缀
 		name = "skill-" + name
 	}
@@ -451,6 +461,7 @@ func (s *SkillScanner) ImportSkills(ctx context.Context, req *model.BatchImportR
 	// 创建信号量控制并发数
 	sem := make(chan struct{}, s.importPoolSize)
 	var wg sync.WaitGroup
+	var nameMu sync.Mutex // protect name uniqueness within batch
 
 	for _, skillItem := range req.Skills {
 		wg.Add(1)
@@ -459,9 +470,11 @@ func (s *SkillScanner) ImportSkills(ctx context.Context, req *model.BatchImportR
 			sem <- struct{}{}        // 获取信号量
 			defer func() { <-sem }() // 释放信号量
 
-			// 检查是否已存在
+			// 检查是否已存在（加锁防止同批次重复）
+			nameMu.Lock()
 			existing, err := s.skillRepo.FindByName(ctx, item.Name)
 			if err == nil && existing != nil {
+				nameMu.Unlock()
 				skipChan <- model.SkippedSkillInfo{
 					Name:   item.Name,
 					Reason: "同名技能已存在",
@@ -474,6 +487,7 @@ func (s *SkillScanner) ImportSkills(ctx context.Context, req *model.BatchImportR
 			dstDir := filepath.Join(s.storagePath, item.Name)
 
 			if err := s.copySkillDirectory(srcDir, dstDir); err != nil {
+				nameMu.Unlock()
 				errChan <- fmt.Errorf("复制技能目录 %s 失败: %w", item.Name, err)
 				return
 			}
@@ -497,10 +511,12 @@ func (s *SkillScanner) ImportSkills(ctx context.Context, req *model.BatchImportR
 			if err := s.skillRepo.Create(ctx, skill); err != nil {
 				// 删除已复制的目录
 				os.RemoveAll(dstDir)
+				nameMu.Unlock()
 				errChan <- fmt.Errorf("创建技能记录 %s 失败: %w", item.Name, err)
 				return
 			}
 
+			nameMu.Unlock()
 			importChan <- skill
 		}(skillItem)
 	}
