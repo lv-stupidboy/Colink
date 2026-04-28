@@ -54,23 +54,54 @@ func NewSkillScanner(
 	}
 }
 
+// GetLogger 获取 logger 实例
+func (s *SkillScanner) GetLogger() *zap.Logger {
+	return s.logger
+}
+
 // ScanRegistry 扫描注册表中的技能
 func (s *SkillScanner) ScanRegistry(ctx context.Context, registryID uuid.UUID) (*model.ScanResult, error) {
+	s.logger.Info("开始扫描联邦源技能",
+		zap.String("registryId", registryID.String()),
+		zap.Duration("cloneTimeout", s.cloneTimeout),
+	)
+
 	// 获取注册表信息
 	registry, err := s.registryRepo.FindByID(ctx, registryID)
 	if err != nil {
+		s.logger.Error("获取注册表失败",
+			zap.String("registryId", registryID.String()),
+			zap.Error(err),
+		)
 		return nil, fmt.Errorf("获取注册表失败: %w", err)
 	}
+
+	s.logger.Info("获取注册表成功",
+		zap.String("registryId", registryID.String()),
+		zap.String("registryName", registry.Name),
+		zap.String("registryURL", registry.URL),
+		zap.String("registryType", string(registry.Type)),
+	)
 
 	// 创建临时目录
 	tempUUID := uuid.New()
 	tempDir := filepath.Join(s.storagePath, ".temp", tempUUID.String())
 	if err := os.MkdirAll(tempDir, 0755); err != nil {
+		s.logger.Error("创建临时目录失败",
+			zap.String("tempDir", tempDir),
+			zap.Error(err),
+		)
 		return nil, fmt.Errorf("创建临时目录失败: %w", err)
 	}
 
 	// 构建克隆URL（带Token注入）
 	cloneURL := s.buildCloneURL(registry)
+
+	s.logger.Info("开始执行 git clone",
+		zap.String("registryId", registryID.String()),
+		zap.String("cloneURL", cloneURL),
+		zap.String("tempDir", tempDir),
+	)
 
 	// 执行 git clone --depth 1
 	cloneCtx, cancel := context.WithTimeout(ctx, s.cloneTimeout)
@@ -81,19 +112,45 @@ func (s *SkillScanner) ScanRegistry(ctx context.Context, registryID uuid.UUID) (
 	if err != nil {
 		// 清理临时目录
 		go os.RemoveAll(tempDir)
+
+		// 记录详细错误信息
+		s.logger.Error("git clone 失败",
+			zap.String("registryId", registryID.String()),
+			zap.String("cloneURL", cloneURL),
+			zap.String("tempDir", tempDir),
+			zap.Error(err),
+			zap.String("gitOutput", string(output)),
+			zap.Bool("isTimeout", cloneCtx.Err() == context.DeadlineExceeded),
+		)
+
 		if cloneCtx.Err() == context.DeadlineExceeded {
-			return nil, fmt.Errorf("git clone 超时: %w", err)
+			return nil, fmt.Errorf("git clone 超时 (%v秒): 请检查仓库地址是否正确或网络是否通畅", s.cloneTimeout.Seconds())
 		}
-		return nil, fmt.Errorf("git clone 失败: %s, %w", string(output), err)
+		return nil, fmt.Errorf("git clone 失败: %s", string(output))
 	}
+
+	s.logger.Info("git clone 成功",
+		zap.String("registryId", registryID.String()),
+		zap.String("tempDir", tempDir),
+	)
 
 	// 扫描技能目录
 	skills, err := s.scanSkillsConcurrent(ctx, tempDir)
 	if err != nil {
 		// 清理临时目录
 		go os.RemoveAll(tempDir)
+		s.logger.Error("扫描技能目录失败",
+			zap.String("registryId", registryID.String()),
+			zap.String("tempDir", tempDir),
+			zap.Error(err),
+		)
 		return nil, fmt.Errorf("扫描技能失败: %w", err)
 	}
+
+	s.logger.Info("扫描技能目录完成",
+		zap.String("registryId", registryID.String()),
+		zap.Int("skillCount", len(skills)),
+	)
 
 	// 检查每个技能是否本地已存在
 	for _, skill := range skills {
@@ -107,6 +164,12 @@ func (s *SkillScanner) ScanRegistry(ctx context.Context, registryID uuid.UUID) (
 
 	// 异步删除临时目录
 	go os.RemoveAll(tempDir)
+
+	s.logger.Info("扫描联邦源技能完成",
+		zap.String("registryId", registryID.String()),
+		zap.String("registryName", registry.Name),
+		zap.Int("totalSkills", len(skills)),
+	)
 
 	// 返回扫描结果
 	return &model.ScanResult{

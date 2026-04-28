@@ -19,6 +19,7 @@ import (
 	"github.com/anthropic/isdp/internal/service/skill"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
 
 // SkillHandler Skill API处理器
@@ -259,7 +260,16 @@ func (h *SkillHandler) ScanFederatedSkills(c *gin.Context) {
 
 	result, err := h.scanner.ScanRegistry(c.Request.Context(), registryID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		// 记录详细错误日志
+		h.scanner.GetLogger().Error("扫描联邦源技能失败",
+			zap.String("registryId", req.RegistryID),
+			zap.Error(err),
+			zap.String("errorDetail", fmt.Sprintf("%+v", err)),
+		)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": err.Error(),
+			"detail": fmt.Sprintf("扫描失败: %v", err),
+		})
 		return
 	}
 

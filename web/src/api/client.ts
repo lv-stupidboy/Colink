@@ -504,12 +504,20 @@ class APIClient {
       if (skillName) body.skillName = skillName;
       return this.request('/skills/import/federated', 'POST', body);
     },
-    // 扫描联邦源 Skill 列表
-    scanFederatedSkills: (registryId: string): Promise<ScanResult> =>
-      this.request('/skills/import/federated/scan', 'POST', { registryId }),
-    // 批量导入联邦源 Skill
-    batchImportFederated: (req: BatchImportRequest): Promise<BatchImportResult> =>
-      this.request('/skills/import/federated/batch', 'POST', req),
+    // 扫描联邦源 Skill 列表（使用更长的超时时间）
+    scanFederatedSkills: async (registryId: string): Promise<ScanResult> => {
+      const response = await this.client.post('/skills/import/federated/scan', { registryId }, {
+        timeout: 180000, // 3分钟超时（git clone 可能需要较长时间）
+      });
+      return response.data;
+    },
+    // 批量导入联邦源 Skill（使用更长的超时时间）
+    batchImportFederated: async (req: BatchImportRequest): Promise<BatchImportResult> => {
+      const response = await this.client.post('/skills/import/federated/batch', req, {
+        timeout: 300000, // 5分钟超时（批量导入可能需要较长时间）
+      });
+      return response.data;
+    },
   };
 
   // Registry API
