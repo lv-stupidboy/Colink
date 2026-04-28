@@ -31,27 +31,20 @@ pub fn atomic_copy_dir(src: &Path, dest: &Path) -> Result<()> {
     let staging = parent.join(format!(".staging-{}", std::process::id()));
 
     if staging.exists() {
-        fs::remove_dir_all(&staging)
-            .map_err(|e| InstallerError::Io {
-                context: "remove old staging".to_string(),
-                source: e,
-            })?;
+        remove_dir_all_with_retry(&staging, 3, 500)?;
     }
 
     copy_dir_recursive(src, &staging)?;
 
     // Atomic replace
     if dest.exists() {
-        fs::remove_dir_all(dest)
-            .map_err(|e| InstallerError::Io {
-                context: format!("remove old dest: {}", dest.display()),
-                source: e,
-            })?;
+        // Use retry mechanism for Windows temporary file locks
+        remove_dir_all_with_retry(dest, 3, 500)?;
     }
 
     fs::rename(&staging, dest)
         .map_err(|e| {
-            let _ = fs::remove_dir_all(&staging);
+            let _ = remove_dir_all_with_retry(&staging, 1, 0);
             InstallerError::Io {
                 context: format!("rename staging to dest: {}", dest.display()),
                 source: e,
@@ -65,19 +58,19 @@ pub fn atomic_copy_dir(src: &Path, dest: &Path) -> Result<()> {
 pub fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<()> {
     fs::create_dir_all(dest)
         .map_err(|e| InstallerError::Io {
-            context: format!("create dest dir: {}", dest.display()),
+            context: format!("创建目录: {}", dest.display()),
             source: e,
         })?;
 
     let entries = fs::read_dir(src)
         .map_err(|e| InstallerError::Io {
-            context: format!("read src dir: {}", src.display()),
+            context: format!("读取源目录: {}", src.display()),
             source: e,
         })?;
 
     for entry in entries {
         let entry = entry.map_err(|e| InstallerError::Io {
-            context: "read entry".to_string(),
+            context: "读取目录项".to_string(),
             source: e,
         })?;
 
@@ -87,7 +80,7 @@ pub fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<()> {
         let file_type = entry
             .file_type()
             .map_err(|e| InstallerError::Io {
-                context: "get file type".to_string(),
+                context: format!("获取文件类型: {}", src_path.display()),
                 source: e,
             })?;
 
@@ -96,12 +89,122 @@ pub fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<()> {
         } else {
             fs::copy(&src_path, &dest_path)
                 .map_err(|e| InstallerError::Io {
-                    context: format!("copy file: {}", src_path.display()),
+                    context: format!("复制文件: {} -> {}", src_path.display(), dest_path.display()),
                     source: e,
                 })?;
         }
     }
 
+    Ok(())
+}
+
+/// Remove directory with retry on Windows (handles "access denied" due to virus scan etc)
+/// Windows often returns "access denied" when a file is temporarily locked by:
+/// - Windows Defender scanning
+/// - Windows Search Indexer
+/// - Other processes reading the file
+#[cfg(target_os = "windows")]
+pub fn remove_dir_all_with_retry(path: &Path, max_retries: u32, retry_delay_ms: u64) -> Result<()> {
+    use std::thread;
+    use std::time::Duration;
+
+    for attempt in 0..max_retries {
+        if !path.exists() {
+            return Ok(());
+        }
+
+        let result = fs::remove_dir_all(path);
+        match result {
+            Ok(_) => return Ok(()),
+            Err(e) => {
+                let os_code = e.raw_os_error().unwrap_or(0);
+                // Windows error 5 = ACCESS_DENIED
+                // Windows error 32 = SHARING_VIOLATION (file in use)
+                if os_code == 5 || os_code == 32 {
+                    if attempt < max_retries - 1 {
+                        log::warn!(
+                            "remove_dir_all failed (attempt {}), retrying after {}ms: {} (os error {})",
+                            attempt + 1,
+                            retry_delay_ms,
+                            path.display(),
+                            os_code
+                        );
+                        thread::sleep(Duration::from_millis(retry_delay_ms));
+                        continue;
+                    }
+                }
+                return Err(InstallerError::Io {
+                    context: format!("remove directory (after {} retries): {}", max_retries, path.display()),
+                    source: e,
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn remove_dir_all_with_retry(path: &Path, _max_retries: u32, _retry_delay_ms: u64) -> Result<()> {
+    if path.exists() {
+        fs::remove_dir_all(path)
+            .map_err(|e| InstallerError::Io {
+                context: format!("remove directory: {}", path.display()),
+                source: e,
+            })?;
+    }
+    Ok(())
+}
+
+/// Remove file with retry on Windows (handles "access denied" due to virus scan etc)
+#[cfg(target_os = "windows")]
+pub fn remove_file_with_retry(path: &Path, max_retries: u32, retry_delay_ms: u64) -> Result<()> {
+    use std::thread;
+    use std::time::Duration;
+
+    for attempt in 0..max_retries {
+        if !path.exists() {
+            return Ok(());
+        }
+
+        let result = fs::remove_file(path);
+        match result {
+            Ok(_) => return Ok(()),
+            Err(e) => {
+                let os_code = e.raw_os_error().unwrap_or(0);
+                // Windows error 5 = ACCESS_DENIED
+                // Windows error 32 = SHARING_VIOLATION (file in use)
+                if os_code == 5 || os_code == 32 {
+                    if attempt < max_retries - 1 {
+                        log::warn!(
+                            "remove_file failed (attempt {}), retrying after {}ms: {} (os error {})",
+                            attempt + 1,
+                            retry_delay_ms,
+                            path.display(),
+                            os_code
+                        );
+                        thread::sleep(Duration::from_millis(retry_delay_ms));
+                        continue;
+                    }
+                }
+                return Err(InstallerError::Io {
+                    context: format!("remove file (after {} retries): {}", max_retries, path.display()),
+                    source: e,
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn remove_file_with_retry(path: &Path, _max_retries: u32, _retry_delay_ms: u64) -> Result<()> {
+    if path.exists() {
+        fs::remove_file(path)
+            .map_err(|e| InstallerError::Io {
+                context: format!("remove file: {}", path.display()),
+                source: e,
+            })?;
+    }
     Ok(())
 }
 
@@ -126,17 +229,11 @@ pub fn delete_except_whitelist(dir: &Path, whitelist: &[&str]) -> Result<()> {
 
         let path = entry.path();
         if path.is_dir() {
-            fs::remove_dir_all(&path)
-                .map_err(|e| InstallerError::Io {
-                    context: format!("remove dir: {}", path.display()),
-                    source: e,
-                })?;
+            // Use retry mechanism for Windows temporary file locks
+            remove_dir_all_with_retry(&path, 3, 500)?;
         } else {
-            fs::remove_file(&path)
-                .map_err(|e| InstallerError::Io {
-                    context: format!("remove file: {}", path.display()),
-                    source: e,
-                })?;
+            // Retry for file deletion as well
+            remove_file_with_retry(&path, 3, 500)?;
         }
     }
 

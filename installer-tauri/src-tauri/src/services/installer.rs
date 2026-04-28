@@ -1,7 +1,7 @@
 use crate::error::{InstallerError, Result};
 use crate::services::{
     disk_space::get_disk_space,
-    file_ops::{atomic_copy_dir, kill_all_processes, delete_except_whitelist, copy_dir_recursive},
+    file_ops::{atomic_copy_dir, kill_all_processes, delete_except_whitelist, copy_dir_recursive, remove_dir_all_with_retry},
     registry::write_registry,
     shortcut::{create_desktop_shortcut, create_start_menu_shortcut, delete_all_shortcuts},
     uninstall::prepare_upgrade,
@@ -425,14 +425,10 @@ where
 
     // Delete old installation directory contents
     if old_install_dir.exists() {
-        // Clean backup directory first
+        // Clean backup directory first (use retry for Windows temporary locks)
         let backup_dir = old_install_dir.join("backup");
         if backup_dir.exists() {
-            std::fs::remove_dir_all(&backup_dir)
-                .map_err(|e| InstallerError::Io {
-                    context: "remove backup".to_string(),
-                    source: e,
-                })?;
+            remove_dir_all_with_retry(&backup_dir, 3, 500)?;
         }
 
         if config.keep_data {
@@ -440,12 +436,8 @@ where
             let whitelist = ["data"];
             delete_except_whitelist(old_install_dir, &whitelist)?;
         } else {
-            // Full delete
-            std::fs::remove_dir_all(old_install_dir)
-                .map_err(|e| InstallerError::Io {
-                    context: "remove old install dir".to_string(),
-                    source: e,
-                })?;
+            // Full delete (use retry for Windows temporary locks)
+            remove_dir_all_with_retry(old_install_dir, 3, 500)?;
         }
     }
 
@@ -572,7 +564,7 @@ where
     if server_src.exists() {
         std::fs::copy(&server_src, &server_dest)
             .map_err(|e| InstallerError::Io {
-                context: "copy server exe".to_string(),
+                context: format!("复制服务程序: {} -> {}", server_src.to_string_lossy(), server_dest.to_string_lossy()),
                 source: e,
             })?;
         log::info!("Copied server exe to {:?}", server_dest);

@@ -76,7 +76,8 @@ const LauncherDashboard: React.FC = () => {
   const [serviceStatus, setServiceStatus] = useState<'running' | 'stopped'>('stopped');
   const [runningAgents, setRunningAgents] = useState<RunningAgentInstance[]>([]);
   const [agentCount, setAgentCount] = useState(0);
-  const [loading, setLoading] = useState(false);
+  const [startingService, setStartingService] = useState(false);
+  const [stoppingService, setStoppingService] = useState(false);
   const [installDir, setInstallDir] = useState('');
 
   useEffect(() => {
@@ -124,7 +125,7 @@ const LauncherDashboard: React.FC = () => {
   };
 
   const handleStart = async () => {
-    setLoading(true);
+    setStartingService(true);
     try {
       const result = await serviceApi.start();
       if (!result.success && result.error) {
@@ -136,7 +137,7 @@ const LauncherDashboard: React.FC = () => {
       console.error('Failed to start service:', err);
       message.error('启动服务失败');
     } finally {
-      setLoading(false);
+      setStartingService(false);
     }
   };
 
@@ -145,7 +146,7 @@ const LauncherDashboard: React.FC = () => {
       message.warning('有 Agent 实例正在运行，请先在 Web 控制台停止');
       return;
     }
-    setLoading(true);
+    setStoppingService(true);
     try {
       await serviceApi.stop();
       await checkStatus();
@@ -153,7 +154,7 @@ const LauncherDashboard: React.FC = () => {
       console.error('Failed to stop service:', err);
       message.error('停止服务失败');
     } finally {
-      setLoading(false);
+      setStoppingService(false);
     }
   };
 
@@ -244,7 +245,7 @@ const LauncherDashboard: React.FC = () => {
       <Divider />
 
       {/* 服务状态 */}
-      <Card size="small" style={{ marginBottom: 16 }} loading={loading}>
+      <Card size="small" style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
             <Text strong>服务状态：</Text>
@@ -266,6 +267,7 @@ const LauncherDashboard: React.FC = () => {
                 onClick={handleStop}
                 danger
                 disabled={agentCount > 0}
+                loading={stoppingService}
               >
                 停止服务
               </Button>
@@ -274,6 +276,7 @@ const LauncherDashboard: React.FC = () => {
                 type="primary"
                 icon={<PlayCircleOutlined />}
                 onClick={handleStart}
+                loading={startingService}
               >
                 启动服务
               </Button>

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -119,10 +120,13 @@ func newSQLiteDB(cfg DBConfig) (*sql.DB, Dialect, error) {
 		return nil, nil, fmt.Errorf("sqlite database path cannot be empty")
 	}
 
+	log.Printf("[DB] Opening SQLite database: %s", cfg.Path)
+
 	// 添加 _loc=auto 参数，让驱动自动解析 TEXT 时间字段为 time.Time
 	dsn := cfg.Path + "?_loc=auto"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
+		log.Printf("[DB] Failed to open sqlite database: %v", err)
 		return nil, nil, fmt.Errorf("failed to open sqlite database: %w", err)
 	}
 
@@ -133,13 +137,19 @@ func newSQLiteDB(cfg DBConfig) (*sql.DB, Dialect, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	log.Printf("[DB] Enabling foreign keys...")
 	if _, err := db.ExecContext(ctx, "PRAGMA foreign_keys = ON"); err != nil {
+		log.Printf("[DB] Failed to enable foreign keys: %v", err)
 		return nil, nil, fmt.Errorf("failed to enable foreign keys: %w", err)
 	}
 
+	log.Printf("[DB] Ping database...")
 	if err := db.PingContext(ctx); err != nil {
+		log.Printf("[DB] Failed to ping database: %v", err)
 		return nil, nil, fmt.Errorf("failed to ping database: %w", err)
 	}
+
+	log.Printf("[DB] SQLite database connected successfully")
 
 	return db, &SQLiteDialect{}, nil
 }

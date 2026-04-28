@@ -78,6 +78,7 @@ pub fn run() {
             commands::open_data_dir,
             commands::open_config,
             commands::open_console,
+            commands::open_install_dir,
 
             // Window commands
             commands::window_minimize,

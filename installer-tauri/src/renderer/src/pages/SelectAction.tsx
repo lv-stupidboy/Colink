@@ -45,9 +45,9 @@ const SelectAction: React.FC<SelectActionProps> = ({
         <Card
           hoverable
           onClick={onUpgrade}
-          style={{ cursor: 'pointer' }}
+          style={{ cursor: 'pointer', borderColor: '#52c41a' }}
         >
-          <Title level={4} style={{ marginBottom: 8 }}>升级</Title>
+          <Title level={4} style={{ marginBottom: 8, color: '#52c41a' }}>升级</Title>
           <Text type="secondary">升级到新版本，保留现有数据和配置</Text>
         </Card>
 
@@ -60,25 +60,25 @@ const SelectAction: React.FC<SelectActionProps> = ({
           <Text type="secondary">更改安装位置或覆盖安装（可选保留数据）</Text>
         </Card>
 
-        <Card
-          hoverable
-          style={{ cursor: 'pointer', borderColor: '#ff4d4f' }}
+        <Popconfirm
+          title="确认卸载"
+          description="卸载将删除程序文件，可选择保留用户数据。是否继续？"
+          onConfirm={onUninstall}
+          okText="确认卸载"
+          cancelText="取消"
+          okButtonProps={{ danger: true }}
         >
-          <Popconfirm
-            title="确认卸载"
-            description="卸载将删除程序文件，可选择保留用户数据。是否继续？"
-            onConfirm={onUninstall}
-            okText="确认卸载"
-            cancelText="取消"
-            okButtonProps={{ danger: true }}
+          <Card
+            hoverable
+            style={{ cursor: 'pointer', borderColor: '#ff4d4f' }}
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <DeleteOutlined style={{ color: '#ff4d4f', marginRight: 8 }} />
               <Title level={4} style={{ marginBottom: 0, color: '#ff4d4f' }}>卸载</Title>
             </div>
-          </Popconfirm>
-          <Text type="secondary" style={{ marginTop: 8, display: 'block' }}>移除 Colink 程序</Text>
-        </Card>
+            <Text type="secondary" style={{ marginTop: 8, display: 'block' }}>移除 Colink 程序</Text>
+          </Card>
+        </Popconfirm>
 
         <Button block size="large" onClick={onCancel}>
           取消

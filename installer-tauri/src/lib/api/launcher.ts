@@ -18,4 +18,9 @@ export const launcherApi = {
     const { invoke } = await import('@tauri-apps/api/core');
     return invoke('open_console');
   },
+
+  openInstallDir: async (installDir?: string): Promise<void> => {
+    const { invoke } = await import('@tauri-apps/api/core');
+    return invoke('open_install_dir', { installDir });
+  },
 };

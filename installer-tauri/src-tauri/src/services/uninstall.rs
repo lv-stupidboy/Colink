@@ -1,5 +1,5 @@
 use crate::error::{InstallerError, Result};
-use crate::services::file_ops::{delete_except_whitelist, move_to_backup, kill_all_processes};
+use crate::services::file_ops::{delete_except_whitelist, move_to_backup, kill_all_processes, remove_dir_all_with_retry};
 use crate::services::registry::{delete_registry, get_installed_version};
 use crate::services::shortcut::delete_all_shortcuts;
 use std::path::Path;
@@ -20,13 +20,10 @@ pub fn uninstall(install_dir: &str, keep_data: bool) -> Result<()> {
     delete_all_shortcuts()?;
 
     // Step 3: Clean backup directory from previous upgrade
+    // Use retry mechanism for Windows temporary file locks
     let backup_dir = dir.join("backup");
     if backup_dir.exists() {
-        std::fs::remove_dir_all(&backup_dir)
-            .map_err(|e| InstallerError::Io {
-                context: "remove backup".to_string(),
-                source: e,
-            })?;
+        remove_dir_all_with_retry(&backup_dir, 3, 500)?;
     }
 
     // Step 4: Handle data directory
@@ -36,11 +33,8 @@ pub fn uninstall(install_dir: &str, keep_data: bool) -> Result<()> {
         delete_except_whitelist(dir, &whitelist)?;
     } else {
         // Full uninstall - delete everything
-        std::fs::remove_dir_all(dir)
-            .map_err(|e| InstallerError::Io {
-                context: "remove install dir".to_string(),
-                source: e,
-            })?;
+        // Use retry mechanism for Windows temporary file locks
+        remove_dir_all_with_retry(dir, 3, 500)?;
     }
 
     // Step 5: Delete registry entry
@@ -68,14 +62,19 @@ pub fn prepare_upgrade(install_dir: &str) -> Result<()> {
     // Delete shortcuts
     delete_all_shortcuts()?;
 
-    // Clean old backup
+    // Clean old backup directory
+    // Important: backup may contain executable files from previous failed install
+    // Kill processes first to ensure files are not locked
+    log::info!("Preparing to clean old backup directory");
+    kill_all_processes("colink-server.exe")?;
+    kill_all_processes("Colink.exe")?;
+
     let backup_dir = dir.join("backup");
     if backup_dir.exists() {
-        std::fs::remove_dir_all(&backup_dir)
-            .map_err(|e| InstallerError::Io {
-                context: "remove old backup".to_string(),
-                source: e,
-            })?;
+        log::info!("Removing old backup directory: {}", backup_dir.display());
+        // Use retry mechanism to handle temporary file locks (Windows Defender, etc.)
+        remove_dir_all_with_retry(&backup_dir, 3, 500)?;
+        log::info!("Old backup directory removed successfully");
     }
 
     // Move non-whitelisted items to backup (atomic rename on same drive)
