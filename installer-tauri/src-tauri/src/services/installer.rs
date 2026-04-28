@@ -1,7 +1,7 @@
 use crate::error::{InstallerError, Result};
 use crate::services::{
     disk_space::get_disk_space,
-    file_ops::{atomic_copy_dir, kill_all_processes, delete_except_whitelist, copy_dir_recursive, remove_dir_all_with_retry},
+    file_ops::{atomic_copy_dir, kill_all_processes, delete_except_whitelist, copy_dir_recursive, remove_dir_all_with_retry, cleanup_staging_dirs},
     registry::write_registry,
     shortcut::{create_desktop_shortcut, create_start_menu_shortcut, delete_all_shortcuts},
     uninstall::prepare_upgrade,
@@ -430,6 +430,9 @@ where
         if backup_dir.exists() {
             remove_dir_all_with_retry(&backup_dir, 3, 500)?;
         }
+
+        // Clean up leftover .staging-* directories from previous failed installs
+        cleanup_staging_dirs(old_install_dir)?;
 
         if config.keep_data {
             // Keep only data directory

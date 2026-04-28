@@ -209,6 +209,7 @@ pub fn remove_file_with_retry(path: &Path, _max_retries: u32, _retry_delay_ms: u
 }
 
 /// Delete directory contents except whitelisted items
+/// Hidden files/dirs (starting with '.') are automatically deleted (they are temp files)
 pub fn delete_except_whitelist(dir: &Path, whitelist: &[&str]) -> Result<()> {
     let entries = fs::read_dir(dir)
         .map_err(|e| InstallerError::Io {
@@ -240,7 +241,36 @@ pub fn delete_except_whitelist(dir: &Path, whitelist: &[&str]) -> Result<()> {
     Ok(())
 }
 
+/// Clean up all hidden temp directories (starting with '.staging-') in a directory
+/// These are leftover from previous failed atomic_copy_dir operations
+pub fn cleanup_staging_dirs(dir: &Path) -> Result<()> {
+    let entries = fs::read_dir(dir)
+        .map_err(|e| InstallerError::Io {
+            context: format!("read dir for staging cleanup: {}", dir.display()),
+            source: e,
+        })?;
+
+    for entry in entries {
+        let entry = entry.map_err(|e| InstallerError::Io {
+            context: "read entry".to_string(),
+            source: e,
+        })?;
+
+        let name = entry.file_name().to_string_lossy().to_string();
+
+        // Only clean up .staging-* directories
+        if name.starts_with(".staging-") {
+            let path = entry.path();
+            log::info!("Cleaning up leftover staging directory: {}", path.display());
+            remove_dir_all_with_retry(&path, 3, 500)?;
+        }
+    }
+
+    Ok(())
+}
+
 /// Move non-whitelisted items to backup directory
+/// Hidden files/dirs (starting with '.') are automatically skipped (they are temp files)
 pub fn move_to_backup(dir: &Path, backup_dir: &Path, whitelist: &[&str]) -> Result<()> {
     fs::create_dir_all(backup_dir)
         .map_err(|e| InstallerError::Io {
@@ -261,7 +291,16 @@ pub fn move_to_backup(dir: &Path, backup_dir: &Path, whitelist: &[&str]) -> Resu
         })?;
 
         let name = entry.file_name().to_string_lossy().to_string();
+
+        // Skip whitelisted items
         if whitelist.contains(&name.as_str()) {
+            continue;
+        }
+
+        // Skip hidden files/dirs (starting with '.') - these are temp files like .staging-*
+        // Don't move them to backup, they should be cleaned up separately
+        if name.starts_with('.') {
+            log::warn!("Skipping hidden temp file/dir: {}", name);
             continue;
         }
 

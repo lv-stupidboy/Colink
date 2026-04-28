@@ -1,5 +1,5 @@
 use crate::error::{InstallerError, Result};
-use crate::services::file_ops::{delete_except_whitelist, move_to_backup, kill_all_processes, remove_dir_all_with_retry};
+use crate::services::file_ops::{delete_except_whitelist, move_to_backup, kill_all_processes, remove_dir_all_with_retry, cleanup_staging_dirs};
 use crate::services::registry::{delete_registry, get_installed_version};
 use crate::services::shortcut::delete_all_shortcuts;
 use std::path::Path;
@@ -77,8 +77,14 @@ pub fn prepare_upgrade(install_dir: &str) -> Result<()> {
         log::info!("Old backup directory removed successfully");
     }
 
+    // Clean up any leftover .staging-* directories from previous failed installs
+    // These are temp dirs created by atomic_copy_dir that weren't cleaned up
+    log::info!("Cleaning up leftover staging directories");
+    cleanup_staging_dirs(dir)?;
+
     // Move non-whitelisted items to backup (atomic rename on same drive)
     // Include 'backup' in whitelist since it's the destination and was just created
+    // Hidden files/dirs (starting with '.') are automatically skipped by move_to_backup
     // Note: Do NOT whitelist 'resources' - old Electron resources are obsolete
     let whitelist = ["data", "backup"];
     move_to_backup(dir, &backup_dir, &whitelist)?;
