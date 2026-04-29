@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { ConfigProvider, Spin } from "antd";
 import zhCN from "antd/locale/zh_CN";
 import type { DaemonStatus } from "../../shared/daemon-types";
-import { getApiBaseUrl, getWsUrl } from "./platform/api-bridge";
+import { getApiBaseUrl } from "./platform/api-bridge";
 
 function App() {
   const [status, setStatus] = useState<DaemonStatus>({ state: "installing_cli" });
@@ -46,7 +46,6 @@ function App() {
 
   // Determine API URL based on mode
   const apiUrl = getApiBaseUrl(mode, status.serverUrl);
-  const wsUrl = getWsUrl(mode, status.serverUrl);
 
   if (!ready) {
     return (

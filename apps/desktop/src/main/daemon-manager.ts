@@ -1,6 +1,6 @@
 import { app, ipcMain, BrowserWindow } from "electron";
 import { execFile } from "child_process";
-import { readFile, writeFile, mkdir, rm, stat } from "fs/promises";
+import { readFile, writeFile, mkdir } from "fs/promises";
 import { existsSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
@@ -201,7 +201,7 @@ async function stopDaemon(): Promise<{ success: boolean; error?: string }> {
       (err) => {
         currentState = "stopped";
         sendStatus({ state: "stopped" });
-        resolve({ success: err ? { success: false, error: String(err) } : { success: true } });
+        resolve(err ? { success: false, error: String(err) } : { success: true });
       }
     );
   });

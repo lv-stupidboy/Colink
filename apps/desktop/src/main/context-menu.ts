@@ -9,6 +9,9 @@ export function installContextMenu(webContents: WebContents): void {
       { type: "separator" },
       { label: "Select All", role: "selectAll" },
     ]);
-    menu.popup(BrowserWindow.fromWebContents(webContents) ?? undefined);
+    const win = BrowserWindow.fromWebContents(webContents);
+    if (win) {
+      menu.popup({ window: win });
+    }
   });
 }
