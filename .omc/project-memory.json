@@ -277,8 +277,8 @@
     },
     {
       "path": "web",
-      "accessCount": 2,
-      "lastAccessed": 1776848217243,
+      "accessCount": 3,
+      "lastAccessed": 1777465657879,
       "type": "directory"
     },
     {
@@ -412,6 +412,24 @@
       "accessCount": 1,
       "lastAccessed": 1777465471063,
       "type": "file"
+    },
+    {
+      "path": "auto-test\\internal\\service\\a2a\\mention_parser_test.go",
+      "accessCount": 1,
+      "lastAccessed": 1777465650281,
+      "type": "file"
+    },
+    {
+      "path": "auto-test\\e2e\\team-package\\list-crud.spec.ts",
+      "accessCount": 1,
+      "lastAccessed": 1777465653040,
+      "type": "file"
+    },
+    {
+      "path": "internal",
+      "accessCount": 1,
+      "lastAccessed": 1777465812059,
+      "type": "directory"
     }
   ],
   "userDirectives": []

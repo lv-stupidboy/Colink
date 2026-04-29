@@ -1,4 +1,4 @@
-package im
+package im_test
 
 import (
 	"sync"
