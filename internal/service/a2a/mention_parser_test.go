@@ -84,8 +84,8 @@ func TestParseA2AMentions_Core(t *testing.T) {
 // @id SV-02-07
 func TestParseA2AMentions_BoundaryCheck(t *testing.T) {
 	// 测试最多 2 个目标限制
-	text := "@backend 请实现\n@architect 请设计\n@code_reviewer 第三行"
-	currentCatID := "sre_engineer"
+	_ = "@backend 请实现\n@architect 请设计\n@code_reviewer 第三行"
+	_ = "sre_engineer"
 
 	// TODO: Import and call ParseA2AMentions
 	// got := ParseA2AMentions(text, currentCatID)
@@ -134,13 +134,10 @@ func TestParseA2AMentions_SelfMentionFilter(t *testing.T) {
 // @priority P1
 // @id SV-02-09
 func TestParseA2AMentions_CodeBlockFilter(t *testing.T) {
-	text := "请看这段代码：\n```python\n@backend decorator\n```\n@architect 这才是真正的提及"
-	currentCatID := "backend_developer"
+	_ = "请看这段代码：\n```python\n@backend decorator\n```\n@architect 这才是真正的提及"
+	_ = "backend_developer"
 
 	// TODO: Import and call ParseA2AMentions
-	// got := ParseA2AMentions(text, currentCatID)
-	// assert.Equal(t, []string{"architect"}, got)
-
 	assert.NotNil(t, t, "Test framework working")
 }
 
@@ -148,14 +145,10 @@ func TestParseA2AMentions_CodeBlockFilter(t *testing.T) {
 // @priority P1
 // @id SV-02-10
 func TestParseA2AMentions_NonLineStartFilter(t *testing.T) {
-	text := "hello @backend\n@architect this one is at line start"
-	currentCatID := "backend_developer"
+	_ = "hello @backend\n@architect this one is at line start"
+	_ = "backend_developer"
 
 	// TODO: Import and call ParseA2AMentions
-	// got := ParseA2AMentions(text, currentCatID)
-	// 只有 @architect 应该被识别，因为它在行首
-	// assert.Equal(t, []string{"architect"}, got)
-
 	assert.NotNil(t, t, "Test framework working")
 }
 

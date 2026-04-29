@@ -1,4 +1,4 @@
-package im_test
+package im
 
 import (
 	"strings"

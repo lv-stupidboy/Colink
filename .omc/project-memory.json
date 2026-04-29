@@ -258,6 +258,12 @@
       "type": "file"
     },
     {
+      "path": "internal\\service\\a2a\\mention_parser_test.go",
+      "accessCount": 6,
+      "lastAccessed": 1777469706886,
+      "type": "file"
+    },
+    {
       "path": "docs\\plans\\2026-04-29-auto-test-supplement-design.md",
       "accessCount": 5,
       "lastAccessed": 1777456190304,
@@ -298,6 +304,12 @@
       "accessCount": 3,
       "lastAccessed": 1777465657879,
       "type": "directory"
+    },
+    {
+      "path": "internal\\service\\rule\\service_test.go",
+      "accessCount": 3,
+      "lastAccessed": 1777469943070,
+      "type": "file"
     },
     {
       "path": "web\\tests\\test-runner.ts",
@@ -345,12 +357,6 @@
       "path": "web\\tests\\README.md",
       "accessCount": 1,
       "lastAccessed": 1776848189806,
-      "type": "file"
-    },
-    {
-      "path": "internal\\service\\a2a\\mention_parser_test.go",
-      "accessCount": 1,
-      "lastAccessed": 1777446948173,
       "type": "file"
     },
     {
