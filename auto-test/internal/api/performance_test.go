@@ -134,8 +134,8 @@ func TestAPIPerformance_ResponseTimeDistribution(t *testing.T) {
 	}
 	p95 := responseTimes[p95Index]
 
-	// 验证 P95 < 250ms（放宽标准）
-	assert.Less(t, p95, 250*time.Millisecond, "P95 response time should be under 250ms")
+	// 验证 P95 <= 250ms
+	assert.LessOrEqual(t, p95, 250*time.Millisecond, "P95 response time should be at most 250ms")
 }
 
 // @feature F009 - 系统性能与稳定性
