@@ -264,6 +264,24 @@
       "type": "file"
     },
     {
+      "path": "AGENTS.md",
+      "accessCount": 5,
+      "lastAccessed": 1777466574776,
+      "type": "file"
+    },
+    {
+      "path": "auto-test\\internal\\api\\agent_handler_test.go",
+      "accessCount": 5,
+      "lastAccessed": 1777468233282,
+      "type": "file"
+    },
+    {
+      "path": "auto-test\\internal\\api\\performance_test.go",
+      "accessCount": 4,
+      "lastAccessed": 1777466714165,
+      "type": "file"
+    },
+    {
       "path": "data\\agent-configs\\fbc7c8d4-a321-41d8-bef8-b4f79985948f\\开发工程师.md",
       "accessCount": 3,
       "lastAccessed": 1776847458627,
@@ -300,6 +318,24 @@
       "type": "file"
     },
     {
+      "path": "CLAUDE.md",
+      "accessCount": 2,
+      "lastAccessed": 1777466512038,
+      "type": "file"
+    },
+    {
+      "path": "web\\package.json",
+      "accessCount": 2,
+      "lastAccessed": 1777467281523,
+      "type": "file"
+    },
+    {
+      "path": "auto-test\\package.json",
+      "accessCount": 2,
+      "lastAccessed": 1777467329402,
+      "type": "file"
+    },
+    {
       "path": "web\\tests\\USAGE.md",
       "accessCount": 1,
       "lastAccessed": 1776848189311,
@@ -309,12 +345,6 @@
       "path": "web\\tests\\README.md",
       "accessCount": 1,
       "lastAccessed": 1776848189806,
-      "type": "file"
-    },
-    {
-      "path": "web\\package.json",
-      "accessCount": 1,
-      "lastAccessed": 1776848215080,
       "type": "file"
     },
     {
@@ -408,12 +438,6 @@
       "type": "file"
     },
     {
-      "path": "auto-test\\internal\\api\\agent_handler_test.go",
-      "accessCount": 1,
-      "lastAccessed": 1777465471063,
-      "type": "file"
-    },
-    {
       "path": "auto-test\\internal\\service\\a2a\\mention_parser_test.go",
       "accessCount": 1,
       "lastAccessed": 1777465650281,
@@ -430,6 +454,54 @@
       "accessCount": 1,
       "lastAccessed": 1777465812059,
       "type": "directory"
+    },
+    {
+      "path": "auto-test\\vitest\\components\\ChatMessageList.test.ts",
+      "accessCount": 1,
+      "lastAccessed": 1777466400132,
+      "type": "file"
+    },
+    {
+      "path": "C:\\Users\\hw\\AppData\\Local\\Temp\\claude\\D--CoLinkProject-Colink-Test-0430-isdp\\88cba655-73f7-4d4c-a090-6d9c9989c6bd\\tasks\\b4myj29pp.output",
+      "accessCount": 1,
+      "lastAccessed": 1777466906158,
+      "type": "file"
+    },
+    {
+      "path": "",
+      "accessCount": 1,
+      "lastAccessed": 1777467298419,
+      "type": "directory"
+    },
+    {
+      "path": "package.json",
+      "accessCount": 1,
+      "lastAccessed": 1777467325477,
+      "type": "file"
+    },
+    {
+      "path": "auto-test\\internal\\service\\im\\delivery_test.go",
+      "accessCount": 1,
+      "lastAccessed": 1777468052817,
+      "type": "file"
+    },
+    {
+      "path": "auto-test\\internal\\service\\rule\\service_test.go",
+      "accessCount": 1,
+      "lastAccessed": 1777468057649,
+      "type": "file"
+    },
+    {
+      "path": "auto-test\\internal\\service\\teampackagesync\\clone_cache_test.go",
+      "accessCount": 1,
+      "lastAccessed": 1777468064709,
+      "type": "file"
+    },
+    {
+      "path": "auto-test\\internal\\service\\im\\bridge_service_test.go",
+      "accessCount": 1,
+      "lastAccessed": 1777468072848,
+      "type": "file"
     }
   ],
   "userDirectives": []
