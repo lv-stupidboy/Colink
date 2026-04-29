@@ -11,6 +11,8 @@ const __dirname = path.dirname(__filename);
  */
 export default defineConfig({
   testDir: path.join(__dirname, '../auto-test/e2e'),
+  // Resolve @playwright/test from web/node_modules
+  globalSetup: undefined,
   timeout: 30000,
   expect: {
     timeout: 5000,
