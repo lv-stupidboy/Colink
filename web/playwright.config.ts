@@ -10,13 +10,13 @@ const __dirname = path.dirname(__filename);
  * 用于多 Agent 协作测试开发工作流
  */
 export default defineConfig({
-  testDir: path.join(__dirname, 'tests/e2e'),
+  testDir: path.join(__dirname, '../auto-test/e2e'),
   timeout: 30000,
   expect: {
     timeout: 5000,
   },
   use: {
-    baseURL: 'http://localhost:3000',
+    baseURL: 'http://localhost:26306',
     headless: true, // headless 模式，适合 CI/CLI 环境
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
