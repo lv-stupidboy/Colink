@@ -681,7 +681,7 @@ export interface SkillAgentsResponse {
 // ========== Registry 相关类型 ==========
 
 // 注册表类型
-export type RegistryType = 'github' | 'gitlab' | 'api' | 'custom';
+export type RegistryType = 'github' | 'gitlab' | 'api' | 'custom' | 'codehub';
 
 // 同步状态
 export type RegistrySyncStatus = 'pending' | 'success' | 'failed';
