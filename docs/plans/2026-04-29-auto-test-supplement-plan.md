@@ -233,6 +233,58 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 
 ---
 
+### Task 3.5: 创建测试数据库初始化脚本
+
+**Files:**
+- Create: `auto-test/internal/testdata/init-sqlite.sql`
+
+**Step 1: 编写测试数据库初始化脚本**
+
+```sql
+-- auto-test/internal/testdata/init-sqlite.sql
+-- 测试数据库初始化脚本
+-- 包含最小化的测试数据集
+
+-- 清空现有数据（测试环境）
+DELETE FROM base_agents;
+DELETE FROM projects;
+DELETE FROM threads;
+DELETE FROM agent_configs;
+DELETE FROM workflow_templates;
+
+-- 插入测试基础 Agent
+INSERT INTO base_agents (id, name, type, description, created_at, updated_at) VALUES
+('test-base-001', 'Claude Code', 'claude_code', 'Claude CLI 适配器', datetime('now'), datetime('now')),
+('test-base-002', 'Backend Developer', 'claude_code', '后端开发 Agent', datetime('now'), datetime('now')),
+('test-base-003', 'Architect', 'claude_code', '架构师 Agent', datetime('now'), datetime('now'));
+
+-- 插入测试项目
+INSERT INTO projects (id, name, description, created_at, updated_at) VALUES
+('test-proj-001', '测试项目', '用于 E2E 测试的项目', datetime('now'), datetime('now'));
+
+-- 插入测试线程
+INSERT INTO threads (id, project_id, title, status, created_at, updated_at) VALUES
+('test-thread-001', 'test-proj-001', '测试线程', 'active', datetime('now'), datetime('now'));
+
+-- 插入测试 Agent 配置
+INSERT INTO agent_configs (id, project_id, name, base_agent_id, description, created_at, updated_at) VALUES
+('test-agent-001', 'test-proj-001', 'Backend Developer', 'test-base-002', '后端开发测试配置', datetime('now'), datetime('now')),
+('test-agent-002', 'test-proj-001', 'Architect', 'test-base-003', '架构师测试配置', datetime('now'), datetime('now'));
+```
+
+Write to file: `auto-test/internal/testdata/init-sqlite.sql`
+
+**Step 2: Commit**
+
+```bash
+git add auto-test/internal/testdata/init-sqlite.sql
+git commit -m "feat: add test database initialization script
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
+```
+
+---
+
 ### Task 4: 创建前端 E2E fixtures
 
 **Files:**
@@ -341,6 +393,105 @@ test: {
 ```bash
 git add auto-test/vitest/setup.ts
 git commit -m "feat: add Vitest setup configuration
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 5.5: 创建 vitest.config.ts 配置文件
+
+**Files:**
+- Create: `web/vitest.config.ts`（如不存在）或修改现有文件
+
+**Step 1: 创建/修改 vitest.config.ts**
+
+```typescript
+// web/vitest.config.ts
+import { defineConfig } from 'vitest/config';
+import react from '@vitejs/plugin-react';
+
+export default defineConfig({
+  plugins: [react()],
+  test: {
+    include: ['auto-test/vitest/**/*.test.ts', 'auto-test/vitest/**/*.test.tsx'],
+    setupFiles: ['auto-test/vitest/setup.ts'],
+    environment: 'jsdom',
+    globals: true,
+    coverage: {
+      reporter: ['text', 'json', 'html'],
+      include: ['src/**/*.ts', 'src/**/*.tsx'],
+      exclude: ['src/**/*.d.ts'],
+    },
+  },
+});
+```
+
+Write to file: `web/vitest.config.ts`
+
+**Step 2: 验证配置**
+
+Run: `cd web && npx vitest --version`
+
+Expected: 显示 vitest 版本号
+
+**Step 3: Commit**
+
+```bash
+git add web/vitest.config.ts
+git commit -m "feat: add vitest.config.ts for auto-test integration
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 5.6: 更新 playwright.config.ts 测试目录
+
+**Files:**
+- Modify: `web/playwright.config.ts`
+
+**Step 1: 修改 playwright.config.ts 测试目录配置**
+
+在 `web/playwright.config.ts` 中修改 testDir 配置：
+
+```typescript
+export default defineConfig({
+  testDir: './auto-test/e2e',  // 从 './tests/e2e' 改为 './auto-test/e2e'
+  fullyParallel: true,
+  forbidOnly: !!process.env.CI,
+  retries: process.env.CI ? 2 : 0,
+  workers: process.env.CI ? 1 : undefined,
+  reporter: 'html',
+  use: {
+    baseURL: 'http://localhost:26306',
+    trace: 'on-first-retry',
+  },
+  projects: [
+    {
+      name: 'chromium',
+      use: { browserName: 'chromium' },
+    },
+  ],
+  webServer: {
+    command: 'npm run dev',
+    url: 'http://localhost:26306',
+    reuseExistingServer: !process.env.CI,
+  },
+});
+```
+
+**Step 2: 验证配置**
+
+Run: `cd web && npx playwright test --list`
+
+Expected: 显示 auto-test/e2e 目录下的测试列表
+
+**Step 3: Commit**
+
+```bash
+git add web/playwright.config.ts
+git commit -m "feat: update playwright.config.ts to use auto-test/e2e
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
@@ -495,6 +646,168 @@ test-p1:
 ```bash
 git add Makefile
 git commit -m "feat: add auto-test commands to Makefile
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 7.5: 创建 GitHub CI 测试工作流
+
+**Files:**
+- Create: `.github/workflows/test.yml`
+
+**Step 1: 编写 CI 测试工作流配置**
+
+```yaml
+# .github/workflows/test.yml
+name: Auto-Test CI
+
+on:
+  push:
+    branches: [main, master, test]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  backend-test:
+    name: Backend Go Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+      
+      - name: Run P0 Backend Tests
+        run: go test ./auto-test/internal/... -v -run "P0"
+      
+      - name: Run P1 Backend Tests
+        run: go test ./auto-test/internal/... -v -run "P0|P1"
+        continue-on-error: true
+      
+      - name: Generate Coverage Report
+        run: go test ./auto-test/internal/... -coverprofile=coverage.out
+      
+      - name: Upload Coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.out
+
+  frontend-test:
+    name: Frontend E2E Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+      
+      - name: Install Dependencies
+        working-directory: web
+        run: npm ci
+      
+      - name: Install Playwright Browsers
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+      
+      - name: Build Backend
+        run: make build
+      
+      - name: Start Backend Server
+        run: ./bin/isdp-server &
+        env:
+          ISDP_CONFIG: configs/config.yaml
+      
+      - name: Start Frontend Dev Server
+        working-directory: web
+        run: npm run dev &
+      
+      - name: Wait for Server Ready
+        run: sleep 10
+      
+      - name: Run P0 E2E Tests
+        working-directory: web
+        run: npx playwright test auto-test/e2e/ --grep "P0" --reporter=html
+      
+      - name: Upload Playwright Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: web/playwright-report/
+          retention-days: 7
+
+  vitest-test:
+    name: Vitest Component Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+      
+      - name: Install Dependencies
+        working-directory: web
+        run: npm ci
+      
+      - name: Run Vitest Tests
+        working-directory: web
+        run: npx vitest run auto-test/vitest/ --coverage
+
+  test-summary:
+    name: Test Summary
+    needs: [backend-test, frontend-test, vitest-test]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Check Test Results
+        run: |
+          echo "Backend: ${{ needs.backend-test.result }}"
+          echo "Frontend: ${{ needs.frontend-test.result }}"
+          echo "Vitest: ${{ needs.vitest-test.result }}"
+          
+          if [ "${{ needs.backend-test.result }}" == "failure" ]; then
+            echo "❌ Backend P0 tests failed - blocking release"
+            exit 1
+          fi
+          
+          if [ "${{ needs.frontend-test.result }}" == "failure" ]; then
+            echo "❌ Frontend P0 tests failed - blocking release"
+            exit 1
+          fi
+          
+          echo "✅ All P0 tests passed"
+```
+
+Write to file: `.github/workflows/test.yml`
+
+**Step 2: 验证工作流语法**
+
+Run: `cat .github/workflows/test.yml`
+
+Expected: 文件内容正确
+
+**Step 3: Commit**
+
+```bash
+git add .github/workflows/test.yml
+git commit -m "feat: add GitHub CI workflow for auto-test
+
+- Backend Go tests (P0 blocking, P1 non-blocking)
+- Frontend Playwright E2E tests
+- Vitest component tests with coverage
+- Test summary job for release gate
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
@@ -1151,12 +1464,62 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 
 ---
 
-### Task 15: 删除原测试目录
+### Task 15: 删除原测试目录（两阶段策略）
 
 **Files:**
 - Delete: `web/tests/e2e/`, `internal/**/*_test.go`
 
-**Step 1: 删除原 web/tests/e2e 目录**
+**⚠️ 重要：采用两阶段删除策略（迁移 → 验证 → 删除）**
+
+**第一阶段：验证迁移成功**
+
+**Step 1: 运行迁移后的测试验证功能正常**
+
+Run:
+```bash
+# 验证后端测试
+go test ./auto-test/internal/... -v -run "P0"
+
+# 验证前端 E2E 测试（需要服务运行）
+cd web && npx playwright test auto-test/e2e/ --grep "P0" --reporter=list
+```
+
+Expected: 迁移的测试能够正常执行
+
+**Step 2: 对比迁移前后测试数量**
+
+Run:
+```bash
+# 统计原测试文件数量
+echo "原 E2E 测试数量:" && find web/tests/e2e -name "*.spec.ts" | wc -l
+echo "原 Internal 测试数量:" && find internal -name "*_test.go" | wc -l
+
+# 统计迁移后测试数量
+echo "迁移后 E2E 测试数量:" && find auto-test/e2e -name "*.spec.ts" | wc -l
+echo "迁移后 Internal 测试数量:" && find auto-test/internal -name "*_test.go" | wc -l
+```
+
+Expected: 迁移后数量 ≥ 原数量（新增了一些测试）
+
+**Step 3: 创建迁移验证标记文件**
+
+Run:
+```bash
+echo "迁移验证完成: $(date)" > auto-test/.migration-verified
+```
+
+**Step 4: Commit 验证结果**
+
+```bash
+git add auto-test/.migration-verified
+git commit -m "chore: mark migration verification complete
+
+Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
+```
+
+**第二阶段：安全删除原文件**
+
+**Step 5: 删除原 web/tests/e2e 目录**
 
 Run:
 ```bash
@@ -1168,7 +1531,7 @@ rm -f web/tests/test-runner.ts
 
 Expected: 目录删除成功
 
-**Step 2: 删除原 internal 测试文件**
+**Step 6: 删除原 internal 测试文件**
 
 Run:
 ```bash
@@ -1178,11 +1541,22 @@ find internal -name "*_test.go" -type f -delete
 
 Expected: 文件删除成功
 
-**Step 3: Commit**
+**Step 7: 再次验证测试仍可运行**
+
+Run:
+```bash
+go test ./auto-test/internal/... -v -run "P0"
+```
+
+Expected: 测试仍然正常执行
+
+**Step 8: Commit 删除操作**
 
 ```bash
 git add -A
-git commit -m "refactor: remove original test files after migration to auto-test
+git commit -m "refactor: remove original test files after verified migration to auto-test
+
+Migration verified before deletion. All tests working correctly in auto-test/ directory.
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```

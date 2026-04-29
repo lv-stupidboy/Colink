@@ -816,3 +816,114 @@ make test-p1  # 执行 P0 + P1 测试
 - 迁移完成后删除原 `web/tests/e2e/` 目录
 - 迁移完成后删除原 `internal/**/*_test.go` 文件
 - 更新相关配置文件（playwright.config.ts、vitest.config.ts）
+
+## 12. 实施时间线
+
+### 12.1 分阶段实施计划
+
+| 阶段 | 内容 | 时间 | 产出 |
+|------|------|------|------|
+| **Phase 1** | 测试基础设施 | 第 1 周前 3 天 | 目录结构、配置文件、CI 工作流 |
+| **Phase 2** | P0 核心测试 | 第 1 周后 2 天 | Agent 对话、WebSocket P0 测试 |
+| **Phase 3-4** | P0/P1 Internal | 第 2 周 | Service 层、团队包测试 |
+| **Phase 5** | 测试迁移 | 第 2 周末 | 迁移 + 验证 + 删除原文件 |
+| **Phase 6-7** | Vitest + 性能 | 第 3 周 | 组件测试、性能测试 |
+| **Phase 8** | 文档更新 | 第 3 周末 | CLAUDE.md、AGENTS.md |
+| **Phase 9** | 最终验证 | 第 4 周 | 全量测试验证 |
+
+### 12.2 P0 测试完成标准
+
+- ✅ 所有 P0 测试文件创建完成
+- ✅ CI 工作流配置并运行成功
+- ✅ P0 测试在 CI 中 100% 通过
+- ✅ 测试覆盖率报告生成
+
+### 12.3 P1 测试完成标准
+
+- ✅ 所有 P1 测试文件创建完成
+- ✅ P1 测试通过率 ≥ 95%
+- ✅ 特性测试 F001-F007 可独立执行
+
+### 12.4 发布门禁
+
+| 门禁条件 | 检查方式 |
+|----------|----------|
+| P0 测试 100% 通过 | CI 自动检查，失败阻塞合并 |
+| P1 测试 ≥ 95% 通过 | CI 报告，低于阈值警告 |
+| 覆盖率 ≥ 60% | codecov 报告 |
+| 无新增 P0 测试失败 | PR 检查 |
+
+## 13. 附录：测试工具配置参考
+
+### 13.1 Playwright 配置参考
+
+```typescript
+// web/playwright.config.ts
+import { defineConfig, devices } from '@playwright/test';
+
+export default defineConfig({
+  testDir: './auto-test/e2e',
+  fullyParallel: true,
+  forbidOnly: !!process.env.CI,
+  retries: process.env.CI ? 2 : 0,
+  workers: process.env.CI ? 1 : undefined,
+  reporter: [
+    ['html', { outputFolder: 'playwright-report' }],
+    ['json', { outputFile: 'test-results.json' }],
+  ],
+  use: {
+    baseURL: 'http://localhost:26306',
+    trace: 'on-first-retry',
+    screenshot: 'only-on-failure',
+  },
+  projects: [
+    { name: 'chromium', use: { browserName: 'chromium' } },
+  ],
+  webServer: {
+    command: 'npm run dev',
+    url: 'http://localhost:26306',
+    reuseExistingServer: !process.env.CI,
+  },
+});
+```
+
+### 13.2 Vitest 配置参考
+
+```typescript
+// web/vitest.config.ts
+import { defineConfig } from 'vitest/config';
+import react from '@vitejs/plugin-react';
+
+export default defineConfig({
+  plugins: [react()],
+  test: {
+    include: ['auto-test/vitest/**/*.test.ts'],
+    setupFiles: ['auto-test/vitest/setup.ts'],
+    environment: 'jsdom',
+    globals: true,
+    coverage: {
+      reporter: ['text', 'json', 'html'],
+      include: ['src/**/*.tsx'],
+    },
+  },
+});
+```
+
+### 13.3 Go 测试初始化参考
+
+```go
+// auto-test/internal/setup_test.go
+package internal_test
+
+import (
+    "os"
+    "testing"
+)
+
+func TestMain(m *testing.M) {
+    os.Setenv("ISDP_TEST_MODE", "true")
+    code := m.Run()
+    os.Unsetenv("ISDP_TEST_MODE")
+    os.Exit(code)
+}
+```
