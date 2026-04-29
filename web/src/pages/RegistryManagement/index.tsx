@@ -118,7 +118,7 @@ const RegistryManagement: React.FC = () => {
       if (result.error) {
         message.error(`同步失败: ${result.error}`);
       } else {
-        message.success(`同步成功：新增 ${result.skillsAdded}，更新 ${result.skillsUpdated}`);
+        message.success(`同步成功：更新 ${result.skillsUpdated} 个技能`);
         loadRegistries();
       }
     } catch (error: any) {

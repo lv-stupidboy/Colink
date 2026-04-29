@@ -156,43 +156,23 @@ func (s *RegistryService) Sync(ctx context.Context, id uuid.UUID) (*model.SyncRe
 		return result, err
 	}
 
-	// 同步技能到本地
+	// 同步技能到本地（只更新已存在的）
 	for _, remoteSkill := range skills {
-		// 检查是否已存在
 		existing, err := s.skillRepo.FindByName(ctx, remoteSkill.Name)
 		if err != nil {
-			// 不存在，创建新技能
-			skill := &model.Skill{
-				ID:               uuid.New(),
-				Name:             remoteSkill.Name,
-				Description:      remoteSkill.Description,
-				Tags:             remoteSkill.Tags,
-				SourceType:       model.SkillSourceFederated,
-				SourceRegistryID: registry.ID,
-				SupportedAgents:  remoteSkill.SupportedAgents,
-				IsPublic:         true, // 联邦技能固定公开
-				Status:           model.SkillStatusActive,
-				UseCount:         0,
-				CreatedAt:        time.Now(),
-				UpdatedAt:        time.Now(),
-			}
-			if err := s.skillRepo.Create(ctx, skill); err != nil {
-				continue
-			}
-			result.SkillsAdded++
-		} else {
-			// 已存在，更新技能
-			existing.Description = remoteSkill.Description
-			existing.Tags = remoteSkill.Tags
-			existing.SupportedAgents = remoteSkill.SupportedAgents
-			existing.UpdatedAt = time.Now()
-			if err := s.skillRepo.Update(ctx, existing); err != nil {
-				continue
-			}
-			result.SkillsUpdated++
+			// 不存在，跳过（不自动添加）
+			continue
 		}
+		// 已存在，更新技能
+		existing.Description = remoteSkill.Description
+		existing.Tags = remoteSkill.Tags
+		existing.SupportedAgents = remoteSkill.SupportedAgents
+		existing.UpdatedAt = time.Now()
+		if err := s.skillRepo.Update(ctx, existing); err != nil {
+			continue
+		}
+		result.SkillsUpdated++
 	}
-
 	// 更新同步状态
 	s.registryRepo.UpdateSyncStatus(ctx, id, model.RegistrySyncSuccess, result.SkillsAdded+result.SkillsUpdated)
 
