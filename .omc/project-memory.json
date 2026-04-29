@@ -252,9 +252,27 @@
   },
   "hotPaths": [
     {
+      "path": "docs\\plans\\2026-04-29-auto-test-supplement-plan.md",
+      "accessCount": 10,
+      "lastAccessed": 1777459032394,
+      "type": "file"
+    },
+    {
+      "path": "docs\\plans\\2026-04-29-auto-test-supplement-design.md",
+      "accessCount": 5,
+      "lastAccessed": 1777456190304,
+      "type": "file"
+    },
+    {
       "path": "data\\agent-configs\\fbc7c8d4-a321-41d8-bef8-b4f79985948f\\开发工程师.md",
       "accessCount": 3,
       "lastAccessed": 1776847458627,
+      "type": "file"
+    },
+    {
+      "path": "web\\playwright.config.ts",
+      "accessCount": 3,
+      "lastAccessed": 1777465115258,
       "type": "file"
     },
     {
@@ -276,9 +294,9 @@
       "type": "file"
     },
     {
-      "path": "docs\\plans\\2026-04-29-auto-test-supplement-design.md",
+      "path": "Makefile",
       "accessCount": 2,
-      "lastAccessed": 1777449866209,
+      "lastAccessed": 1777465240261,
       "type": "file"
     },
     {
@@ -291,12 +309,6 @@
       "path": "web\\tests\\README.md",
       "accessCount": 1,
       "lastAccessed": 1776848189806,
-      "type": "file"
-    },
-    {
-      "path": "web\\playwright.config.ts",
-      "accessCount": 1,
-      "lastAccessed": 1776848190403,
       "type": "file"
     },
     {
@@ -342,9 +354,63 @@
       "type": "file"
     },
     {
-      "path": "docs\\plans\\2026-04-29-auto-test-supplement-plan.md",
+      "path": "auto-test\\feature-map.yaml",
       "accessCount": 1,
-      "lastAccessed": 1777450171445,
+      "lastAccessed": 1777459213259,
+      "type": "file"
+    },
+    {
+      "path": "auto-test\\internal\\setup_test.go",
+      "accessCount": 1,
+      "lastAccessed": 1777459253535,
+      "type": "file"
+    },
+    {
+      "path": "auto-test\\internal\\testdata\\init-sqlite.sql",
+      "accessCount": 1,
+      "lastAccessed": 1777465085683,
+      "type": "file"
+    },
+    {
+      "path": "auto-test\\e2e\\fixtures\\test-fixtures.ts",
+      "accessCount": 1,
+      "lastAccessed": 1777465087884,
+      "type": "file"
+    },
+    {
+      "path": "auto-test\\vitest\\setup.ts",
+      "accessCount": 1,
+      "lastAccessed": 1777465090627,
+      "type": "file"
+    },
+    {
+      "path": "web\\vitest.config.ts",
+      "accessCount": 1,
+      "lastAccessed": 1777465094014,
+      "type": "file"
+    },
+    {
+      "path": "scripts\\run-feature-tests.py",
+      "accessCount": 1,
+      "lastAccessed": 1777465222386,
+      "type": "file"
+    },
+    {
+      "path": "auto-test\\e2e\\agent-dialog\\message-input.spec.ts",
+      "accessCount": 1,
+      "lastAccessed": 1777465466061,
+      "type": "file"
+    },
+    {
+      "path": "auto-test\\e2e\\websocket\\connection.spec.ts",
+      "accessCount": 1,
+      "lastAccessed": 1777465468134,
+      "type": "file"
+    },
+    {
+      "path": "auto-test\\internal\\api\\agent_handler_test.go",
+      "accessCount": 1,
+      "lastAccessed": 1777465471063,
       "type": "file"
     }
   ],
