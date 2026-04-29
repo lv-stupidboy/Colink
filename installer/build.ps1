@@ -37,6 +37,9 @@ Write-Host "Platform: $OS-$ARCH" -ForegroundColor Cyan
 Write-Host "[1/8] Cleaning old build artifacts..." -ForegroundColor Cyan
 Remove-Item -Path "..\bin\*" -Force -ErrorAction SilentlyContinue
 Remove-Item -Path "release\*.zip" -Force -ErrorAction SilentlyContinue
+Remove-Item -Path "release\Colink-*" -Force -Recurse -ErrorAction SilentlyContinue
+Remove-Item -Path "release\launcher" -Force -Recurse -ErrorAction SilentlyContinue
+Remove-Item -Path "release\win-unpacked" -Force -Recurse -ErrorAction SilentlyContinue
 
 # 2. Generate plugin registry
 Write-Host "[2/8] Generating plugin registry..." -ForegroundColor Cyan
@@ -61,6 +64,16 @@ Write-Host "[4/8] Building frontend..." -ForegroundColor Cyan
 Push-Location ..\web
 if (-not (Test-Path "node_modules")) {
     Write-Host "  Installing frontend dependencies..." -ForegroundColor Yellow
+    npm install
+}
+npm run build
+Pop-Location
+
+# 4.1 Build desktop application
+Write-Host "[4.1/8] Building desktop application..." -ForegroundColor Cyan
+Push-Location ..\apps\desktop
+if (-not (Test-Path "node_modules")) {
+    Write-Host "  Installing desktop dependencies..." -ForegroundColor Yellow
     npm install
 }
 npm run build
