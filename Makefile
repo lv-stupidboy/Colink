@@ -1,4 +1,4 @@
-.PHONY: build genplugins run test clean docker-up docker-down sync-resources release
+.PHONY: build genplugins run test clean docker-up docker-down sync-resources release desktop-dev desktop-build desktop-package desktop-package-all
 
 # 从 VERSION 文件读取版本号
 VERSION := $(shell cat VERSION 2>/dev/null || echo "dev")
@@ -42,3 +42,16 @@ docker-up:
 
 docker-down:
 	docker-compose down
+
+# Desktop application build
+desktop-dev:
+	cd apps/desktop && npm run dev
+
+desktop-build:
+	cd apps/desktop && npm run build
+
+desktop-package:
+	cd apps/desktop && npm run package
+
+desktop-package-all:
+	cd apps/desktop && npm run package:all
