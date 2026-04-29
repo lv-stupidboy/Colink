@@ -1,12 +1,12 @@
 import { app, ipcMain, BrowserWindow } from "electron";
-import { execFile } from "child_process";
+import { spawn, execFile } from "child_process";
 import { readFile, writeFile, mkdir } from "fs/promises";
 import { existsSync } from "fs";
-import { join } from "path";
+import { join, dirname } from "path";
 import { homedir } from "os";
 import type { DaemonStatus } from "../shared/daemon-types";
 
-const DEFAULT_HEALTH_PORT = 26305;
+const DEFAULT_SERVER_PORT = 26305;
 const POLL_INTERVAL_MS = 5_000;
 const PREFS_PATH = join(homedir(), ".colink", "desktop_prefs.json");
 
@@ -18,6 +18,7 @@ let getMainWindow: () => BrowserWindow | null = () => null;
 let operationInProgress = false;
 let cachedServerBinary: string | null | undefined = undefined;
 let targetApiBaseUrl: string | null = null;
+let serverProcess: ReturnType<typeof spawn> | null = null;
 
 function sendStatus(status: DaemonStatus): void {
   const win = getMainWindow();
@@ -102,7 +103,7 @@ async function fetchHealth(): Promise<DaemonStatus> {
     return { state: "remote", serverUrl: targetApiBaseUrl };
   }
 
-  const data = await fetchHealthAtPort(DEFAULT_HEALTH_PORT);
+  const data = await fetchHealthAtPort(DEFAULT_SERVER_PORT);
 
   if (!data || data.status !== "ok") {
     return {
@@ -115,7 +116,7 @@ async function fetchHealth(): Promise<DaemonStatus> {
     version: data.version,
     gitCommit: data.gitCommit,
     buildTime: data.buildTime,
-    serverUrl: `http://localhost:${DEFAULT_HEALTH_PORT}`,
+    serverUrl: `http://localhost:${DEFAULT_SERVER_PORT}`,
   };
 }
 
@@ -155,7 +156,7 @@ async function startDaemon(): Promise<{ success: boolean; error?: string }> {
   const bin = await resolveServerBinary();
   if (!bin) return { success: false, error: "Colink server is not installed" };
 
-  const existing = await fetchHealthAtPort(DEFAULT_HEALTH_PORT);
+  const existing = await fetchHealthAtPort(DEFAULT_SERVER_PORT);
   if (existing?.status === "ok") {
     pollOnce();
     return { success: true };
@@ -164,25 +165,48 @@ async function startDaemon(): Promise<{ success: boolean; error?: string }> {
   currentState = "starting";
   sendStatus({ state: "starting" });
 
-  const configPath = join(app.getPath("userData"), "config.yaml");
+  // Use install directory's config (installed by installer)
+  // installDir = exe's parent directory, config is at installDir/data/configs/config.yaml
+  const exeDir = dirname(app.getPath("exe"));
+  const configPath = join(exeDir, "data", "configs", "config.yaml");
 
-  return new Promise((resolve) => {
-    execFile(
-      bin,
-      ["-config", configPath],
-      { timeout: 20_000, env: desktopSpawnEnv() },
-      (err) => {
-        if (err) {
-          currentState = "stopped";
-          sendStatus({ state: "stopped" });
-          resolve({ success: false, error: err.message });
-          return;
-        }
-        pollOnce();
-        resolve({ success: true });
-      },
-    );
+  // Set cwd to install directory (exe's parent), where data/ and web are located
+  serverProcess = spawn(bin, ["-config", configPath], {
+    cwd: exeDir,
+    env: desktopSpawnEnv(),
+    stdio: "ignore", // Ignore stdout/stderr for production
+    detached: true, // Allow process to continue after parent exits
   });
+
+  // Detach so server runs independently
+  serverProcess.unref();
+
+  serverProcess.on("error", (err) => {
+    console.error("[daemon] spawn error:", err);
+    currentState = "stopped";
+    sendStatus({ state: "stopped" });
+  });
+
+  // Wait for server to become healthy (poll health endpoint)
+  const maxWaitMs = 15_000;
+  const pollIntervalMs = 500;
+  let waited = 0;
+
+  while (waited < maxWaitMs) {
+    const health = await fetchHealthAtPort(DEFAULT_SERVER_PORT);
+    if (health?.status === "ok") {
+      currentState = "running";
+      pollOnce();
+      return { success: true };
+    }
+    await new Promise((r) => setTimeout(r, pollIntervalMs));
+    waited += pollIntervalMs;
+  }
+
+  // Timeout - server didn't start
+  currentState = "stopped";
+  sendStatus({ state: "stopped" });
+  return { success: false, error: "Server did not become healthy within timeout" };
 }
 
 async function stopDaemon(): Promise<{ success: boolean; error?: string }> {

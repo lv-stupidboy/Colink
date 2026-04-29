@@ -382,24 +382,23 @@ export async function copyApplicationFiles(
       }
     }
 
-    // 复制 colink-server.exe
-    const serverSrc = join(runtimeDir, 'colink-server.exe')
-    const serverDest = join(destDir, 'colink-server.exe')
+    // 复制桌面版应用（已包含 server 和 web）
+    // 桌面版应用的 resources/bin 和 resources/web 已包含所需文件
 
-    if (existsSync(serverSrc)) {
-      atomicReplaceFile(serverSrc, serverDest)
-    } else {
-      console.warn('[Copy] colink-server.exe not found')
-    }
-
-    // 复制 web/
-    const webSrc = join(runtimeDir, 'web')
+    // 同时复制 web 到根目录，供服务器直接访问
+    // 服务器 cwd 是安装目录，需要在根目录找到 web/
+    const webSrc = join(resourcesDir, '..', 'packages', 'desktop', 'resources', 'app.asar.unpacked', 'resources', 'web')
     const webDest = join(destDir, 'web')
-
     if (existsSync(webSrc)) {
       atomicReplaceDir(webSrc, webDest)
     } else {
-      console.warn('[Copy] web/ not found')
+      // Fallback: 从 runtime 目录复制（如果有的话）
+      const runtimeWebSrc = join(runtimeDir, 'web')
+      if (existsSync(runtimeWebSrc)) {
+        atomicReplaceDir(runtimeWebSrc, webDest)
+      } else {
+        console.warn('[Copy] web/ not found')
+      }
     }
 
     // 创建数据目录
@@ -435,7 +434,7 @@ export async function copyApplicationFiles(
 // 检查 Colink.exe 和 colink-server.exe 是否在运行
 function checkColinkRunning(): boolean {
   try {
-    // 检查启动器
+    // 检查桌面版应用
     const launcherOutput = execSync(`tasklist /fi "imagename eq Colink.exe" /fo csv`, { encoding: 'utf8' })
     const launcherLines = launcherOutput.trim().split('\n')
     if (launcherLines.length > 1) {
@@ -476,8 +475,8 @@ export async function uninstallOldVersion(
   try {
     // 检查 Colink.exe 和 colink-server.exe 是否在运行，不允许自动停止
     if (checkColinkRunning()) {
-      const errorMsg = 'Colink.exe 或 colink-server.exe 正在运行，请先关闭启动器和后端服务后重试。'
-      sendProgress('启动器或服务仍在运行', errorMsg)
+      const errorMsg = 'Colink.exe 或 colink-server.exe 正在运行，请先关闭桌面版应用和后端服务后重试。'
+      sendProgress('桌面版应用或服务仍在运行', errorMsg)
       return { success: false, error: errorMsg }
     }
 
@@ -585,8 +584,8 @@ export async function uninstallOldVersion(
   }
 }
 
-// 复制启动器文件到目标目录
-// 从 resources/launcher/ 目录复制完整的启动器
+// 复制桌面版应用文件到目标目录
+// 从 packages/desktop/ 目录复制完整的桌面版应用
 // 采用原子替换策略：先复制到临时目录，再批量替换
 export async function copyLauncherFiles(
   sourceDir: string,
@@ -596,10 +595,10 @@ export async function copyLauncherFiles(
   try {
     const resourcesDir = process.resourcesPath
     // packages 目录与 resources 并列
-    const launcherSrcDir = join(resourcesDir, '..', 'packages', 'launcher')
+    const desktopSrcDir = join(resourcesDir, '..', 'packages', 'desktop')
 
-    if (!existsSync(launcherSrcDir)) {
-      return { success: false, error: `启动器目录不存在: ${launcherSrcDir}` }
+    if (!existsSync(desktopSrcDir)) {
+      return { success: false, error: `桌面版应用目录不存在: ${desktopSrcDir}` }
     }
 
     const fs = require('original-fs')
@@ -649,9 +648,9 @@ export async function copyLauncherFiles(
     }
 
     // Step 2: 将所有文件原子复制到 staging 目录
-    const entries = fs.readdirSync(launcherSrcDir, { withFileTypes: true })
+    const entries = fs.readdirSync(desktopSrcDir, { withFileTypes: true })
     if (entries.length === 0) {
-      return { success: false, error: `启动器目录为空: ${launcherSrcDir}` }
+      return { success: false, error: `桌面版应用目录为空: ${desktopSrcDir}` }
     }
 
     fs.mkdirSync(stagingDir, { recursive: true })
@@ -660,7 +659,7 @@ export async function copyLauncherFiles(
     const totalFiles = entries.length
 
     for (const entry of entries) {
-      const srcPath = join(launcherSrcDir, entry.name)
+      const srcPath = join(desktopSrcDir, entry.name)
       const stagingPath = join(stagingDir, entry.name)
 
       try {
@@ -677,7 +676,7 @@ export async function copyLauncherFiles(
         try { fs.rmSync(stagingDir, { recursive: true, force: true }) } catch {}
         const errorMsg = copyError instanceof Error ? copyError.message : '未知错误'
         if (errorMsg.includes('EPERM') || errorMsg.includes('EACCES') || errorMsg.includes('being used')) {
-          return { success: false, error: `${entry.name} 被锁定，请确保启动器已完全关闭后重试` }
+          return { success: false, error: `${entry.name} 被锁定，请确保桌面版应用已完全关闭后重试` }
         }
         return { success: false, error: `${entry.name} 复制失败: ${errorMsg}` }
       }
@@ -706,7 +705,7 @@ export async function copyLauncherFiles(
         try { fs.rmSync(stagingDir, { recursive: true, force: true }) } catch {}
         const errorMsg = replaceError instanceof Error ? replaceError.message : '未知错误'
         if (errorMsg.includes('EPERM') || errorMsg.includes('EACCES') || errorMsg.includes('being used')) {
-          return { success: false, error: `${entry.name} 替换失败（文件被锁定），请确保启动器已完全关闭后重试` }
+          return { success: false, error: `${entry.name} 替换失败（文件被锁定），请确保桌面版应用已完全关闭后重试` }
         }
         return { success: false, error: `${entry.name} 替换失败: ${errorMsg}` }
       }
@@ -1000,10 +999,10 @@ export async function runInstallation(
     }
 
     const launcherResult = await copyLauncherFiles(sourceDir, config.installDir, (p) => {
-      sendProgress('copy', 'running', 50 + Math.round(p * 0.5), `复制启动器文件 ${50 + Math.round(p * 0.5)}%...`)
+      sendProgress('copy', 'running', 50 + Math.round(p * 0.5), `复制桌面版应用 ${50 + Math.round(p * 0.5)}%...`)
     })
     if (!launcherResult.success) {
-      sendProgress('copy', 'failed', 0, launcherResult.error, `复制启动器文件失败: ${launcherResult.error}`)
+      sendProgress('copy', 'failed', 0, launcherResult.error, `复制桌面版应用失败: ${launcherResult.error}`)
       return launcherResult
     }
     sendProgress('copy', 'success', 100, '文件复制完成', `已复制所有文件到 ${config.installDir}`)

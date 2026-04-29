@@ -18,7 +18,7 @@ describe("api-bridge", () => {
       vi.stubEnv("VITE_API_URL", "");
 
       const result = getApiBaseUrl("remote");
-      expect(result).toBe("http://localhost:26305");
+      expect(result).toBe("http://localhost:26307");
     });
 
     it("should return daemonUrl in local mode", () => {
@@ -28,7 +28,7 @@ describe("api-bridge", () => {
 
     it("should fallback to default port in local mode when daemonUrl is not provided", () => {
       const result = getApiBaseUrl("local");
-      expect(result).toBe("http://localhost:26305");
+      expect(result).toBe("http://localhost:26307");
     });
 
     it("should handle various URL formats", () => {
@@ -66,32 +66,32 @@ describe("api-bridge", () => {
     });
 
     it("should convert http to ws in local mode", () => {
-      const result = getWsUrl("local", "http://localhost:26305");
-      expect(result).toBe("ws://localhost:26305/ws");
+      const result = getWsUrl("local", "http://localhost:26307");
+      expect(result).toBe("ws://localhost:26307/ws");
     });
 
     it("should convert https to wss in local mode", () => {
-      const result = getWsUrl("local", "https://localhost:26305");
-      expect(result).toBe("wss://localhost:26305/ws");
+      const result = getWsUrl("local", "https://localhost:26307");
+      expect(result).toBe("wss://localhost:26307/ws");
     });
 
     it("should fallback to default WebSocket URL in local mode", () => {
       const result = getWsUrl("local");
-      expect(result).toBe("ws://localhost:26305/ws");
+      expect(result).toBe("ws://localhost:26307/ws");
     });
 
     it("should fallback to default WebSocket URL in remote mode when VITE_API_URL is not set", () => {
       vi.stubEnv("VITE_API_URL", "");
 
       const result = getWsUrl("remote");
-      expect(result).toBe("ws://localhost:26305/ws");
+      expect(result).toBe("ws://localhost:26307/ws");
     });
 
     it("should append /ws path to all URLs", () => {
       const testCases = [
         { mode: "local", daemonUrl: "http://localhost:3000", expected: "ws://localhost:3000/ws" },
         { mode: "local", daemonUrl: "http://192.168.1.1:26305", expected: "ws://192.168.1.1:26305/ws" },
-        { mode: "remote", daemonUrl: undefined, expected: "ws://localhost:26305/ws" },
+        { mode: "remote", daemonUrl: undefined, expected: "ws://localhost:26307/ws" },
       ];
 
       for (const tc of testCases) {

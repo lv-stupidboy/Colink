@@ -81,7 +81,16 @@ if (!(await exists(srcBinary))) {
   process.exit(0);
 }
 
-await rm(destDir, { recursive: true, force: true });
+// Try to remove destDir, but continue if files are locked (e.g., server running)
+try {
+  await rm(destDir, { recursive: true, force: true });
+} catch (e) {
+  if (e.code === "EPERM") {
+    console.warn(`[bundle-server] ${destDir} is locked, will try to overwrite existing binary`);
+  } else {
+    throw e;
+  }
+}
 await mkdir(destDir, { recursive: true });
 await copyFile(srcBinary, destBinary);
 await chmod(destBinary, 0o755);
@@ -91,6 +100,42 @@ if (process.platform === "darwin") {
   try {
     execSync(`codesign -s - --force ${JSON.stringify(destBinary)}`, { stdio: "pipe" });
   } catch {}
+}
+
+// Copy web/dist to resources/web for static file serving
+const webDistSrc = join(repoRoot, "web", "dist");
+const webDistDest = join(repoRoot, "apps", "desktop", "resources", "web");
+
+if (await exists(webDistSrc)) {
+  // Try to remove webDistDest, but continue if files are locked
+  try {
+    await rm(webDistDest, { recursive: true, force: true });
+  } catch (e) {
+    if (e.code === "EPERM") {
+      console.warn(`[bundle-server] ${webDistDest} is locked, will try to overwrite existing files`);
+    } else {
+      throw e;
+    }
+  }
+  await mkdir(webDistDest, { recursive: true });
+  // Copy all files from web/dist to resources/web
+  const { readdir, stat } = await import("node:fs/promises");
+  const files = await readdir(webDistSrc);
+  for (const file of files) {
+    const srcPath = join(webDistSrc, file);
+    const destPath = join(webDistDest, file);
+    const srcStat = await stat(srcPath);
+    if (srcStat.isDirectory()) {
+      // Copy directory recursively using fs-extra-like approach
+      const { cp } = await import("node:fs/promises");
+      await cp(srcPath, destPath, { recursive: true });
+    } else {
+      await copyFile(srcPath, destPath);
+    }
+  }
+  console.log(`[bundle-server] bundled ${webDistSrc} → ${webDistDest}`);
+} else {
+  console.warn("[bundle-server] web/dist not found — server will not serve static files");
 }
 
 console.log(`[bundle-server] bundled ${srcBinary} → ${destBinary}`);

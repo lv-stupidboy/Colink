@@ -2,7 +2,6 @@ import { app, BrowserWindow, ipcMain, nativeImage } from "electron";
 import { homedir } from "os";
 import { join } from "path";
 import { electronApp, optimizer, is } from "@electron-toolkit/utils";
-import fixPath from "fix-path";
 import { setupDaemonManager } from "./daemon-manager";
 import { openExternalSafely } from "./external-url";
 import { installContextMenu } from "./context-menu";
@@ -11,8 +10,9 @@ const DEV_ICON_PATH = join(__dirname, "../../resources/icon.png");
 
 // macOS/Linux GUI launches inherit minimal PATH from launchd.
 // Run login shell to recover real PATH so bundled CLI can find agent binaries.
-if (process.platform !== "win32") {
-  fixPath();
+// Inline implementation to avoid ESM import issues in CommonJS bundle.
+function fixPathForUnix(): void {
+  if (process.platform === "win32") return;
   const fallbackPaths = [
     "/opt/homebrew/bin",
     "/usr/local/bin",
@@ -20,6 +20,8 @@ if (process.platform !== "win32") {
   ];
   process.env.PATH = `${fallbackPaths.join(":")}:${process.env.PATH ?? ""}`;
 }
+
+fixPathForUnix();
 
 const PROTOCOL = "colink";
 
@@ -106,6 +108,17 @@ if (process.defaultApp) {
   app.setAsDefaultProtocolClient(PROTOCOL);
 }
 
+// --- IPC handlers (register before window creation for preload sync calls) ---
+ipcMain.on("app:get-info", (event) => {
+  const p = process.platform;
+  const os = p === "darwin" ? "macos" : p === "win32" ? "windows" : p === "linux" ? "linux" : "unknown";
+  event.returnValue = { version: app.getVersion(), os, mode: targetApiBaseUrl ? "remote" : "local" };
+});
+
+ipcMain.handle("shell:openExternal", (_event, url: string) => {
+  return openExternalSafely(url);
+});
+
 // --- Single instance lock ---
 const gotTheLock = app.requestSingleInstanceLock();
 
@@ -117,7 +130,7 @@ if (!gotTheLock) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.focus();
     }
-    const deepLinkUrl = argv.find((arg) => arg.startsWith(`${PROTOCOL}://`));
+    const deepLinkUrl = argv.find((arg) => arg.startsWith(`${PROTOCOL}:`));
     if (deepLinkUrl) handleDeepLink(deepLinkUrl);
   });
 
@@ -135,11 +148,6 @@ if (!gotTheLock) {
       optimizer.watchWindowShortcuts(window);
     });
 
-    // IPC: open URL in default browser
-    ipcMain.handle("shell:openExternal", (_event, url: string) => {
-      return openExternalSafely(url);
-    });
-
     // IPC: set target API URL (switch between local/remote)
     ipcMain.handle("daemon:set-target-api-url", async (_e, url: string) => {
       const normalized = url || null;
@@ -147,13 +155,6 @@ if (!gotTheLock) {
         console.log(`[daemon] target API URL set to ${normalized ?? "(local)"}`);
         targetApiBaseUrl = normalized;
       }
-    });
-
-    // IPC: get app info
-    ipcMain.on("app:get-info", (event) => {
-      const p = process.platform;
-      const os = p === "darwin" ? "macos" : p === "win32" ? "windows" : p === "linux" ? "linux" : "unknown";
-      event.returnValue = { version: app.getVersion(), os, mode: targetApiBaseUrl ? "remote" : "local" };
     });
 
     createWindow();
@@ -173,7 +174,7 @@ if (!gotTheLock) {
     });
   });
 
-  const deepLinkArg = process.argv.find((arg) => arg.startsWith(`${PROTOCOL}://`));
+  const deepLinkArg = process.argv.find((arg) => arg.startsWith(`${PROTOCOL}:`));
   if (deepLinkArg) {
     app.whenReady().then(() => handleDeepLink(deepLinkArg));
   }
