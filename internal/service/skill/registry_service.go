@@ -17,15 +17,17 @@ import (
 
 // RegistryService 联邦技能源服务
 type RegistryService struct {
-	registryRepo *repo.SkillRegistryRepository
-	skillRepo    *repo.SkillRepository
+	registryRepo  *repo.SkillRegistryRepository
+	skillRepo     *repo.SkillRepository
+	skillScanner  *SkillScanner
 }
 
 // NewRegistryService 创建 Registry Service
-func NewRegistryService(registryRepo *repo.SkillRegistryRepository, skillRepo *repo.SkillRepository) *RegistryService {
+func NewRegistryService(registryRepo *repo.SkillRegistryRepository, skillRepo *repo.SkillRepository, skillScanner *SkillScanner) *RegistryService {
 	return &RegistryService{
-		registryRepo: registryRepo,
-		skillRepo:    skillRepo,
+		registryRepo:  registryRepo,
+		skillRepo:     skillRepo,
+		skillScanner:  skillScanner,
 	}
 }
 
@@ -140,6 +142,9 @@ func (s *RegistryService) Sync(ctx context.Context, id uuid.UUID) (*model.SyncRe
 		skills, err = s.syncFromGitLab(ctx, registry)
 	case model.RegistryTypeAPI:
 		skills, err = s.syncFromAPI(ctx, registry)
+	case model.RegistryTypeCustom, model.RegistryTypeCodeHub:
+		// Custom 和 CodeHub 类型使用 SkillScanner 进行 Git 仓库同步
+		skills, err = s.syncFromGitRepo(ctx, registry)
 	default:
 		err = fmt.Errorf("不支持的注册表类型: %s", registry.Type)
 	}
@@ -466,6 +471,33 @@ func (s *RegistryService) syncFromAPI(ctx context.Context, registry *model.Skill
 	}
 
 	return response.Skills, nil
+}
+
+// syncFromGitRepo 从 Git 仓库同步（支持 custom 和 codehub 类型）
+func (s *RegistryService) syncFromGitRepo(ctx context.Context, registry *model.SkillRegistry) ([]*RemoteSkill, error) {
+	// 使用 SkillScanner 扫描仓库
+	if s.skillScanner == nil {
+		return nil, fmt.Errorf("SkillScanner 未初始化")
+	}
+
+	scanResult, err := s.skillScanner.ScanRegistry(ctx, registry.ID)
+	if err != nil {
+		return nil, fmt.Errorf("扫描 Git 仓库失败: %w", err)
+	}
+
+	// 将 ScanResult 中的 RemoteSkill 转换为 RemoteSkill
+	skills := make([]*RemoteSkill, 0, len(scanResult.Skills))
+	for _, scannedSkill := range scanResult.Skills {
+		skills = append(skills, &RemoteSkill{
+			Name:            scannedSkill.Name,
+			Description:     scannedSkill.Description,
+			Tags:            []string{},
+			SupportedAgents: []string{},
+			Version:         "",
+		})
+	}
+
+	return skills, nil
 }
 
 // SyncAll 同步所有活跃注册表
