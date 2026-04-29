@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1776845858638,
-  "projectRoot": "D:\\CoLinkProject\\Colink-0421\\isdp",
+  "lastScanned": 1777446831149,
+  "projectRoot": "D:\\CoLinkProject\\Colink-Test-0430\\isdp",
   "techStack": {
     "languages": [
       {
@@ -42,7 +42,6 @@
     "isMonorepo": false,
     "workspaces": [],
     "mainDirectories": [
-      "bin",
       "docs",
       "scripts"
     ],
@@ -53,18 +52,11 @@
   },
   "customNotes": [],
   "directoryMap": {
-    "bin": {
-      "path": "bin",
-      "purpose": "Executable scripts",
-      "fileCount": 0,
-      "lastAccessed": 1776845858483,
-      "keyFiles": []
-    },
     "cmd": {
       "path": "cmd",
       "purpose": null,
       "fileCount": 1,
-      "lastAccessed": 1776845858484,
+      "lastAccessed": 1777446830899,
       "keyFiles": [
         "check_agents.go"
       ]
@@ -73,36 +65,29 @@
       "path": "configs",
       "purpose": null,
       "fileCount": 1,
-      "lastAccessed": 1776845858484,
+      "lastAccessed": 1777446830899,
       "keyFiles": [
         "config.yaml.example"
       ]
     },
-    "data": {
-      "path": "data",
-      "purpose": "Data files",
-      "fileCount": 0,
-      "lastAccessed": 1776845858485,
-      "keyFiles": []
-    },
     "docs": {
       "path": "docs",
       "purpose": "Documentation",
-      "fileCount": 12,
-      "lastAccessed": 1776845858485,
+      "fileCount": 21,
+      "lastAccessed": 1777446830900,
       "keyFiles": [
+        "2026-04-29-auto-test-supplement-design.md",
         "a2a-clowder-ai-analysis.md",
         "a2a-collaboration.md",
         "a2a-comparison-report.md",
-        "acp-mcp-config-analysis.md",
-        "agent-context-engineering-analysis.md"
+        "acp-mcp-config-analysis.md"
       ]
     },
     "installer": {
       "path": "installer",
       "purpose": null,
-      "fileCount": 11,
-      "lastAccessed": 1776845858486,
+      "fileCount": 12,
+      "lastAccessed": 1777446830901,
       "keyFiles": [
         "AGENTS.md",
         "build.ps1",
@@ -111,26 +96,43 @@
         "electron-builder.yml"
       ]
     },
+    "installer-tauri": {
+      "path": "installer-tauri",
+      "purpose": null,
+      "fileCount": 9,
+      "lastAccessed": 1777446830901,
+      "keyFiles": [
+        "CLAUDE.md",
+        "index.html",
+        "package.json",
+        "pnpm-lock.yaml",
+        "README.md"
+      ]
+    },
     "internal": {
       "path": "internal",
       "purpose": null,
       "fileCount": 0,
-      "lastAccessed": 1776845858487,
+      "lastAccessed": 1777446830902,
       "keyFiles": []
     },
     "pkg": {
       "path": "pkg",
       "purpose": null,
       "fileCount": 0,
-      "lastAccessed": 1776845858487,
+      "lastAccessed": 1777446830910,
       "keyFiles": []
     },
     "scripts": {
       "path": "scripts",
       "purpose": "Build/utility scripts",
-      "fileCount": 1,
-      "lastAccessed": 1776845858488,
+      "fileCount": 7,
+      "lastAccessed": 1777446830911,
       "keyFiles": [
+        "build-release.ps1",
+        "build-release.sh",
+        "clean.ps1",
+        "clean.sh",
         "export_schema.py"
       ]
     },
@@ -138,7 +140,7 @@
       "path": "sql-change",
       "purpose": null,
       "fileCount": 1,
-      "lastAccessed": 1776845858488,
+      "lastAccessed": 1777446830912,
       "keyFiles": [
         "AGENTS.md"
       ]
@@ -147,7 +149,7 @@
       "path": "teams",
       "purpose": null,
       "fileCount": 2,
-      "lastAccessed": 1776845858488,
+      "lastAccessed": 1777446830916,
       "keyFiles": [
         "全功能开发团队.zip",
         "全栈工程师单人模式.zip"
@@ -157,14 +159,14 @@
       "path": "tools",
       "purpose": null,
       "fileCount": 0,
-      "lastAccessed": 1776845858489,
+      "lastAccessed": 1777446830917,
       "keyFiles": []
     },
     "web": {
       "path": "web",
       "purpose": null,
       "fileCount": 8,
-      "lastAccessed": 1776845858489,
+      "lastAccessed": 1777446830939,
       "keyFiles": [
         "AGENTS.md",
         "index.html",
@@ -173,21 +175,22 @@
         "playwright.config.ts"
       ]
     },
-    "installer\\build": {
-      "path": "installer\\build",
-      "purpose": "Build output",
-      "fileCount": 2,
-      "lastAccessed": 1776845858491,
+    "installer-tauri\\src": {
+      "path": "installer-tauri\\src",
+      "purpose": "Source code",
+      "fileCount": 3,
+      "lastAccessed": 1777446830987,
       "keyFiles": [
-        "icon.ico",
-        "installer.nsh"
+        "App.tsx",
+        "index.css",
+        "main.tsx"
       ]
     },
     "internal\\api": {
       "path": "internal\\api",
       "purpose": "API routes",
-      "fileCount": 26,
-      "lastAccessed": 1776845858492,
+      "fileCount": 27,
+      "lastAccessed": 1777446830998,
       "keyFiles": [
         "agent_handler.go",
         "artifact_handler.go",
@@ -198,54 +201,27 @@
       "path": "internal\\config",
       "purpose": "Configuration files",
       "fileCount": 1,
-      "lastAccessed": 1776845858492,
+      "lastAccessed": 1777446831014,
       "keyFiles": [
         "logging.go"
-      ]
-    },
-    "internal\\middleware": {
-      "path": "internal\\middleware",
-      "purpose": "Middleware",
-      "fileCount": 1,
-      "lastAccessed": 1776845858492,
-      "keyFiles": [
-        "invite.go"
       ]
     },
     "pkg\\config": {
       "path": "pkg\\config",
       "purpose": "Configuration files",
       "fileCount": 3,
-      "lastAccessed": 1776845858493,
+      "lastAccessed": 1777446831044,
       "keyFiles": [
         "config.go",
         "config_test.go",
         "merge.go"
       ]
     },
-    "web\\dist": {
-      "path": "web\\dist",
-      "purpose": "Distribution/build output",
-      "fileCount": 3,
-      "lastAccessed": 1776845858494,
-      "keyFiles": [
-        "favicon.ico",
-        "favicon.svg",
-        "index.html"
-      ]
-    },
-    "web\\node_modules": {
-      "path": "web\\node_modules",
-      "purpose": "Dependencies",
-      "fileCount": 1,
-      "lastAccessed": 1776845858496,
-      "keyFiles": []
-    },
     "web\\public": {
       "path": "web\\public",
       "purpose": "Public files",
       "fileCount": 2,
-      "lastAccessed": 1776845858497,
+      "lastAccessed": 1777446831127,
       "keyFiles": [
         "favicon.ico",
         "favicon.svg"
@@ -255,11 +231,22 @@
       "path": "web\\src",
       "purpose": "Source code",
       "fileCount": 3,
-      "lastAccessed": 1776845858497,
+      "lastAccessed": 1777446831131,
       "keyFiles": [
         "App.tsx",
         "index.css",
         "main.tsx"
+      ]
+    },
+    "web\\tests": {
+      "path": "web\\tests",
+      "purpose": "Test files",
+      "fileCount": 3,
+      "lastAccessed": 1777446831149,
+      "keyFiles": [
+        "README.md",
+        "test-runner.ts",
+        "USAGE.md"
       ]
     }
   },
@@ -275,6 +262,24 @@
       "accessCount": 2,
       "lastAccessed": 1776848217243,
       "type": "directory"
+    },
+    {
+      "path": "web\\tests\\test-runner.ts",
+      "accessCount": 2,
+      "lastAccessed": 1777446948804,
+      "type": "file"
+    },
+    {
+      "path": "docs\\2026-04-29-auto-test-supplement-design.md",
+      "accessCount": 2,
+      "lastAccessed": 1777449528414,
+      "type": "file"
+    },
+    {
+      "path": "docs\\plans\\2026-04-29-auto-test-supplement-design.md",
+      "accessCount": 2,
+      "lastAccessed": 1777449866209,
+      "type": "file"
     },
     {
       "path": "web\\tests\\USAGE.md",
@@ -295,15 +300,51 @@
       "type": "file"
     },
     {
-      "path": "web\\tests\\test-runner.ts",
-      "accessCount": 1,
-      "lastAccessed": 1776848190515,
-      "type": "file"
-    },
-    {
       "path": "web\\package.json",
       "accessCount": 1,
       "lastAccessed": 1776848215080,
+      "type": "file"
+    },
+    {
+      "path": "internal\\service\\a2a\\mention_parser_test.go",
+      "accessCount": 1,
+      "lastAccessed": 1777446948173,
+      "type": "file"
+    },
+    {
+      "path": "internal\\service\\agent\\adapter_test.go",
+      "accessCount": 1,
+      "lastAccessed": 1777446948536,
+      "type": "file"
+    },
+    {
+      "path": "internal\\repo\\db_test.go",
+      "accessCount": 1,
+      "lastAccessed": 1777446964122,
+      "type": "file"
+    },
+    {
+      "path": "web\\tests\\fixtures\\test-fixtures.ts",
+      "accessCount": 1,
+      "lastAccessed": 1777446965712,
+      "type": "file"
+    },
+    {
+      "path": "web\\tests\\e2e\\12-thread-workflow.spec.ts",
+      "accessCount": 1,
+      "lastAccessed": 1777446982679,
+      "type": "file"
+    },
+    {
+      "path": "web\\tests\\e2e\\05-backend-api.spec.ts",
+      "accessCount": 1,
+      "lastAccessed": 1777446982852,
+      "type": "file"
+    },
+    {
+      "path": "docs\\plans\\2026-04-29-auto-test-supplement-plan.md",
+      "accessCount": 1,
+      "lastAccessed": 1777450171445,
       "type": "file"
     }
   ],
