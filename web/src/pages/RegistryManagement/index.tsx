@@ -42,6 +42,7 @@ const RegistryManagement: React.FC = () => {
   const [modalVisible, setModalVisible] = useState(false);
   const [editingRegistry, setEditingRegistry] = useState<SkillRegistry | null>(null);
   const [syncingId, setSyncingId] = useState<string | null>(null);
+  const [selectedType, setSelectedType] = useState<RegistryType>('github');
   const [form] = Form.useForm();
 
   useEffect(() => {
@@ -64,12 +65,14 @@ const RegistryManagement: React.FC = () => {
 
   const handleCreate = () => {
     setEditingRegistry(null);
+    setSelectedType('github');
     form.resetFields();
     setModalVisible(true);
   };
 
   const handleEdit = (registry: SkillRegistry) => {
     setEditingRegistry(registry);
+    setSelectedType(registry.type);
     form.setFieldsValue({
       name: registry.name,
       displayName: registry.displayName,
@@ -77,6 +80,7 @@ const RegistryManagement: React.FC = () => {
       url: registry.url,
       syncInterval: registry.syncInterval,
       status: registry.status,
+      authConfig: registry.authConfig || {},
     });
     setModalVisible(true);
   };
@@ -143,6 +147,7 @@ const RegistryManagement: React.FC = () => {
       gitlab: { color: 'orange', text: 'GitLab' },
       api: { color: 'green', text: 'API' },
       custom: { color: 'purple', text: '自定义' },
+      codehub: { color: 'cyan', text: 'CodeHub' },
     };
     const config = typeConfig[type] || { color: 'default', text: type };
     return <Tag color={config.color}>{config.text}</Tag>;
@@ -331,16 +336,40 @@ const RegistryManagement: React.FC = () => {
             <Input placeholder="我的 GitHub Skills 库" />
           </Form.Item>
           <Form.Item name="type" label="类型" rules={[{ required: true }]}>
-            <Select disabled={!!editingRegistry}>
+            <Select disabled={!!editingRegistry} onChange={(value) => setSelectedType(value as RegistryType)}>
               <Option value="github">GitHub</Option>
               <Option value="gitlab">GitLab</Option>
               <Option value="api">API</Option>
               <Option value="custom">自定义</Option>
+              <Option value="codehub">CodeHub 代码托管服务</Option>
             </Select>
           </Form.Item>
           <Form.Item name="url" label="URL" rules={[{ required: true, message: '请输入URL' }]}>
             <Input placeholder="https://github.com/owner/repo" />
           </Form.Item>
+          {selectedType === 'codehub' && (
+            <>
+              <Form.Item
+                name={['authConfig', 'username']}
+                label="用户名"
+                extra="HTTPS 认证账号（SSH 格式 URL 可不填）"
+              >
+                <Input placeholder="CodeHub 用户名" />
+              </Form.Item>
+              <Form.Item
+                name={['authConfig', 'password']}
+                label="密码"
+                extra="HTTPS 认证密码（SSH 格式 URL 可不填）"
+              >
+                <Input.Password placeholder="CodeHub 密码" />
+              </Form.Item>
+              <div style={{ marginBottom: 16, padding: '8px 12px', background: '#f5f5f5', borderRadius: 4 }}>
+                <Text type="secondary">
+                  SSH 格式 URL 将使用系统全局 SSH Key 认证，无需配置账号密码
+                </Text>
+              </div>
+            </>
+          )}
           <Form.Item name="syncInterval" label="同步间隔（秒）">
             <Select>
               <Option value={1800}>30分钟</Option>
