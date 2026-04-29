@@ -56,7 +56,7 @@ const RegistryManagement: React.FC = () => {
       setRegistries(response.data || []);
       setTotal(response.total || 0);
     } catch (error) {
-      message.error('加载注册表列表失败');
+      message.error('加载联邦源列表失败');
       console.error(error);
     } finally {
       setLoading(false);
@@ -89,10 +89,10 @@ const RegistryManagement: React.FC = () => {
     try {
       if (editingRegistry) {
         await api.registries.update(editingRegistry.id, values);
-        message.success('注册表更新成功');
+        message.success('联邦源更新成功');
       } else {
         await api.registries.create(values as CreateRegistryRequest);
-        message.success('注册表创建成功');
+        message.success('联邦源创建成功');
       }
       setModalVisible(false);
       loadRegistries();
@@ -104,7 +104,7 @@ const RegistryManagement: React.FC = () => {
   const handleDelete = async (id: string) => {
     try {
       await api.registries.delete(id);
-      message.success('注册表已删除');
+      message.success('联邦源已删除');
       loadRegistries();
     } catch (error: any) {
       message.error(error.response?.data?.error || '删除失败');
@@ -255,7 +255,7 @@ const RegistryManagement: React.FC = () => {
             onClick={() => handleEdit(record)}
           />
           <Popconfirm
-            title="确定要删除此注册表吗？"
+            title="确定要删除此联邦源吗？"
             onConfirm={() => handleDelete(record.id)}
             okText="确定"
             cancelText="取消"
@@ -284,7 +284,7 @@ const RegistryManagement: React.FC = () => {
             同步全部
           </Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-            新建注册表
+            新建联邦源
           </Button>
         </Space>
       </div>
@@ -310,7 +310,7 @@ const RegistryManagement: React.FC = () => {
       </Card>
 
       <Modal
-        title={editingRegistry ? '编辑注册表' : '新建注册表'}
+        title={editingRegistry ? '编辑联邦源' : '新建联邦源'}
         open={modalVisible}
         onOk={() => form.submit()}
         onCancel={() => setModalVisible(false)}
