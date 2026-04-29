@@ -92,3 +92,38 @@ pub async fn open_console(
 
     Ok(())
 }
+
+/// Open install directory (for user to manually launch Colink.exe)
+#[tauri::command]
+pub async fn open_install_dir(
+    install_dir: Option<String>,
+    app: AppHandle,
+) -> Result<(), String> {
+    // Get install directory from parameter or registry
+    let install_dir = match install_dir {
+        Some(dir) => dir,
+        None => {
+            crate::services::registry::get_installed_version()
+                .ok()
+                .and_then(|v| v.install_dir)
+                .unwrap_or_else(|| "".to_string())
+        },
+    };
+
+    if install_dir.is_empty() {
+        return Err("无法获取安装目录".to_string());
+    }
+
+    let install_path = std::path::Path::new(&install_dir);
+
+    if !install_path.exists() {
+        return Err(format!("安装目录不存在: {}", install_dir));
+    }
+
+    // Open the directory in file explorer
+    app.opener()
+        .open_path(install_path.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}

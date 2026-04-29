@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"net/http"
 	"os"
@@ -125,12 +126,21 @@ func main() {
 	agent.SetSessionRecorder(a2a.NewSessionRecorderImpl())
 
 	// 连接数据库（数据库表结构由安装器初始化，服务启动时不执行 schema 创建）
+	logger.Info("Connecting to database",
+		zap.String("type", string(cfg.Database.Type)),
+		zap.String("path", cfg.Database.Path))
+
 	db, dialect, err := repo.NewDB(cfg.Database)
 	if err != nil {
 		logger.Fatal("Failed to connect to database", zap.Error(err))
 	}
 	defer db.Close()
 	_ = dialect // 方言对象保留供后续使用
+
+	logger.Info("Database connected successfully")
+
+	// 检查数据库关键表是否存在（用于定位安装时迁移问题）
+	checkDatabaseTables(db, logger)
 
 	// 连接Redis（可选）
 	var redisClient repo.RedisClient
@@ -215,7 +225,8 @@ func main() {
 		subagentRepo, commandRepo,
 		cfg.GetSkillStoragePath(), logger,
 	)
-	registryService := skill.NewRegistryService(registryRepo, skillRepo)
+	skillScanner := skill.NewSkillScanner(registryRepo, skillRepo, cfg.GetSkillStoragePath(), logger)
+	registryService := skill.NewRegistryService(registryRepo, skillRepo, skillScanner)
 	knowledgeService := knowledge.NewService(knowledgeRepo)
 	configGenService := configgen.NewService(
 		projectRepo, agentConfigRepo, skillRepo, agentSkillBindingRepo,
@@ -541,7 +552,7 @@ func main() {
 	workflowHandler.RegisterRoutes(v1)
 
 	// Skill Handler
-	skillHandler := api.NewSkillHandler(skillService, cfg.GetSkillStoragePath(), cfg.Skill.GetUploadMaxSize())
+	skillHandler := api.NewSkillHandler(skillService, skillScanner, cfg.GetSkillStoragePath(), cfg.Skill.GetUploadMaxSize())
 	skillHandler.RegisterRoutes(v1)
 
 	// Registry Handler
@@ -836,4 +847,93 @@ func performLogMaintenance(logger *zap.Logger, logDir string) {
 // catID 就是 role（如 "backend_developer"），直接返回
 func getRoleFromCatID(catID string) model.AgentRole {
 	return model.AgentRole(catID)
+}
+
+// checkDatabaseTables 检查数据库关键表是否存在
+// 用于定位安装时迁移问题，打印详细日志以便后续排查
+func checkDatabaseTables(db *sql.DB, logger *zap.Logger) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// 定义关键表列表（按版本分组）
+	// 这些表应该在安装时由 migrate.exe 创建
+	requiredTables := map[string][]string{
+		"v1.1.0": {"projects", "threads", "messages", "agent_configs", "base_agents", "agent_invocations", "artifacts", "sandboxes", "workflow_templates"},
+		"v1.2.0": {"skills", "commands", "subagents", "rules", "settings"},
+		"v1.2.2": {"markets", "team_package_versions"},
+	}
+
+	// 查询现有表
+	var existingTables []string
+	rows, err := db.QueryContext(ctx, "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+	if err != nil {
+		logger.Error("Failed to query database tables", zap.Error(err))
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			logger.Warn("Failed to scan table name", zap.Error(err))
+			continue
+		}
+		existingTables = append(existingTables, name)
+	}
+	logger.Info("Database tables detected", zap.Strings("tables", existingTables))
+
+	// 检查缺失的表
+	var missingTables []string
+	for version, tables := range requiredTables {
+		for _, table := range tables {
+			found := false
+			for _, existing := range existingTables {
+				if existing == table {
+					found = true
+					break
+				}
+			}
+			if !found {
+				missingTables = append(missingTables, fmt.Sprintf("%s (from %s)", table, version))
+			}
+		}
+	}
+
+	if len(missingTables) > 0 {
+		logger.Warn("Missing database tables detected",
+			zap.Strings("missing", missingTables),
+			zap.String("hint", "Please check if migrate.exe ran correctly during installation"))
+	} else {
+		logger.Info("All required database tables exist")
+	}
+
+	// 检查 goose_db_version 表（迁移版本记录）
+	var gooseVersion int64
+	row := db.QueryRowContext(ctx, "SELECT MAX(version_id) FROM goose_db_version")
+	if err := row.Scan(&gooseVersion); err != nil {
+		if err == sql.ErrNoRows {
+			logger.Warn("goose_db_version table is empty or missing", zap.Error(err))
+		} else {
+			logger.Warn("Failed to query goose_db_version", zap.Error(err))
+		}
+	} else {
+		logger.Info("Database migration version", zap.Int64("goose_version", gooseVersion))
+	}
+
+	// 检查数据库文件信息（SQLite）
+	var dbSize int64
+	var pageCount int64
+	row = db.QueryRowContext(ctx, "PRAGMA page_count")
+	if err := row.Scan(&pageCount); err == nil {
+		row = db.QueryRowContext(ctx, "PRAGMA page_size")
+		var pageSize int64
+		if err := row.Scan(&pageSize); err == nil {
+			dbSize = pageCount * pageSize
+			logger.Info("Database file info",
+				zap.Int64("page_count", pageCount),
+				zap.Int64("page_size", pageSize),
+				zap.Int64("size_bytes", dbSize),
+				zap.String("size_mb", fmt.Sprintf("%.2f", float64(dbSize)/1024/1024)))
+		}
+	}
 }

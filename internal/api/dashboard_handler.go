@@ -150,6 +150,18 @@ func (h *DashboardHandler) GetActiveThreads(c *gin.Context) {
 	c.JSON(http.StatusOK, threads)
 }
 
+// GetRecentThreads 获取最近更新的任务列表
+func (h *DashboardHandler) GetRecentThreads(c *gin.Context) {
+	ctx, cancel := contextWithTimeout(c)
+	defer cancel()
+
+	threads := h.queryRecentThreads(ctx)
+	if threads == nil {
+		threads = []RecentThreadInfo{}
+	}
+	c.JSON(http.StatusOK, threads)
+}
+
 // ActiveThreadInfo 活跃线程信息
 type ActiveThreadInfo struct {
 	ID                 string   `json:"id"`
@@ -163,6 +175,19 @@ type ActiveThreadInfo struct {
 	UpdatedAt          string   `json:"updatedAt"`
 	ProjectName        string   `json:"projectName"`
 	WorkflowName       string   `json:"workflowName"`
+}
+
+// RecentThreadInfo 最近任务信息
+type RecentThreadInfo struct {
+	ID                 string `json:"id"`
+	ProjectID          string `json:"projectId"`
+	Name               string `json:"name"`
+	Status             string `json:"status"`
+	CurrentPhase       string `json:"currentPhase"`
+	WorkflowTemplateID string `json:"workflowTemplateId"`
+	UpdatedAt          string `json:"updatedAt"`
+	ProjectName        string `json:"projectName"`
+	TeamName           string `json:"teamName"` // 所属团队名称（Agent团队，来自workflow_templates.name）
 }
 
 // queryCount 执行COUNT查询
@@ -683,6 +708,45 @@ func (h *DashboardHandler) queryActiveThreadDetails(ctx context.Context, threadI
 	return threads
 }
 
+// queryRecentThreads 查询最近更新的任务列表
+func (h *DashboardHandler) queryRecentThreads(ctx context.Context) []RecentThreadInfo {
+	query := `
+		SELECT t.id, t.project_id, t.name, t.status, t.current_phase,
+			   t.workflow_template_id, t.updated_at,
+			   p.name as project_name, wt.name as team_name
+		FROM threads t
+		LEFT JOIN projects p ON t.project_id = p.id
+		LEFT JOIN workflow_templates wt ON t.workflow_template_id = wt.id
+		ORDER BY t.updated_at DESC
+		LIMIT 3
+	`
+
+	rows, err := h.db.QueryContext(ctx, query)
+	if err != nil {
+		return []RecentThreadInfo{}
+	}
+	defer rows.Close()
+
+	var results []RecentThreadInfo
+	for rows.Next() {
+		var t RecentThreadInfo
+		var projectName, teamName sql.NullString
+		if err := rows.Scan(
+			&t.ID, &t.ProjectID, &t.Name, &t.Status, &t.CurrentPhase,
+			&t.WorkflowTemplateID, &t.UpdatedAt, &projectName, &teamName); err != nil {
+			continue
+		}
+		t.ProjectName = projectName.String
+		t.TeamName = teamName.String
+		results = append(results, t)
+	}
+
+	if results == nil {
+		results = []RecentThreadInfo{}
+	}
+	return results
+}
+
 // parseJSONArray 解析 JSON 数组字符串为字符串列表
 func parseJSONArray(jsonStr string) []string {
 	if jsonStr == "" || jsonStr == "[]" || jsonStr == "null" {
@@ -742,5 +806,6 @@ func (h *DashboardHandler) RegisterRoutes(r *gin.RouterGroup) {
 		dashboard.GET("/stats", h.GetStats)
 		dashboard.GET("/workflows-with-assets", h.GetWorkflowsWithAssets)
 		dashboard.GET("/active-threads", h.GetActiveThreads)
+		dashboard.GET("/recent-threads", h.GetRecentThreads)
 	}
 }

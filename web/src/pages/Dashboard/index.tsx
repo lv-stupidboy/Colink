@@ -113,6 +113,84 @@ const ActiveThreadCard: React.FC<{
   </Card>
 );
 
+// 最近任务卡片
+const RecentThreadCard: React.FC<{
+  thread: RecentThreadInfo;
+  onClick: () => void;
+}> = ({ thread, onClick }) => {
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'completed': return 'success';
+      case 'running': return 'processing';
+      case 'failed': return 'error';
+      case 'pending': return 'default';
+      default: return 'default';
+    }
+  };
+
+  const getStatusText = (status: string) => {
+    switch (status) {
+      case 'completed': return '已完成';
+      case 'running': return '运行中';
+      case 'failed': return '失败';
+      case 'pending': return '待处理';
+      default: return status;
+    }
+  };
+
+  const formatTime = (dateStr: string) => {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffMins < 1) return '刚刚';
+    if (diffMins < 60) return `${diffMins}分钟前`;
+    if (diffHours < 24) return `${diffHours}小时前`;
+    if (diffDays < 7) return `${diffDays}天前`;
+    return date.toLocaleDateString();
+  };
+
+  return (
+    <Card
+      hoverable
+      onClick={onClick}
+      size="small"
+      style={{ borderRadius: 12, cursor: 'pointer', border: '1px solid var(--border-color)', background: 'var(--bg-elevated)' }}
+      styles={{ body: { padding: '12px 16px' } }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <Text strong style={{ fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '60%', color: 'var(--text-primary)' }}>
+          {thread.name || `任务 #${thread.id.slice(0, 8)}`}
+        </Text>
+        <Tag color={getStatusColor(thread.status)} style={{ fontSize: 11 }}>
+          {getStatusText(thread.status)}
+        </Tag>
+      </div>
+      <Space size="small" split={<span style={{ color: 'var(--border-color)' }}>|</span>} style={{ marginBottom: 4 }}>
+        {thread.projectName && (
+          <Text type="secondary" style={{ fontSize: 11 }}>
+            <ProjectOutlined style={{ marginRight: 4 }} />
+            {thread.projectName}
+          </Text>
+        )}
+        {thread.teamName && (
+          <Text type="secondary" style={{ fontSize: 11 }}>
+            <TeamOutlined style={{ marginRight: 4 }} />
+            {thread.teamName}
+          </Text>
+        )}
+      </Space>
+      <Text type="secondary" style={{ fontSize: 11 }}>
+        <ClockCircleOutlined style={{ marginRight: 4 }} />
+        {formatTime(thread.updatedAt)}
+      </Text>
+    </Card>
+  );
+};
+
 // 快速开始Modal组件
 const QuickStartModal: React.FC<{
   visible: boolean;
@@ -189,6 +267,19 @@ interface ActiveThreadInfo extends Thread {
   currentAgentNames?: string[];
 }
 
+// 最近任务信息
+interface RecentThreadInfo {
+  id: string;
+  projectId: string;
+  name: string;
+  status: string;
+  currentPhase: string;
+  workflowTemplateId: string;
+  updatedAt: string;
+  projectName: string;
+  teamName: string;
+}
+
 // 团队资产信息类型
 interface WorkflowWithAssets {
   id: string;
@@ -217,6 +308,7 @@ const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeThreads, setActiveThreads] = useState<ActiveThreadInfo[]>([]);
+  const [recentThreads, setRecentThreads] = useState<RecentThreadInfo[]>([]);
   const [workflowsWithAssets, setWorkflowsWithAssets] = useState<WorkflowWithAssets[]>([]);
   const [stats, setStats] = useState({
     totalProjects: 0,
@@ -277,6 +369,17 @@ const Dashboard: React.FC = () => {
     }
   }, []);
 
+  // 加载最近任务
+  const loadRecentThreads = useCallback(async () => {
+    try {
+      const threads = await api.dashboard.getRecentThreads();
+      const threadsArray = Array.isArray(threads) ? threads : [];
+      setRecentThreads(threadsArray);
+    } catch (error) {
+      console.error('Failed to load recent threads:', error);
+    }
+  }, []);
+
   // 加载团队资产数据
   const loadWorkflowsWithAssets = useCallback(async () => {
     try {
@@ -298,13 +401,13 @@ const Dashboard: React.FC = () => {
       ]);
       setProjects((projectData as unknown as Project[]) || []);
       setWorkflows((workflowsData as unknown as WorkflowTemplate[]) || []);
-      await Promise.all([loadDashboardStats(), loadActiveThreads(), loadWorkflowsWithAssets()]);
+      await Promise.all([loadDashboardStats(), loadActiveThreads(), loadRecentThreads(), loadWorkflowsWithAssets()]);
     } catch (error) {
       console.error('Failed to load dashboard data:', error);
     } finally {
       setLoading(false);
     }
-  }, [loadDashboardStats, loadActiveThreads, loadWorkflowsWithAssets]);
+  }, [loadDashboardStats, loadActiveThreads, loadRecentThreads, loadWorkflowsWithAssets]);
 
   // 初始加载
   useEffect(() => {
@@ -366,217 +469,236 @@ const Dashboard: React.FC = () => {
         </Button>
       </Card>
 
-      {/* 并排布局：项目与任务 + 团队与资产 */}
-      <Row gutter={20} style={{ marginBottom: 20 }}>
-        {/* 区块一：项目与任务 */}
-        <Col xs={24} lg={12}>
-          <Card
-            style={{ borderRadius: 10, background: 'var(--bg-container)', border: '1px solid var(--border-color)', height: '100%' }}
-            styles={{ body: { padding: 16 } }}
-          >
-            {/* 区块标题 - Level 1 最突出 */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                marginBottom: 16,
-                padding: '10px 16px',
-                background: 'linear-gradient(135deg, var(--color-section-blue-bg) 0%, var(--bg-elevated) 100%)',
-                borderRadius: 8,
-                borderLeft: '5px solid var(--color-section-blue)',
-              }}
-            >
-              <Text strong style={{ fontSize: 15, color: 'var(--text-primary)', letterSpacing: 0.5 }}>
-                <ProjectOutlined style={{ marginRight: 10, color: 'var(--color-section-blue)', fontSize: 16 }} />
-                项目与任务
-              </Text>
-              <Button type="link" size="small" onClick={() => navigate('/projects')} style={{ color: 'var(--color-section-blue)', fontSize: 12 }}>
-                管理 <ArrowRightOutlined />
+      {/* 区块一：项目与任务 */}
+      <Card
+        style={{ borderRadius: 10, background: 'var(--bg-container)', border: '1px solid var(--border-color)', marginBottom: 20 }}
+        styles={{ body: { padding: 16 } }}
+      >
+        {/* 区块标题 - Level 1 最突出 */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: 16,
+            padding: '10px 16px',
+            background: 'linear-gradient(135deg, var(--color-section-blue-bg) 0%, var(--bg-elevated) 100%)',
+            borderRadius: 8,
+            borderLeft: '5px solid var(--color-section-blue)',
+          }}
+        >
+          <Text strong style={{ fontSize: 15, color: 'var(--text-primary)', letterSpacing: 0.5 }}>
+            <ProjectOutlined style={{ marginRight: 10, color: 'var(--color-section-blue)', fontSize: 16 }} />
+            项目与任务
+          </Text>
+          <Button type="link" size="small" onClick={() => navigate('/projects')} style={{ color: 'var(--color-section-blue)', fontSize: 12 }}>
+            管理 <ArrowRightOutlined />
+          </Button>
+        </div>
+
+        {/* 统计卡片 - 只保留项目相关 */}
+        <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+          <Col span={6}>
+            <CoreStatCard
+              title="项目"
+              value={stats.totalProjects}
+              icon={<ProjectOutlined style={{ color: '#1890ff', fontSize: 18 }} />}
+              color="#1890ff"
+              bgColor="rgba(24, 144, 255, 0.1)"
+              onClick={() => navigate('/projects')}
+            />
+          </Col>
+          <Col span={6}>
+            <CoreStatCard
+              title="进行中"
+              value={stats.activeThreads}
+              icon={<ClockCircleOutlined style={{ color: '#52c41a', fontSize: 18 }} />}
+              color="#52c41a"
+              bgColor="rgba(82, 196, 26, 0.1)"
+              onClick={() => navigate('/projects')}
+            />
+          </Col>
+        </Row>
+
+        {/* 活跃任务 */}
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <Space size={6}>
+              <ClockCircleOutlined style={{ color: 'var(--color-primary)', fontSize: 14 }} />
+              <Text style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500 }}>活跃任务</Text>
+              {stats.activeThreads > 0 && <Tag color="processing" style={{ fontSize: 11, margin: 0, padding: '0 6px' }}>{stats.activeThreads}</Tag>}
+            </Space>
+          </div>
+          {activeThreads.length > 0 ? (
+            <Row gutter={[12, 12]}>
+              {activeThreads.slice(0, 2).map((thread) => (
+                <Col span={6} key={thread.id}>
+                  <ActiveThreadCard
+                    thread={thread}
+                    onClick={() => navigate(`/projects/${thread.projectId}/threads/${thread.id}`)}
+                  />
+                </Col>
+              ))}
+            </Row>
+          ) : (
+            <div style={{ padding: '16px', textAlign: 'center', background: 'var(--bg-elevated)', borderRadius: 8 }}>
+              <RocketOutlined style={{ fontSize: 24, color: 'var(--color-primary)', marginBottom: 8 }} />
+              <Text style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 12, display: 'block' }}>暂无活跃任务</Text>
+              <Button type="default" icon={<RocketOutlined />} onClick={() => setQuickStartVisible(true)} style={{ borderRadius: 6, border: '1px solid var(--color-primary)', color: 'var(--color-primary)' }}>
+                开始新任务
               </Button>
             </div>
+          )}
+        </div>
 
-            {/* 统计卡片 - 只保留项目相关 */}
-            <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
-              <Col span={12}>
-                <CoreStatCard
-                  title="项目"
-                  value={stats.totalProjects}
-                  icon={<ProjectOutlined style={{ color: '#1890ff', fontSize: 18 }} />}
-                  color="#1890ff"
-                  bgColor="rgba(24, 144, 255, 0.1)"
-                  onClick={() => navigate('/projects')}
-                />
-              </Col>
-              <Col span={12}>
-                <CoreStatCard
-                  title="进行中"
-                  value={stats.activeThreads}
-                  icon={<ClockCircleOutlined style={{ color: '#52c41a', fontSize: 18 }} />}
-                  color="#52c41a"
-                  bgColor="rgba(82, 196, 26, 0.1)"
-                  onClick={() => navigate('/projects')}
-                />
-              </Col>
+        {/* 最近任务 */}
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <Space size={6}>
+              <ClockCircleOutlined style={{ color: 'var(--color-primary)', fontSize: 14 }} />
+              <Text style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500 }}>最近任务</Text>
+              {recentThreads.length > 0 && <Tag style={{ fontSize: 11, margin: 0, padding: '0 6px', background: 'var(--bg-elevated)', border: '1px solid var(--border-color)' }}>{recentThreads.length}</Tag>}
+            </Space>
+          </div>
+          {recentThreads.length > 0 ? (
+            <Row gutter={[12, 12]}>
+              {recentThreads.map((thread) => (
+                <Col span={8} key={thread.id}>
+                  <RecentThreadCard
+                    thread={thread}
+                    onClick={() => navigate(`/projects/${thread.projectId}/threads/${thread.id}`)}
+                  />
+                </Col>
+              ))}
             </Row>
-
-            {/* 活跃任务 */}
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                <Space size={6}>
-                  <ClockCircleOutlined style={{ color: 'var(--color-primary)', fontSize: 14 }} />
-                  <Text style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500 }}>活跃任务</Text>
-                  {stats.activeThreads > 0 && <Tag color="processing" style={{ fontSize: 11, margin: 0, padding: '0 6px' }}>{stats.activeThreads}</Tag>}
-                </Space>
-              </div>
-              {activeThreads.length > 0 ? (
-                <Row gutter={[12, 12]}>
-                  {activeThreads.slice(0, 2).map((thread) => (
-                    <Col span={12} key={thread.id}>
-                      <ActiveThreadCard
-                        thread={thread}
-                        onClick={() => navigate(`/projects/${thread.projectId}/threads/${thread.id}`)}
-                      />
-                    </Col>
-                  ))}
-                </Row>
-              ) : (
-                <div style={{ padding: '16px', textAlign: 'center', background: 'var(--bg-elevated)', borderRadius: 8 }}>
-                  <RocketOutlined style={{ fontSize: 24, color: 'var(--color-primary)', marginBottom: 8 }} />
-                  <Text style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 12, display: 'block' }}>暂无活跃任务</Text>
-                  <Button type="default" icon={<RocketOutlined />} onClick={() => setQuickStartVisible(true)} style={{ borderRadius: 6, border: '1px solid var(--color-primary)', color: 'var(--color-primary)' }}>
-                    开始新任务
-                  </Button>
-                </div>
-              )}
+          ) : (
+            <div style={{ padding: '16px', textAlign: 'center', background: 'var(--bg-elevated)', borderRadius: 8 }}>
+              <Text style={{ fontSize: 13, color: 'var(--text-secondary)' }}>暂无最近任务</Text>
             </div>
+          )}
+        </div>
 
-            {/* 最近项目 */}
-            <div>
-              <Text style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500, marginBottom: 10, display: 'block' }}>
-                最近项目
-              </Text>
-              {projects.length > 0 ? (
-                <Table
-                  dataSource={projects.slice(0, 2)}
-                  columns={projectColumns}
-                  rowKey="id"
-                  loading={loading}
-                  pagination={false}
-                  size="small"
-                  style={{ fontSize: 12 }}
-                />
-              ) : (
-                <Empty description="暂无项目" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ padding: '12px 0' }}>
-                  <Button type="primary" size="small" onClick={() => navigate('/projects')}>创建</Button>
-                </Empty>
-              )}
-            </div>
-          </Card>
-        </Col>
+        {/* 最近项目 */}
+        <div>
+          <Text style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500, marginBottom: 10, display: 'block' }}>
+            最近项目
+          </Text>
+          {projects.length > 0 ? (
+            <Table
+              dataSource={projects.slice(0, 2)}
+              columns={projectColumns}
+              rowKey="id"
+              loading={loading}
+              pagination={false}
+              size="small"
+              style={{ fontSize: 12 }}
+            />
+          ) : (
+            <Empty description="暂无项目" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ padding: '12px 0' }}>
+              <Button type="primary" size="small" onClick={() => navigate('/projects')}>创建</Button>
+            </Empty>
+          )}
+        </div>
+      </Card>
 
-        {/* 区块二：团队与资产 */}
-        <Col xs={24} lg={12}>
-          <Card
-            style={{ borderRadius: 10, background: 'var(--bg-container)', border: '1px solid var(--border-color)', height: '100%' }}
-            styles={{ body: { padding: 16 } }}
-          >
-            {/* 区块标题 - Level 1 最突出，紫色系 */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                marginBottom: 16,
-                padding: '10px 16px',
-                background: 'linear-gradient(135deg, var(--color-section-purple-bg) 0%, var(--bg-elevated) 100%)',
-                borderRadius: 8,
-                borderLeft: '5px solid var(--color-section-purple)',
-              }}
-            >
-              <Text strong style={{ fontSize: 15, color: 'var(--text-primary)', letterSpacing: 0.5 }}>
-                <TeamOutlined style={{ marginRight: 10, color: 'var(--color-section-purple)', fontSize: 16 }} />
-                团队与资产
-              </Text>
-              <Space size={8}>
-                <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => navigate('/workflow')} style={{ borderRadius: 6, fontSize: 12 }}>
-                  新建团队
-                </Button>
-                <Button type="link" size="small" onClick={() => navigate('/workflow')} style={{ color: 'var(--color-section-purple)', fontSize: 12 }}>
-                  配置 <ArrowRightOutlined />
-                </Button>
-              </Space>
-            </div>
+      {/* 区块二：团队与资产 */}
+      <Card
+        style={{ borderRadius: 10, background: 'var(--bg-container)', border: '1px solid var(--border-color)', marginBottom: 20 }}
+        styles={{ body: { padding: 16 } }}
+      >
+        {/* 区块标题 - Level 1 最突出，紫色系 */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: 16,
+            padding: '10px 16px',
+            background: 'linear-gradient(135deg, var(--color-section-purple-bg) 0%, var(--bg-elevated) 100%)',
+            borderRadius: 8,
+            borderLeft: '5px solid var(--color-section-purple)',
+          }}
+        >
+          <Text strong style={{ fontSize: 15, color: 'var(--text-primary)', letterSpacing: 0.5 }}>
+            <TeamOutlined style={{ marginRight: 10, color: 'var(--color-section-purple)', fontSize: 16 }} />
+            团队与资产
+          </Text>
+          <Space size={8}>
+            <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => navigate('/workflow')} style={{ borderRadius: 6, fontSize: 12 }}>
+              新建团队
+            </Button>
+            <Button type="link" size="small" onClick={() => navigate('/workflow')} style={{ color: 'var(--color-section-purple)', fontSize: 12 }}>
+              配置 <ArrowRightOutlined />
+            </Button>
+          </Space>
+        </div>
 
-            {/* 第一行：Agent团队 + 角色配置 */}
-            <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
-              <Col span={12}>
-                <CoreStatCard
-                  title="Agent团队"
-                  value={stats.workflowTeams}
-                  icon={<TeamOutlined style={{ color: '#722ed1', fontSize: 18 }} />}
-                  color="#722ed1"
-                  bgColor="rgba(114, 46, 209, 0.1)"
-                  onClick={() => navigate('/workflow')}
+        {/* 第一行：Agent团队 + 角色配置 */}
+        <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+          <Col span={6}>
+            <CoreStatCard
+              title="Agent团队"
+              value={stats.workflowTeams}
+              icon={<TeamOutlined style={{ color: '#722ed1', fontSize: 18 }} />}
+              color="#722ed1"
+              bgColor="rgba(114, 46, 209, 0.1)"
+              onClick={() => navigate('/workflow')}
+            />
+          </Col>
+          <Col span={6}>
+            <CoreStatCard
+              title="角色配置"
+              value={stats.agentRoles}
+              icon={<RobotOutlined style={{ color: '#faad14', fontSize: 18 }} />}
+              color="#faad14"
+              bgColor="rgba(250, 173, 20, 0.1)"
+              onClick={() => navigate('/agents/roles')}
+            />
+          </Col>
+        </Row>
+
+        {/* 团队卡片列表标题 - 子标题样式 */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <Space size={6}>
+            <TeamOutlined style={{ color: 'var(--color-section-purple)', fontSize: 13 }} />
+            <Text style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500 }}>Agent团队</Text>
+            <Tag style={{ margin: 0, background: 'var(--color-section-purple-bg)', border: '1px solid var(--color-section-purple)', color: 'var(--color-section-purple)', fontSize: 11 }}>{workflowsWithAssets.length}</Tag>
+          </Space>
+        </div>
+        {workflowsWithAssets.length > 0 ? (
+          <Row gutter={[12, 12]}>
+            {workflowsWithAssets.slice(0, 4).map((workflow) => (
+              <Col span={6} key={workflow.id}>
+                <WorkflowCard
+                  id={workflow.id}
+                  name={workflow.name}
+                  description={workflow.description}
+                  isSystem={workflow.isSystem}
+                  agents={workflow.agents}
+                  skills={workflow.skills}
+                  commands={workflow.commands}
+                  subagents={workflow.subagents}
+                  rules={workflow.rules}
+                  totalAssets={workflow.totalAssets}
                 />
               </Col>
-              <Col span={12}>
-                <CoreStatCard
-                  title="角色配置"
-                  value={stats.agentRoles}
-                  icon={<RobotOutlined style={{ color: '#faad14', fontSize: 18 }} />}
-                  color="#faad14"
-                  bgColor="rgba(250, 173, 20, 0.1)"
-                  onClick={() => navigate('/agents/roles')}
-                />
-              </Col>
-            </Row>
+            ))}
+          </Row>
+        ) : (
+          <Empty description="暂无团队" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ padding: '12px 0' }}>
+            <Button type="primary" size="small" onClick={() => navigate('/workflow')}>创建</Button>
+          </Empty>
+        )}
 
-            {/* 团队卡片列表标题 - 子标题样式 */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-              <Space size={6}>
-                <TeamOutlined style={{ color: 'var(--color-section-purple)', fontSize: 13 }} />
-                <Text style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500 }}>Agent团队</Text>
-                <Tag style={{ margin: 0, background: 'var(--color-section-purple-bg)', border: '1px solid var(--color-section-purple)', color: 'var(--color-section-purple)', fontSize: 11 }}>{workflowsWithAssets.length}</Tag>
-              </Space>
-            </div>
-            {workflowsWithAssets.length > 0 ? (
-              <Row gutter={[12, 12]}>
-                {workflowsWithAssets.slice(0, 4).map((workflow) => (
-                  <Col span={12} key={workflow.id}>
-                    <WorkflowCard
-                      id={workflow.id}
-                      name={workflow.name}
-                      description={workflow.description}
-                      isSystem={workflow.isSystem}
-                      agents={workflow.agents}
-                      skills={workflow.skills}
-                      commands={workflow.commands}
-                      subagents={workflow.subagents}
-                      rules={workflow.rules}
-                      totalAssets={workflow.totalAssets}
-                    />
-                  </Col>
-                ))}
-              </Row>
-            ) : (
-              <Empty description="暂无团队" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ padding: '12px 0' }}>
-                <Button type="primary" size="small" onClick={() => navigate('/workflow')}>创建</Button>
-              </Empty>
-            )}
-
-            {/* 查看全部 */}
-            {workflowsWithAssets.length > 4 && (
-              <div style={{ textAlign: 'center', marginTop: 12 }}>
-                <Button type="link" size="small" onClick={() => navigate('/workflow')} style={{ color: 'var(--color-primary)', fontSize: 12 }}>
-                  查看全部 ({workflowsWithAssets.length}) <ArrowRightOutlined />
-                </Button>
-              </div>
-            )}
-
-                      </Card>
-        </Col>
-      </Row>
+        {/* 查看全部 */}
+        {workflowsWithAssets.length > 4 && (
+          <div style={{ textAlign: 'center', marginTop: 12 }}>
+            <Button type="link" size="small" onClick={() => navigate('/workflow')} style={{ color: 'var(--color-primary)', fontSize: 12 }}>
+              查看全部 ({workflowsWithAssets.length}) <ArrowRightOutlined />
+            </Button>
+          </div>
+        )}
+      </Card>
 
       {/* 快速开始Modal */}
       <QuickStartModal

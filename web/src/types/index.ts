@@ -681,7 +681,7 @@ export interface SkillAgentsResponse {
 // ========== Registry 相关类型 ==========
 
 // 注册表类型
-export type RegistryType = 'github' | 'gitlab' | 'api' | 'custom';
+export type RegistryType = 'github' | 'gitlab' | 'api' | 'custom' | 'codehub';
 
 // 同步状态
 export type RegistrySyncStatus = 'pending' | 'success' | 'failed';
@@ -1280,4 +1280,49 @@ export interface UpdateMarketRequest {
   enabled?: boolean;
   autoUpdate?: boolean;
   checkInterval?: string;
+}
+
+// ========== 联邦源导入相关类型 ==========
+
+// 远程 Skill 信息（扫描结果）
+export interface RemoteSkill {
+  name: string;
+  description: string;
+  path: string;          // Skill 在仓库中的相对路径
+  existsLocally: boolean; // 是否已存在本地同名 Skill
+}
+
+// 扫描结果
+export interface ScanResult {
+  registryId: string;
+  registryName: string;
+  registryUrl: string;
+  skills: RemoteSkill[];
+}
+
+// Skill 导入项
+export interface SkillImportItem {
+  name: string;
+  path: string;
+  description: string;
+  tags: string[];
+  supportedAgents: string[];
+}
+
+// 批量导入请求
+export interface BatchImportRequest {
+  registryId: string;
+  skills: SkillImportItem[];
+}
+
+// 批量导入结果
+export interface BatchImportResult {
+  imported: Skill[];
+  skipped: SkippedSkillInfo[];
+}
+
+// 跳过的 Skill 信息
+export interface SkippedSkillInfo {
+  name: string;
+  reason: string;
 }

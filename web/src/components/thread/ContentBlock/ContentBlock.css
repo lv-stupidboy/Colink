@@ -90,17 +90,17 @@
 }
 
 .tool-call-detail-label {
-  font-size: 10px;
-  font-weight: 500;
-  color: #6B7280;
+  font-size: 11px;
+  font-weight: 600;
+  color: #374151;
   margin-bottom: 4px;
   text-transform: uppercase;
 }
 
 .tool-call-detail pre {
   margin: 0;
-  font-size: 10px;
-  color: #475569;
+  font-size: 12px;
+  color: #374151;
   font-family: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
   white-space: pre-wrap;
   word-break: break-all;

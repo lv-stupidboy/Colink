@@ -1,4 +1,5 @@
 use crate::error::{InstallerError, Result};
+use crate::services::config::read_existing_config;
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::sync::{Arc, Mutex};
@@ -20,6 +21,114 @@ impl ServiceManager {
         Self {
             process: Arc::new(Mutex::new(None)),
             install_dir,
+        }
+    }
+
+    /// Check if a port is in use and get the PID of the process using it
+    #[cfg(target_os = "windows")]
+    fn check_port_in_use(port: u16) -> Result<Option<u32>> {
+        // Use netstat to find process using the port
+        let output = Command::new("netstat")
+            .args(["-ano", "-p", "TCP"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .map_err(|e| InstallerError::Process(e.to_string()))?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        // Look for lines with the port (e.g., "127.0.0.1:26305" or "0.0.0.0:26305")
+        for line in stdout.lines() {
+            // Check for LISTENING state on the port
+            if line.contains("LISTENING") && line.contains(&format!(":{} ", port)) {
+                // Extract PID (last column)
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if let Some(pid_str) = parts.last() {
+                    if let Ok(pid) = pid_str.parse::<u32>() {
+                        log::info!("Port {} is in use by PID {}", port, pid);
+                        return Ok(Some(pid));
+                    }
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn check_port_in_use(port: u16) -> Result<Option<u32>> {
+        // On non-Windows, use lsof or ss
+        let output = Command::new("ss")
+            .args(["-tlnp", &format!("sport = :{}", port)])
+            .output();
+
+        match output {
+            Ok(o) => {
+                let stdout = String::from_utf8_lossy(&o.stdout);
+                for line in stdout.lines() {
+                    if line.contains(&format!(":{}", port)) {
+                        // Extract PID from ss output (format varies)
+                        // For now, return None as we can't reliably parse
+                        log::warn!("Port {} appears to be in use on non-Windows", port);
+                        return Ok(None);
+                    }
+                }
+            }
+            Err(_) => {
+                // ss not available, try lsof
+                let lsof_output = Command::new("lsof")
+                    .args(["-i", &format!(":{}", port)])
+                    .output();
+
+                if let Ok(o) = lsof_output {
+                    if !o.stdout.is_empty() {
+                        log::warn!("Port {} appears to be in use (lsof)", port);
+                        return Ok(None);
+                    }
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    /// Kill a process by PID
+    #[cfg(target_os = "windows")]
+    fn kill_process_by_pid(pid: u32) -> Result<()> {
+        log::info!("Attempting to kill process with PID {}", pid);
+
+        let output = Command::new("taskkill")
+            .args(["/F", "/PID", &pid.to_string()])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .map_err(|e| InstallerError::Process(e.to_string()))?;
+
+        if output.status.success() {
+            log::info!("Successfully killed process PID {}", pid);
+            Ok(())
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            log::warn!("Failed to kill process PID {}: {}", pid, stderr);
+            Err(InstallerError::Process(format!(
+                "无法终止占用端口的进程 (PID {}): {}",
+                pid, stderr
+            )))
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn kill_process_by_pid(pid: u32) -> Result<()> {
+        let output = Command::new("kill")
+            .args(["-9", &pid.to_string()])
+            .output()
+            .map_err(|e| InstallerError::Process(e.to_string()))?;
+
+        if output.status.success() {
+            log::info!("Successfully killed process PID {}", pid);
+            Ok(())
+        } else {
+            Err(InstallerError::Process(format!(
+                "无法终止占用端口的进程 (PID {})",
+                pid
+            )))
         }
     }
 
@@ -50,6 +159,34 @@ impl ServiceManager {
         if !config_path.exists() {
             log::error!("Config file not found at {:?}", config_path);
             return Err(InstallerError::Config("配置文件不存在".into()));
+        }
+
+        // Read port from config
+        let port = read_existing_config(&self.install_dir)
+            .map(|(server_port, _)| server_port)
+            .unwrap_or(26305);
+
+        log::info!("Checking if port {} is in use...", port);
+
+        // Check if port is in use and handle it
+        if let Some(pid) = Self::check_port_in_use(port)? {
+            log::warn!("Port {} is occupied by PID {}, attempting to kill...", port, pid);
+
+            // Try to kill the process
+            match Self::kill_process_by_pid(pid) {
+                Ok(_) => {
+                    log::info!("Successfully freed port {}", port);
+                    // Wait a moment for the port to be released
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                }
+                Err(e) => {
+                    log::error!("Failed to kill process occupying port {}: {}", port, e);
+                    return Err(InstallerError::Process(format!(
+                        "端口 {} 已被其他程序占用 (PID {})，无法终止该进程。请手动关闭占用端口的程序后重试。",
+                        port, pid
+                    )));
+                }
+            }
         }
 
         log::info!("Spawning server process...");
