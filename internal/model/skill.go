@@ -114,10 +114,11 @@ type SkillWithBindings struct {
 type RegistryType string
 
 const (
-	RegistryTypeGitHub RegistryType = "github"
-	RegistryTypeGitLab RegistryType = "gitlab"
-	RegistryTypeAPI    RegistryType = "api"
-	RegistryTypeCustom RegistryType = "custom"
+	RegistryTypeGitHub  RegistryType = "github"
+	RegistryTypeGitLab  RegistryType = "gitlab"
+	RegistryTypeAPI     RegistryType = "api"
+	RegistryTypeCustom  RegistryType = "custom"
+	RegistryTypeCodeHub RegistryType = "codehub" // 华为内网 CodeHub
 )
 
 // RegistrySyncStatus 同步状态
