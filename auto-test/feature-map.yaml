@@ -1,0 +1,116 @@
+# auto-test/feature-map.yaml
+# Feature-based test execution mapping
+# Usage: make test-feature F=F001
+
+features:
+  F001:
+    name: "Agent 对话核心"
+    priority: P0
+    tests:
+      e2e:
+        - "AD-01-*"
+        - "AD-02-01~10"
+        - "AD-04-*"
+      internal:
+        - "SV-01-01~05"
+        - "API-01-*"
+      vitest:
+        - "VT-01-14"
+        - "VT-01-15"
+
+  F002:
+    name: "WebSocket 流式"
+    priority: P0
+    tests:
+      e2e:
+        - "WS-01-*"
+        - "WS-02-*"
+        - "WS-04-*"
+      internal:
+        - "SV-02-*"
+      vitest:
+        - "VT-03-03"
+        - "VT-03-04"
+        - "VT-03-05"
+
+  F003:
+    name: "多 Agent 协作 (A2A)"
+    priority: P0
+    tests:
+      e2e:
+        - "AD-03-*"
+        - "WS-03-*"
+      internal:
+        - "SV-02-*"
+      vitest:
+        - "VT-03-07"
+
+  F004:
+    name: "团队包管理"
+    priority: P1
+    tests:
+      e2e:
+        - "TP-01-*"
+        - "TP-02-*"
+        - "TP-03-*"
+      internal:
+        - "SV-04-*"
+        - "API-03-*"
+
+  F005:
+    name: "线程管理"
+    priority: P1
+    tests:
+      e2e:
+        - "TW-01-*"
+      internal:
+        - "SV-05-06~07"
+        - "API-02-*"
+        - "RP-02-02"
+
+  F006:
+    name: "工作流执行"
+    priority: P1
+    tests:
+      e2e:
+        - "TW-02-*"
+      internal:
+        - "SV-05-04~05"
+        - "API-04-03~04"
+        - "RP-02-03"
+
+  F007:
+    name: "IM 集成"
+    priority: P1
+    tests:
+      internal:
+        - "SV-03-*"
+        - "RP-01-05"
+
+  F008:
+    name: "消息渲染"
+    priority: P1
+    tests:
+      e2e:
+        - "AD-02-*"
+      vitest:
+        - "VT-01-09"
+        - "VT-01-10"
+
+  F009:
+    name: "深色模式"
+    priority: P2
+    tests:
+      vitest:
+        - "VT-01-11"
+        - "VT-03-01"
+      performance:
+        - "PF-02-06"
+
+  F010:
+    name: "性能优化"
+    priority: P2
+    tests:
+      performance:
+        - "PF-01-*"
+        - "PF-02-*"
