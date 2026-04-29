@@ -8,11 +8,12 @@ import (
 
 func init() {
 	agent.RegisterPlugin(agent.PluginMeta{
-		Type:        model.BaseAgentTypeClaudeCode,
-		Name:        "ClaudeCode",
-		Description: "Anthropic Claude CLI - 使用 claude 命令行工具",
-		Factory:     NewClaudeAdapter,
-		ConfigDir:   ".claude",
-		DefaultPath: "claude",
+		Type:                model.BaseAgentTypeClaudeCode,
+		Name:                "ClaudeCode",
+		Description:         "Anthropic Claude CLI - 使用 claude 命令行工具",
+		Factory:             NewClaudeAdapter,
+		ConfigDir:           ".claude",
+		DefaultPath:         "claude",
+		ConfigGeneratorFactory: NewClaudeConfigGenerator,
 	})
 }

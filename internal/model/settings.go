@@ -10,12 +10,13 @@ import (
 
 // Settings 配置目录资产模型
 type Settings struct {
-	ID            uuid.UUID `json:"id"`
-	Name          string    `json:"name"`
-	Description   string    `json:"description,omitempty"`
-	DirectoryPath string    `json:"directoryPath,omitempty"` // 存储路径
-	CreatedAt     time.Time `json:"createdAt"`
-	UpdatedAt     time.Time `json:"updatedAt"`
+	ID              uuid.UUID `json:"id"`
+	Name            string    `json:"name"`
+	Description     string    `json:"description,omitempty"`
+	DirectoryPath   string    `json:"directoryPath,omitempty"` // 存储路径
+	SupportedAgents []string  `json:"supportedAgents,omitempty"` // 支持的Agent类型
+	CreatedAt       time.Time `json:"createdAt"`
+	UpdatedAt       time.Time `json:"updatedAt"`
 }
 
 func (s *Settings) TableName() string {
@@ -36,20 +37,23 @@ func (a *AgentSettingsBinding) TableName() string {
 
 // CreateSettingsRequest 创建Settings请求
 type CreateSettingsRequest struct {
-	Name        string `json:"name" binding:"required"`
-	Description string `json:"description"`
+	Name            string   `json:"name" binding:"required"`
+	Description     string   `json:"description"`
+	SupportedAgents []string `json:"supportedAgents"` // 支持的Agent类型（可选）
 }
 
 // UpdateSettingsRequest 更新Settings请求
 type UpdateSettingsRequest struct {
-	Description string `json:"description"`
+	Description     string   `json:"description"`
+	SupportedAgents []string `json:"supportedAgents"` // 支持的Agent类型（可选）
 }
 
 // SettingsListQuery Settings列表查询参数
 type SettingsListQuery struct {
-	Search   string `form:"search"`
-	Page     int    `form:"page"`
-	PageSize int    `form:"page_size"`
+	Search    string `form:"search"`
+	AgentType string `form:"agent_type"` // 按Agent类型过滤
+	Page      int    `form:"page"`
+	PageSize  int    `form:"page_size"`
 }
 
 // BindSettingsRequest 绑定Settings请求

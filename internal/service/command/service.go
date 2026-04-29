@@ -122,12 +122,19 @@ func (s *Service) Create(ctx context.Context, req *model.CreateCommandRequest) (
 		return nil, ErrCommandNameExists
 	}
 
+	// 处理 SupportedAgents：空数组默认为 ["claude_code"]
+	supportedAgents := req.SupportedAgents
+	if len(supportedAgents) == 0 {
+		supportedAgents = []string{"claude_code"}
+	}
+
 	command := &model.Command{
-		ID:          uuid.New(),
-		Name:        req.Name,
-		Description: req.Description,
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+		ID:              uuid.New(),
+		Name:            req.Name,
+		Description:     req.Description,
+		SupportedAgents: supportedAgents,
+		CreatedAt:       time.Now(),
+		UpdatedAt:       time.Now(),
 	}
 
 	// 写入 content 到文件
@@ -196,6 +203,10 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, req *model.UpdateCom
 
 	if req.Description != "" {
 		command.Description = req.Description
+	}
+	// 更新 SupportedAgents（如果提供了）
+	if req.SupportedAgents != nil {
+		command.SupportedAgents = req.SupportedAgents
 	}
 	// 更新 content 文件
 	if req.Content != "" {

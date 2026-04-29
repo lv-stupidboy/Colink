@@ -8,11 +8,12 @@ import (
 
 func init() {
 	agent.RegisterPlugin(agent.PluginMeta{
-		Type:        model.BaseAgentTypeOpenCode,
-		Name:        "OpenCode",
-		Description: "OpenCode CLI via ACP - 结构化输出",
-		Factory:     NewOpenCodeAdapter,
-		ConfigDir:   ".opencode",
-		DefaultPath: "opencode",
+		Type:                model.BaseAgentTypeOpenCode,
+		Name:                "OpenCode",
+		Description:         "OpenCode CLI via ACP - 结构化输出",
+		Factory:             NewOpenCodeAdapter,
+		ConfigDir:           ".opencode",
+		DefaultPath:         "opencode",
+		ConfigGeneratorFactory: NewOpenCodeConfigGenerator,
 	})
 }
