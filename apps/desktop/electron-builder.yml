@@ -1,0 +1,50 @@
+appId: com.colink.desktop
+productName: Colink
+directories:
+  buildResources: build
+  output: release
+
+protocols:
+  - name: Colink
+    schemes:
+      - colink
+
+asarUnpack:
+  - resources/**
+
+files:
+  - "!**/.vscode/*"
+  - "!src/*"
+  - "!electron.vite.config.*"
+  - "!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml}"
+  - "!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}"
+
+extraResources:
+  - from: "resources/bin"
+    to: "bin"
+  - from: "../web/dist"
+    to: "web"
+  - from: "../configs/config.yaml.example"
+    to: "data/configs/config.yaml.example"
+
+win:
+  target:
+    - nsis
+  icon: build/icon.ico
+  artifactName: colink-desktop-${version}-windows-${arch}.${ext}
+
+mac:
+  entitlementsInherit: build/entitlements.mac.plist
+  target:
+    - dmg
+    - zip
+  artifactName: colink-desktop-${version}-mac-${arch}.${ext}
+  notarize: false
+
+linux:
+  target:
+    - AppImage
+    - deb
+  artifactName: colink-desktop-${version}-linux-${arch}.${ext}
+
+npmRebuild: false
