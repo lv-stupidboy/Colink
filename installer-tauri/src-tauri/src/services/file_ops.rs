@@ -307,12 +307,25 @@ pub fn move_to_backup(dir: &Path, backup_dir: &Path, whitelist: &[&str]) -> Resu
         let src_path = entry.path();
         let dest_path = backup_dir.join(&name);
 
+        // Check if source still exists before rename
+        // (file may be deleted between read_dir iteration and rename)
+        if !src_path.exists() {
+            log::warn!("Source file disappeared during iteration, skipping: {}", src_path.display());
+            continue;  // Skip this entry, continue with others
+        }
+
         // Rename is atomic on same drive
-        fs::rename(&src_path, &dest_path)
-            .map_err(|e| InstallerError::Io {
+        if let Err(e) = fs::rename(&src_path, &dest_path) {
+            // If file disappeared after our check, just skip it (don't fail the whole upgrade)
+            if !src_path.exists() {
+                log::warn!("Source file disappeared during rename, skipping: {}", src_path.display());
+                continue;
+            }
+            return Err(InstallerError::Io {
                 context: format!("move to backup: {}", src_path.display()),
                 source: e,
-            })?;
+            });
+        }
     }
 
     Ok(())
