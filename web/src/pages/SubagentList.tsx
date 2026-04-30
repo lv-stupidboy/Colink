@@ -667,15 +667,15 @@ const SubagentList: React.FC = () => {
                 (option?.desc as string)?.toLowerCase().includes(input.toLowerCase())
               }
               options={skills.map(s => ({
-                label: s.name,
+                label: `${s.name} (${s.description || '暂无描述'})`,
                 value: s.id,
                 desc: s.description || '暂无描述',
               }))}
               optionRender={(option) => (
-                <div style={{ display: 'flex', flexDirection: 'column' }}>
-                  <span style={{ fontWeight: 500 }}>{option.label}</span>
-                  <span style={{ fontSize: 12, color: '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 400 }}>
-                    {option.data?.desc}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontWeight: 500 }}>{option.data?.label?.split(' (')[0]}</span>
+                  <span style={{ fontSize: 12, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 300 }}>
+                    ({option.data?.desc})
                   </span>
                 </div>
               )}
