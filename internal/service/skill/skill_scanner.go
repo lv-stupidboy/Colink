@@ -561,7 +561,7 @@ func (s *SkillScanner) ImportSkills(ctx context.Context, req *model.BatchImportR
 	// 创建信号量控制并发数
 	sem := make(chan struct{}, s.importPoolSize)
 	var wg sync.WaitGroup
-	var nameMu sync.Mutex // protect name uniqueness within batch
+	var nameMu sync.Mutex // protect directory copy operations within batch
 
 	for _, skillItem := range req.Skills {
 		wg.Add(1)
@@ -570,17 +570,9 @@ func (s *SkillScanner) ImportSkills(ctx context.Context, req *model.BatchImportR
 			sem <- struct{}{}        // 获取信号量
 			defer func() { <-sem }() // 释放信号量
 
-			// 检查是否已存在（加锁防止同批次重复）
+			// 允许 skill 重名，不再检查名称唯一性
+			// 加锁防止同批次目录复制冲突（仅用于目录操作）
 			nameMu.Lock()
-			existing, err := s.skillRepo.FindByName(ctx, item.Name)
-			if err == nil && existing != nil {
-				nameMu.Unlock()
-				skipChan <- model.SkippedSkillInfo{
-					Name:   item.Name,
-					Reason: "同名技能已存在",
-				}
-				return
-			}
 
 			// 复制技能目录
 			srcDir := filepath.Join(tempDir, item.Path)
