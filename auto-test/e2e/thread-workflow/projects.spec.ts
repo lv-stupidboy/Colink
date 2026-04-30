@@ -3,9 +3,14 @@ import { test, expect } from '../fixtures/test-fixtures';
 /**
  * FT-02: 项目空间导航测试
  * 预期：点击"项目空间"菜单正确跳转到 /projects
+ * @feature F005 - 线程管理
+ * @priority P1
  */
 test.describe('FT-02: 项目空间导航', () => {
-  test('应该能从首页导航到项目列表页', async ({ page }) => {
+  test('FT-02-01: 应该能从首页导航到项目列表页', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P1
+    // @id FT-02-01
     await page.goto('/');
     await page.waitForLoadState('networkidle');
 
@@ -27,7 +32,10 @@ test.describe('FT-02: 项目空间导航', () => {
     }
   });
 
-  test('项目列表页应该显示项目卡片或列表', async ({ page }) => {
+  test('FT-02-02: 项目列表页应该显示项目卡片或列表', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P1
+    // @id FT-02-02
     await page.goto('/projects');
     await page.waitForLoadState('networkidle');
 
@@ -46,9 +54,14 @@ test.describe('FT-02: 项目空间导航', () => {
 /**
  * FT-03: 创建项目测试
  * 预期：点击创建按钮，弹窗显示，表单可提交
+ * @feature F005 - 线程管理
+ * @priority P1
  */
 test.describe('FT-03: 创建项目', () => {
-  test('创建项目按钮应该存在并可点击', async ({ page }) => {
+  test('FT-03-01: 创建项目按钮应该存在并可点击', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P1
+    // @id FT-03-01
     await page.goto('/projects');
     await page.waitForLoadState('networkidle');
 
@@ -67,7 +80,10 @@ test.describe('FT-03: 创建项目', () => {
     }
   });
 
-  test('创建项目表单应该可填写', async ({ page }) => {
+  test('FT-03-02: 创建项目表单应该可填写', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P1
+    // @id FT-03-02
     await page.goto('/projects');
     await page.waitForLoadState('networkidle');
 
@@ -92,9 +108,14 @@ test.describe('FT-03: 创建项目', () => {
 /**
  * FT-04: 项目详情测试
  * 预期：点击项目卡片，进入详情页
+ * @feature F005 - 线程管理
+ * @priority P1
  */
 test.describe('FT-04: 项目详情', () => {
-  test('项目卡片应该可点击', async ({ page }) => {
+  test('FT-04-01: 项目卡片应该可点击', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P1
+    // @id FT-04-01
     await page.goto('/projects');
     await page.waitForLoadState('networkidle');
 

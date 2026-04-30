@@ -3,9 +3,14 @@ import { test, expect } from '../fixtures/test-fixtures';
 /**
  * FT-05: 沙箱页面测试
  * 预期：沙箱列表加载，启动/停止按钮可用
+ * @feature F005 - 线程管理
+ * @priority P2
  */
 test.describe('FT-05: 沙箱页面', () => {
-  test('沙箱列表应该正常加载', async ({ page }) => {
+  test('FT-05-01: 沙箱列表应该正常加载', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P2
+    // @id FT-05-01
     await page.goto('/sandbox');
     await page.waitForLoadState('networkidle');
 
@@ -20,7 +25,10 @@ test.describe('FT-05: 沙箱页面', () => {
     console.log('✅ FT-05: 沙箱列表正常加载');
   });
 
-  test('沙箱操作按钮应该存在', async ({ page }) => {
+  test('FT-05-02: 沙箱操作按钮应该存在', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P2
+    // @id FT-05-02
     await page.goto('/sandbox');
     await page.waitForLoadState('networkidle');
 
@@ -41,9 +49,14 @@ test.describe('FT-05: 沙箱页面', () => {
 /**
  * FT-06: 工作流页面测试
  * 预期：模板卡片显示，可选择模板
+ * @feature F005 - 线程管理
+ * @priority P2
  */
 test.describe('FT-06: 工作流页面', () => {
-  test('工作流模板应该正常显示', async ({ page }) => {
+  test('FT-06-01: 工作流模板应该正常显示', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P2
+    // @id FT-06-01
     await page.goto('/workflow');
     await page.waitForLoadState('networkidle');
 
@@ -58,7 +71,10 @@ test.describe('FT-06: 工作流页面', () => {
     console.log('✅ FT-06: 工作流模板正常显示');
   });
 
-  test('模板卡片应该可选择', async ({ page }) => {
+  test('FT-06-02: 模板卡片应该可选择', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P2
+    // @id FT-06-02
     await page.goto('/workflow');
     await page.waitForLoadState('networkidle');
 

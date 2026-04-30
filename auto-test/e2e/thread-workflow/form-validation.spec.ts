@@ -3,9 +3,14 @@ import { test, expect } from '../fixtures/test-fixtures';
 /**
  * FV-01: 表单验证测试
  * 测试创建项目表单的验证逻辑
+ * @feature F005 - 线程管理
+ * @priority P1
  */
 test.describe('FV-01: 创建项目表单验证', () => {
-  test('项目名称是必填项', async ({ page }) => {
+  test('FV-01-01: 项目名称是必填项', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P1
+    // @id FV-01-01
     await page.goto('/projects');
     await page.waitForLoadState('networkidle');
 
@@ -33,7 +38,10 @@ test.describe('FV-01: 创建项目表单验证', () => {
     }
   });
 
-  test('项目类型是必填项', async ({ page }) => {
+  test('FV-01-02: 项目类型是必填项', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P1
+    // @id FV-01-02
     await page.goto('/projects');
     await page.waitForLoadState('networkidle');
 
@@ -67,7 +75,10 @@ test.describe('FV-01: 创建项目表单验证', () => {
     }
   });
 
-  test('开发模式是必填项', async ({ page }) => {
+  test('FV-01-03: 开发模式是必填项', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P1
+    // @id FV-01-03
     await page.goto('/projects');
     await page.waitForLoadState('networkidle');
 
@@ -90,9 +101,14 @@ test.describe('FV-01: 创建项目表单验证', () => {
 /**
  * FV-02: 表单输入测试
  * 测试表单输入的边界条件
+ * @feature F005 - 线程管理
+ * @priority P2
  */
 test.describe('FV-02: 表单输入边界条件', () => {
-  test('项目名称可以输入很长的文本', async ({ page }) => {
+  test('FV-02-01: 项目名称可以输入很长的文本', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P2
+    // @id FV-02-01
     await page.goto('/projects');
     await page.waitForLoadState('networkidle');
 
@@ -117,7 +133,10 @@ test.describe('FV-02: 表单输入边界条件', () => {
     }
   });
 
-  test('项目名称支持特殊字符', async ({ page }) => {
+  test('FV-02-02: 项目名称支持特殊字符', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P2
+    // @id FV-02-02
     await page.goto('/projects');
     await page.waitForLoadState('networkidle');
 
@@ -142,7 +161,10 @@ test.describe('FV-02: 表单输入边界条件', () => {
     }
   });
 
-  test('描述字段可以输入多行文本', async ({ page }) => {
+  test('FV-02-03: 描述字段可以输入多行文本', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P2
+    // @id FV-02-03
     await page.goto('/projects');
     await page.waitForLoadState('networkidle');
 
@@ -171,9 +193,14 @@ test.describe('FV-02: 表单输入边界条件', () => {
 /**
  * FV-03: 下拉选择器测试
  * 测试 Select 组件的功能
+ * @feature F005 - 线程管理
+ * @priority P2
  */
 test.describe('FV-03: 下拉选择器功能', () => {
-  test('项目类型下拉选项正确显示', async ({ page }) => {
+  test('FV-03-01: 项目类型下拉选项正确显示', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P2
+    // @id FV-03-01
     await page.goto('/projects');
     await page.waitForLoadState('networkidle');
 
@@ -209,7 +236,10 @@ test.describe('FV-03: 下拉选择器功能', () => {
     }
   });
 
-  test('开发模式下拉选项正确显示', async ({ page }) => {
+  test('FV-03-02: 开发模式下拉选项正确显示', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P2
+    // @id FV-03-02
     await page.goto('/projects');
     await page.waitForLoadState('networkidle');
 

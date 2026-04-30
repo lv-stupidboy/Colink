@@ -3,9 +3,14 @@ import { test, expect } from '../fixtures/test-fixtures';
 /**
  * RSP-01: 响应式布局测试
  * 测试不同屏幕尺寸下的页面展示
+ * @feature F005 - 线程管理
+ * @priority P2
  */
 test.describe('RSP-01: 响应式布局', () => {
-  test('移动端视图 (375px) 布局正确', async ({ page }) => {
+  test('RSP-01-01: 移动端视图 (375px) 布局正确', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P2
+    // @id RSP-01-01
     // 设置为移动端视口
     await page.setViewportSize({ width: 375, height: 812 });
 
@@ -34,7 +39,10 @@ test.describe('RSP-01: 响应式布局', () => {
     }
   });
 
-  test('平板视图 (768px) 布局正确', async ({ page }) => {
+  test('RSP-01-02: 平板视图 (768px) 布局正确', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P2
+    // @id RSP-01-02
     await page.setViewportSize({ width: 768, height: 1024 });
 
     await page.goto('/');
@@ -49,7 +57,10 @@ test.describe('RSP-01: 响应式布局', () => {
     console.log('   统计卡片列数:', cardCount);
   });
 
-  test('桌面视图 (1920px) 布局正确', async ({ page }) => {
+  test('RSP-01-03: 桌面视图 (1920px) 布局正确', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P2
+    // @id RSP-01-03
     await page.setViewportSize({ width: 1920, height: 1080 });
 
     await page.goto('/');
@@ -66,7 +77,10 @@ test.describe('RSP-01: 响应式布局', () => {
     }
   });
 
-  test('窗口缩放时页面自适应', async ({ page }) => {
+  test('RSP-01-04: 窗口缩放时页面自适应', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P2
+    // @id RSP-01-04
     await page.goto('/');
     await page.waitForLoadState('networkidle');
 
@@ -88,9 +102,14 @@ test.describe('RSP-01: 响应式布局', () => {
 /**
  * RSP-02: 移动端适配细节
  * 测试移动端特定的交互和展示
+ * @feature F005 - 线程管理
+ * @priority P2
  */
 test.describe('RSP-02: 移动端适配', () => {
-  test('移动端菜单可展开/收起', async ({ page }) => {
+  test('RSP-02-01: 移动端菜单可展开/收起', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P2
+    // @id RSP-02-01
     await page.setViewportSize({ width: 375, height: 812 });
 
     await page.goto('/');
@@ -119,7 +138,10 @@ test.describe('RSP-02: 移动端适配', () => {
     }
   });
 
-  test('移动端按钮尺寸适合触摸', async ({ page }) => {
+  test('RSP-02-02: 移动端按钮尺寸适合触摸', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P2
+    // @id RSP-02-02
     await page.setViewportSize({ width: 375, height: 812 });
 
     await page.goto('/projects');

@@ -3,9 +3,14 @@ import { test, expect } from '../fixtures/test-fixtures';
 /**
  * EMP-01: 空状态测试
  * 测试页面在没有数据时的展示
+ * @feature F005 - 线程管理
+ * @priority P2
  */
 test.describe('EMP-01: 空状态展示', () => {
-  test('项目列表为空时显示空状态', async ({ page }) => {
+  test('EMP-01-01: 项目列表为空时显示空状态', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P2
+    // @id EMP-01-01
     // 模拟空的项目列表
     await page.route('**/api/v1/projects', route =>
       route.fulfill({
@@ -42,7 +47,10 @@ test.describe('EMP-01: 空状态展示', () => {
     }
   });
 
-  test('空状态页面提供创建按钮', async ({ page }) => {
+  test('EMP-01-02: 空状态页面提供创建按钮', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P2
+    // @id EMP-01-02
     await page.route('**/api/v1/projects', route =>
       route.fulfill({
         status: 200,
@@ -65,7 +73,10 @@ test.describe('EMP-01: 空状态展示', () => {
     }
   });
 
-  test('Dashboard 空状态展示', async ({ page }) => {
+  test('EMP-01-03: Dashboard 空状态展示', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P2
+    // @id EMP-01-03
     await page.route('**/api/v1/projects', route =>
       route.fulfill({
         status: 200,
@@ -93,9 +104,14 @@ test.describe('EMP-01: 空状态展示', () => {
 /**
  * EMP-02: 加载状态测试
  * 测试页面加载时的状态展示
+ * @feature F005 - 线程管理
+ * @priority P2
  */
 test.describe('EMP-02: 加载状态', () => {
-  test('页面加载时显示 loading 骨架屏', async ({ page }) => {
+  test('EMP-02-01: 页面加载时显示 loading 骨架屏', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P2
+    // @id EMP-02-01
     // 故意延迟 API 响应
     await page.route('**/api/v1/projects', async route => {
       await new Promise(resolve => setTimeout(resolve, 1000)); // 延迟 1 秒
@@ -120,7 +136,10 @@ test.describe('EMP-02: 加载状态', () => {
     }
   });
 
-  test('表格 loading 状态', async ({ page }) => {
+  test('EMP-02-02: 表格 loading 状态', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P2
+    // @id EMP-02-02
     await page.route('**/api/v1/projects', async route => {
       await new Promise(resolve => setTimeout(resolve, 800));
       await route.fulfill({

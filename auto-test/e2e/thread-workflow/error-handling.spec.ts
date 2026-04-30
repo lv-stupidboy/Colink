@@ -3,9 +3,14 @@ import { test, expect } from '../fixtures/test-fixtures';
 /**
  * ERR-01: 错误处理测试
  * 测试应用的错误处理和用户提示
+ * @feature F005 - 线程管理
+ * @priority P2
  */
 test.describe('ERR-01: 错误处理', () => {
-  test('网络错误时显示友好提示', async ({ page }) => {
+  test('ERR-01-01: 网络错误时显示友好提示', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P2
+    // @id ERR-01-01
     // 模拟网络错误 - 使用 fail 作为 abort 的错误类型
     await page.route('**/api/v1/**', route => route.abort('failed'));
 
@@ -25,7 +30,10 @@ test.describe('ERR-01: 错误处理', () => {
     }
   });
 
-  test('API 返回 500 时的处理', async ({ page }) => {
+  test('ERR-01-02: API 返回 500 时的处理', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P2
+    // @id ERR-01-02
     // 模拟 API 500 错误
     await page.route('**/api/**', route =>
       route.fulfill({
@@ -48,7 +56,10 @@ test.describe('ERR-01: 错误处理', () => {
     }
   });
 
-  test('API 返回 404 时的处理', async ({ page }) => {
+  test('ERR-01-03: API 返回 404 时的处理', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P2
+    // @id ERR-01-03
     await page.route('**/api/**', route =>
       route.fulfill({
         status: 404,
@@ -68,9 +79,14 @@ test.describe('ERR-01: 错误处理', () => {
 /**
  * ERR-02: 表单错误处理
  * 测试表单提交失败时的错误展示
+ * @feature F005 - 线程管理
+ * @priority P2
  */
 test.describe('ERR-02: 表单错误处理', () => {
-  test('表单提交失败显示错误信息', async ({ page }) => {
+  test('ERR-02-01: 表单提交失败显示错误信息', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P2
+    // @id ERR-02-01
     await page.goto('/projects');
     await page.waitForLoadState('networkidle');
 

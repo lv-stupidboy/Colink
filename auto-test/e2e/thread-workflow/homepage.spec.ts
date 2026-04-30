@@ -3,9 +3,14 @@ import { test, expect } from '../fixtures/test-fixtures';
 /**
  * FT-01: 首页加载测试
  * 预期：Dashboard 正常显示，统计卡片可见
+ * @feature F005 - 线程管理
+ * @priority P1
  */
 test.describe('FT-01: 首页加载', () => {
-  test('Dashboard 应该正常显示', async ({ page }) => {
+  test('FT-01-01: Dashboard 正常显示', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P1
+    // @id FT-01-01
     await page.goto('/');
 
     // 等待页面加载
@@ -22,7 +27,10 @@ test.describe('FT-01: 首页加载', () => {
     console.log('✅ FT-01: Dashboard 正常显示');
   });
 
-  test('统计卡片应该包含数据', async ({ page }) => {
+  test('FT-01-02: 统计卡片应该包含数据', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P1
+    // @id FT-01-02
     await page.goto('/');
     await page.waitForLoadState('networkidle');
 

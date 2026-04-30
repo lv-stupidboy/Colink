@@ -11,6 +11,7 @@ test.describe('WS-01: WebSocket 连接管理 [P0]', () => {
   test('WS-01-01: 页面加载自动建立连接 [F002]', async ({ page }) => {
     // @feature F002 - WebSocket 流式
     // @priority P0
+    // @id WS-01-01
 
     await page.goto('/projects');
     await page.waitForLoadState('networkidle');
@@ -45,6 +46,7 @@ test.describe('WS-01: WebSocket 连接管理 [P0]', () => {
   test('WS-01-03: 连接失败自动重试（3次） [F002]', async ({ page }) => {
     // @feature F002 - WebSocket 流式
     // @priority P0
+    // @id WS-01-03
 
     // 模拟 WebSocket 连接失败
     await page.route('**/ws/**', route => route.abort('failed'));
@@ -69,6 +71,7 @@ test.describe('WS-01: WebSocket 连接管理 [P0]', () => {
   test('WS-01-07: 连接超时提示 [F002]', async ({ page }) => {
     // @feature F002 - WebSocket 流式
     // @priority P0
+    // @id WS-01-07
 
     // 设置超时并模拟慢响应
     await page.route('**/ws/**', route => {
@@ -95,6 +98,7 @@ test.describe('WS-01: WebSocket 连接管理 [P0]', () => {
   test('WS-01-02: 连接状态指示器显示 [F002]', async ({ page }) => {
     // @feature F002 - WebSocket 流式
     // @priority P1
+    // @id WS-01-02
 
     await page.goto('/projects');
     await page.waitForLoadState('networkidle');

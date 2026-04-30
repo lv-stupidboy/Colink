@@ -12,6 +12,7 @@ test.describe('TP-01: 团队包列表与 CRUD [P0]', () => {
   test('TP-01-01: 团队包列表加载 [F004]', async ({ page }) => {
     // @feature F004 - 团队包管理
     // @priority P0
+    // @id TP-01-01
 
     await page.goto('/team-packages');
     await page.waitForLoadState('networkidle');
@@ -28,6 +29,7 @@ test.describe('TP-01: 团队包列表与 CRUD [P0]', () => {
   test('TP-01-03: 创建团队包成功 [F004]', async ({ page }) => {
     // @feature F004 - 团队包管理
     // @priority P0
+    // @id TP-01-03
 
     await page.goto('/team-packages');
     await page.waitForLoadState('networkidle');
@@ -69,6 +71,7 @@ test.describe('TP-01: 团队包列表与 CRUD [P0]', () => {
   test('TP-01-05: 更新团队包成功 [F004]', async ({ page }) => {
     // @feature F004 - 团队包管理
     // @priority P0
+    // @id TP-01-05
 
     await page.goto('/team-packages');
     await page.waitForLoadState('networkidle');
@@ -97,6 +100,7 @@ test.describe('TP-01: 团队包列表与 CRUD [P0]', () => {
   test('TP-01-06: 删除团队包成功 [F004]', async ({ page }) => {
     // @feature F004 - 团队包管理
     // @priority P0
+    // @id TP-01-06
 
     await page.goto('/team-packages');
     await page.waitForLoadState('networkidle');
@@ -125,6 +129,7 @@ test.describe('TP-01: 团队包列表与 CRUD [P0]', () => {
   test('TP-01-13: 团队包详情查看 [F004]', async ({ page }) => {
     // @feature F004 - 团队包管理
     // @priority P0
+    // @id TP-01-13
 
     await page.goto('/team-packages');
     await page.waitForLoadState('networkidle');
@@ -154,6 +159,7 @@ test.describe('TP-01: 团队包列表与 CRUD [P1]', () => {
   test('TP-01-02: 空列表提示显示 [F004]', async ({ page }) => {
     // @feature F004 - 团队包管理
     // @priority P1
+    // @id TP-01-02
 
     await page.goto('/team-packages');
     await page.waitForLoadState('networkidle');
@@ -171,6 +177,7 @@ test.describe('TP-01: 团队包列表与 CRUD [P1]', () => {
   test('TP-01-04: 创建表单验证 [F004]', async ({ page }) => {
     // @feature F004 - 团队包管理
     // @priority P1
+    // @id TP-01-04
 
     await page.goto('/team-packages');
     await page.waitForLoadState('networkidle');
@@ -198,6 +205,7 @@ test.describe('TP-01: 团队包列表与 CRUD [P1]', () => {
   test('TP-01-07: 批量删除功能 [F004]', async ({ page }) => {
     // @feature F004 - 团队包管理
     // @priority P1
+    // @id TP-01-07
 
     await page.goto('/team-packages');
     await page.waitForLoadState('networkidle');
@@ -226,6 +234,7 @@ test.describe('TP-01: 团队包列表与 CRUD [P1]', () => {
   test('TP-01-08: 删除确认弹窗 [F004]', async ({ page }) => {
     // @feature F004 - 团队包管理
     // @priority P1
+    // @id TP-01-08
 
     await page.goto('/team-packages');
     await page.waitForLoadState('networkidle');

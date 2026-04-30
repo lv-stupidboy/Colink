@@ -1,6 +1,7 @@
 # auto-test/feature-map.yaml
 # Feature-based test execution mapping
 # Usage: make test-feature F=F001
+# Updated to match actual test IDs
 
 features:
   F001:
@@ -8,40 +9,28 @@ features:
     priority: P0
     tests:
       e2e:
-        - "AD-01-*"
-        - "AD-02-01~10"
-        - "AD-04-*"
+        - "AD-01-*"       # message-input.spec.ts
+        - "TW-02-*"       # thread-workflow.spec.ts (Agent触发)
+        - "FT-07-*"       # theme-agent.spec.ts
+        - "FT-08-*"       # theme-agent.spec.ts
+        - "BT-05-*"       # backend-api.spec.ts (Agent配置API)
       internal:
-        - "SV-01-01~05"
-        - "API-01-*"
-      vitest:
-        - "VT-01-14"
-        - "VT-01-15"
+        - "API-01-*"      # agent_handler_test.go
+        - "SV-01-*"       # humantask/service_test.go
 
   F002:
     name: "WebSocket 流式"
     priority: P0
     tests:
       e2e:
-        - "WS-01-*"
-        - "WS-02-*"
-        - "WS-04-*"
-      internal:
-        - "SV-02-*"
-      vitest:
-        - "VT-03-03"
-        - "VT-03-04"
-        - "VT-03-05"
+        - "WS-01-*"       # connection.spec.ts
 
   F003:
     name: "多 Agent 协作 (A2A)"
     priority: P0
     tests:
-      e2e:
-        - "AD-03-*"
-        - "WS-03-*"
       internal:
-        - "SV-02-*"
+        - "SV-02-*"       # mention_parser_test.go (A2A解析)
       vitest:
         - "VT-03-07"
 
@@ -50,49 +39,55 @@ features:
     priority: P1
     tests:
       e2e:
-        - "TP-01-*"
-        - "TP-02-*"
-        - "TP-03-*"
-      internal:
-        - "SV-04-*"
-        - "API-03-*"
+        - "TP-01-*"       # list-crud.spec.ts
 
   F005:
     name: "线程管理"
     priority: P1
     tests:
       e2e:
-        - "TW-01-*"
-      internal:
-        - "SV-05-06~07"
-        - "API-02-*"
-        - "RP-02-02"
+        - "TW-01-*"       # thread-workflow.spec.ts (工作台初始化)
+        - "FT-01-*"       # homepage.spec.ts
+        - "FT-02-*"       # projects.spec.ts (导航)
+        - "FT-03-*"       # projects.spec.ts (创建)
+        - "FT-04-*"       # projects.spec.ts (详情)
+        - "FT-05-*"       # sandbox-workflow.spec.ts
+        - "FT-06-*"       # sandbox-workflow.spec.ts
+        - "NAV-01-*"      # navigation.spec.ts
+        - "NAV-02-*"      # navigation.spec.ts
+        - "PD-01-*"       # project-detail.spec.ts
+        - "PD-02-*"       # project-detail.spec.ts
+        - "FV-01-*"       # form-validation.spec.ts
+        - "FV-02-*"       # form-validation.spec.ts
+        - "FV-03-*"       # form-validation.spec.ts
+        - "EMP-01-*"      # empty-loading.spec.ts
+        - "EMP-02-*"      # empty-loading.spec.ts
+        - "ERR-01-*"      # error-handling.spec.ts
+        - "ERR-02-*"      # error-handling.spec.ts
+        - "RSP-01-*"      # responsive-layout.spec.ts
+        - "RSP-02-*"      # responsive-layout.spec.ts
+        - "BT-01-*"       # backend-api.spec.ts (健康检查)
+        - "BT-02-*"       # backend-api.spec.ts (项目列表API)
+        - "BT-03-*"       # backend-api.spec.ts (创建项目API)
+        - "BT-04-*"       # backend-api.spec.ts (线程列表API)
 
   F006:
     name: "工作流执行"
     priority: P1
     tests:
-      e2e:
-        - "TW-02-*"
-      internal:
-        - "SV-05-04~05"
-        - "API-04-03~04"
-        - "RP-02-03"
+      performance:
+        - "PF-01-*"
+        - "PF-02-*"
 
   F007:
     name: "IM 集成"
     priority: P1
-    tests:
-      internal:
-        - "SV-03-*"
-        - "RP-01-05"
+    tests: []
 
   F008:
     name: "消息渲染"
     priority: P1
     tests:
-      e2e:
-        - "AD-02-*"
       vitest:
         - "VT-01-09"
         - "VT-01-10"
@@ -104,13 +99,11 @@ features:
       vitest:
         - "VT-01-11"
         - "VT-03-01"
-      performance:
-        - "PF-02-06"
 
   F010:
     name: "性能优化"
     priority: P2
     tests:
       performance:
-        - "PF-01-*"
+        - "PF-01-*"       # performance_test.go
         - "PF-02-*"

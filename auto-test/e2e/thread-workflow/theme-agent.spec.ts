@@ -3,9 +3,14 @@ import { test, expect } from '../fixtures/test-fixtures';
 /**
  * FT-07: 主题样式测试
  * 预期：绿色主题正确应用，按钮/卡片样式符合设计
+ * @feature F001 - Agent 对话核心
+ * @priority P2
  */
 test.describe('FT-07: 主题样式', () => {
-  test('主色调应该是翡翠绿 #10b981', async ({ page }) => {
+  test('FT-07-01: 主色调应该是翡翠绿 #10b981', async ({ page }) => {
+    // @feature F001 - Agent 对话核心
+    // @priority P2
+    // @id FT-07-01
     await page.goto('/');
     await page.waitForLoadState('networkidle');
 
@@ -68,7 +73,10 @@ test.describe('FT-07: 主题样式', () => {
     }
   });
 
-  test('卡片应该有圆角和阴影效果', async ({ page }) => {
+  test('FT-07-02: 卡片应该有圆角和阴影效果', async ({ page }) => {
+    // @feature F001 - Agent 对话核心
+    // @priority P2
+    // @id FT-07-02
     await page.goto('/');
     await page.waitForLoadState('networkidle');
 
@@ -91,9 +99,14 @@ test.describe('FT-07: 主题样式', () => {
 /**
  * FT-08: Agent 提及功能测试
  * 预期：输入框@符号触发 Agent 选择下拉框
+ * @feature F001 - Agent 对话核心
+ * @priority P2
  */
 test.describe('FT-08: Agent 提及功能', () => {
-  test('输入@应该触发 Agent 选择下拉框', async ({ page }) => {
+  test('FT-08-01: 输入@应该触发 Agent 选择下拉框', async ({ page }) => {
+    // @feature F001 - Agent 对话核心
+    // @priority P2
+    // @id FT-08-01
     // 访问有输入框的页面（如 ThreadView）
     // 由于需要有效的项目和线程，我们检查输入框是否存在
     await page.goto('/');

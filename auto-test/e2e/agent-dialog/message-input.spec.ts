@@ -11,6 +11,7 @@ test.describe('AD-01: 消息输入与发送 [P0]', () => {
   test('AD-01-01: 输入框正常显示与聚焦 [F001]', async ({ page }) => {
     // @feature F001 - Agent 对话核心
     // @priority P0
+    // @id AD-01-01
 
     await page.goto('/projects');
     await page.waitForLoadState('networkidle');
@@ -34,6 +35,7 @@ test.describe('AD-01: 消息输入与发送 [P0]', () => {
   test('AD-01-02: 输入文本并点击发送成功 [F001]', async ({ page }) => {
     // @feature F001 - Agent 对话核心
     // @priority P0
+    // @id AD-01-02
 
     await page.goto('/projects');
     await page.waitForLoadState('networkidle');
@@ -64,6 +66,7 @@ test.describe('AD-01: 消息输入与发送 [P0]', () => {
   test('AD-01-03: 输入 @ 触发 Agent 下拉框 [F001]', async ({ page }) => {
     // @feature F001 - Agent 对话核心
     // @priority P0
+    // @id AD-01-03
 
     await page.goto('/projects');
     await page.waitForLoadState('networkidle');
@@ -89,6 +92,7 @@ test.describe('AD-01: 消息输入与发送 [P0]', () => {
   test('AD-01-04: 下拉框显示可用 Agent 列表 [F001]', async ({ page }) => {
     // @feature F001 - Agent 对话核心
     // @priority P0
+    // @id AD-01-04
 
     await page.goto('/projects');
     await page.waitForLoadState('networkidle');
@@ -115,6 +119,7 @@ test.describe('AD-01: 消息输入与发送 [P0]', () => {
   test('AD-01-05: 选择单个 Agent 并发送 [F001]', async ({ page }) => {
     // @feature F001 - Agent 对话核心
     // @priority P0
+    // @id AD-01-05
 
     await page.goto('/projects');
     await page.waitForLoadState('networkidle');
@@ -155,6 +160,7 @@ test.describe('AD-01: 消息输入与发送 [P0]', () => {
   test('AD-01-08: 空消息禁止发送 [F001]', async ({ page }) => {
     // @feature F001 - Agent 对话核心
     // @priority P0
+    // @id AD-01-08
 
     await page.goto('/projects');
     await page.waitForLoadState('networkidle');
@@ -190,6 +196,7 @@ test.describe('AD-01: 消息输入与发送 [P0]', () => {
   test('AD-01-14: 发送失败错误提示 [F001]', async ({ page }) => {
     // @feature F001 - Agent 对话核心
     // @priority P0
+    // @id AD-01-14
 
     // 模拟网络错误
     await page.route('**/api/v1/**', route => route.abort('failed'));

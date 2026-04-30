@@ -3,9 +3,14 @@ import { test, expect } from '../fixtures/test-fixtures';
 /**
  * TW-01: 开发工作台初始化测试
  * 测试创建任务后进入工作台的流程
+ * @feature F005 - 线程管理
+ * @priority P0
  */
 test.describe('TW-01: 工作台初始化', () => {
-  test('创建任务后应该能进入工作台页面', async ({ page }) => {
+  test('TW-01-01: 创建任务后应该能进入工作台页面', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P0
+    // @id TW-01-01
     await page.goto(`/projects`);
     await page.waitForLoadState('networkidle');
 
@@ -51,7 +56,10 @@ test.describe('TW-01: 工作台初始化', () => {
     }
   });
 
-  test('进入工作台后应该显示对话输入框', async ({ page }) => {
+  test('TW-01-02: 进入工作台后应该显示对话输入框', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P0
+    // @id TW-01-02
     // 先访问项目列表
     await page.goto('/projects');
     await page.waitForLoadState('networkidle');
@@ -108,9 +116,14 @@ test.describe('TW-01: 工作台初始化', () => {
 /**
  * TW-02: Agent 触发测试
  * 测试@Agent 功能是否正常
+ * @feature F001 - Agent 对话核心
+ * @priority P0
  */
 test.describe('TW-02: Agent 触发', () => {
-  test('输入@应该显示 Agent 选择下拉框', async ({ page }) => {
+  test('TW-02-01: 输入@应该显示 Agent 选择下拉框', async ({ page }) => {
+    // @feature F001 - Agent 对话核心
+    // @priority P0
+    // @id TW-02-01
     // 进入工作台页面
     await page.goto('/projects');
     await page.waitForLoadState('networkidle');
@@ -171,7 +184,10 @@ test.describe('TW-02: Agent 触发', () => {
     }
   });
 
-  test('发送消息后应该显示在消息列表中', async ({ page }) => {
+  test('TW-02-02: 发送消息后应该显示在消息列表中', async ({ page }) => {
+    // @feature F001 - Agent 对话核心
+    // @priority P0
+    // @id TW-02-02
     // 进入工作台
     await page.goto('/projects');
     await page.waitForLoadState('networkidle');

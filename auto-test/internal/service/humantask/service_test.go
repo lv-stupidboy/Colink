@@ -203,6 +203,9 @@ func (s *TestService) ListByThread(ctx context.Context, threadID uuid.UUID) ([]*
 
 // ========== Tests ==========
 
+// @feature F001 - Agent 对话核心
+// @priority P0
+// @id SV-01-01
 func TestCreateTaskFromWaiting(t *testing.T) {
 	repo := NewMockHumanTaskRepository()
 	svc := NewTestService(repo, nil) // 不需要 wsHub 进行基本测试
@@ -234,6 +237,9 @@ func TestCreateTaskFromWaiting(t *testing.T) {
 	}
 }
 
+// @feature F001 - Agent 对话核心
+// @priority P0
+// @id SV-01-02
 func TestCompleteTaskFromReply(t *testing.T) {
 	repo := NewMockHumanTaskRepository()
 	svc := NewTestService(repo, nil)
@@ -261,6 +267,9 @@ func TestCompleteTaskFromReply(t *testing.T) {
 	}
 }
 
+// @feature F001 - Agent 对话核心
+// @priority P0
+// @id SV-01-03
 func TestComplete(t *testing.T) {
 	repo := NewMockHumanTaskRepository()
 	svc := NewTestService(repo, nil)
@@ -287,6 +296,9 @@ func TestComplete(t *testing.T) {
 	// 实际 Service 会返回 "task is not in pending state" 错误
 }
 
+// @feature F001 - Agent 对话核心
+// @priority P0
+// @id SV-01-04
 func TestCancelTask(t *testing.T) {
 	repo := NewMockHumanTaskRepository()
 	svc := NewTestService(repo, nil)
@@ -310,6 +322,9 @@ func TestCancelTask(t *testing.T) {
 	}
 }
 
+// @feature F001 - Agent 对话核心
+// @priority P1
+// @id SV-01-05
 func TestGetStats(t *testing.T) {
 	repo := NewMockHumanTaskRepository()
 	svc := NewTestService(repo, nil)
@@ -331,6 +346,9 @@ func TestGetStats(t *testing.T) {
 	}
 }
 
+// @feature F001 - Agent 对话核心
+// @priority P1
+// @id SV-01-06
 func TestList(t *testing.T) {
 	repo := NewMockHumanTaskRepository()
 	svc := NewTestService(repo, nil)
@@ -352,6 +370,9 @@ func TestList(t *testing.T) {
 	}
 }
 
+// @feature F001 - Agent 对话核心
+// @priority P1
+// @id SV-01-07
 func TestGet(t *testing.T) {
 	repo := NewMockHumanTaskRepository()
 	svc := NewTestService(repo, nil)
@@ -376,6 +397,9 @@ func TestGet(t *testing.T) {
 	}
 }
 
+// @feature F005 - 线程管理
+// @priority P1
+// @id SV-01-08
 func TestListByThread(t *testing.T) {
 	repo := NewMockHumanTaskRepository()
 	svc := NewTestService(repo, nil)

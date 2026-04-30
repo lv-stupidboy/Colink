@@ -3,9 +3,14 @@ import { test, expect } from '../fixtures/test-fixtures';
 /**
  * PD-01: 项目详情页测试
  * 测试进入项目详情页后的展示和功能
+ * @feature F005 - 线程管理
+ * @priority P1
  */
 test.describe('PD-01: 项目详情页展示', () => {
-  test('应该能进入项目详情页并显示项目信息', async ({ page }) => {
+  test('PD-01-01: 应该能进入项目详情页并显示项目信息', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P1
+    // @id PD-01-01
     // 先访问项目列表
     await page.goto('/projects');
     await page.waitForLoadState('networkidle');
@@ -50,7 +55,10 @@ test.describe('PD-01: 项目详情页展示', () => {
     }
   });
 
-  test('项目详情页空任务时应显示空状态', async ({ page }) => {
+  test('PD-01-02: 项目详情页空任务时应显示空状态', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P1
+    // @id PD-01-02
     // 先访问项目列表
     await page.goto('/projects');
     await page.waitForLoadState('networkidle');
@@ -78,7 +86,10 @@ test.describe('PD-01: 项目详情页展示', () => {
     }
   });
 
-  test('项目详情页应该显示项目基本信息', async ({ page }) => {
+  test('PD-01-03: 项目详情页应该显示项目基本信息', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P1
+    // @id PD-01-03
     await page.goto('/projects');
     await page.waitForLoadState('networkidle');
 
@@ -109,9 +120,14 @@ test.describe('PD-01: 项目详情页展示', () => {
 
 /**
  * PD-02: 项目详情页交互测试
+ * @feature F005 - 线程管理
+ * @priority P1
  */
 test.describe('PD-02: 项目详情页交互', () => {
-  test('返回按钮应该能返回列表页', async ({ page }) => {
+  test('PD-02-01: 返回按钮应该能返回列表页', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P1
+    // @id PD-02-01
     await page.goto('/projects');
     await page.waitForLoadState('networkidle');
 
@@ -143,7 +159,10 @@ test.describe('PD-02: 项目详情页交互', () => {
     }
   });
 
-  test('编辑按钮应该打开编辑弹窗', async ({ page }) => {
+  test('PD-02-02: 编辑按钮应该打开编辑弹窗', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P1
+    // @id PD-02-02
     await page.goto('/projects');
     await page.waitForLoadState('networkidle');
 
@@ -174,7 +193,10 @@ test.describe('PD-02: 项目详情页交互', () => {
     }
   });
 
-  test('新建任务按钮应该打开创建弹窗', async ({ page }) => {
+  test('PD-02-03: 新建任务按钮应该打开创建弹窗', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P1
+    // @id PD-02-03
     await page.goto('/projects');
     await page.waitForLoadState('networkidle');
 

@@ -3,9 +3,14 @@ import { test, expect } from '../fixtures/test-fixtures';
 /**
  * NAV-01: 页面导航测试
  * 测试应用内页面导航功能
+ * @feature F005 - 线程管理
+ * @priority P1
  */
 test.describe('NAV-01: 页面导航', () => {
-  test('从 Dashboard 导航到项目列表', async ({ page }) => {
+  test('NAV-01-01: 从 Dashboard 导航到项目列表', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P1
+    // @id NAV-01-01
     await page.goto('/');
     await page.waitForLoadState('networkidle');
 
@@ -26,7 +31,10 @@ test.describe('NAV-01: 页面导航', () => {
     }
   });
 
-  test('从项目列表导航到项目详情', async ({ page }) => {
+  test('NAV-01-02: 从项目列表导航到项目详情', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P1
+    // @id NAV-01-02
     await page.goto('/projects');
     await page.waitForLoadState('networkidle');
 
@@ -52,7 +60,10 @@ test.describe('NAV-01: 页面导航', () => {
     }
   });
 
-  test('从项目详情返回列表', async ({ page }) => {
+  test('NAV-01-03: 从项目详情返回列表', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P1
+    // @id NAV-01-03
     // 先访问项目列表
     await page.goto('/projects');
     await page.waitForLoadState('networkidle');
@@ -73,7 +84,10 @@ test.describe('NAV-01: 页面导航', () => {
     }
   });
 
-  test('面包屑导航存在并可点击', async ({ page }) => {
+  test('NAV-01-04: 面包屑导航存在并可点击', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P1
+    // @id NAV-01-04
     await page.goto('/projects');
     await page.waitForLoadState('networkidle');
 
@@ -97,9 +111,14 @@ test.describe('NAV-01: 页面导航', () => {
 /**
  * NAV-02: 侧边栏菜单导航
  * 测试侧边栏菜单的导航功能
+ * @feature F005 - 线程管理
+ * @priority P1
  */
 test.describe('NAV-02: 侧边栏菜单', () => {
-  test('侧边栏菜单项都存在', async ({ page }) => {
+  test('NAV-02-01: 侧边栏菜单项都存在', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P1
+    // @id NAV-02-01
     await page.goto('/');
     await page.waitForLoadState('networkidle');
 
@@ -128,7 +147,10 @@ test.describe('NAV-02: 侧边栏菜单', () => {
     }
   });
 
-  test('点击菜单项可以切换页面', async ({ page }) => {
+  test('NAV-02-02: 点击菜单项可以切换页面', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P1
+    // @id NAV-02-02
     await page.goto('/');
     await page.waitForLoadState('networkidle');
 
@@ -155,7 +177,10 @@ test.describe('NAV-02: 侧边栏菜单', () => {
     }
   });
 
-  test('当前激活的菜单项样式正确', async ({ page }) => {
+  test('NAV-02-03: 当前激活的菜单项样式正确', async ({ page }) => {
+    // @feature F005 - 线程管理
+    // @priority P1
+    // @id NAV-02-03
     await page.goto('/');
     await page.waitForLoadState('networkidle');
 
