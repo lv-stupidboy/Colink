@@ -227,6 +227,45 @@ Feature ID 定义在 `auto-test/feature-map.yaml`：
 | F009 | 系统性能与稳定性 |
 | F010 | 安装器与启动 |
 
+### 测试报告管理
+
+测试报告按时间戳命名，保留历史记录：
+
+**命名规则：**
+- 运行 ID：`YYYYMMDD-HHMMSS`（如 `20260430-143525`）
+- HTML 报告：`web/playwright-report/{runId}/index.html`
+- JSON 结果：`web/test-results/{runId}/test-results.json`
+
+**查看报告：**
+```bash
+# 查看最新报告摘要
+python scripts/test-report-summary.py
+
+# 按特性分组显示（推荐）
+python scripts/test-report-summary.py --by-feature
+
+# 列出所有历史报告
+python scripts/test-report-summary.py --list
+
+# 查看指定运行
+python scripts/test-report-summary.py --run-id 20260430-143525
+
+# 打开 HTML 报告
+npx playwright show-report web/playwright-report/$(ls -t web/playwright-report | head -1)
+```
+
+**按特性分析结果：**
+报告脚本会按 Feature ID 分组，快速定位问题：
+
+| Feature ID | 功能模块 | 关键测试 |
+|------------|---------|---------|
+| F001 | Agent 对话核心 | AD-01, TW-02 |
+| F002 | WebSocket 流式 | WS-01 |
+| F003 | 多 Agent 协作 | SV-02 |
+| F004 | 团队包管理 | TP-01 |
+| F005 | 线程管理 | TW-01, FT-01~06 |
+| F006 | 工作流执行 | PF-01 |
+
 ### Go 测试命名
 
 - 文件：`{module}_test.go`，放在 `auto-test/internal/{path}/`

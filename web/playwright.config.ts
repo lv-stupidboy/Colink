@@ -6,8 +6,30 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /**
+ * 生成时间戳格式的运行 ID
+ * 格式: YYYYMMDD-HHMMSS
+ */
+function generateRunId(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  const seconds = String(now.getSeconds()).padStart(2, '0');
+  return `${year}${month}${day}-${hours}${minutes}${seconds}`;
+}
+
+const runId = generateRunId();
+
+/**
  * ISDP Playwright 测试配置
  * 用于多 Agent 协作测试开发工作流
+ *
+ * 报告命名规则：
+ * - HTML 报告: playwright-report/{runId}/
+ * - JSON 结果: test-results/{runId}/test-results.json
+ * - 输出目录: test-results/{runId}/
  */
 export default defineConfig({
   testDir: path.join(__dirname, '../auto-test/e2e'),
@@ -25,8 +47,8 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   reporter: [
-    ['html', { outputFolder: path.join(__dirname, 'playwright-report') }],
-    ['json', { outputFile: path.join(__dirname, 'test-results.json') }],
+    ['html', { outputFolder: path.join(__dirname, `playwright-report/${runId}`) }],
+    ['json', { outputFile: path.join(__dirname, `test-results/${runId}/test-results.json`) }],
     ['list'],
   ],
   projects: [
@@ -37,7 +59,7 @@ export default defineConfig({
       },
     },
   ],
-  outputDir: path.join(__dirname, 'test-results/'),
+  outputDir: path.join(__dirname, `test-results/${runId}/`),
   preserveOutput: 'failures-only',
   retries: 0, // 先不设重试，快速看到结果
   workers: 1,
