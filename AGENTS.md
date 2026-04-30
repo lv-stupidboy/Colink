@@ -43,6 +43,12 @@ isdp/                              # Repository root (Go module root — go.mod 
 │   ├── superpowers/plans/         # Implementation plan docs
 │   ├── superpowers/specs/         # Design spec docs
 │   └── CHANGELOG.md               # Dev history
+├── auto-test/                     # Unified test directory (340 cases)
+│   ├── e2e/                       # Playwright E2E tests
+│   ├── internal/                  # Go unit tests (imports internal/)
+│   ├── vitest/                    # Vitest component tests
+│   └── feature-map.yaml           # Feature ID → test mapping
+├── scripts/                       # Test runners, utilities
 ├── VERSION                        # Base version: 1.0.0
 ├── Makefile                       # build, run, test, clean
 └── CLAUDE.md                      # AI guidance (naming, config, DB rules)
@@ -67,6 +73,7 @@ isdp/                              # Repository root (Go module root — go.mod 
 | Run backend | `.` | `make run` or `go run ./cmd/server` |
 | Run frontend dev | `web/` | `npm run dev` (port 3000, proxies to 8080) |
 | Run tests | `.` | `make test` (Go); `cd web && npm run test:e2e` (Playwright) |
+| Run auto-tests | `auto-test/` | `make test-all`; `python scripts/run-feature-tests.py --feature F001` |
 | Build release | `installer/` | `./build.sh` (Unix) or `.\build.ps1` (Windows) |
 | DevContainer | `.devcontainer/` | MySQL 8 + Redis 7 + Go 1.25 + Node 20 + Playwright |
 
@@ -132,6 +139,13 @@ cd web && npm run lint      # ESLint (max-warnings 0)
 cd web && npm run test:e2e  # Playwright E2E tests
 cd web && npm run test:e2e:headed  # Playwright visible browser
 
+# Auto-test (unified test directory)
+make test-all                    # Run all tests (frontend + backend)
+make test-frontend               # E2E + Vitest tests
+make test-backend                # Go unit tests
+python scripts/run-feature-tests.py --feature F001  # By Feature ID
+python scripts/run-feature-tests.py --priority P0   # By priority
+
 # Full release
 cd installer && ./build.sh       # Unix: backend → frontend → installer → ZIP
 cd installer && .\build.ps1      # Windows: same flow
@@ -154,3 +168,118 @@ cd installer && .\build.ps1      # Windows: same flow
 - **ACP protocol**: JSON-RPC 2.0 over stdio. `BaseACPAdapter` is the base; `OpenCodeACPAdapter` adds OpenCode-specific CLI args. New agent types can extend `BaseACPAdapter`.
 - **ACP config isolation**: `buildEnv()` sets `OPENCODE_PURE=1` to block user-level OpenCode plugins (e.g. oh-my-openagent) that set `default_agent` to a plugin-defined agent unavailable in ACP context. `OPENCODE_CONFIG_DIR` passes per-agent config directories (agents/skills/rules/commands) which load independently and are NOT gated by OPENCODE_PURE — only `plugin/` subdirs are blocked.
 - **10 TODO items**: Permission validation, message dedup, merge logic, artifact retrieval, GitLab API, Git query, markdown rendering, artifact preview — all marked TODO in code.
+
+## Auto-Test Guidelines
+
+测试统一放置在 `auto-test/` 目录。编写新测试时遵循以下规范：
+
+### 测试 ID 格式
+
+```
+{模块}-{分类}-{序号}
+```
+
+示例：
+- `AD-01-02`：Agent Dialog，消息输入分类，第 2 个用例
+- `WS-01-03`：WebSocket，连接管理分类，第 3 个用例
+- `API-01-05`：API Handler，Agent CRUD 分类，第 5 个用例
+
+### 优先级定义
+
+| 优先级 | 覆盖率要求 | 适用场景 |
+|--------|-----------|----------|
+| P0 | 100% 必须通过 | 核心流程阻塞、安全相关、数据完整性 |
+| P1 | ≥95% | 主要功能、正常/异常路径 |
+| P2 | ≥80% | 边界场景、性能测试 |
+| P3 | 可选 | 体验优化、次要功能 |
+
+### 注释格式
+
+每个测试需在头部标注：
+
+```go
+// @feature F001 - Agent 对话核心
+// @priority P0
+// @id API-01-01
+func TestAgentHandler_List(t *testing.T) { ... }
+```
+
+```typescript
+// @feature F001 - Agent 对话核心
+// @priority P0
+test('AD-01-01: 输入框正常显示 [F001]', async ({ page }) => { ... });
+```
+
+### Feature ID 映射
+
+Feature ID 定义在 `auto-test/feature-map.yaml`：
+
+| Feature ID | 功能模块 |
+|------------|---------|
+| F001 | Agent 对话核心 |
+| F002 | WebSocket 流式 |
+| F003 | 多 Agent 协作 (A2A) |
+| F004 | 团队包管理 |
+| F005 | 工作流执行 |
+| F006 | 沙箱隔离 |
+| F007 | 消息存储 |
+| F008 | IM 集成 |
+| F009 | 系统性能与稳定性 |
+| F010 | 安装器与启动 |
+
+### 测试报告管理
+
+测试报告按时间戳命名，保留历史记录：
+
+**命名规则：**
+- 运行 ID：`YYYYMMDD-HHMMSS`（如 `20260430-143525`）
+- HTML 报告：`web/playwright-report/{runId}/index.html`
+- JSON 结果：`web/test-results/{runId}/test-results.json`
+
+**查看报告：**
+```bash
+# 查看最新报告摘要
+python scripts/test-report-summary.py
+
+# 按特性分组显示（推荐）
+python scripts/test-report-summary.py --by-feature
+
+# 列出所有历史报告
+python scripts/test-report-summary.py --list
+
+# 查看指定运行
+python scripts/test-report-summary.py --run-id 20260430-143525
+
+# 打开 HTML 报告
+npx playwright show-report web/playwright-report/$(ls -t web/playwright-report | head -1)
+```
+
+**按特性分析结果：**
+报告脚本会按 Feature ID 分组，快速定位问题：
+
+| Feature ID | 功能模块 | 关键测试 |
+|------------|---------|---------|
+| F001 | Agent 对话核心 | AD-01, TW-02 |
+| F002 | WebSocket 流式 | WS-01 |
+| F003 | 多 Agent 协作 | SV-02 |
+| F004 | 团队包管理 | TP-01 |
+| F005 | 线程管理 | TW-01, FT-01~06 |
+| F006 | 工作流执行 | PF-01 |
+
+### Go 测试命名
+
+- 文件：`{module}_test.go`，放在 `auto-test/internal/{path}/`
+- 包名：`{module}_test`（允许导入 `internal` 包）
+- 函数：`Test{Category}_{TestCase}` 或直接使用测试 ID
+
+### E2E 测试命名
+
+- 文件：`{category}.spec.ts`，放在 `auto-test/e2e/{module}/`
+- describe：`'{Module}-{Category} [P0/P1]'`
+- test：`'{TestID}: {描述} [{FeatureID}]'`
+
+### Vitest 测试命名
+
+- 文件：`{Component}.test.ts`，放在 `auto-test/vitest/{type}/`
+- describe：`'{Module}: {Component} [P0/P1]'`
+- it：`'{TestID}: {描述} [{FeatureID}]'`

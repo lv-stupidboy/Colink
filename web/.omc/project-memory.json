@@ -266,6 +266,12 @@
       "type": "directory"
     },
     {
+      "path": "playwright.config.ts",
+      "accessCount": 2,
+      "lastAccessed": 1777467118135,
+      "type": "file"
+    },
+    {
       "path": "src\\components\\thread",
       "accessCount": 1,
       "lastAccessed": 1776701369753,

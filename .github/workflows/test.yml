@@ -1,0 +1,128 @@
+# .github/workflows/test.yml
+name: Auto-Test CI
+
+on:
+  push:
+    branches: [main, master, test]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  backend-test:
+    name: Backend Go Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Run P0 Backend Tests
+        run: go test ./auto-test/internal/... -v -run "P0"
+
+      - name: Run P1 Backend Tests
+        run: go test ./auto-test/internal/... -v -run "P0|P1"
+        continue-on-error: true
+
+      - name: Generate Coverage Report
+        run: go test ./auto-test/internal/... -coverprofile=coverage.out
+
+      - name: Upload Coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.out
+
+  frontend-test:
+    name: Frontend E2E Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install Dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Install Playwright Browsers
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+
+      - name: Build Backend
+        run: make build
+
+      - name: Start Backend Server
+        run: ./bin/isdp-server &
+        env:
+          ISDP_CONFIG: configs/config.yaml
+
+      - name: Start Frontend Dev Server
+        working-directory: web
+        run: npm run dev &
+
+      - name: Wait for Server Ready
+        run: sleep 10
+
+      - name: Run P0 E2E Tests
+        working-directory: web
+        run: npx playwright test auto-test/e2e/ --grep "P0" --reporter=html
+
+      - name: Upload Playwright Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: web/playwright-report/
+          retention-days: 7
+
+  vitest-test:
+    name: Vitest Component Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install Dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Run Vitest Tests
+        working-directory: web
+        run: npx vitest run auto-test/vitest/ --coverage
+
+  test-summary:
+    name: Test Summary
+    needs: [backend-test, frontend-test, vitest-test]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Check Test Results
+        run: |
+          echo "Backend: ${{ needs.backend-test.result }}"
+          echo "Frontend: ${{ needs.frontend-test.result }}"
+          echo "Vitest: ${{ needs.vitest-test.result }}"
+
+          if [ "${{ needs.backend-test.result }}" == "failure" ]; then
+            echo "Backend P0 tests failed - blocking release"
+            exit 1
+          fi
+
+          if [ "${{ needs.frontend-test.result }}" == "failure" ]; then
+            echo "Frontend P0 tests failed - blocking release"
+            exit 1
+          fi
+
+          echo "All P0 tests passed"
