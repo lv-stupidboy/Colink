@@ -1,4 +1,4 @@
-.PHONY: build genplugins run test clean docker-up docker-down sync-resources release desktop-dev desktop-build desktop-package desktop-package-all
+.PHONY: build genplugins run test clean docker-up docker-down sync-resources release desktop-dev desktop-build desktop-package desktop-package-all test-all test-frontend test-backend test-performance test-feature test-feature-priority test-p0 test-p1
 
 # 从 VERSION 文件读取版本号
 VERSION := $(shell cat VERSION 2>/dev/null || echo "dev")
@@ -43,7 +43,47 @@ docker-up:
 docker-down:
 	docker-compose down
 
-# Desktop application build
+# ===== Auto-Test 测试命令 =====
+
+test-all: test-backend test-frontend test-performance
+
+test-frontend:
+	cd web && npx playwright test auto-test/e2e/
+	cd web && npx vitest run auto-test/vitest/
+
+test-backend:
+	go test ./auto-test/internal/... -v
+
+test-performance:
+	go test -bench=. ./auto-test/internal/performance/
+	cd web && npx playwright test --trace on auto-test/e2e/performance/
+
+test-feature:
+	@if [ -z "$(F)" ]; then \
+		echo "请指定特性 ID，例如: make test-feature F=F001"; \
+		exit 1; \
+	fi
+	@echo "执行特性测试: $(F)"
+	@python scripts/run-feature-tests.py --feature $(F)
+
+test-feature-priority:
+	@if [ -z "$(P)" ]; then \
+		echo "请指定优先级，例如: make test-feature-priority P=P0"; \
+		exit 1; \
+	fi
+	@echo "执行优先级特性测试: $(P)"
+	@python scripts/run-feature-tests.py --priority $(P)
+
+test-p0:
+	go test ./auto-test/internal/... -v -run "P0"
+	cd web && npx playwright test auto-test/e2e/ --grep "P0"
+
+test-p1:
+	go test ./auto-test/internal/... -v -run "P0|P1"
+	cd web && npx playwright test auto-test/e2e/ --grep "P0|P1"
+
+# ===== Desktop application build =====
+
 desktop-dev:
 	cd apps/desktop && npm run dev
 

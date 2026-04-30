@@ -218,3 +218,140 @@ bin/migrate.exe up --db ./data/sqlite/colink.db --version 1.1.0 --json
 - `repos/` - 代码仓库
 
 **配置查找顺序**：命令行参数 `-config` → 环境变量 `ISDP_CONFIG` → `data/configs/config.yaml` → `configs/config.yaml`
+
+## 自动测试体系
+
+所有测试统一放置在 `auto-test/` 目录，采用混合分层结构：
+
+```
+auto-test/
+├── e2e/                    # Playwright E2E 测试
+│   ├── fixtures/           # 测试 fixtures
+│   ├── agent-dialog/       # AD-01 ~ AD-04
+│   ├── websocket/          # WS-01 ~ WS-02
+│   ├── thread-workflow/    # TW-01 ~ TW-03
+│   ├── team-package/       # TP-01
+│   └── api/                # API-02 ~ API-04
+│
+├── internal/               # Go 单元测试（可导入 internal 包）
+│   ├── api/                # API Handler 测试
+│   ├── service/            # Service 层测试
+│   ├── repo/               # Repo 层测试
+│   └── testdata/           # 测试数据
+│
+├── vitest/                 # Vitest 组件测试
+│   ├── components/         # UI 组件测试
+│   └── setup.ts            # Mock 配置
+│
+└── feature-map.yaml        # 功能 ID 映射
+```
+
+### 测试优先级
+
+| 优先级 | 覆盖率要求 | 说明 |
+|--------|-----------|------|
+| **P0** | 必须 100% | 阻塞功能、核心流程、安全相关 |
+| **P1** | ≥ 95% | 重要功能、主要路径 |
+| **P2** | ≥ 80% | 一般功能、边界场景 |
+| **P3** | 可选 | 体验优化、次要功能 |
+
+### 测试命令
+
+```bash
+# 运行所有测试
+make test-all
+
+# 分类测试
+make test-frontend      # E2E + Vitest
+make test-backend       # Go 单元测试
+
+# 功能测试（按 Feature ID）
+python scripts/run-feature-tests.py --feature F001
+python scripts/run-feature-tests.py --priority P0
+
+# E2E 测试
+cd web && npx playwright test
+npx playwright test --grep "AD-01"    # 按测试 ID
+
+# Go 测试
+go test ./auto-test/internal/... -v
+go test ./auto-test/internal/api/... -run API-01
+```
+
+### 测试报告命名与管理
+
+测试报告按时间戳自动命名，保留历史记录便于对比分析：
+
+**命名规则：**
+- 运行 ID 格式：`YYYYMMDD-HHMMSS`（如 `20260430-143525`）
+- HTML 报告：`web/playwright-report/{runId}/index.html`
+- JSON 结果：`web/test-results/{runId}/test-results.json`
+- 输出目录：`web/test-results/{runId}/`
+
+**查看报告：**
+```bash
+# 查看最新报告摘要
+python scripts/test-report-summary.py
+
+# 查看最新报告详情
+python scripts/test-report-summary.py --latest
+
+# 按特性分组显示
+python scripts/test-report-summary.py --by-feature
+
+# 列出所有历史报告
+python scripts/test-report-summary.py --list
+
+# 查看指定运行的报告
+python scripts/test-report-summary.py --run-id 20260430-143525
+
+# 打开 HTML 报告（最新）
+npx playwright show-report web/playwright-report/$(ls -t web/playwright-report | head -1)
+```
+
+**报告结构示例：**
+```
+web/
+├── playwright-report/
+│   ├── 20260430-143525/    # 运行 1
+│   │   └── index.html
+│   └── 20260430-160832/    # 运行 2
+│   │   └── index.html
+│
+└── test-results/
+│   ├── 20260430-143525/
+│   │   ├── test-results.json          # JSON 结果
+│   │   ├── *.png                       # 失败截图
+│   │   ├── *.webm                      # 失败视频
+│   │   └── trace.zip                   # 失败 trace
+│   └── 20260430-160832/
+```
+
+**按特性查看结果：**
+报告汇总脚本会按 Feature ID 分组显示测试结果，便于快速定位问题：
+
+| Feature ID | 功能模块 | 测试覆盖 |
+|------------|---------|---------|
+| F001 | Agent 对话核心 | AD-01, TW-02, FT-07 |
+| F002 | WebSocket 流式 | WS-01 |
+| F003 | 多 Agent 协作 | SV-02, VT-03 |
+| F004 | 团队包管理 | TP-01 |
+| F005 | 线程管理 | TW-01, FT-01~06 |
+| F006 | 工作流执行 | PF-01, PF-02 |
+
+### 测试 ID 格式
+
+测试用例 ID 格式：`{模块}-{分类}-{序号}`
+
+- `AD-01-02`：Agent Dialog，消息输入分类，第 2 个用例
+- `WS-01-03`：WebSocket，连接管理分类，第 3 个用例
+- `API-01-05`：API Handler，Agent CRUD 分类，第 5 个用例
+
+每个测试文件头部需标注 Feature ID 和优先级：
+
+```go
+// @feature F001 - Agent 对话核心
+// @priority P0
+// @id API-01-01
+func TestAgentHandler_List(t *testing.T) { ... }
+```
