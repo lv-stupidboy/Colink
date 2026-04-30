@@ -225,7 +225,7 @@ const AgentDetailPanel: React.FC<AgentDetailPanelProps> = ({ nodeId, readOnly = 
                           value={selectedSkillIds}
                           onChange={setSelectedSkillIds}
                           optionFilterProp="label"
-                          options={skills.map(s => ({ label: s.name, value: s.id }))}
+                          options={skills.map(s => ({ label: `${s.name} (${s.description || '暂无描述'})`, value: s.id }))}
                         />
                       </Form.Item>
 
