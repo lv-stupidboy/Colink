@@ -9,6 +9,7 @@ import {
   Divider,
   Alert,
   message,
+  Spin,
 } from 'antd';
 import {
   PlayCircleOutlined,
@@ -17,9 +18,10 @@ import {
   FileTextOutlined,
   FolderOutlined,
   GlobalOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons';
-import { serviceApi, launcherApi, modeApi, installApi } from '../../../lib/api';
-import type { RunningAgentInstance } from '../../../lib/api/types';
+import { serviceApi, launcherApi, modeApi, installApi, dependencyApi } from '../../../lib/api';
+import type { RunningAgentInstance, DependencyInfo } from '../../../lib/api/types';
 
 const { Title, Text } = Typography;
 
@@ -79,10 +81,13 @@ const LauncherDashboard: React.FC = () => {
   const [startingService, setStartingService] = useState(false);
   const [stoppingService, setStoppingService] = useState(false);
   const [installDir, setInstallDir] = useState('');
+  const [agentDependencies, setAgentDependencies] = useState<DependencyInfo[]>([]);
+  const [loadingAgents, setLoadingAgents] = useState(true);
 
   useEffect(() => {
     checkStatus();
     loadInstallDir();
+    checkAgentDependencies();
     const interval = setInterval(checkStatus, 5000);
     return () => clearInterval(interval);
   }, []);
@@ -190,6 +195,19 @@ const LauncherDashboard: React.FC = () => {
     }
   };
 
+  const checkAgentDependencies = async () => {
+    setLoadingAgents(true);
+    try {
+      const deps = await dependencyApi.checkAll();
+      setAgentDependencies(deps);
+    } catch (err) {
+      console.error('Failed to check agent dependencies:', err);
+      setAgentDependencies([]);
+    } finally {
+      setLoadingAgents(false);
+    }
+  };
+
   const formatDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     if (mins < 1) return '<1分钟';
@@ -283,6 +301,71 @@ const LauncherDashboard: React.FC = () => {
             )}
           </Space>
         </div>
+      </Card>
+
+      {/* 智能体环境 */}
+      <Card
+        title="智能体环境"
+        size="small"
+        style={{ marginBottom: 16 }}
+        extra={
+          <Button
+            size="small"
+            icon={<ReloadOutlined />}
+            onClick={checkAgentDependencies}
+            loading={loadingAgents}
+          >
+            刷新
+          </Button>
+        }
+      >
+        {loadingAgents ? (
+          <div style={{ textAlign: 'center', padding: 20 }}>
+            <Spin size="small" />
+          </div>
+        ) : (
+          <>
+            <div style={{
+              background: 'var(--bg-container, #fafafa)',
+              borderRadius: 8,
+              padding: 12,
+            }}>
+              {agentDependencies.map(dep => (
+                <div
+                  key={dep.key}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '8px 12px',
+                    borderBottom: dep.key === agentDependencies[agentDependencies.length - 1]?.key ? 'none' : '1px solid var(--border-color, #e8e8e8)',
+                  }}
+                >
+                  <span style={{ fontWeight: 500 }}>{dep.name}</span>
+                  <Tag color={dep.installed ? 'success' : 'warning'}>
+                    {dep.installed ? `已安装 ${dep.version || ''}` : '未安装'}
+                  </Tag>
+                </div>
+              ))}
+            </div>
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginTop: 12 }}
+              message="智能体说明"
+              description={
+                <div style={{ fontSize: 12 }}>
+                  <p style={{ marginBottom: 4 }}>
+                    Colink 平台支持 Claude CLI 和 OpenCode 等智能体，安装后即可使用对应的 Agent 类型。
+                  </p>
+                  <p style={{ marginBottom: 0 }}>
+                    如未安装，请访问官方文档获取安装指南。
+                  </p>
+                </div>
+              }
+            />
+          </>
+        )}
       </Card>
 
       {/* Agent实例列表 */}
