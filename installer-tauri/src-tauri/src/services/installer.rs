@@ -754,9 +754,36 @@ where
     if let Some(yaml_content) = &config.config_yaml {
         save_config_file(&config.install_dir, yaml_content)?;
     } else {
-        // Generate default config using resources_base (already found earlier)
-        let template_path = resources_base.join("config.yaml.example");
+        // Find config template - try multiple locations:
+        // 1. resources_base (where colink-server.exe was found)
+        // 2. exe_dir/../resources (ZIP packaged mode)
+        // 3. exe_dir/../../configs (dev mode: from isdp/configs)
+        // 4. resource_path/resources (dev mode)
+        let exe_path = std::env::current_exe().ok();
+        let exe_dir = exe_path.as_ref().and_then(|p| p.parent());
+
+        let template_candidates = vec![
+            resources_base.join("config.yaml.example"),
+            exe_dir.map(|d| d.join("..").join("resources").join("config.yaml.example")).unwrap_or_default(),
+            exe_dir.map(|d| d.join("..").join("..").join("configs").join("config.yaml.example")).unwrap_or_default(),
+            resource_path.join("resources").join("config.yaml.example"),
+            resource_path.join("config.yaml.example"),
+        ];
+
+        let template_path = template_candidates
+            .iter()
+            .find(|p| p.exists())
+            .cloned()
+            .unwrap_or_else(|| resources_base.join("config.yaml.example"));
+
         log::info!("Looking for config template at: {:?}", template_path);
+        log::info!("Template candidates checked: {:?}", template_candidates.iter().map(|p| (p.display(), p.exists())).collect::<Vec<_>>());
+
+        if !template_path.exists() {
+            log::error!("Config template NOT FOUND at any location");
+            return Err(InstallerError::Config("找不到配置模板文件 (config.yaml.example)".into()));
+        }
+
         let server_port = config.server_port.unwrap_or(26305);
         let yaml_content = generate_config_preview(&template_path, server_port, 0, &config.database.r#type)?;
         save_config_file(&config.install_dir, &yaml_content)?;
