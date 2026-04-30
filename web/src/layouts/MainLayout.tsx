@@ -5,18 +5,15 @@ import {
   DashboardOutlined,
   ProjectOutlined,
   ThunderboltOutlined,
-  InboxOutlined,
   SettingOutlined,
   ApartmentOutlined,
   RobotOutlined,
   BookOutlined,
   CloudServerOutlined,
-  DatabaseOutlined,
   CodeOutlined,
   ApiOutlined,
   SafetyCertificateOutlined,
   ControlOutlined,
-  CompassOutlined,
   ContainerOutlined,
   ToolOutlined,
   TeamOutlined,
@@ -216,23 +213,24 @@ const MainLayout: React.FC = () => {
         },
       ],
     },
-    {
-      key: 'planning',
-      icon: <CompassOutlined />,
-      label: '规划板块',
-      children: [
-        {
-          key: '/agents/knowledge',
-          icon: <DatabaseOutlined />,
-          label: '知识库',
-        },
-        {
-          key: '/sandbox',
-          icon: <InboxOutlined />,
-          label: '沙箱环境',
-        },
-      ],
-    },
+    // 规划板块菜单（暂时隐藏）
+    // {
+    //   key: 'planning',
+    //   icon: <CompassOutlined />,
+    //   label: '规划板块',
+    //   children: [
+    //     {
+    //       key: '/agents/knowledge',
+    //       icon: <DatabaseOutlined />,
+    //       label: '知识库',
+    //     },
+    //     {
+    //       key: '/sandbox',
+    //       icon: <InboxOutlined />,
+    //       label: '沙箱环境',
+    //     },
+    //   ],
+    // },
   ];
 
   // 获取当前选中的菜单项

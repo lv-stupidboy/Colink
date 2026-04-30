@@ -1,0 +1,30 @@
+appId: com.colink.desktop
+productName: Colink
+directories:
+  buildResources: build
+  output: release/portable
+
+protocols:
+  - name: Colink
+    schemes:
+      - colink
+
+files:
+  - "!**/.vscode/*"
+  - "!src/*"
+  - "!electron.vite.config.*"
+  - "!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml}"
+  - "!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}"
+  - "!release/**"
+
+win:
+  target:
+    - target: dir
+      arch: [x64]
+  icon: build/icon.ico
+  sign: null
+
+asar: true
+asarUnpack:
+  - resources/**
+npmRebuild: false

@@ -30,21 +30,15 @@ extraResources:
   # 新版本程序文件（放在 packages 目录下，与 resources 并列）
   - from: "../VERSION"
     to: "../packages/VERSION"
-  # 后端服务
-  - from: "../bin/colink-server.exe"
-    to: "../packages/runtime/colink-server.exe"
   # 迁移工具
   - from: "../bin/migrate.exe"
     to: "../packages/runtime/tools/migrate.exe"
   # SQL 变更脚本
   - from: "../sql-change"
     to: "../packages/runtime/data/sql-change"
-  # 前端静态文件
-  - from: "../web/dist"
-    to: "../packages/runtime/web"
   # 配置模板
   - from: "../configs/config.yaml.example"
     to: "../packages/runtime/data/configs/config.yaml.example"
-  # 启动器
-  - from: "release/launcher/win-unpacked"
-    to: "../packages/launcher"
+  # 桌面版应用（已打包的便携版，包含 Colink.exe + resources/bin + resources/web）
+  - from: "packages/desktop"
+    to: "../packages/desktop"

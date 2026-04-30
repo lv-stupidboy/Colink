@@ -681,7 +681,7 @@ export interface SkillAgentsResponse {
 // ========== Registry 相关类型 ==========
 
 // 注册表类型
-export type RegistryType = 'github' | 'gitlab' | 'api' | 'custom';
+export type RegistryType = 'github' | 'gitlab' | 'api' | 'custom' | 'codehub';
 
 // 同步状态
 export type RegistrySyncStatus = 'pending' | 'success' | 'failed';
@@ -845,6 +845,7 @@ export interface Subagent {
   description?: string;
   content: string;
   skillId?: string;
+  supportedAgents?: string[]; // 支持的Agent类型
   createdAt: string;
   updatedAt: string;
 }
@@ -855,17 +856,20 @@ export interface CreateSubagentRequest {
   description?: string;
   content: string;
   skillId?: string;
+  supportedAgents?: string[]; // 支持的Agent类型
 }
 
 // 更新Subagent请求
 export interface UpdateSubagentRequest {
   description?: string;
-  content: string;
+  content?: string;
+  supportedAgents?: string[]; // 支持的Agent类型
 }
 
 // Subagent列表查询参数
 export interface SubagentListQuery {
   search?: string;
+  agentType?: string; // 按Agent类型过滤
   page?: number;
   pageSize?: number;
 }
@@ -886,6 +890,7 @@ export interface Command {
   name: string;
   description?: string;
   content?: string;
+  supportedAgents?: string[]; // 支持的Agent类型
   createdAt: string;
   updatedAt: string;
 }
@@ -895,16 +900,19 @@ export interface CreateCommandRequest {
   name: string;
   description?: string;
   content?: string; // 命令内容（可选，传入则保存文件）
+  supportedAgents?: string[]; // 支持的Agent类型
 }
 
 // 更新Command请求
 export interface UpdateCommandRequest {
   description?: string;
+  supportedAgents?: string[]; // 支持的Agent类型
 }
 
 // Command列表查询参数
 export interface CommandListQuery {
   search?: string;
+  agentType?: string; // 按Agent类型过滤
   page?: number;
   pageSize?: number;
 }
@@ -925,6 +933,7 @@ export interface Rule {
   name: string;
   description?: string;
   content?: string;
+  supportedAgents?: string[]; // 支持的Agent类型
   createdAt: string;
   updatedAt: string;
 }
@@ -934,16 +943,19 @@ export interface CreateRuleRequest {
   name: string;
   description?: string;
   content?: string; // 规约内容（可选，传入则保存文件）
+  supportedAgents?: string[]; // 支持的Agent类型
 }
 
 // 更新Rule请求
 export interface UpdateRuleRequest {
   description?: string;
+  supportedAgents?: string[]; // 支持的Agent类型
 }
 
 // Rule列表查询参数
 export interface RuleListQuery {
   search?: string;
+  agentType?: string; // 按Agent类型过滤
   page?: number;
   pageSize?: number;
 }
@@ -976,6 +988,7 @@ export interface Settings {
   name: string;
   description?: string;
   directoryPath?: string;
+  supportedAgents?: string[]; // 支持的Agent类型
   createdAt: string;
   updatedAt: string;
 }
@@ -984,11 +997,13 @@ export interface Settings {
 export interface CreateSettingsRequest {
   name: string;
   description?: string;
+  supportedAgents?: string[]; // 支持的Agent类型
 }
 
 // Settings列表查询参数
 export interface SettingsListQuery {
   search?: string;
+  agentType?: string; // 按Agent类型过滤
   page?: number;
   pageSize?: number;
 }

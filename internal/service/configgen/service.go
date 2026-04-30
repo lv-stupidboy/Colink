@@ -271,7 +271,7 @@ func (s *Service) GenerateConfig(ctx context.Context, req *GenerateConfigRequest
 // GenerateAgentConfig 为单个Agent角色生成配置（Agent级）
 func (s *Service) GenerateAgentConfig(ctx context.Context, req *GenerateAgentConfigRequest) (*GenerateAgentConfigResult, error) {
 	// 1. 获取Agent角色
-	agent, err := s.agentRepo.FindByID(ctx, req.AgentRoleID)
+	agentRole, err := s.agentRepo.FindByID(ctx, req.AgentRoleID)
 	if err != nil {
 		return nil, fmt.Errorf("Agent角色不存在: %w", err)
 	}
@@ -288,226 +288,227 @@ func (s *Service) GenerateAgentConfig(ctx context.Context, req *GenerateAgentCon
 
 	s.logger.Info("开始生成Agent配置",
 		zap.String("agent_id", req.AgentRoleID.String()),
-		zap.String("agent_name", agent.Name),
+		zap.String("agent_name", agentRole.Name),
 		zap.String("config_path", configPath))
 
-	// 3. 清理现有配置（可选）
-	if req.CleanExisting {
-		if err := os.RemoveAll(configPath); err != nil && !os.IsNotExist(err) {
-			s.logger.Warn("清理配置目录失败", zap.Error(err))
-		}
+	// 3. 获取并过滤资产（根据 SupportedAgents）
+	filteredAssets := s.getFilteredAssets(ctx, req.AgentRoleID, req.BaseAgentType)
+
+	// 4. 获取对应Agent的ConfigGenerator
+	generator := agent.CreateConfigGenerator(
+		model.BaseAgentType(req.BaseAgentType),
+		s.skillStoragePath,
+		s.subagentStoragePath,
+		s.commandStoragePath,
+		s.ruleStoragePath,
+		s.logger,
+	)
+	if generator == nil {
+		return nil, fmt.Errorf("没有配置生成器支持Agent类型: %s", req.BaseAgentType)
 	}
 
-	// 4. 创建目录结构: skills/, agents/, commands/, rules/（不再创建settings/子目录，Settings内容直接提取到configPath）
-	skillsDir := filepath.Join(configPath, "skills")
-	agentsDir := filepath.Join(configPath, "agents")
-	commandsDir := filepath.Join(configPath, "commands")
-	rulesDir := filepath.Join(configPath, "rules")
-	if err := os.MkdirAll(skillsDir, 0755); err != nil {
-		return nil, fmt.Errorf("创建skills目录失败: %w", err)
-	}
-	if err := os.MkdirAll(agentsDir, 0755); err != nil {
-		return nil, fmt.Errorf("创建agents目录失败: %w", err)
-	}
-	if err := os.MkdirAll(commandsDir, 0755); err != nil {
-		return nil, fmt.Errorf("创建commands目录失败: %w", err)
-	}
-	if err := os.MkdirAll(rulesDir, 0755); err != nil {
-		return nil, fmt.Errorf("创建rules目录失败: %w", err)
-	}
-
-	// 5. 复制绑定的Settings目录内容到configPath根目录（与skills/、agents/并列）
-	// 如果Settings包含CLAUDE.md或settings.json，会覆盖后续生成的默认文件
-	settingsCount := 0
-	settingsIDs, err := s.agentSettingsBindingRepo.FindByAgentRoleID(ctx, req.AgentRoleID)
+	// 5. 调用ConfigGenerator生成配置
+	result, err := generator.GenerateConfig(ctx, &agent.ConfigGenerateRequest{
+		AgentRoleID:   req.AgentRoleID,
+		BaseAgentType: req.BaseAgentType,
+		ConfigPath:    configPath,
+		Skills:        filteredAssets.Skills,
+		Commands:      filteredAssets.Commands,
+		Subagents:     filteredAssets.Subagents,
+		Rules:         filteredAssets.Rules,
+		Settings:      filteredAssets.Settings,
+		CleanExisting: req.CleanExisting,
+	})
 	if err != nil {
-		s.logger.Warn("获取绑定的Settings失败", zap.Error(err))
-	}
-	for _, settingsID := range settingsIDs {
-		settings, err := s.settingsRepo.FindByID(ctx, settingsID)
-		if err != nil {
-			s.logger.Warn("获取Settings失败",
-				zap.String("settings_id", settingsID.String()),
-				zap.Error(err))
-			continue
-		}
-		// 复制Settings目录内容到configPath根目录
-		if err := s.copySettingsDirectory(settings, configPath); err != nil {
-			s.logger.Warn("复制Settings目录失败",
-				zap.String("settings", settings.Name),
-				zap.Error(err))
-			continue
-		}
-		settingsCount++
+		return nil, fmt.Errorf("配置生成失败: %w", err)
 	}
 
-	// 用于收集所有 Skill（去重）
-	skillMap := make(map[uuid.UUID]*model.Skill)
-
-	// 7. 复制绑定的技能文件到 skills/（直接绑定的）
-	directSkillIDs, err := s.bindingRepo.FindByAgentRoleID(ctx, req.AgentRoleID)
-	if err != nil {
-		s.logger.Warn("获取绑定的Skill失败", zap.Error(err))
-	}
-	for _, skillID := range directSkillIDs {
-		if _, exists := skillMap[skillID]; !exists {
-			skill, err := s.skillRepo.FindByID(ctx, skillID)
-			if err != nil {
-				s.logger.Warn("获取Skill失败",
-					zap.String("skill_id", skillID.String()),
-					zap.Error(err))
-				continue
-			}
-			skillMap[skillID] = skill
-		}
-	}
-
-	// 8. 复制绑定的Command文件到 commands/，并收集关联的Skill
-	commandsCount := 0
-	commandIDs, err := s.agentCommandBindingRepo.FindByAgentRoleID(ctx, req.AgentRoleID)
-	if err != nil {
-		s.logger.Warn("获取绑定的Command失败", zap.Error(err))
-	}
-	for _, commandID := range commandIDs {
-		command, err := s.commandRepo.FindByID(ctx, commandID)
-		if err != nil {
-			s.logger.Warn("获取Command失败",
-				zap.String("command_id", commandID.String()),
-				zap.Error(err))
-			continue
-		}
-		// 复制Command文件
-		if err := s.copyCommandFile(command, commandsDir); err != nil {
-			s.logger.Warn("复制Command文件失败",
-				zap.String("command", command.Name),
-				zap.Error(err))
-			continue
-		}
-		commandsCount++
-
-		// 收集Command关联的Skill
-		commandSkillIDs, err := s.commandSkillBindingRepo.FindByCommandID(ctx, commandID)
-		if err != nil {
-			s.logger.Warn("获取Command关联的Skill失败",
-				zap.String("command_id", commandID.String()),
-				zap.Error(err))
-			continue
-		}
-		for _, skillID := range commandSkillIDs {
-			if _, exists := skillMap[skillID]; !exists {
-				skill, err := s.skillRepo.FindByID(ctx, skillID)
-				if err != nil {
-					s.logger.Warn("获取Skill失败",
-						zap.String("skill_id", skillID.String()),
-						zap.Error(err))
-					continue
-				}
-				skillMap[skillID] = skill
-			}
-		}
-	}
-
-	// 9. 复制绑定的Subagent文件到 agents/，并收集关联的Skill
-	subagentsCount := 0
-	subagents, err := s.agentSubagentBindingRepo.FindSubagentsByAgentRoleID(ctx, req.AgentRoleID)
-	if err != nil {
-		s.logger.Warn("获取绑定的Subagent失败", zap.Error(err))
-	}
-	for _, subagent := range subagents {
-		if err := s.downloader.CopySubagentToDir(subagent, agentsDir); err != nil {
-			s.logger.Warn("复制Subagent文件失败",
-				zap.String("subagent", subagent.Name),
-				zap.Error(err))
-			continue
-		}
-		subagentsCount++
-
-		// 收集Subagent关联的Skill
-		subagentSkillIDs, err := s.subagentSkillBindingRepo.FindBySubagentID(ctx, subagent.ID)
-		if err != nil {
-			s.logger.Warn("获取Subagent关联的Skill失败",
-				zap.String("subagent_id", subagent.ID.String()),
-				zap.Error(err))
-			continue
-		}
-		for _, skillID := range subagentSkillIDs {
-			if _, exists := skillMap[skillID]; !exists {
-				skill, err := s.skillRepo.FindByID(ctx, skillID)
-				if err != nil {
-					s.logger.Warn("获取Skill失败",
-						zap.String("skill_id", skillID.String()),
-						zap.Error(err))
-					continue
-				}
-				skillMap[skillID] = skill
-			}
-		}
-	}
-
-	// 10. 复制绑定的Rule文件到 rules/
-	rulesCount := 0
-	ruleIDs, err := s.agentRuleBindingRepo.FindByAgentRoleID(ctx, req.AgentRoleID)
-	if err != nil {
-		s.logger.Warn("获取绑定的Rule失败", zap.Error(err))
-	}
-	for _, ruleID := range ruleIDs {
-		rule, err := s.ruleRepo.FindByID(ctx, ruleID)
-		if err != nil {
-			s.logger.Warn("获取Rule失败",
-				zap.String("rule_id", ruleID.String()),
-				zap.Error(err))
-			continue
-		}
-		// 复制Rule文件
-		if err := s.copyRuleFile(rule, rulesDir); err != nil {
-			s.logger.Warn("复制Rule文件失败",
-				zap.String("rule", rule.Name),
-				zap.Error(err))
-			continue
-		}
-		rulesCount++
-	}
-
-	// 11. 复制所有收集到的Skill文件（去重后）
-	skillsCount := 0
-	for _, skill := range skillMap {
-		if _, err := s.downloader.DownloadSkill(ctx, skill, req.BaseAgentType, configPath); err != nil {
-			s.logger.Warn("复制Skill文件失败",
-				zap.String("skill", skill.Name),
-				zap.Error(err))
-			continue
-		}
-		skillsCount++
-	}
-
-	// 12. 更新Agent配置生成时间
+	// 6. 更新Agent配置生成时间
 	if err := s.agentRepo.UpdateConfigGeneratedAt(ctx, req.AgentRoleID, configPath); err != nil {
 		s.logger.Warn("更新配置生成时间失败", zap.Error(err))
 	}
 
-	// 13. 通知 ConfigService 刷新缓存（确保 ConfigPath 更新生效）
+	// 7. 通知 ConfigService 刷新缓存（确保 ConfigPath 更新生效）
 	if s.onCacheInvalidate != nil {
 		s.onCacheInvalidate(req.AgentRoleID)
 	}
 
 	s.logger.Info("Agent配置生成完成",
 		zap.String("agent_id", req.AgentRoleID.String()),
-		zap.Int("skills_count", skillsCount),
-		zap.Int("subagents_count", subagentsCount),
-		zap.Int("commands_count", commandsCount),
-		zap.Int("rules_count", rulesCount),
-		zap.Int("settings_count", settingsCount))
+		zap.Int("skills_count", result.SkillsCount),
+		zap.Int("subagents_count", result.SubagentsCount),
+		zap.Int("commands_count", result.CommandsCount),
+		zap.Int("rules_count", result.RulesCount),
+		zap.Int("settings_count", result.SettingsCount))
 
 	return &GenerateAgentConfigResult{
 		AgentID:        req.AgentRoleID.String(),
 		ConfigPath:     configPath,
-		SkillsCount:    skillsCount,
-		SubagentsCount: subagentsCount,
-		CommandsCount:  commandsCount,
-		RulesCount:     rulesCount,
-		SettingsCount:  settingsCount,
+		SkillsCount:    result.SkillsCount,
+		SubagentsCount: result.SubagentsCount,
+		CommandsCount:  result.CommandsCount,
+		RulesCount:     result.RulesCount,
+		SettingsCount:  result.SettingsCount,
 		GeneratedAt:    time.Now(),
 	}, nil
+}
+
+// FilteredAssets 过滤后的资产集合
+type FilteredAssets struct {
+	Skills    []*model.Skill
+	Commands  []*model.Command
+	Subagents []*model.Subagent
+	Rules     []*model.Rule
+	Settings  []*model.Settings
+}
+
+// getFilteredAssets 获取并过滤资产（根据 SupportedAgents 向后兼容）
+func (s *Service) getFilteredAssets(ctx context.Context, agentRoleID uuid.UUID, agentType string) *FilteredAssets {
+	assets := &FilteredAssets{
+		Skills:    []*model.Skill{},
+		Commands:  []*model.Command{},
+		Subagents: []*model.Subagent{},
+		Rules:     []*model.Rule{},
+		Settings:  []*model.Settings{},
+	}
+
+	// 用于收集所有 Skill（去重）
+	skillMap := make(map[uuid.UUID]*model.Skill)
+
+	// 1. 获取直接绑定的技能（过滤）
+	directSkillIDs, err := s.bindingRepo.FindByAgentRoleID(ctx, agentRoleID)
+	if err != nil {
+		s.logger.Warn("获取绑定的Skill失败", zap.Error(err))
+	}
+	for _, skillID := range directSkillIDs {
+		skill, err := s.skillRepo.FindByID(ctx, skillID)
+		if err != nil {
+			s.logger.Warn("获取Skill失败", zap.String("skill_id", skillID.String()), zap.Error(err))
+			continue
+		}
+		if matchesAgentType(skill.SupportedAgents, agentType) {
+			skillMap[skillID] = skill
+		}
+	}
+
+	// 2. 获取绑定的Commands及其关联Skills（过滤）
+	commandIDs, err := s.agentCommandBindingRepo.FindByAgentRoleID(ctx, agentRoleID)
+	if err != nil {
+		s.logger.Warn("获取绑定的Command失败", zap.Error(err))
+	}
+	for _, commandID := range commandIDs {
+		command, err := s.commandRepo.FindByID(ctx, commandID)
+		if err != nil {
+			s.logger.Warn("获取Command失败", zap.String("command_id", commandID.String()), zap.Error(err))
+			continue
+		}
+		if matchesAgentType(command.SupportedAgents, agentType) {
+			assets.Commands = append(assets.Commands, command)
+		}
+
+		// 收集Command关联的Skill（过滤）
+		commandSkillIDs, err := s.commandSkillBindingRepo.FindByCommandID(ctx, commandID)
+		if err != nil {
+			s.logger.Warn("获取Command关联的Skill失败", zap.Error(err))
+			continue
+		}
+		for _, skillID := range commandSkillIDs {
+			if _, exists := skillMap[skillID]; !exists {
+				skill, err := s.skillRepo.FindByID(ctx, skillID)
+				if err != nil {
+					s.logger.Warn("获取Skill失败", zap.String("skill_id", skillID.String()), zap.Error(err))
+					continue
+				}
+				if matchesAgentType(skill.SupportedAgents, agentType) {
+					skillMap[skillID] = skill
+				}
+			}
+		}
+	}
+
+	// 3. 获取绑定的Subagents及其关联Skills（过滤）
+	subagents, err := s.agentSubagentBindingRepo.FindSubagentsByAgentRoleID(ctx, agentRoleID)
+	if err != nil {
+		s.logger.Warn("获取绑定的Subagent失败", zap.Error(err))
+	}
+	for _, subagent := range subagents {
+		if matchesAgentType(subagent.SupportedAgents, agentType) {
+			assets.Subagents = append(assets.Subagents, subagent)
+		}
+
+		// 收集Subagent关联的Skill（过滤）
+		subagentSkillIDs, err := s.subagentSkillBindingRepo.FindBySubagentID(ctx, subagent.ID)
+		if err != nil {
+			s.logger.Warn("获取Subagent关联的Skill失败", zap.Error(err))
+			continue
+		}
+		for _, skillID := range subagentSkillIDs {
+			if _, exists := skillMap[skillID]; !exists {
+				skill, err := s.skillRepo.FindByID(ctx, skillID)
+				if err != nil {
+					s.logger.Warn("获取Skill失败", zap.String("skill_id", skillID.String()), zap.Error(err))
+					continue
+				}
+				if matchesAgentType(skill.SupportedAgents, agentType) {
+					skillMap[skillID] = skill
+				}
+			}
+		}
+	}
+
+	// 4. 获取绑定的Rules（过滤）
+	ruleIDs, err := s.agentRuleBindingRepo.FindByAgentRoleID(ctx, agentRoleID)
+	if err != nil {
+		s.logger.Warn("获取绑定的Rule失败", zap.Error(err))
+	}
+	for _, ruleID := range ruleIDs {
+		rule, err := s.ruleRepo.FindByID(ctx, ruleID)
+		if err != nil {
+			s.logger.Warn("获取Rule失败", zap.String("rule_id", ruleID.String()), zap.Error(err))
+			continue
+		}
+		if matchesAgentType(rule.SupportedAgents, agentType) {
+			assets.Rules = append(assets.Rules, rule)
+		}
+	}
+
+	// 5. 获取绑定的Settings（过滤）
+	settingsIDs, err := s.agentSettingsBindingRepo.FindByAgentRoleID(ctx, agentRoleID)
+	if err != nil {
+		s.logger.Warn("获取绑定的Settings失败", zap.Error(err))
+	}
+	for _, settingsID := range settingsIDs {
+		settings, err := s.settingsRepo.FindByID(ctx, settingsID)
+		if err != nil {
+			s.logger.Warn("获取Settings失败", zap.String("settings_id", settingsID.String()), zap.Error(err))
+			continue
+		}
+		if matchesAgentType(settings.SupportedAgents, agentType) {
+			assets.Settings = append(assets.Settings, settings)
+		}
+	}
+
+	// 6. 转换skillMap为列表
+	for _, skill := range skillMap {
+		assets.Skills = append(assets.Skills, skill)
+	}
+
+	return assets
+}
+
+// matchesAgentType 检查资产是否支持指定的Agent类型（向后兼容）
+func matchesAgentType(supportedAgents []string, agentType string) bool {
+	// 空数组向后兼容：默认只支持 claude_code
+	if len(supportedAgents) == 0 {
+		return agentType == "claude_code"
+	}
+	// 非空数组：检查是否包含指定类型
+	for _, a := range supportedAgents {
+		if a == agentType {
+			return true
+		}
+	}
+	return false
 }
 
 // getConfigDir 获取配置目录路径

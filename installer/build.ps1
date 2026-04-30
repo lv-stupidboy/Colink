@@ -6,6 +6,15 @@ $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
+# Set Go path if not in PATH
+if (-not (Get-Command go -ErrorAction SilentlyContinue)) {
+    $goPath = "C:\Program Files\Go\bin"
+    if (Test-Path "$goPath\go.exe") {
+        $env:PATH = "$goPath;$env:PATH"
+        Write-Host "Added Go to PATH: $goPath" -ForegroundColor Yellow
+    }
+}
+
 # Set mirrors for Chinese users (解决 GitHub 下载慢问题)
 $env:ELECTRON_MIRROR = "https://npmmirror.com/mirrors/electron/"
 $env:ELECTRON_BUILDER_BINARIES_MIRROR = "https://npmmirror.com/mirrors/electron-builder-binaries/"
@@ -35,8 +44,16 @@ Write-Host "Platform: $OS-$ARCH" -ForegroundColor Cyan
 
 # 1. Clean old artifacts
 Write-Host "[1/8] Cleaning old build artifacts..." -ForegroundColor Cyan
-Remove-Item -Path "..\bin\*" -Force -ErrorAction SilentlyContinue
-Remove-Item -Path "release\*.zip" -Force -ErrorAction SilentlyContinue
+try {
+    if (Test-Path "..\bin") {
+        Get-ChildItem -Path "..\bin" -Force | ForEach-Object { Remove-Item $_.FullName -Force -Recurse -ErrorAction SilentlyContinue }
+    }
+} catch {}
+try { Remove-Item -Path "release\*.zip" -Force -ErrorAction SilentlyContinue } catch {}
+try { Remove-Item -Path "release\Colink-*" -Force -Recurse -ErrorAction SilentlyContinue } catch {}
+try { Remove-Item -Path "release\launcher" -Force -Recurse -ErrorAction SilentlyContinue } catch {}
+try { Remove-Item -Path "release\win-unpacked" -Force -Recurse -ErrorAction SilentlyContinue } catch {}
+try { Remove-Item -Path "packages\desktop" -Force -Recurse -ErrorAction SilentlyContinue } catch {}
 
 # 2. Generate plugin registry
 Write-Host "[2/8] Generating plugin registry..." -ForegroundColor Cyan
@@ -66,21 +83,49 @@ if (-not (Test-Path "node_modules")) {
 npm run build
 Pop-Location
 
+# 4.1 Build desktop application
+Write-Host "[4.1/8] Building desktop application..." -ForegroundColor Cyan
+Push-Location ..\apps\desktop
+if (-not (Test-Path "node_modules")) {
+    Write-Host "  Installing desktop dependencies..." -ForegroundColor Yellow
+    npm install
+}
+npm run build
+# Package as portable directory
+Write-Host "  Packaging desktop app as portable..." -ForegroundColor Yellow
+npx electron-builder --win --config electron-builder.portable.yml
+Pop-Location
+
+# Copy packaged desktop app to installer packages
+Write-Host "  Copying desktop app to packages..." -ForegroundColor Yellow
+$desktopReleaseDir = Join-Path $PWD "..\apps\desktop\release\portable\win-unpacked"
+$packagesDesktopDir = Join-Path $PWD "packages\desktop"
+if (Test-Path $packagesDesktopDir) {
+    Remove-Item -Path $packagesDesktopDir -Force -Recurse -ErrorAction SilentlyContinue
+}
+if (Test-Path $desktopReleaseDir) {
+    Write-Host "  Source: $desktopReleaseDir" -ForegroundColor Gray
+    Write-Host "  Dest: $packagesDesktopDir" -ForegroundColor Gray
+    # Create destination directory first
+    New-Item -ItemType Directory -Path $packagesDesktopDir -Force | Out-Null
+    # Copy all files and directories
+    Get-ChildItem -Path $desktopReleaseDir | Copy-Item -Destination $packagesDesktopDir -Force -Recurse
+    Write-Host "  Desktop app copied to packages/desktop" -ForegroundColor Green
+} else {
+    Write-Host "  WARNING: Portable desktop app not found at $desktopReleaseDir" -ForegroundColor Yellow
+}
+
 # 5. Build installer
 Write-Host "[5/8] Building installer..." -ForegroundColor Cyan
 npm install
 npm run build
 
-# 6. Package launcher
-Write-Host "[6/8] Packaging launcher..." -ForegroundColor Cyan
-npm run package:launcher
-
-# 7. Package setup
-Write-Host "[7/8] Packaging setup..." -ForegroundColor Cyan
+# 6. Package setup
+Write-Host "[6/8] Packaging setup..." -ForegroundColor Cyan
 npm run package:setup
 
-# 8. Create ZIP
-Write-Host "[8/8] Creating release package..." -ForegroundColor Cyan
+# 7. Create ZIP
+Write-Host "[7/8] Creating release package..." -ForegroundColor Cyan
 $env:COLINK_FULL_VERSION = $FULL_VERSION
 $env:COLINK_OS = $OS
 $env:COLINK_ARCH = $ARCH

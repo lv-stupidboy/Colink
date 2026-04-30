@@ -73,9 +73,9 @@ fn get_tool_version(tool: &str) -> Option<String> {
     None
 }
 
-/// Check all dependencies
+/// Check all dependencies (only agents)
 pub fn check_all_dependencies() -> Vec<DependencyInfo> {
-    let keys = ["node", "git", "claude", "opencode"];
+    let keys = ["claude", "opencode"];
     keys.iter().map(|k| check_dependency(k)).collect()
 }
 

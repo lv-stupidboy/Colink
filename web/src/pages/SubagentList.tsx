@@ -132,6 +132,12 @@ const SubagentList: React.FC = () => {
   const [subagentSkillCounts, setSubagentSkillCounts] = useState<Record<string, number>>({});
   const [subagentSkillsMap, setSubagentSkillsMap] = useState<Record<string, Skill[]>>({});
 
+  // Agent 类型选项
+  const agentTypeOptions = [
+    { label: 'Claude Code', value: 'claude_code', color: 'blue' },
+    { label: 'OpenCode', value: 'open_code', color: 'green' },
+  ];
+
   // 存储解析后的内容，用户确认后才上传
   const pendingContentRef = useRef<string>('');
 
@@ -206,6 +212,7 @@ const SubagentList: React.FC = () => {
     pendingContentRef.current = '';
     setSelectedSkillIds([]);
     form.resetFields();
+    form.setFieldsValue({ supportedAgents: [] });
     setModalVisible(true);
   };
 
@@ -218,6 +225,7 @@ const SubagentList: React.FC = () => {
       name: record.name,
       description: record.description,
       content: record.content,
+      supportedAgents: record.supportedAgents || [],
     });
     // 加载已绑定的技能
     await loadSubagentSkills(record.id);
@@ -250,6 +258,7 @@ const SubagentList: React.FC = () => {
         await api.subagents.update(editingSubagent.id, {
           description: values.description,
           content: values.content,
+          supportedAgents: values.supportedAgents,
         });
         // 更新技能绑定
         await api.subagents.bindSkills(editingSubagent.id, selectedSkillIds);
@@ -261,6 +270,7 @@ const SubagentList: React.FC = () => {
           name: values.name,
           description: values.description,
           content: content,
+          supportedAgents: values.supportedAgents,
         });
         // 为新创建的子代理绑定技能
         if (selectedSkillIds.length > 0) {
@@ -379,6 +389,29 @@ const SubagentList: React.FC = () => {
               {count} 个 Skills
             </Tag>
           </Tooltip>
+        );
+      },
+    },
+    {
+      title: '兼容 Agent',
+      dataIndex: 'supportedAgents',
+      key: 'supportedAgents',
+      width: 150,
+      render: (supportedAgents: string[] | undefined) => {
+        if (!supportedAgents || supportedAgents.length === 0) {
+          return <Tag color="blue">Claude Code</Tag>;
+        }
+        return (
+          <Space size="small">
+            {supportedAgents.map(agent => {
+              const option = agentTypeOptions.find(o => o.value === agent);
+              return (
+                <Tag key={agent} color={option?.color || 'default'}>
+                  {option?.label || agent}
+                </Tag>
+              );
+            })}
+          </Space>
         );
       },
     },
@@ -512,6 +545,21 @@ const SubagentList: React.FC = () => {
           layout="vertical"
           onFinish={handleSubmit}
         >
+          <Form.Item
+            name="name"
+            label="名称"
+            rules={[
+              { required: true, message: '请输入名称' },
+              { pattern: /^[a-z][a-z0-9-]*$/, message: '名称只能包含小写字母、数字和中划线，且必须以字母开头' }
+            ]}
+            extra="只允许小写字母、数字和中划线，如：code-reviewer"
+          >
+            <Input
+              placeholder="如：code-reviewer"
+              disabled={!!editingSubagent || isAfterUpload}
+            />
+          </Form.Item>
+
           {/* 创建方式选择 - 仅新建时显示 */}
           {!editingSubagent && !isAfterUpload && (
             <div style={{ marginBottom: 16, padding: 16, background: 'var(--bg-container)', borderRadius: 8, border: '1px solid var(--border-color)' }}>
@@ -569,21 +617,6 @@ const SubagentList: React.FC = () => {
           )}
 
           <Form.Item
-            name="name"
-            label="名称"
-            rules={[
-              { required: true, message: '请输入名称' },
-              { pattern: /^[a-z][a-z0-9-]*$/, message: '名称只能包含小写字母、数字和中划线，且必须以字母开头' }
-            ]}
-            extra="只允许小写字母、数字和中划线，如：code-reviewer"
-          >
-            <Input
-              placeholder="如：code-reviewer"
-              disabled={!!editingSubagent || isAfterUpload}
-            />
-          </Form.Item>
-
-          <Form.Item
             name="description"
             label="描述"
           >
@@ -603,6 +636,20 @@ const SubagentList: React.FC = () => {
               rows={12}
               placeholder="输入 Subagent 的配置内容..."
               style={{ fontFamily: 'monospace' }}
+            />
+          </Form.Item>
+
+          <Form.Item
+            label="兼容 Agent 类型"
+            name="supportedAgents"
+            extra="选择此 Subagent 支持的 Agent 类型"
+            rules={[{ required: true, message: '请至少选择一种 Agent 类型' }]}
+          >
+            <Select
+              mode="multiple"
+              placeholder="选择支持的 Agent 类型"
+              style={{ width: '100%' }}
+              options={agentTypeOptions}
             />
           </Form.Item>
 

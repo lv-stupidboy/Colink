@@ -180,39 +180,67 @@ func (s *SkillScanner) ScanRegistry(ctx context.Context, registryID uuid.UUID) (
 	}, nil
 }
 
-// buildCloneURL 构建克隆URL（带Token注入）
+// buildCloneURL 构建克隆URL（带认证注入）
 func (s *SkillScanner) buildCloneURL(registry *model.SkillRegistry) string {
-	// 获取Token
-	token := ""
-	if registry.AuthConfig != nil {
-		token = registry.AuthConfig["token"]
-	}
-
-	// 如果没有Token，直接使用原始URL
-	if token == "" {
-		return registry.URL
-	}
-
 	// 根据注册表类型构建URL
 	switch registry.Type {
 	case model.RegistryTypeGitHub:
 		// GitHub: https://{token}@github.com/owner/repo.git
-		// URL格式: https://github.com/owner/repo 或 https://github.com/owner/repo.git
+		token := ""
+		if registry.AuthConfig != nil {
+			token = registry.AuthConfig["token"]
+		}
+		if token == "" {
+			return registry.URL
+		}
 		url := registry.URL
 		if !strings.HasSuffix(url, ".git") {
 			url = url + ".git"
 		}
-		// 替换 https:// 为 https://{token}@
 		return strings.Replace(url, "https://", fmt.Sprintf("https://%s@", token), 1)
 
 	case model.RegistryTypeGitLab:
 		// GitLab: https://oauth2:{token}@gitlab.com/owner/repo.git
+		token := ""
+		if registry.AuthConfig != nil {
+			token = registry.AuthConfig["token"]
+		}
+		if token == "" {
+			return registry.URL
+		}
 		url := registry.URL
 		if !strings.HasSuffix(url, ".git") {
 			url = url + ".git"
 		}
-		// 替换 https:// 为 https://oauth2:{token}@
 		return strings.Replace(url, "https://", fmt.Sprintf("https://oauth2:%s@", token), 1)
+
+	case model.RegistryTypeCodeHub:
+		// 华为内网 CodeHub 支持 SSH 和 HTTPS 认证
+		url := registry.URL
+
+		// SSH 格式：直接使用，依赖系统 SSH Key
+		if strings.HasPrefix(url, "git@") {
+			return url
+		}
+
+		// HTTPS 格式：注入账号密码
+		if strings.HasPrefix(url, "https://") {
+			username := ""
+			password := ""
+			if registry.AuthConfig != nil {
+				username = registry.AuthConfig["username"]
+				password = registry.AuthConfig["password"]
+			}
+
+			if username != "" && password != "" {
+				// https://{username}:{password}@codehub-g.huawei.com/xxx.git
+				url = strings.Replace(url, "https://",
+					fmt.Sprintf("https://%s:%s@", username, password), 1)
+			}
+			return url
+		}
+
+		return url
 
 	default:
 		// 其他类型使用原始URL

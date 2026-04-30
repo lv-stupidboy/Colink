@@ -63,22 +63,42 @@ if [ ! -d "node_modules" ]; then
 fi
 npm run build
 
+# 4.1 Build desktop application
+echo "[4.1/8] Building desktop application..."
+cd ../apps/desktop
+if [ ! -d "node_modules" ]; then
+    echo "  Installing desktop dependencies..."
+    npm install
+fi
+npm run build
+# Package as portable directory
+echo "  Packaging desktop app as portable..."
+npx electron-builder --win --config electron-builder.portable.yml
+
+# Copy packaged desktop app to installer packages
+echo "  Copying desktop app to packages..."
+cd ../installer
+desktopReleaseDir="../apps/desktop/release/portable/win-unpacked"
+packagesDesktopDir="packages/desktop"
+rm -rf "$packagesDesktopDir" 2>/dev/null || true
+if [ -d "$desktopReleaseDir" ]; then
+    cp -r "$desktopReleaseDir" "$packagesDesktopDir"
+    echo "  Desktop app copied to packages/desktop"
+else
+    echo "  WARNING: Portable desktop app not found at $desktopReleaseDir"
+fi
+
 # 5. Build installer
 echo "[5/8] Building installer..."
-cd ../installer
 npm install
 npm run build
 
-# 6. Package launcher
-echo "[6/8] Packaging launcher..."
-npm run package:launcher
-
-# 7. Package setup
-echo "[7/8] Packaging setup..."
+# 6. Package setup
+echo "[6/8] Packaging setup..."
 npm run package:setup
 
-# 8. Create ZIP
-echo "[8/8] Creating release package..."
+# 7. Create ZIP
+echo "[7/8] Creating release package..."
 export COLINK_FULL_VERSION=$FULL_VERSION
 export COLINK_OS=$OS
 export COLINK_ARCH=$ARCH

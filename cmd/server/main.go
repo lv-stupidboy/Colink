@@ -225,8 +225,8 @@ func main() {
 		subagentRepo, commandRepo,
 		cfg.GetSkillStoragePath(), logger,
 	)
-	registryService := skill.NewRegistryService(registryRepo, skillRepo)
 	skillScanner := skill.NewSkillScanner(registryRepo, skillRepo, cfg.GetSkillStoragePath(), logger)
+	registryService := skill.NewRegistryService(registryRepo, skillRepo, skillScanner)
 	knowledgeService := knowledge.NewService(knowledgeRepo)
 	configGenService := configgen.NewService(
 		projectRepo, agentConfigRepo, skillRepo, agentSkillBindingRepo,

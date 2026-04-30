@@ -1,61 +1,46 @@
-import { execSync } from 'child_process'
+import { execFileSync } from 'child_process'
 import { join } from 'path'
-import { existsSync, readdirSync } from 'fs'
+import { existsSync, readdirSync, rmSync } from 'fs'
+
+/**
+ * 安全执行 reg query 命令
+ */
+function safeRegQuery(key: string, value: string): string | null {
+  try {
+    const output = execFileSync('reg', ['query', key, '/v', value], {
+      encoding: 'utf8',
+      timeout: 5000
+    })
+    const match = output.match(new RegExp(`${value}\\s+REG_SZ\\s+(.+)`, 'i'))
+    return match ? match[1].trim() : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 安全执行 reg delete 命令
+ */
+function safeRegDelete(key: string): boolean {
+  try {
+    execFileSync('reg', ['delete', key, '/f'], { timeout: 5000 })
+    return true
+  } catch {
+    return false
+  }
+}
 
 /**
  * 检测已安装的 Colink 版本
  */
 export function getInstalledVersion(): { installed: boolean; installDir?: string; version?: string; hasData?: boolean } {
   try {
-    // 使用 PowerShell 方式读取注册表，更可靠
-    const psCommand = `
-      try {
-        $key = Get-ItemProperty -Path 'HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Colink' -ErrorAction SilentlyContinue
-        if ($key) { $key.InstallLocation }
-      } catch {}
-      try {
-        $key = Get-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Colink' -ErrorAction SilentlyContinue
-        if ($key) { $key.InstallLocation }
-      } catch {}
-    `
-
     let installDir: string | null = null
 
-    try {
-      const output = execSync(
-        `powershell -NoProfile -Command "${psCommand}"`,
-        { encoding: 'utf8', timeout: 5000 }
-      )
-
-      // PowerShell 输出可能是多行，找到非空的行
-      const lines = output.trim().split('\n').filter(l => l.trim())
-      if (lines.length > 0 && lines[0].trim()) {
-        installDir = lines[0].trim()
-      }
-    } catch {
-      // PowerShell 失败，回退到 reg query
-      try {
-        let regQuery: string
-        try {
-          regQuery = execSync(
-            'reg query "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Colink" /v InstallLocation 2>nul',
-            { encoding: 'utf8' }
-          )
-        } catch {
-          regQuery = execSync(
-            'reg query "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Colink" /v InstallLocation 2>nul',
-            { encoding: 'utf8' }
-          )
-        }
-
-        // 更宽松的正则匹配，支持不同格式的输出
-        const match = regQuery.match(/InstallLocation\s+REG_SZ\s+(.+)/i)
-        if (match) {
-          installDir = match[1].trim()
-        }
-      } catch {
-        // reg query 也失败
-      }
+    // 优先使用 reg query（安全方式）
+    installDir = safeRegQuery('HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Colink', 'InstallLocation')
+    if (!installDir) {
+      installDir = safeRegQuery('HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Colink', 'InstallLocation')
     }
 
     if (installDir && existsSync(installDir)) {
@@ -64,27 +49,9 @@ export function getInstalledVersion(): { installed: boolean; installDir?: string
 
       // 从注册表读取已安装版本
       let version: string | undefined
-      try {
-        const versionPsCommand = `
-          try {
-            $key = Get-ItemProperty -Path 'HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Colink' -ErrorAction SilentlyContinue
-            if ($key) { $key.DisplayVersion }
-          } catch {}
-          try {
-            $key = Get-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Colink' -ErrorAction SilentlyContinue
-            if ($key) { $key.DisplayVersion }
-          } catch {}
-        `
-        const versionOutput = execSync(
-          `powershell -NoProfile -Command "${versionPsCommand}"`,
-          { encoding: 'utf8', timeout: 5000 }
-        )
-        const versionLines = versionOutput.trim().split('\n').filter(l => l.trim())
-        if (versionLines.length > 0) {
-          version = versionLines[0].trim()
-        }
-      } catch {
-        // 忽略读取错误
+      version = safeRegQuery('HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Colink', 'DisplayVersion')
+      if (!version) {
+        version = safeRegQuery('HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Colink', 'DisplayVersion')
       }
 
       console.log('[InstallUtils] Found installation:', installDir, 'version:', version)
@@ -101,50 +68,13 @@ export function getInstalledVersion(): { installed: boolean; installDir?: string
  * 用于提示用户卸载旧版本
  */
 export function getOldISDPVersion(): { installed: boolean; installDir?: string; version?: string } {
-  try {
-    let regQuery: string
-    try {
-      regQuery = execSync(
-        'reg query "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ISDP" /v InstallLocation 2>nul',
-        { encoding: 'utf8' }
-      )
-    } catch {
-      regQuery = execSync(
-        'reg query "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ISDP" /v InstallLocation 2>nul',
-        { encoding: 'utf8' }
-      )
-    }
-    const match = regQuery.match(/InstallLocation\s+REG_SZ\s+(.+)/)
-    if (match) {
-      const dir = match[1].trim()
+  const installDir = safeRegQuery('HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ISDP', 'InstallLocation')
+    || safeRegQuery('HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ISDP', 'InstallLocation')
 
-      // 从注册表读取已安装版本
-      let version: string | undefined
-      try {
-        let versionQuery: string
-        try {
-          versionQuery = execSync(
-            'reg query "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ISDP" /v DisplayVersion 2>nul',
-            { encoding: 'utf8' }
-          )
-        } catch {
-          versionQuery = execSync(
-            'reg query "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ISDP" /v DisplayVersion 2>nul',
-            { encoding: 'utf8' }
-          )
-        }
-        const versionMatch = versionQuery.match(/DisplayVersion\s+REG_SZ\s+(.+)/)
-        if (versionMatch) {
-          version = versionMatch[1].trim()
-        }
-      } catch {
-        // 忽略读取错误
-      }
-
-      return { installed: true, installDir: dir, version }
-    }
-  } catch {
-    // 未安装
+  if (installDir) {
+    const version = safeRegQuery('HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ISDP', 'DisplayVersion')
+      || safeRegQuery('HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ISDP', 'DisplayVersion')
+    return { installed: true, installDir, version }
   }
   return { installed: false }
 }
@@ -161,32 +91,27 @@ export function uninstallOldISDP(): { success: boolean; error?: string } {
     }
 
     const dir = oldVersion.installDir
-    const fs = require('fs')
 
     // 尝试运行旧版的卸载程序
     const uninstallerPath = join(dir, 'uninstall.exe')
     if (existsSync(uninstallerPath)) {
       try {
-        // 静默卸载
-        execSync(`"${uninstallerPath}" /S`, { timeout: 60000 })
+        // 静默卸载（使用 execFileSync，无 shell 避免 injection）
+        execFileSync(uninstallerPath, ['/S'], { timeout: 60000 })
       } catch {
         // 卸载程序可能失败，继续手动清理
       }
     }
 
-    // 清理注册表
-    try {
-      execSync('reg delete "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ISDP" /f 2>nul')
-    } catch {}
-    try {
-      execSync('reg delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ISDP" /f 2>nul')
-    } catch {}
+    // 清理注册表（使用安全方式）
+    safeRegDelete('HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ISDP')
+    safeRegDelete('HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ISDP')
 
     // 删除旧版快捷方式
-    const desktopPath = process.env.USERPROFILE + '\\Desktop\\ISDP.lnk'
-    const startMenuPath = process.env.APPDATA + '\\Microsoft\\Windows\\Start Menu\\Programs\\ISDP.lnk'
-    try { if (existsSync(desktopPath)) fs.rmSync(desktopPath) } catch {}
-    try { if (existsSync(startMenuPath)) fs.rmSync(startMenuPath) } catch {}
+    const desktopPath = join(process.env.USERPROFILE || '', 'Desktop', 'ISDP.lnk')
+    const startMenuPath = join(process.env.APPDATA || '', 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'ISDP.lnk')
+    try { if (existsSync(desktopPath)) rmSync(desktopPath) } catch {}
+    try { if (existsSync(startMenuPath)) rmSync(startMenuPath) } catch {}
 
     // 删除老安装目录中的程序文件（保留 data 目录）
     const entriesToDelete = [
@@ -209,7 +134,7 @@ export function uninstallOldISDP(): { success: boolean; error?: string } {
       const path = join(dir, entry)
       if (existsSync(path)) {
         try {
-          fs.rmSync(path, { recursive: true, force: true })
+          rmSync(path, { recursive: true, force: true })
           console.log('[UninstallOld] Removed:', entry)
         } catch (e) {
           console.warn('[UninstallOld] Failed to remove:', path, e)

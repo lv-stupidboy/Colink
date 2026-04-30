@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/anthropic/isdp/internal/model"
+	"go.uber.org/zap"
 )
 
 // AdapterRegistry 全局适配器注册中心
@@ -82,4 +83,33 @@ func GetConfigDir(typ model.BaseAgentType) string {
 		return ".claude" // 默认
 	}
 	return meta.ConfigDir
+}
+
+// GetConfigGeneratorFactory 获取配置生成器工厂
+func GetConfigGeneratorFactory(typ model.BaseAgentType) ConfigGeneratorFactory {
+	globalRegistry.mu.RLock()
+	defer globalRegistry.mu.RUnlock()
+
+	meta, exists := globalRegistry.plugins[typ]
+	if !exists || meta.ConfigGeneratorFactory == nil {
+		return nil
+	}
+	return meta.ConfigGeneratorFactory
+}
+
+// CreateConfigGenerator 创建配置生成器实例
+// 传入存储路径参数，调用工厂函数创建 AssetConfigGenerator
+func CreateConfigGenerator(
+	typ model.BaseAgentType,
+	skillStoragePath string,
+	subagentStoragePath string,
+	commandStoragePath string,
+	ruleStoragePath string,
+	logger *zap.Logger,
+) AssetConfigGenerator {
+	factory := GetConfigGeneratorFactory(typ)
+	if factory == nil {
+		return nil
+	}
+	return factory(skillStoragePath, subagentStoragePath, commandStoragePath, ruleStoragePath, logger)
 }

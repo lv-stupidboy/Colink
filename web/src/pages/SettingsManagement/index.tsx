@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
-  Card, Button, Modal, Form, Input, Select, message, Space, Typography,
+  Card, Button, Modal, Form, Input, Select, message, Space, Typography, Tag,
   Popconfirm, Empty, Spin, Divider, Tooltip, Table
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -9,14 +9,18 @@ import {
   EyeOutlined,
   DeleteOutlined,
   FolderOpenOutlined,
-  LinkOutlined,
 } from '@ant-design/icons';
 import JSZip from 'jszip';
 import settingsApi from '@/api/settingsApi';
-import type { Settings, AgentConfig } from '@/types';
-import api from '@/api/client';
+import type { Settings } from '@/types';
 
 const { Title, Text } = Typography;
+
+// Agent 类型选项
+const agentTypeOptions = [
+  { label: 'Claude Code', value: 'claude_code', color: 'blue' },
+  { label: 'OpenCode', value: 'open_code', color: 'green' },
+];
 
 // 根据Settings名称生成头像
 const generateAvatar = (name: string): { initials: string; color: string } => {
@@ -85,15 +89,6 @@ const SettingsManagement: React.FC = () => {
   const pendingZipBlobRef = useRef<Blob | null>(null);
   const [isAfterUpload, setIsAfterUpload] = useState(false);
 
-  // Agent绑定Modal
-  const [bindModalVisible, setBindModalVisible] = useState(false);
-  const [agents, setAgents] = useState<AgentConfig[]>([]);
-  const [selectedAgentId, setSelectedAgentId] = useState<string>('');
-  const [availableSettings, setAvailableSettings] = useState<Settings[]>([]);
-  const [selectedSettingsIds, setSelectedSettingsIds] = useState<string[]>([]);
-  const [boundSettings, setBoundSettings] = useState<Settings[]>([]);
-  const [bindLoading, setBindLoading] = useState(false);
-
   // 加载Settings列表
   const loadSettings = useCallback(async () => {
     setLoading(true);
@@ -112,27 +107,16 @@ const SettingsManagement: React.FC = () => {
     }
   }, [page, pageSize, searchText]);
 
-  // 加载Agent列表
-  const loadAgents = useCallback(async () => {
-    try {
-      const result = await api.agents.list();
-      setAgents(result);
-    } catch (error) {
-      // 忽略错误
-    }
-  }, []);
-
   useEffect(() => {
     loadSettings();
-    loadAgents();
-  }, [loadSettings, loadAgents]);
+  }, [loadSettings]);
 
   // 新建Settings
   const handleCreate = () => {
     setIsAfterUpload(false);
     pendingZipBlobRef.current = null;
     form.resetFields();
-    form.setFieldsValue({ name: '', description: '' });
+    form.setFieldsValue({ name: '', description: '', supportedAgents: [] });
     setModalVisible(true);
   };
 
@@ -204,6 +188,8 @@ const SettingsManagement: React.FC = () => {
       return;
     }
 
+    const supportedAgents = form.getFieldValue('supportedAgents') || [];
+
     try {
       if (isAfterUpload && pendingZipBlobRef.current) {
         message.loading({ content: '正在创建Settings...', key: 'uploading' });
@@ -212,6 +198,7 @@ const SettingsManagement: React.FC = () => {
         formData.append('file', pendingZipBlobRef.current, 'settings.zip');
         formData.append('name', values.name.trim());
         formData.append('description', values.description || '');
+        formData.append('supportedAgents', JSON.stringify(supportedAgents));
 
         await settingsApi.create(formData);
 
@@ -249,54 +236,6 @@ const SettingsManagement: React.FC = () => {
     }
   };
 
-  // 打开Agent绑定Modal
-  const handleOpenBindModal = async () => {
-    setBindLoading(true);
-    try {
-      // 加载所有Settings供选择
-      const result = await settingsApi.list({ pageSize: 100 });
-      setAvailableSettings(result.data);
-      setBindModalVisible(true);
-    } catch (error) {
-      message.error('加载Settings失败');
-    } finally {
-      setBindLoading(false);
-    }
-  };
-
-  // 选择Agent后加载已绑定的Settings
-  const handleAgentSelect = async (agentId: string) => {
-    setSelectedAgentId(agentId);
-    setBindLoading(true);
-    try {
-      const result = await settingsApi.getAgentSettings(agentId);
-      setBoundSettings(result.settings || []);
-      setSelectedSettingsIds((result.settings || []).map(s => s.id));
-    } catch (error) {
-      message.error('加载绑定Settings失败');
-    } finally {
-      setBindLoading(false);
-    }
-  };
-
-  // 绑定Settings到Agent
-  const handleBindSettings = async () => {
-    if (!selectedAgentId) {
-      message.error('请选择Agent');
-      return;
-    }
-    setBindLoading(true);
-    try {
-      await settingsApi.bindToAgent(selectedAgentId, selectedSettingsIds);
-      message.success('绑定成功');
-      setBindModalVisible(false);
-    } catch (error: any) {
-      message.error(error.response?.data?.error || '绑定失败');
-    } finally {
-      setBindLoading(false);
-    }
-  };
-
   // 表格列定义
   const columns: ColumnsType<Settings> = [
     {
@@ -316,6 +255,29 @@ const SettingsManagement: React.FC = () => {
       key: 'description',
       ellipsis: true,
       render: (desc: string) => desc || '-',
+    },
+    {
+      title: '兼容 Agent',
+      dataIndex: 'supportedAgents',
+      key: 'supportedAgents',
+      width: 150,
+      render: (supportedAgents: string[] | undefined) => {
+        if (!supportedAgents || supportedAgents.length === 0) {
+          return <Tag color="blue">Claude Code</Tag>;
+        }
+        return (
+          <Space size="small">
+            {supportedAgents.map(agent => {
+              const option = agentTypeOptions.find(o => o.value === agent);
+              return (
+                <Tag key={agent} color={option?.color || 'default'}>
+                  {option?.label || agent}
+                </Tag>
+              );
+            })}
+          </Space>
+        );
+      },
     },
     {
       title: '创建时间',
@@ -357,13 +319,6 @@ const SettingsManagement: React.FC = () => {
           <Text type="secondary">管理 Agent 配置目录资产</Text>
         </div>
         <Space>
-          <Button
-            icon={<LinkOutlined />}
-            onClick={handleOpenBindModal}
-            loading={bindLoading}
-          >
-            绑定到 Agent
-          </Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
             新建 Settings
           </Button>
@@ -474,49 +429,20 @@ const SettingsManagement: React.FC = () => {
           <Form.Item name="description" label="描述">
             <Input.TextArea rows={3} placeholder="配置描述（可选）" />
           </Form.Item>
-        </Form>
-      </Modal>
 
-      {/* Agent绑定弹窗 */}
-      <Modal
-        title="绑定 Settings 到 Agent"
-        open={bindModalVisible}
-        onOk={handleBindSettings}
-        onCancel={() => setBindModalVisible(false)}
-        width={700}
-        okText="绑定"
-        confirmLoading={bindLoading}
-      >
-        <Form layout="vertical">
-          <Form.Item label="选择 Agent">
+          <Form.Item
+            label="兼容 Agent 类型"
+            name="supportedAgents"
+            extra="选择此 Settings 支持的 Agent 类型"
+            rules={[{ required: true, message: '请至少选择一种 Agent 类型' }]}
+          >
             <Select
-              placeholder="选择要绑定Settings的Agent"
+              mode="multiple"
+              placeholder="选择支持的 Agent 类型"
               style={{ width: '100%' }}
-              value={selectedAgentId || undefined}
-              onChange={handleAgentSelect}
-              options={agents.map(a => ({ label: a.name, value: a.id }))}
+              options={agentTypeOptions}
             />
           </Form.Item>
-
-          {selectedAgentId && (
-            <Form.Item label="选择 Settings">
-              <Spin spinning={bindLoading}>
-                <Select
-                  mode="multiple"
-                  placeholder="选择要绑定的Settings"
-                  style={{ width: '100%' }}
-                  value={selectedSettingsIds}
-                  onChange={setSelectedSettingsIds}
-                  options={availableSettings.map(s => ({ label: s.name, value: s.id }))}
-                />
-                {boundSettings.length > 0 && (
-                  <div style={{ marginTop: 8 }}>
-                    <Text type="secondary">当前已绑定：{boundSettings.length} 个Settings</Text>
-                  </div>
-                )}
-              </Spin>
-            </Form.Item>
-          )}
         </Form>
       </Modal>
     </div>

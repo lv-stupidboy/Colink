@@ -3,6 +3,7 @@ package repo
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -26,12 +27,13 @@ func NewSubagentRepository(db *sql.DB, dbType DBType) *SubagentRepository {
 // Create 创建Subagent（content 存储在文件系统，不写入数据库）
 func (r *SubagentRepository) Create(ctx context.Context, subagent *model.Subagent) error {
 	query := `
-		INSERT INTO subagents (id, name, description, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?)
+		INSERT INTO subagents (id, name, description, supported_agents, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)
 	`
+	supportedAgents, _ := json.Marshal(subagent.SupportedAgents)
 
 	_, err := r.DB().ExecContext(ctx, query,
-		subagent.ID.String(), subagent.Name, subagent.Description, subagent.CreatedAt, subagent.UpdatedAt,
+		subagent.ID.String(), subagent.Name, subagent.Description, supportedAgents, subagent.CreatedAt, subagent.UpdatedAt,
 	)
 	return err
 }
@@ -43,10 +45,11 @@ func scanSubagent(scanner interface {
 	subagent := &model.Subagent{}
 	var idStr string
 	var description sql.NullString
+	var supportedAgents []byte
 	var createdAt, updatedAt SQLiteTimeScanner
 
 	err := scanner.Scan(
-		&idStr, &subagent.Name, &description, &createdAt, &updatedAt,
+		&idStr, &subagent.Name, &description, &supportedAgents, &createdAt, &updatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -56,6 +59,7 @@ func scanSubagent(scanner interface {
 	if description.Valid {
 		subagent.Description = description.String
 	}
+	json.Unmarshal(supportedAgents, &subagent.SupportedAgents)
 	subagent.CreatedAt = createdAt.Time
 	subagent.UpdatedAt = updatedAt.Time
 
@@ -65,7 +69,7 @@ func scanSubagent(scanner interface {
 // FindByID 根据ID查找
 func (r *SubagentRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.Subagent, error) {
 	query := `
-		SELECT id, name, description, created_at, updated_at
+		SELECT id, name, description, supported_agents, created_at, updated_at
 		FROM subagents WHERE id = ?
 	`
 	subagent, err := scanSubagent(r.DB().QueryRowContext(ctx, query, id.String()))
@@ -81,7 +85,7 @@ func (r *SubagentRepository) FindByID(ctx context.Context, id uuid.UUID) (*model
 // FindByName 根据名称查找
 func (r *SubagentRepository) FindByName(ctx context.Context, name string) (*model.Subagent, error) {
 	query := `
-		SELECT id, name, description, created_at, updated_at
+		SELECT id, name, description, supported_agents, created_at, updated_at
 		FROM subagents WHERE name = ?
 	`
 	subagent, err := scanSubagent(r.DB().QueryRowContext(ctx, query, name))
@@ -104,6 +108,17 @@ func (r *SubagentRepository) List(ctx context.Context, query *model.SubagentList
 		conditions = append(conditions, "(name LIKE ? OR description LIKE ?)")
 		searchPattern := "%" + query.Search + "%"
 		args = append(args, searchPattern, searchPattern)
+	}
+
+	// AgentType 过滤（向后兼容：空数组默认只支持 claude_code）
+	if query.AgentType != "" {
+		if query.AgentType == "claude_code" {
+			conditions = append(conditions, "(supported_agents = '[]' OR supported_agents LIKE ?)")
+			args = append(args, `%"claude_code"%`)
+		} else {
+			conditions = append(conditions, "supported_agents LIKE ?")
+			args = append(args, `%"`+query.AgentType+`"%`)
+		}
 	}
 
 	whereClause := ""
@@ -135,7 +150,7 @@ func (r *SubagentRepository) List(ctx context.Context, query *model.SubagentList
 
 	// 查询列表
 	listQuery := `
-		SELECT id, name, description, created_at, updated_at
+		SELECT id, name, description, supported_agents, created_at, updated_at
 		FROM subagents ` + whereClause + ` ORDER BY created_at DESC LIMIT ? OFFSET ?
 	`
 	args = append(args, pageSize, offset)
@@ -168,12 +183,13 @@ func (r *SubagentRepository) Update(ctx context.Context, subagent *model.Subagen
 	subagent.UpdatedAt = now
 	query := `
 		UPDATE subagents
-		SET name = ?, description = ?, updated_at = ?
+		SET name = ?, description = ?, supported_agents = ?, updated_at = ?
 		WHERE id = ?
 	`
+	supportedAgents, _ := json.Marshal(subagent.SupportedAgents)
 
 	_, err := r.DB().ExecContext(ctx, query,
-		subagent.Name, subagent.Description, now, subagent.ID.String(),
+		subagent.Name, subagent.Description, supportedAgents, now, subagent.ID.String(),
 	)
 	return err
 }

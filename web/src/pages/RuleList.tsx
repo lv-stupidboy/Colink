@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
-  Card, Button, Modal, Form, Input, message, Space, Typography,
-  Popconfirm, Empty, Spin, Pagination, Table, Tooltip, Radio
+  Card, Button, Modal, Form, Input, message, Space, Typography, Tag,
+  Popconfirm, Empty, Spin, Pagination, Table, Tooltip, Radio, Select
 } from 'antd';
 import {
   PlusOutlined,
@@ -77,9 +77,14 @@ const RuleList: React.FC = () => {
   const [form] = Form.useForm();
   const [createMethod, setCreateMethod] = useState<'upload' | 'manual'>('upload');
   const [isAfterUpload, setIsAfterUpload] = useState(false);
-
   // 存储解析后的内容，用户确认后才上传
   const pendingContentRef = useRef<string>('');
+
+  // Agent 类型选项
+  const agentTypeOptions = [
+    { label: 'Claude Code', value: 'claude_code', color: 'blue' },
+    { label: 'OpenCode', value: 'open_code', color: 'green' },
+  ];
 
   const loadRules = useCallback(async () => {
     setLoading(true);
@@ -108,6 +113,7 @@ const RuleList: React.FC = () => {
     setIsAfterUpload(false);
     pendingContentRef.current = '';
     form.resetFields();
+    form.setFieldsValue({ supportedAgents: [] });
     setModalVisible(true);
   };
 
@@ -119,6 +125,7 @@ const RuleList: React.FC = () => {
     form.setFieldsValue({
       name: record.name,
       description: record.description,
+      supportedAgents: record.supportedAgents || [],
     });
     setModalVisible(true);
   };
@@ -148,6 +155,7 @@ const RuleList: React.FC = () => {
       if (editingRule) {
         await api.rules.update(editingRule.id, {
           description: values.description,
+          supportedAgents: values.supportedAgents,
         });
         message.success('更新成功');
       } else {
@@ -156,6 +164,7 @@ const RuleList: React.FC = () => {
           name: values.name,
           description: values.description,
           content: isAfterUpload ? pendingContentRef.current : undefined,
+          supportedAgents: values.supportedAgents,
         });
         message.success('创建成功');
       }
@@ -244,6 +253,29 @@ const RuleList: React.FC = () => {
           </Text>
         </Tooltip>
       ),
+    },
+    {
+      title: '兼容 Agent',
+      dataIndex: 'supportedAgents',
+      key: 'supportedAgents',
+      width: 150,
+      render: (supportedAgents: string[] | undefined) => {
+        if (!supportedAgents || supportedAgents.length === 0) {
+          return <Tag color="blue">Claude Code</Tag>;
+        }
+        return (
+          <Space size="small">
+            {supportedAgents.map(agent => {
+              const option = agentTypeOptions.find(o => o.value === agent);
+              return (
+                <Tag key={agent} color={option?.color || 'default'}>
+                  {option?.label || agent}
+                </Tag>
+              );
+            })}
+          </Space>
+        );
+      },
     },
     {
       title: '创建时间',
@@ -375,6 +407,21 @@ const RuleList: React.FC = () => {
           layout="vertical"
           onFinish={handleSubmit}
         >
+          <Form.Item
+            name="name"
+            label="名称"
+            rules={[
+              { required: true, message: '请输入名称' },
+              { pattern: /^[a-z][a-z0-9-]*$/, message: '名称只能包含小写字母、数字和中划线，且必须以字母开头' }
+            ]}
+            extra="只允许小写字母、数字和中划线，如：code-style"
+          >
+            <Input
+              placeholder="如：code-style"
+              disabled={!!editingRule || isAfterUpload}
+            />
+          </Form.Item>
+
           {/* 创建方式选择 - 仅新建时显示 */}
           {!editingRule && !isAfterUpload && (
             <div style={{ marginBottom: 16, padding: 16, background: 'var(--ant-color-bg-container)', borderRadius: 8, border: '1px solid var(--ant-color-border)' }}>
@@ -432,27 +479,26 @@ const RuleList: React.FC = () => {
           )}
 
           <Form.Item
-            name="name"
-            label="名称"
-            rules={[
-              { required: true, message: '请输入名称' },
-              { pattern: /^[a-z][a-z0-9-]*$/, message: '名称只能包含小写字母、数字和中划线，且必须以字母开头' }
-            ]}
-            extra="只允许小写字母、数字和中划线，如：code-style"
-          >
-            <Input
-              placeholder="如：code-style"
-              disabled={!!editingRule || isAfterUpload}
-            />
-          </Form.Item>
-
-          <Form.Item
             name="description"
             label="描述"
           >
             <Input.TextArea
               rows={3}
               placeholder="简要描述这个 Rule 的内容"
+            />
+          </Form.Item>
+
+          <Form.Item
+            label="兼容 Agent 类型"
+            name="supportedAgents"
+            extra="选择此 Rule 支持的 Agent 类型"
+            rules={[{ required: true, message: '请至少选择一种 Agent 类型' }]}
+          >
+            <Select
+              mode="multiple"
+              placeholder="选择支持的 Agent 类型"
+              style={{ width: '100%' }}
+              options={agentTypeOptions}
             />
           </Form.Item>
         </Form>

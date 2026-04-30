@@ -1,4 +1,4 @@
-.PHONY: build genplugins run test clean docker-up docker-down sync-resources release
+.PHONY: build genplugins run test clean docker-up docker-down sync-resources release desktop-dev desktop-build desktop-package desktop-package-all test-all test-frontend test-backend test-performance test-feature test-feature-priority test-p0 test-p1
 
 # 从 VERSION 文件读取版本号
 VERSION := $(shell cat VERSION 2>/dev/null || echo "dev")
@@ -45,8 +45,6 @@ docker-down:
 
 # ===== Auto-Test 测试命令 =====
 
-.PHONY: test-all test-frontend test-backend test-performance test-feature test-feature-priority test-p0 test-p1
-
 test-all: test-backend test-frontend test-performance
 
 test-frontend:
@@ -83,3 +81,17 @@ test-p0:
 test-p1:
 	go test ./auto-test/internal/... -v -run "P0|P1"
 	cd web && npx playwright test auto-test/e2e/ --grep "P0|P1"
+
+# ===== Desktop application build =====
+
+desktop-dev:
+	cd apps/desktop && npm run dev
+
+desktop-build:
+	cd apps/desktop && npm run build
+
+desktop-package:
+	cd apps/desktop && npm run package
+
+desktop-package-all:
+	cd apps/desktop && npm run package:all

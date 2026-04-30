@@ -1,0 +1,11 @@
+{
+  "extends": "@electron-toolkit/tsconfig/tsconfig.node.json",
+  "include": ["src/main/**/*", "src/preload/**/*", "src/shared/**/*", "scripts/**/*"],
+  "compilerOptions": {
+    "composite": true,
+    "outDir": "./out",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": ["electron-vite/node"]
+  }
+}
