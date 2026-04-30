@@ -269,6 +269,60 @@ pub fn cleanup_staging_dirs(dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Rename file/directory with retry on Windows (handles SHARING_VIOLATION due to process exit or virus scan)
+/// Windows error 32 = SHARING_VIOLATION (file in use by another process)
+#[cfg(target_os = "windows")]
+pub fn rename_with_retry(src: &Path, dest: &Path, max_retries: u32, retry_delay_ms: u64) -> Result<()> {
+    use std::thread;
+    use std::time::Duration;
+
+    for attempt in 0..max_retries {
+        let result = fs::rename(src, dest);
+        match result {
+            Ok(_) => return Ok(()),
+            Err(e) => {
+                let os_code = e.raw_os_error().unwrap_or(0);
+                // Windows error 5 = ACCESS_DENIED
+                // Windows error 32 = SHARING_VIOLATION (file in use)
+                if os_code == 5 || os_code == 32 {
+                    if attempt < max_retries - 1 {
+                        log::warn!(
+                            "rename failed (attempt {}), retrying after {}ms: {} -> {} (os error {})",
+                            attempt + 1,
+                            retry_delay_ms,
+                            src.display(),
+                            dest.display(),
+                            os_code
+                        );
+                        thread::sleep(Duration::from_millis(retry_delay_ms));
+                        continue;
+                    }
+                }
+                // For other errors or final retry, check if source still exists
+                if !src.exists() {
+                    log::warn!("Source file disappeared during rename retries: {}", src.display());
+                    return Ok(()); // Treat as success, file was moved or deleted
+                }
+                return Err(InstallerError::Io {
+                    context: format!("rename (after {} retries): {} -> {}", max_retries, src.display(), dest.display()),
+                    source: e,
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn rename_with_retry(src: &Path, dest: &Path, _max_retries: u32, _retry_delay_ms: u64) -> Result<()> {
+    fs::rename(src, dest)
+        .map_err(|e| InstallerError::Io {
+            context: format!("rename: {} -> {}", src.display(), dest.display()),
+            source: e,
+        })?;
+    Ok(())
+}
+
 /// Move non-whitelisted items to backup directory
 /// Hidden files/dirs (starting with '.') are automatically skipped (they are temp files)
 pub fn move_to_backup(dir: &Path, backup_dir: &Path, whitelist: &[&str]) -> Result<()> {
@@ -314,17 +368,15 @@ pub fn move_to_backup(dir: &Path, backup_dir: &Path, whitelist: &[&str]) -> Resu
             continue;  // Skip this entry, continue with others
         }
 
-        // Rename is atomic on same drive
-        if let Err(e) = fs::rename(&src_path, &dest_path) {
-            // If file disappeared after our check, just skip it (don't fail the whole upgrade)
+        // Rename with retry to handle file locks (process just exited, Windows Defender scanning, etc.)
+        // Use 5 retries with 500ms delay to give processes time to release file handles
+        if let Err(e) = rename_with_retry(&src_path, &dest_path, 5, 500) {
+            // If file disappeared after all retries, just skip it
             if !src_path.exists() {
-                log::warn!("Source file disappeared during rename, skipping: {}", src_path.display());
+                log::warn!("Source file disappeared after retries, skipping: {}", src_path.display());
                 continue;
             }
-            return Err(InstallerError::Io {
-                context: format!("move to backup: {}", src_path.display()),
-                source: e,
-            });
+            return Err(e);
         }
     }
 
