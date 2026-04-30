@@ -10,6 +10,7 @@ import {
   Alert,
   message,
   Spin,
+  Modal,
 } from 'antd';
 import {
   PlayCircleOutlined,
@@ -19,6 +20,7 @@ import {
   FolderOutlined,
   GlobalOutlined,
   ReloadOutlined,
+  CheckCircleOutlined,
 } from '@ant-design/icons';
 import { serviceApi, launcherApi, modeApi, installApi, dependencyApi } from '../../../lib/api';
 import type { RunningAgentInstance, DependencyInfo } from '../../../lib/api/types';
@@ -83,6 +85,7 @@ const LauncherDashboard: React.FC = () => {
   const [installDir, setInstallDir] = useState('');
   const [agentDependencies, setAgentDependencies] = useState<DependencyInfo[]>([]);
   const [loadingAgents, setLoadingAgents] = useState(true);
+  const [agentModalVisible, setAgentModalVisible] = useState(false);
 
   useEffect(() => {
     checkStatus();
@@ -303,71 +306,6 @@ const LauncherDashboard: React.FC = () => {
         </div>
       </Card>
 
-      {/* 智能体环境 */}
-      <Card
-        title="智能体环境"
-        size="small"
-        style={{ marginBottom: 16 }}
-        extra={
-          <Button
-            size="small"
-            icon={<ReloadOutlined />}
-            onClick={checkAgentDependencies}
-            loading={loadingAgents}
-          >
-            刷新
-          </Button>
-        }
-      >
-        {loadingAgents ? (
-          <div style={{ textAlign: 'center', padding: 20 }}>
-            <Spin size="small" />
-          </div>
-        ) : (
-          <>
-            <div style={{
-              background: 'var(--bg-container, #fafafa)',
-              borderRadius: 8,
-              padding: 12,
-            }}>
-              {agentDependencies.map(dep => (
-                <div
-                  key={dep.key}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '8px 12px',
-                    borderBottom: dep.key === agentDependencies[agentDependencies.length - 1]?.key ? 'none' : '1px solid var(--border-color, #e8e8e8)',
-                  }}
-                >
-                  <span style={{ fontWeight: 500 }}>{dep.name}</span>
-                  <Tag color={dep.installed ? 'success' : 'warning'}>
-                    {dep.installed ? `已安装 ${dep.version || ''}` : '未安装'}
-                  </Tag>
-                </div>
-              ))}
-            </div>
-            <Alert
-              type="info"
-              showIcon
-              style={{ marginTop: 12 }}
-              message="智能体说明"
-              description={
-                <div style={{ fontSize: 12 }}>
-                  <p style={{ marginBottom: 4 }}>
-                    Colink 平台支持 Claude CLI 和 OpenCode 等智能体，安装后即可使用对应的 Agent 类型。
-                  </p>
-                  <p style={{ marginBottom: 0 }}>
-                    如未安装，请访问官方文档获取安装指南。
-                  </p>
-                </div>
-              }
-            />
-          </>
-        )}
-      </Card>
-
       {/* Agent实例列表 */}
       <Card title="正在运行的Agent实例" size="small" style={{ marginBottom: 16 }}>
         {runningAgents.length === 0 ? (
@@ -401,6 +339,12 @@ const LauncherDashboard: React.FC = () => {
             系统配置
           </Button>
           <Button
+            icon={<CheckCircleOutlined />}
+            onClick={() => setAgentModalVisible(true)}
+          >
+            智能体检测
+          </Button>
+          <Button
             icon={<FileTextOutlined />}
             onClick={handleOpenLogs}
           >
@@ -422,6 +366,74 @@ const LauncherDashboard: React.FC = () => {
           <Text code>{installDir}</Text>
         </div>
       </Card>
+
+      {/* 智能体检测 Modal */}
+      <Modal
+        title="智能体环境"
+        open={agentModalVisible}
+        onCancel={() => setAgentModalVisible(false)}
+        footer={[
+          <Button
+            key="refresh"
+            icon={<ReloadOutlined />}
+            onClick={checkAgentDependencies}
+            loading={loadingAgents}
+          >
+            刷新检测
+          </Button>,
+          <Button
+            key="close"
+            onClick={() => setAgentModalVisible(false)}
+          >
+            关闭
+          </Button>,
+        ]}
+        width={480}
+      >
+        {loadingAgents ? (
+          <div style={{ textAlign: 'center', padding: 24 }}>
+            <Spin />
+          </div>
+        ) : (
+          <>
+            <div
+              style={{
+                background: 'var(--bg-container, #fafafa)',
+                borderRadius: 8,
+                padding: 12,
+              }}
+            >
+              {agentDependencies.map((dep) => (
+                <div
+                  key={dep.key}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '8px 12px',
+                    borderBottom:
+                      dep.key === agentDependencies[agentDependencies.length - 1]?.key
+                        ? 'none'
+                        : '1px solid var(--border-color, #e8e8e8)',
+                  }}
+                >
+                  <span style={{ fontWeight: 500 }}>{dep.name}</span>
+                  <Tag color={dep.installed ? 'success' : 'warning'}>
+                    {dep.installed ? `已安装 ${dep.version || ''}` : '未安装'}
+                  </Tag>
+                </div>
+              ))}
+            </div>
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginTop: 12 }}
+              message="智能体说明"
+              description="Colink 平台支持 Claude CLI 和 OpenCode 等智能体，安装后即可使用对应的 Agent 类型。如未安装，请访问官方文档获取安装指南。"
+            />
+          </>
+        )}
+      </Modal>
     </div>
   );
 };
