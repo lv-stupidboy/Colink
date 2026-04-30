@@ -134,11 +134,13 @@ impl ServiceManager {
 
     /// Start the server process
     pub fn start(&self) -> Result<()> {
-        log::info!("ServiceManager::start() called, install_dir={}", self.install_dir);
+        log::info!("=== ServiceManager::start() ===");
+        log::info!("Install directory: {}", self.install_dir);
+
         let mut process_guard = self.process.lock().unwrap();
 
         if process_guard.is_some() {
-            log::info!("Service already running, skipping");
+            log::info!("Service already running (process reference exists), skipping");
             return Ok(()); // Already running
         }
 
@@ -148,17 +150,42 @@ impl ServiceManager {
             .join("configs")
             .join("config.yaml");
 
-        log::info!("Server path: {:?}", server_path);
-        log::info!("Config path: {:?}", config_path);
+        log::info!("Server exe path: {}", server_path.display());
+        log::info!("Config file path: {}", config_path.display());
 
+        // Check server exe exists
         if !server_path.exists() {
-            log::error!("Server exe not found at {:?}", server_path);
-            return Err(InstallerError::Process("服务程序不存在".into()));
+            log::error!("Server exe NOT FOUND at: {}", server_path.display());
+            log::error!("Directory contents:");
+            if let Ok(entries) = std::fs::read_dir(&self.install_dir) {
+                for entry in entries.flatten() {
+                    log::error!("  - {}", entry.file_name().to_string_lossy());
+                }
+            }
+            return Err(InstallerError::Process(format!(
+                "服务程序不存在: {}",
+                server_path.display()
+            )));
         }
 
+        // Check config file exists
         if !config_path.exists() {
-            log::error!("Config file not found at {:?}", config_path);
-            return Err(InstallerError::Config("配置文件不存在".into()));
+            log::error!("Config file NOT FOUND at: {}", config_path.display());
+            log::error!("data/configs directory contents:");
+            let configs_dir = PathBuf::from(&self.install_dir).join("data").join("configs");
+            if configs_dir.exists() {
+                if let Ok(entries) = std::fs::read_dir(&configs_dir) {
+                    for entry in entries.flatten() {
+                        log::error!("  - {}", entry.file_name().to_string_lossy());
+                    }
+                }
+            } else {
+                log::error!("  configs directory does not exist");
+            }
+            return Err(InstallerError::Config(format!(
+                "配置文件不存在: {}",
+                config_path.display()
+            )));
         }
 
         // Read port from config
@@ -166,30 +193,33 @@ impl ServiceManager {
             .map(|(server_port, _)| server_port)
             .unwrap_or(26305);
 
-        log::info!("Checking if port {} is in use...", port);
+        log::info!("Server port from config: {}", port);
 
         // Check if port is in use and handle it
         if let Some(pid) = Self::check_port_in_use(port)? {
-            log::warn!("Port {} is occupied by PID {}, attempting to kill...", port, pid);
+            log::warn!("Port {} is occupied by PID {}", port, pid);
 
             // Try to kill the process
             match Self::kill_process_by_pid(pid) {
                 Ok(_) => {
-                    log::info!("Successfully freed port {}", port);
-                    // Wait a moment for the port to be released
+                    log::info!("Successfully killed process PID {}, waiting 500ms for port release", pid);
                     std::thread::sleep(std::time::Duration::from_millis(500));
                 }
                 Err(e) => {
-                    log::error!("Failed to kill process occupying port {}: {}", port, e);
+                    log::error!("Failed to kill process PID {}: {}", pid, e);
                     return Err(InstallerError::Process(format!(
                         "端口 {} 已被其他程序占用 (PID {})，无法终止该进程。请手动关闭占用端口的程序后重试。",
                         port, pid
                     )));
                 }
             }
+        } else {
+            log::info!("Port {} is available", port);
         }
 
         log::info!("Spawning server process...");
+        log::info!("Command: {} -config {}", server_path.display(), config_path.display());
+        log::info!("Working directory: {}", self.install_dir);
 
         #[cfg(target_os = "windows")]
         let child = Command::new(&server_path)
@@ -206,14 +236,52 @@ impl ServiceManager {
 
         match child {
             Ok(c) => {
-                log::info!("Process spawned successfully, PID: {:?}", c.id());
+                let pid = c.id();
+                log::info!("Process spawned SUCCESSFULLY, PID: {}", pid);
                 *process_guard = Some(c);
-                log::info!("Service start initiated, will verify status on next check");
+
+                // Wait a moment and check if process is still running
+                std::thread::sleep(std::time::Duration::from_millis(1000));
+
+                // Verify process didn't immediately exit
+                if let Some(ref mut proc) = *process_guard {
+                    match proc.try_wait() {
+                        Ok(None) => {
+                            log::info!("Process is still running after 1s (PID: {})", pid);
+                        }
+                        Ok(Some(status)) => {
+                            log::error!("Process EXITED immediately after spawn! Status: {:?}", status);
+                            *process_guard = None;
+                            return Err(InstallerError::Process(format!(
+                                "服务进程启动后立即退出 (PID {}, status: {})",
+                                pid, status
+                            )));
+                        }
+                        Err(e) => {
+                            log::warn!("Could not check process status: {}", e);
+                        }
+                    }
+                }
+
+                log::info!("=== Service start completed ===");
                 Ok(())
             }
             Err(e) => {
-                log::error!("Failed to spawn process: {}", e);
-                Err(InstallerError::Process(e.to_string()))
+                log::error!("FAILED to spawn process: {}", e);
+                log::error!("Error kind: {:?}", e.kind());
+
+                // Provide more context
+                let error_msg = match e.kind() {
+                    std::io::ErrorKind::NotFound => "找不到可执行文件",
+                    std::io::ErrorKind::PermissionDenied => "权限不足",
+                    std::io::ErrorKind::InvalidInput => "无效的命令参数",
+                    _ => &e.to_string(),
+                };
+
+                Err(InstallerError::Process(format!(
+                    "启动服务失败: {} ({})",
+                    error_msg, server_path.display()
+                )))
             }
         }
     }

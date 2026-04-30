@@ -12,9 +12,15 @@ pub fn run() {
     // Detect app mode from exe filename
     let mode = detect_app_mode();
 
+    // Configure log plugin: stdout + webview + log folder
+    let log_builder = tauri_plugin_log::Builder::new()
+        .target(tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout))
+        .target(tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview))
+        .target(tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir { file_name: Some("launcher.log".into()) }));
+
     tauri::Builder::default()
         // Plugins
-        .plugin(tauri_plugin_log::Builder::new().build())
+        .plugin(log_builder.build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::new().build())
@@ -90,6 +96,14 @@ pub fn run() {
             let state = app.state::<AppState>();
             let mode = state.get_mode();
 
+            log::info!("=== Application Setup ===");
+            log::info!("App mode: {:?}", mode);
+
+            // Log the log file location for user reference
+            if let Ok(log_dir) = app.path().app_log_dir() {
+                log::info!("Log file location: {}", log_dir.display());
+            }
+
             // Setup based on mode
             match mode {
                 AppMode::Launcher => {
@@ -99,6 +113,7 @@ pub fn run() {
                         log::info!("Registry check result: installed={}, install_dir={:?}",
                             installed.installed, installed.install_dir);
                         if !installed.installed {
+                            log::error!("Colink not installed, exiting");
                             // Show error and exit
                             app.dialog()
                                 .message("Colink 未安装，请先运行安装程序")
@@ -123,6 +138,7 @@ pub fn run() {
                 }
             }
 
+            log::info!("=== Setup Complete ===");
             Ok(())
         })
         .run(tauri::generate_context!())
