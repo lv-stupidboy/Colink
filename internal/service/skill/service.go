@@ -2,7 +2,6 @@ package skill
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -115,17 +114,8 @@ func NewService(
 
 // Create 创建Skill
 func (s *Service) Create(ctx context.Context, req *model.CreateSkillRequest) (*model.Skill, error) {
-	// 检查名称是否重复
-	existing, err := s.skillRepo.FindByName(ctx, req.Name)
-	if err != nil {
-		// 如果不是"未找到"错误，返回实际错误
-		if !strings.Contains(err.Error(), "not found") {
-			return nil, fmt.Errorf("检查技能名称失败: %w", err)
-		}
-		// 名称不存在，可以创建
-	} else if existing != nil {
-		return nil, errors.New("技能名称已存在")
-	}
+	// 允许 skill 重名，不再检查名称唯一性
+	// Skills from different sources (personal, team packages, system) may have the same name
 
 	// 只有 personal 类型才能设置私有
 	isPublic := true
