@@ -50,8 +50,6 @@ export interface DependencyCheckResult {
 
 export async function checkDependency(key: string): Promise<DependencyCheckResult> {
   const commands: Record<string, string> = {
-    nodejs: 'node --version',
-    git: 'git --version',
     claude: 'claude --version',
     opencode: 'opencode --version',
   }
