@@ -1,7 +1,8 @@
 use crate::error::{InstallerError, Result};
 use crate::services::config::read_existing_config;
+use std::io::Read;
 use std::path::PathBuf;
-use std::process::{Child, Command};
+use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 
 #[cfg(target_os = "windows")]
@@ -226,12 +227,16 @@ impl ServiceManager {
             .args(["-config", &config_path.to_string_lossy()])
             .current_dir(&self.install_dir)
             .creation_flags(CREATE_NO_WINDOW)
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
             .spawn();
 
         #[cfg(not(target_os = "windows"))]
         let child = Command::new(&server_path)
             .args(["-config", &config_path.to_string_lossy()])
             .current_dir(&self.install_dir)
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
             .spawn();
 
         match child {
@@ -251,10 +256,22 @@ impl ServiceManager {
                         }
                         Ok(Some(status)) => {
                             log::error!("Process EXITED immediately after spawn! Status: {:?}", status);
+                            // Capture stderr to get the actual error message
+                            let stderr_output = if let Some(mut stderr) = proc.stderr.take() {
+                                let mut stderr_buf = String::new();
+                                if stderr.read_to_string(&mut stderr_buf).is_ok() {
+                                    stderr_buf
+                                } else {
+                                    "Unable to read stderr".to_string()
+                                }
+                            } else {
+                                "No stderr available".to_string()
+                            };
+                            log::error!("Server stderr output: {}", stderr_output);
                             *process_guard = None;
                             return Err(InstallerError::Process(format!(
-                                "服务进程启动后立即退出 (PID {}, status: {})",
-                                pid, status
+                                "服务进程启动后立即退出 (PID {}, status: {})\n错误输出: {}",
+                                pid, status, stderr_output
                             )));
                         }
                         Err(e) => {
@@ -330,7 +347,10 @@ impl ServiceManager {
 
         // Otherwise, check by trying to connect to API (quick check)
         // This handles cases where process was started elsewhere or reference lost
-        let port = 26305; // Default port
+        // Read port from config file
+        let port = read_existing_config(&self.install_dir)
+            .map(|(server_port, _)| server_port)
+            .unwrap_or(26305);
         let url = format!("http://localhost:{}/api/v1/health", port);
 
         // Quick synchronous check with timeout
