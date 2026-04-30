@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -193,11 +194,13 @@ func (s *SkillScanner) buildCloneURL(registry *model.SkillRegistry) string {
 		if token == "" {
 			return registry.URL
 		}
-		url := registry.URL
-		if !strings.HasSuffix(url, ".git") {
-			url = url + ".git"
+		urlStr := registry.URL
+		if !strings.HasSuffix(urlStr, ".git") {
+			urlStr = urlStr + ".git"
 		}
-		return strings.Replace(url, "https://", fmt.Sprintf("https://%s@", token), 1)
+		// URL 编码 Token（防止特殊字符破坏 URL 结构）
+		encodedToken := url.QueryEscape(token)
+		return strings.Replace(urlStr, "https://", fmt.Sprintf("https://%s@", encodedToken), 1)
 
 	case model.RegistryTypeGitLab:
 		// GitLab: https://oauth2:{token}@gitlab.com/owner/repo.git
@@ -208,23 +211,25 @@ func (s *SkillScanner) buildCloneURL(registry *model.SkillRegistry) string {
 		if token == "" {
 			return registry.URL
 		}
-		url := registry.URL
-		if !strings.HasSuffix(url, ".git") {
-			url = url + ".git"
+		urlStr := registry.URL
+		if !strings.HasSuffix(urlStr, ".git") {
+			urlStr = urlStr + ".git"
 		}
-		return strings.Replace(url, "https://", fmt.Sprintf("https://oauth2:%s@", token), 1)
+		// URL 编码 Token（防止特殊字符破坏 URL 结构）
+		encodedToken := url.QueryEscape(token)
+		return strings.Replace(urlStr, "https://", fmt.Sprintf("https://oauth2:%s@", encodedToken), 1)
 
 	case model.RegistryTypeCodeHub:
 		// 华为内网 CodeHub 支持 SSH 和 HTTPS 认证
-		url := registry.URL
+		urlStr := registry.URL
 
 		// SSH 格式：直接使用，依赖系统 SSH Key
-		if strings.HasPrefix(url, "git@") {
-			return url
+		if strings.HasPrefix(urlStr, "git@") {
+			return urlStr
 		}
 
 		// HTTPS 格式：注入账号密码
-		if strings.HasPrefix(url, "https://") {
+		if strings.HasPrefix(urlStr, "https://") {
 			username := ""
 			password := ""
 			if registry.AuthConfig != nil {
@@ -233,14 +238,18 @@ func (s *SkillScanner) buildCloneURL(registry *model.SkillRegistry) string {
 			}
 
 			if username != "" && password != "" {
-				// https://{username}:{password}@codehub-g.huawei.com/xxx.git
-				url = strings.Replace(url, "https://",
-					fmt.Sprintf("https://%s:%s@", username, password), 1)
+				// URL 编码用户名和密码（防止特殊字符破坏 URL 结构）
+				// 特殊字符如 @, :, #, %, / 等必须编码
+				encodedUsername := url.QueryEscape(username)
+				encodedPassword := url.QueryEscape(password)
+				// https://{encoded_username}:{encoded_password}@codehub-g.huawei.com/xxx.git
+				urlStr = strings.Replace(urlStr, "https://",
+					fmt.Sprintf("https://%s:%s@", encodedUsername, encodedPassword), 1)
 			}
-			return url
+			return urlStr
 		}
 
-		return url
+		return urlStr
 
 	default:
 		// 其他类型使用原始URL
