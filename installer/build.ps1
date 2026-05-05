@@ -70,33 +70,6 @@ $FULL_VERSION = "v$VERSION-$BUILD_TIME"
 $PACKAGE_NAME = "Colink-$FULL_VERSION-windows-amd64"
 Write-Host "Version: $FULL_VERSION" -ForegroundColor Cyan
 
-# 0.1 Kill processes that may lock files
-Write-Host "[0/8] Stopping running processes..." -ForegroundColor Cyan
-$processesKilled = 0
-try {
-    Get-Process -Name "colink-server" -ErrorAction SilentlyContinue | Stop-Process -Force
-    $processesKilled++
-} catch {}
-try {
-    Get-Process -Name "Colink" -ErrorAction SilentlyContinue | Stop-Process -Force
-    $processesKilled++
-} catch {}
-try {
-    Get-Process -Name "Colink Setup" -ErrorAction SilentlyContinue | Stop-Process -Force
-    $processesKilled++
-} catch {}
-try {
-    Get-Process -Name "migrate" -ErrorAction SilentlyContinue | Stop-Process -Force
-    $processesKilled++
-} catch {}
-
-if ($processesKilled -gt 0) {
-    Write-Host "  Killed $processesKilled processes, waiting for Windows to release file handles..." -ForegroundColor Gray
-    Start-Sleep -Seconds 3  # Windows needs time to release file handles after process termination
-} else {
-    Write-Host "  No running processes found" -ForegroundColor Gray
-}
-
 # 1. Clean old artifacts (fail loudly, not silently)
 Write-Host "[1/8] Cleaning old build artifacts..." -ForegroundColor Cyan
 $cleanupFailed = 0
