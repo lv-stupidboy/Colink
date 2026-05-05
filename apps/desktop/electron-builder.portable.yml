@@ -17,6 +17,15 @@ files:
   - "!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}"
   - "!release/**"
 
+extraResources:
+  - from: "resources/bin"
+    to: "bin"
+  # 使用 bundle-server.mjs 复制的 web，而不是直接从 web/dist
+  - from: "resources/web"
+    to: "web"
+  - from: "../configs/config.yaml.example"
+    to: "data/configs/config.yaml.example"
+
 win:
   target:
     - target: dir

@@ -10,7 +10,7 @@ const DEFAULT_SERVER_PORT = 26305;
 const POLL_INTERVAL_MS = 5_000;
 const PREFS_PATH = join(homedir(), ".colink", "desktop_prefs.json");
 
-const DEFAULT_PREFS = { autoStart: true, autoStop: false };
+const DEFAULT_PREFS = { autoStart: true, autoStop: true };
 
 let statusPollTimer: ReturnType<typeof setInterval> | null = null;
 let currentState: DaemonStatus["state"] = "installing_cli";
@@ -94,10 +94,6 @@ async function resolveServerBinary(): Promise<string | null> {
 }
 
 async function fetchHealth(): Promise<DaemonStatus> {
-  if (currentState === "installing_cli" || currentState === "cli_not_found") {
-    return { state: currentState };
-  }
-
   // Remote mode: no local daemon
   if (targetApiBaseUrl) {
     return { state: "remote", serverUrl: targetApiBaseUrl };
@@ -106,11 +102,14 @@ async function fetchHealth(): Promise<DaemonStatus> {
   const data = await fetchHealthAtPort(DEFAULT_SERVER_PORT);
 
   if (!data || data.status !== "ok") {
-    return {
-      state: currentState === "starting" ? "starting" : "stopped",
-    };
+    // Server not running - return current state or stopped
+    const state = currentState === "starting" ? "starting" :
+                  currentState === "cli_not_found" ? "cli_not_found" : "stopped";
+    return { state };
   }
 
+  // Server is running - always return running status
+  currentState = "running";
   return {
     state: "running",
     version: data.version,
@@ -165,26 +164,69 @@ async function startDaemon(): Promise<{ success: boolean; error?: string }> {
   currentState = "starting";
   sendStatus({ state: "starting" });
 
-  // Use install directory's config (installed by installer)
-  // installDir = exe's parent directory, config is at installDir/data/configs/config.yaml
+  // Find config file - support both package structures:
+  // 1. New structure: packages/desktop/Colink.exe
+  //    - config in ./data/configs/config.yaml (top level, copied by installer)
+  //    - web in ./web/ (top level, copied by installer)
+  //    - workDir = exeDir (packages/desktop)
+  // 2. Old structure: Colink.exe and data/ in same directory
+  //    - config in ./data/configs/config.yaml
+  //    - workDir = exeDir
+  // 3. Development mode: config in ../runtime/data/configs/ (for testing packages structure)
   const exeDir = dirname(app.getPath("exe"));
-  const configPath = join(exeDir, "data", "configs", "config.yaml");
 
-  // Set cwd to install directory (exe's parent), where data/ and web are located
+  let configPath: string;
+  let workDir: string;
+
+  // Priority: top-level config > runtime config
+  // Top-level config is written by installer during installation
+  const topLevelConfig = join(exeDir, "data", "configs", "config.yaml");
+  const runtimeConfig = join(exeDir, "..", "runtime", "data", "configs", "config.yaml");
+
+  if (existsSync(topLevelConfig)) {
+    configPath = topLevelConfig;
+    workDir = exeDir;
+    console.log(`[daemon] using top-level config: ${configPath}, workDir: ${workDir}`);
+  } else if (existsSync(runtimeConfig)) {
+    // Fallback for development/testing with packages structure
+    configPath = runtimeConfig;
+    workDir = exeDir;
+    console.log(`[daemon] using runtime config (dev mode): ${configPath}, workDir: ${workDir}`);
+  } else {
+    // Fall back to old flat structure
+    configPath = join(exeDir, "data", "configs", "config.yaml");
+    workDir = exeDir;
+    console.log(`[daemon] using flat structure, config: ${configPath}, workDir: ${workDir}`);
+  }
+
+  // Set cwd to work directory (exeDir), where ./web/ should be located
+  console.log(`[daemon] starting server: bin=${bin}, config=${configPath}, cwd=${workDir}`);
   serverProcess = spawn(bin, ["-config", configPath], {
-    cwd: exeDir,
+    cwd: workDir,
     env: desktopSpawnEnv(),
-    stdio: "ignore", // Ignore stdout/stderr for production
-    detached: true, // Allow process to continue after parent exits
+    stdio: ["ignore", "ignore", "pipe"], // Capture stderr for debugging
+    windowsHide: true, // Hide console window on Windows
   });
 
-  // Detach so server runs independently
-  serverProcess.unref();
+  // Log stderr for debugging
+  if (serverProcess.stderr) {
+    serverProcess.stderr.on("data", (data) => {
+      console.error(`[daemon] server stderr: ${data.toString()}`);
+    });
+  }
 
   serverProcess.on("error", (err) => {
     console.error("[daemon] spawn error:", err);
     currentState = "stopped";
     sendStatus({ state: "stopped" });
+  });
+
+  serverProcess.on("exit", (code, signal) => {
+    console.log(`[daemon] server process exited with code=${code}, signal=${signal}`);
+    if (code !== 0 && currentState === "starting") {
+      currentState = "stopped";
+      sendStatus({ state: "stopped" });
+    }
   });
 
   // Wait for server to become healthy (poll health endpoint)
@@ -196,7 +238,15 @@ async function startDaemon(): Promise<{ success: boolean; error?: string }> {
     const health = await fetchHealthAtPort(DEFAULT_SERVER_PORT);
     if (health?.status === "ok") {
       currentState = "running";
-      pollOnce();
+      // Immediately send running status to renderer
+      sendStatus({
+        state: "running",
+        version: health.version,
+        gitCommit: health.gitCommit,
+        buildTime: health.buildTime,
+        serverUrl: `http://localhost:${DEFAULT_SERVER_PORT}`,
+      });
+      startPolling();
       return { success: true };
     }
     await new Promise((r) => setTimeout(r, pollIntervalMs));
@@ -263,8 +313,17 @@ async function bootstrapServer(): Promise<void> {
     sendStatus({ state: "cli_not_found" });
     return;
   }
-  currentState = "stopped";
-  sendStatus({ state: "stopped" });
+
+  // Check if server is already running before setting state
+  const health = await fetchHealthAtPort(DEFAULT_SERVER_PORT);
+  if (health?.status === "ok") {
+    currentState = "running";
+    sendStatus({ state: "running", serverUrl: `http://localhost:${DEFAULT_SERVER_PORT}` });
+  } else {
+    currentState = "stopped";
+    sendStatus({ state: "stopped" });
+  }
+
   startPolling();
 }
 
@@ -309,15 +368,15 @@ export function setupDaemonManager(
     if (isQuitting) return;
     stopPolling();
 
-    loadPrefs().then(async (prefs) => {
-      if (prefs.autoStop) {
-        isQuitting = true;
-        event.preventDefault();
-        try {
-          await stopDaemon();
-        } catch {}
-        app.quit();
-      }
+    // Always stop daemon on quit (regardless of prefs)
+    // This ensures colink-server.exe is killed when desktop app closes
+    isQuitting = true;
+    event.preventDefault();
+
+    stopDaemon().then(() => {
+      app.quit();
+    }).catch(() => {
+      app.quit();
     });
   });
 }
