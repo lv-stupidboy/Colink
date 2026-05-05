@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -17,6 +16,7 @@ import (
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/service/skill"
+	pkgexec "github.com/anthropic/isdp/pkg/exec"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -544,7 +544,7 @@ func (h *SkillHandler) ImportFromRepo(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "git", "clone", "--depth", "1", req.RepoURL, tempDir)
+	cmd := pkgexec.CommandContext(ctx, "git", "clone", "--depth", "1", req.RepoURL, tempDir)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("克隆仓库失败: %s", string(output))})

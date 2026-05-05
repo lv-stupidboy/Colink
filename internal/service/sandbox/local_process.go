@@ -9,6 +9,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	pkgexec "github.com/anthropic/isdp/pkg/exec"
 )
 
 // RunMode 运行模式
@@ -48,7 +50,7 @@ func (l *LocalProcessCmd) Kill() error {
 	// 在 Windows 上使用 taskkill 杀死整个进程树
 	if runtime.GOOS == "windows" {
 		// 先尝试使用 taskkill 杀死进程树
-		killCmd := exec.Command("taskkill", "/F", "/T", "/PID", fmt.Sprintf("%d", pid))
+		killCmd := pkgexec.Command("taskkill", "/F", "/T", "/PID", fmt.Sprintf("%d", pid))
 		output, err := killCmd.CombinedOutput()
 		fmt.Printf("[Kill] taskkill output: %s, err: %v\n", string(output), err)
 
@@ -105,7 +107,7 @@ func (r *LocalProcessRunner) Run(ctx context.Context, projectPath string, cmd st
 		StartedAt: time.Now(),
 	}
 
-	execCmd := exec.CommandContext(ctx, cmd, args...)
+	execCmd := pkgexec.CommandContext(ctx, cmd, args...)
 	execCmd.Dir = fullPath
 
 	output, err := execCmd.CombinedOutput()
@@ -138,7 +140,7 @@ func (r *LocalProcessRunner) RunWithOutput(ctx context.Context, projectPath stri
 		return nil, fmt.Errorf("project path not found: %s", fullPath)
 	}
 
-	execCmd := exec.CommandContext(ctx, cmd, args...)
+	execCmd := pkgexec.CommandContext(ctx, cmd, args...)
 	execCmd.Dir = fullPath
 
 	// 设置进程组，以便能够杀死整个进程树

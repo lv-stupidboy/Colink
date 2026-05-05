@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/pkg/errors"
+	pkgexec "github.com/anthropic/isdp/pkg/exec"
 	"go.uber.org/zap"
 )
 
@@ -40,7 +40,7 @@ func (g *GitClient) Clone(ctx context.Context, url, branch, tempBase string) (st
 		zap.String("tempDir", tempDir),
 	)
 
-	cmd := exec.CommandContext(ctx, "git", "clone", "--depth", "1", "--branch", branch, url, tempDir)
+	cmd := pkgexec.CommandContext(ctx, "git", "clone", "--depth", "1", "--branch", branch, url, tempDir)
 	cmd.Env = os.Environ()
 
 	output, err := cmd.CombinedOutput()

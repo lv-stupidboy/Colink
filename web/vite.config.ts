@@ -50,6 +50,7 @@ const webConfig = config.web || { port: 26306, api_url: 'http://127.0.0.1:26305'
 
 export default defineConfig({
   plugins: [react()],
+  base: '/', // Ensure absolute paths for dynamic imports
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
@@ -68,6 +69,34 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    sourcemap: true,
+    sourcemap: process.env.SKIP_TYPE_CHECK === 'true' ? false : true, // 开发构建关闭 sourcemap
+
+    // 构建优化
+    chunkSizeWarningLimit: 1000, // 减少大文件警告干扰
+    minify: 'esbuild', // 使用 esbuild（比 terser 快）
+    target: 'es2020', // 现代浏览器支持
+
+    // 移除 manualChunks，让 Vite 自动处理依赖关系
+    // 避免 "Cannot read properties of undefined" 错误
+  },
+
+  // ESBuild 优化（替代 Babel，更快）
+  esbuild: {
+    target: 'es2020',
+    jsxFactory: 'React.createElement',
+    jsxFragment: 'React.Fragment',
+  },
+
+  // 强制所有路径使用绝对路径，避免 Electron iframe 中的路径解析问题
+  experimental: {
+    renderBuiltUrl(filename, { hostType }) {
+      // 对于 JS 和 HTML 中的资源引用，使用绝对路径
+      if (hostType === 'js' || hostType === 'html') {
+        if (filename.startsWith('assets/')) {
+          return '/' + filename;
+        }
+      }
+      return filename;
+    },
   },
 })

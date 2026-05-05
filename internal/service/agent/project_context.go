@@ -6,10 +6,11 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
+
+	pkgexec "github.com/anthropic/isdp/pkg/exec"
 )
 
 // 常量定义（参考 ClaudeCode prompt.rs）
@@ -115,7 +116,7 @@ func DiscoverInstructionFiles(cwd string) []InstructionFile {
 
 // ReadGitStatus 执行 git status --short --branch
 func ReadGitStatus(cwd string) string {
-	cmd := exec.Command("git", "status", "--short", "--branch", "--show-stash")
+	cmd := pkgexec.Command("git", "status", "--short", "--branch", "--show-stash")
 	cmd.Dir = cwd
 
 	output, err := cmd.Output()
@@ -133,7 +134,7 @@ func ReadRecentCommits(cwd string, n int) []CommitInfo {
 		n = MaxRecentCommits
 	}
 
-	cmd := exec.Command("git", "log", fmt.Sprintf("-n%d", n), "--oneline", "--no-decorate")
+	cmd := pkgexec.Command("git", "log", fmt.Sprintf("-n%d", n), "--oneline", "--no-decorate")
 	cmd.Dir = cwd
 
 	output, err := cmd.Output()
@@ -237,7 +238,7 @@ func (pc *ProjectContext) HasInstructionFiles() bool {
 
 // ExecuteGitCommand 执行 git 命令并返回输出（通用方法）
 func ExecuteGitCommand(cwd string, args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
+	cmd := pkgexec.Command("git", args...)
 	cmd.Dir = cwd
 
 	var stdout, stderr bytes.Buffer

@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/pressly/goose/v3"
@@ -394,9 +395,16 @@ func runRun(args CLIArgs) {
 
 	ctx := context.Background()
 
-	// 直接执行 SQL（不通过 goose）
-	// 忽略 goose 注释，直接执行 SQL 语句
-	_, err = db.ExecContext(ctx, string(sqlContent))
+	// 手动解析 SQL 文件，只提取并执行 Up 部分
+	// goose 格式：-- +goose Up 之后是升级语句，-- +goose Down 之后是回滚语句
+	upSQL := extractUpSQL(string(sqlContent))
+	if upSQL == "" {
+		outputError(args.JSONOutput, "无法提取 Up SQL 语句")
+		os.Exit(1)
+	}
+
+	// 执行 Up SQL
+	_, err = db.ExecContext(ctx, upSQL)
 	if err != nil {
 		outputError(args.JSONOutput, fmt.Sprintf("执行 SQL 失败: %v", err))
 		os.Exit(1)
@@ -480,4 +488,36 @@ func outputError(jsonOutput bool, errMsg string) {
 	} else {
 		log.Fatalf("Error: %s", errMsg)
 	}
+}
+
+// extractUpSQL 从 goose SQL 文件中提取 Up 部分
+func extractUpSQL(sqlContent string) string {
+	// goose 格式标记
+	upMarker := "-- +goose Up"
+	downMarker := "-- +goose Down"
+	statementBegin := "-- +goose StatementBegin"
+	statementEnd := "-- +goose StatementEnd"
+
+	// 查找 Up 标记位置
+	upIndex := strings.Index(sqlContent, upMarker)
+	if upIndex == -1 {
+		// 没有 goose 标记，返回整个内容
+		return strings.TrimSpace(sqlContent)
+	}
+
+	// 查找 Down 标记位置（Up 部分的结束）
+	downIndex := strings.Index(sqlContent, downMarker)
+	if downIndex == -1 {
+		// 没有 Down 标记，取 Up 标记之后的所有内容
+		return strings.TrimSpace(sqlContent[upIndex + len(upMarker):])
+	}
+
+	// 提取 Up 标记和 Down 标记之间的内容
+	upSection := sqlContent[upIndex + len(upMarker):downIndex]
+
+	// 移除 StatementBegin/StatementEnd 标记（保留其中的 SQL）
+	upSection = strings.ReplaceAll(upSection, statementBegin, "")
+	upSection = strings.ReplaceAll(upSection, statementEnd, "")
+
+	return strings.TrimSpace(upSection)
 }

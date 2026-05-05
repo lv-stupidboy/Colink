@@ -3,11 +3,11 @@ package teampackagesync
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 
 	"github.com/anthropic/isdp/pkg/config"
 	"github.com/anthropic/isdp/pkg/errors"
+	pkgexec "github.com/anthropic/isdp/pkg/exec"
 	"go.uber.org/zap"
 )
 
@@ -48,7 +48,7 @@ func (g *GitClient) CloneFromURL(ctx context.Context, url string, branch string)
 	)
 
 	// Git clone with --depth 1 and specified branch
-	cmd := exec.CommandContext(ctx, "git", "clone", "--depth", "1", "--branch", branch, url, tempDir)
+	cmd := pkgexec.CommandContext(ctx, "git", "clone", "--depth", "1", "--branch", branch, url, tempDir)
 	cmd.Env = os.Environ()
 
 	output, err := cmd.CombinedOutput()

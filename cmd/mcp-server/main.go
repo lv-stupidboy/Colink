@@ -14,7 +14,7 @@ func main() {
 	callbackToken := os.Getenv("ISDP_CALLBACK_TOKEN")
 
 	if apiURL == "" {
-		apiURL = "http://localhost:8080"
+		apiURL = "http://localhost:26305"
 	}
 
 	if invocationID == "" || callbackToken == "" {

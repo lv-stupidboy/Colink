@@ -58,12 +58,26 @@ VolumeIcon.icns
 agent-configs/
 agent-assets/
 
-# Playwright 测试报告
-web/playwright-report/
-web/test-results.json
-
 # Installer 构建产物
 installer/release/
+installer/packages/
+installer/release*.zip
+
+# Desktop app 构建产物
+apps/desktop/release/
+apps/desktop/resources/
+apps/desktop/out/
+
+# 测试产物
+test-install/
+
+# Playwright 测试报告（包括目录）
+web/playwright-report/
+web/test-results/
+web/test-results.json
+
+# 临时文档
+REVIEW-REPORT.md
 
 # Claude Code
 .claude/

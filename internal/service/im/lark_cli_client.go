@@ -6,9 +6,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os/exec"
 	"time"
 
+	pkgexec "github.com/anthropic/isdp/pkg/exec"
 	"go.uber.org/zap"
 )
 
@@ -35,7 +35,7 @@ func (c *LarkCLIClient) SendTextMessage(ctx context.Context, chatID, text string
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, c.cliPath, "im", "+messages-send", "--chat-id", chatID, "--text", text)
+	cmd := pkgexec.CommandContext(ctx, c.cliPath, "im", "+messages-send", "--chat-id", chatID, "--text", text)
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -57,7 +57,7 @@ func (c *LarkCLIClient) SendCardMessage(ctx context.Context, chatID, cardJSON st
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, c.cliPath, "im", "+messages-send",
+	cmd := pkgexec.CommandContext(ctx, c.cliPath, "im", "+messages-send",
 		"--chat-id", chatID,
 		"--msg-type", "interactive",
 		"--content", cardJSON)
@@ -81,7 +81,7 @@ func (c *LarkCLIClient) ReplyMessage(ctx context.Context, chatID, messageID, tex
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, c.cliPath, "im", "+messages-send",
+	cmd := pkgexec.CommandContext(ctx, c.cliPath, "im", "+messages-send",
 		"--chat-id", chatID,
 		"--reply-in-thread", messageID,
 		"--text", text)
@@ -102,7 +102,7 @@ func (c *LarkCLIClient) CheckHealth(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, c.cliPath, "--version")
+	cmd := pkgexec.CommandContext(ctx, c.cliPath, "--version")
 
 	if err := cmd.Run(); err != nil {
 		c.logger.Error("lark-cli not available",
@@ -192,7 +192,7 @@ func (c *LarkCLIClient) CreateStreamingCardEntity(ctx context.Context, title str
 		return "", fmt.Errorf("failed to marshal request body: %w", err)
 	}
 
-	cmd := exec.CommandContext(ctx, c.cliPath, "api",
+	cmd := pkgexec.CommandContext(ctx, c.cliPath, "api",
 		"POST", "/open-apis/cardkit/v1/cards",
 		"--data", string(reqJSON))
 
@@ -256,7 +256,7 @@ func (c *LarkCLIClient) SendCardEntityMessage(ctx context.Context, chatID, cardI
 		return "", fmt.Errorf("failed to marshal request body: %w", err)
 	}
 
-	cmd := exec.CommandContext(ctx, c.cliPath, "api",
+	cmd := pkgexec.CommandContext(ctx, c.cliPath, "api",
 		"POST", "/open-apis/im/v1/messages",
 		"--params", `{"receive_id_type":"chat_id"}`,
 		"--data", string(reqJSON))
@@ -307,7 +307,7 @@ func (c *LarkCLIClient) UpdateStreamingElement(ctx context.Context, cardID, elem
 	}
 
 	path := fmt.Sprintf("/open-apis/cardkit/v1/cards/%s/elements/%s/content", cardID, elementID)
-	cmd := exec.CommandContext(ctx, c.cliPath, "api",
+	cmd := pkgexec.CommandContext(ctx, c.cliPath, "api",
 		"PUT", path,
 		"--data", string(reqJSON))
 
@@ -367,7 +367,7 @@ func (c *LarkCLIClient) SetCardStreamingMode(ctx context.Context, cardID string,
 	}
 
 	path := fmt.Sprintf("/open-apis/cardkit/v1/cards/%s/settings", cardID)
-	cmd := exec.CommandContext(ctx, c.cliPath, "api",
+	cmd := pkgexec.CommandContext(ctx, c.cliPath, "api",
 		"PATCH", path,
 		"--data", string(reqJSON))
 

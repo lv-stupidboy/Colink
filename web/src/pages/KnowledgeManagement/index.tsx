@@ -309,7 +309,7 @@ const KnowledgeManagement: React.FC = () => {
             label="查询端点"
             extra="MCP 服务地址或 API 端点 URL"
           >
-            <Input placeholder="http://localhost:3000/mcp" />
+            <Input placeholder="http://localhost:26305/api/v1/mcp" />
           </Form.Item>
           {editingKb && (
             <Form.Item name="status" label="状态">

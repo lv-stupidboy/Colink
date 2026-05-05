@@ -69,6 +69,7 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 
 	args := a.config.buildArgs(req)
 	cmd := exec.CommandContext(ctx, a.config.cliPath, args...)
+	hideCommandLineWindow(cmd) // 隐藏命令行窗口（Windows）
 
 	if req.WorkDir != "" {
 		cmd.Dir = req.WorkDir
@@ -251,6 +252,7 @@ func (a *BaseACPAdapter) StartSession(ctx context.Context, sessionID string, req
 
 	args := a.config.buildArgs(req)
 	cmd := exec.CommandContext(ctx, a.config.cliPath, args...)
+	hideCommandLineWindow(cmd) // 隐藏命令行窗口（Windows）
 
 	if req.WorkDir != "" {
 		cmd.Dir = req.WorkDir
@@ -436,6 +438,7 @@ func (a *BaseACPAdapter) CheckHealth(ctx context.Context) error {
 
 	args := a.config.buildArgs(&agent.ExecutionRequest{BaseAgent: a.baseAgent})
 	cmd := exec.CommandContext(ctx, a.config.cliPath, args...)
+	hideCommandLineWindow(cmd) // 隐藏命令行窗口（Windows）
 	cmd.Dir = os.TempDir()
 	cmd.Env = a.buildEnv(&agent.ExecutionRequest{BaseAgent: a.baseAgent})
 

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	pkgexec "github.com/anthropic/isdp/pkg/exec"
 	"go.uber.org/zap"
 )
 
@@ -67,7 +68,7 @@ func (l *EventListener) Start(ctx context.Context) error {
 		args = append([]string{"--profile", l.profile}, args...)
 	}
 
-	l.cmd = exec.CommandContext(listenerCtx, l.cliPath, args...)
+	l.cmd = pkgexec.CommandContext(listenerCtx, l.cliPath, args...)
 
 	stdout, err := l.cmd.StdoutPipe()
 	if err != nil {

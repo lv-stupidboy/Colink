@@ -80,7 +80,7 @@ archive.on('progress', (progress) => {
 
 archive.pipe(output)
 
-// 添加文件到 Colink 目录
+// 添加文件到 Colink 目录（保留原始文件修改时间）
 console.log('Packaging files...')
 
 const files = readdirSync(distDir)

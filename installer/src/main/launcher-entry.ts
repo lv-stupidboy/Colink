@@ -144,7 +144,7 @@ ipcMain.handle('open-config', async () => {
 })
 
 ipcMain.handle('open-console', async () => {
-  let port = 8080
+  let port = 26305
 
   // 尝试从配置文件读取端口
   if (installDir) {

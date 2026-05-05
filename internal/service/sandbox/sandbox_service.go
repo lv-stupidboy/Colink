@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"os/exec"
 	"runtime"
 	"strings"
 	"sync"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
+	pkgexec "github.com/anthropic/isdp/pkg/exec"
 	"github.com/google/uuid"
 )
 
@@ -687,7 +687,7 @@ func (s *SandboxService) killProcessOnPort(port int) error {
 	// 在 Windows 上使用 netstat 找到占用端口的 PID
 	if runtime.GOOS == "windows" {
 		// 使用 netstat -ano 查找占用端口的进程
-		cmd := exec.Command("cmd", "/c", fmt.Sprintf("netstat -ano | findstr :%d", port))
+		cmd := pkgexec.Command("cmd", "/c", fmt.Sprintf("netstat -ano | findstr :%d", port))
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("failed to find process on port %d: %w", port, err)
@@ -710,7 +710,7 @@ func (s *SandboxService) killProcessOnPort(port int) error {
 		// 杀死找到的进程
 		for pid := range pids {
 			fmt.Printf("[killProcessOnPort] Killing process with PID: %s\n", pid)
-			killCmd := exec.Command("taskkill", "/F", "/T", "/PID", pid)
+			killCmd := pkgexec.Command("taskkill", "/F", "/T", "/PID", pid)
 			if out, err := killCmd.CombinedOutput(); err != nil {
 				fmt.Printf("[killProcessOnPort] Failed to kill PID %s: %v, output: %s\n", pid, err, string(out))
 			} else {

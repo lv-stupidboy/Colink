@@ -21,13 +21,13 @@ files:
   - "!**/resources/**"
 
 extraResources:
-  # Setup 必要文件（直接放在 resources 下）
+  # Setup 必要文件
   - from: "build/icon.ico"
     to: "icon.ico"
   - from: "resources/installer-config.json"
     to: "installer-config.json"
 
-  # 新版本程序文件（放在 packages 目录下，与 resources 并列）
+  # 程序文件（packages分离结构）
   - from: "../VERSION"
     to: "../packages/VERSION"
   # 迁移工具
@@ -39,6 +39,6 @@ extraResources:
   # 配置模板
   - from: "../configs/config.yaml.example"
     to: "../packages/runtime/data/configs/config.yaml.example"
-  # 桌面版应用（已打包的便携版，包含 Colink.exe + resources/bin + resources/web）
+  # 桌面版应用
   - from: "packages/desktop"
     to: "../packages/desktop"

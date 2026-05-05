@@ -399,9 +399,10 @@ export async function copyApplicationFiles(
       }
     }
 
-    // 创建数据目录
+    // 创建数据目录（包括 sqlite 目录）
     await fsMkdir(join(destDir, 'data', 'configs'), { recursive: true })
     await fsMkdir(join(destDir, 'data', 'logs'), { recursive: true })
+    await fsMkdir(join(destDir, 'data', 'sqlite'), { recursive: true })
     await fsMkdir(join(destDir, 'data', 'agent-assets'), { recursive: true })
     await fsMkdir(join(destDir, 'data', 'agent-configs'), { recursive: true })
     await fsMkdir(join(destDir, 'data', 'repos'), { recursive: true })
@@ -429,27 +430,80 @@ export async function copyApplicationFiles(
   }
 }
 
-// 检查 Colink.exe 和 colink-server.exe 是否在运行
-function checkColinkRunning(): boolean {
+// 检查文件是否被锁定（Windows）
+function isFileLocked(filePath: string): boolean {
   try {
-    // 检查桌面版应用
-    const launcherOutput = execSync(`tasklist /fi "imagename eq Colink.exe" /fo csv`, { encoding: 'utf8' })
-    const launcherLines = launcherOutput.trim().split('\n')
-    if (launcherLines.length > 1) {
-      return true
-    }
-
-    // 检查后端服务进程
-    const serverOutput = execSync(`tasklist /fi "imagename eq colink-server.exe" /fo csv`, { encoding: 'utf8' })
-    const serverLines = serverOutput.trim().split('\n')
-    if (serverLines.length > 1) {
-      console.log('[UninstallOld] colink-server.exe is running')
-      return true
-    }
-
-    return false
+    // 尝试以独占模式打开文件
+    const fd = execSync(`powershell -Command "try { [System.IO.File]::Open('${filePath}', 'Open', 'ReadWrite', 'None').Close(); 'not_locked' } catch { 'locked' }"`, { encoding: 'utf8' })
+    return fd.trim() === 'locked'
   } catch {
-    return false
+    return true // 出错时假设锁定
+  }
+}
+
+// 杀掉所有Colink相关进程（安装时自动关闭）
+// 重要：不杀死安装器自身（当前进程）
+// 返回等待的总秒数，用于诊断
+function killColinkProcesses(): { killed: boolean; error?: string; waitSeconds?: number } {
+  try {
+    // 获取当前进程 PID，避免杀死自己
+    const currentPid = process.pid
+    console.log('[Kill] Current installer PID:', currentPid)
+
+    // 记录初始进程状态
+    const initialLauncher = execSync(`tasklist /fi "imagename eq Colink.exe" /fo csv 2>nul`, { encoding: 'utf8' })
+    const initialServer = execSync(`tasklist /fi "imagename eq colink-server.exe" /fo csv 2>nul`, { encoding: 'utf8' })
+    console.log('[Kill] Initial process status:')
+    console.log('[Kill] Colink.exe:', initialLauncher.trim())
+    console.log('[Kill] colink-server.exe:', initialServer.trim())
+
+    // 使用 /f 强制终止，多次尝试确保彻底杀死
+    // 注意：不杀死 "Colink Setup.exe"，只杀死 Colink.exe 和 colink-server.exe
+    for (let round = 0; round < 10; round++) {
+      console.log(`[Kill] Round ${round + 1}: killing processes...`)
+      execSync('taskkill /f /im Colink.exe 2>nul', { encoding: 'utf8', timeout: 5000 })
+      execSync('taskkill /f /im colink-server.exe 2>nul', { encoding: 'utf8', timeout: 5000 })
+
+      execSync('powershell -Command "Start-Sleep -Seconds 1"', { encoding: 'utf8' })
+
+      const launcherOutput = execSync(`tasklist /fi "imagename eq Colink.exe" /fo csv 2>nul`, { encoding: 'utf8' })
+      const serverOutput = execSync(`tasklist /fi "imagename eq colink-server.exe" /fo csv 2>nul`, { encoding: 'utf8' })
+      const launcherLines = launcherOutput.trim().split('\n').filter(l => l.length > 0)
+      const serverLines = serverOutput.trim().split('\n').filter(l => l.length > 0)
+
+      console.log(`[Kill] After round ${round + 1}: Colink lines=${launcherLines.length}, server lines=${serverLines.length}`)
+
+      if (launcherLines.length <= 1 && serverLines.length <= 1) {
+        console.log('[Kill] All Colink and colink-server processes terminated')
+        break
+      }
+    }
+
+    // 等待文件句柄释放
+    const waitSeconds = 15
+    console.log(`[Kill] Waiting ${waitSeconds} seconds for file handles to release...`)
+    execSync(`powershell -Command "Start-Sleep -Seconds ${waitSeconds}"`, { encoding: 'utf8' })
+
+    // 最终检查
+    const finalLauncher = execSync(`tasklist /fi "imagename eq Colink.exe" /fo csv 2>nul`, { encoding: 'utf8' })
+    const finalServer = execSync(`tasklist /fi "imagename eq colink-server.exe" /fo csv 2>nul`, { encoding: 'utf8' })
+    console.log('[Kill] Final status:')
+    console.log('[Kill] Colink.exe:', finalLauncher.trim())
+    console.log('[Kill] colink-server.exe:', finalServer.trim())
+
+    const launcherLines = finalLauncher.trim().split('\n').filter(l => l.length > 0)
+    const serverLines = finalServer.trim().split('\n').filter(l => l.length > 0)
+
+    if (launcherLines.length > 1 || serverLines.length > 1) {
+      return { killed: false, error: '进程无法关闭，请手动打开任务管理器结束所有 Colink.exe 和 colink-server.exe 后重试', waitSeconds }
+    }
+
+    console.log('[Kill] All target processes killed successfully (installer still running)')
+    return { killed: true, waitSeconds }
+  } catch (e) {
+    console.error('[Kill] Error:', e)
+    execSync('powershell -Command "Start-Sleep -Seconds 10"', { encoding: 'utf8' })
+    return { killed: true, waitSeconds: 10 }
   }
 }
 
@@ -471,12 +525,15 @@ export async function uninstallOldVersion(
   }
 
   try {
-    // 检查 Colink.exe 和 colink-server.exe 是否在运行，不允许自动停止
-    if (checkColinkRunning()) {
-      const errorMsg = 'Colink.exe 或 colink-server.exe 正在运行，请先关闭桌面版应用和后端服务后重试。'
-      sendProgress('桌面版应用或服务仍在运行', errorMsg)
+    // 自动杀掉运行中的进程（安装时自动关闭）
+    sendProgress('检查并关闭运行中的进程...')
+    const killResult = killColinkProcesses()
+    if (!killResult.killed) {
+      const errorMsg = killResult.error || '无法关闭进程'
+      sendProgress('进程关闭失败', errorMsg)
       return { success: false, error: errorMsg }
     }
+    sendProgress('进程已关闭', 'Colink.exe 和 colink-server.exe 已停止')
 
     onProgress?.(10)
     await yieldToMain()
@@ -490,12 +547,23 @@ export async function uninstallOldVersion(
     onProgress?.(20)
     await yieldToMain()
 
-    // 白名单模式：保留 data、resources 和 backup 目录
-    // backup 目录可能是上次升级遗留的，或本次刚创建的，都不需要移动
-    const whitelist = ['data', 'resources', 'backup']
+    // 白名单模式：只保留 data 和 backup 目录
+    // resources 目录跳过移动，由 copyLauncherFiles 直接原子替换
+    // 原因：resources/app.asar 可能被锁定，移动会失败
+    const whitelist = ['data', 'backup', 'resources']
     const entries = await fsReaddir(installDir, { withFileTypes: true }) as Dirent[]
     const entriesToMove = entries.filter(e => !whitelist.includes(e.name))
     await yieldToMain()
+
+    // 特殊处理 resources：不移动，直接在 copyLauncherFiles 中原子替换
+    // 但需要先清理旧的 resources/app.asar.unpacked（避免残留）
+    const resourcesDir = join(installDir, 'resources')
+    if (existsSync(resourcesDir)) {
+      sendProgress('检查 resources 目录...')
+      // 不移动整个 resources，只清理可能锁定的子目录
+      // app.asar 和 app.asar.unpacked 由 copyLauncherFiles 替换
+      console.log(`[UninstallOld] resources 目录将在 copyLauncherFiles 中原子替换`)
+    }
 
     // 清理上次升级遗留的 backup 目录
     const backupDir = join(installDir, 'backup')
@@ -531,38 +599,73 @@ export async function uninstallOldVersion(
     await fsMkdir(backupDir, { recursive: true })
     await yieldToMain()
 
-    // 将非白名单内容移动到 backup 目录（替代删除，避免锁定）
+    // 带重试的移动函数（对于锁定的文件，重试后强制删除）
+    const moveWithRetry = async (src: string, dest: string, maxRetries: number = 5): Promise<{ success: boolean; error?: string }> => {
+      for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+          // 尝试删除目标（如果存在）
+          if (existsSync(dest)) {
+            rmSync(dest, { recursive: true, force: true })
+          }
+          // 尝试移动
+          renameSync(src, dest)
+          return { success: true }
+        } catch (e) {
+          const errorMsg = e instanceof Error ? e.message : String(e)
+          console.log(`[UninstallOld] Move attempt ${attempt + 1} failed for ${src}: ${errorMsg}`)
+
+          if (attempt < maxRetries - 1) {
+            // 等待 2 秒后重试
+            execSync('powershell -Command "Start-Sleep -Seconds 2"', { encoding: 'utf8' })
+          } else {
+            // 最后一次尝试失败，尝试强制删除（既然要替换，没必要保留）
+            console.log(`[UninstallOld] Force deleting ${src} after move failed`)
+            try {
+              rmSync(src, { recursive: true, force: true })
+              console.log(`[UninstallOld] Force delete succeeded for ${src}`)
+              return { success: true } // 删除也算成功，因为新文件会替换
+            } catch (deleteErr) {
+              console.error(`[UninstallOld] Force delete failed for ${src}:`, deleteErr)
+              return { success: false, error: errorMsg }
+            }
+          }
+        }
+      }
+      return { success: false, error: 'max retries exceeded' }
+    }
+
+    // 将非白名单内容移动到 backup 目录（带重试和强制删除）
     const totalEntries = entriesToMove.length
-    let movedCount = 0
+    let processedCount = 0
     const failedEntries: string[] = []
 
     for (const entry of entriesToMove) {
       const srcPath = join(installDir, entry.name)
       const destPath = join(backupDir, entry.name)
-      sendProgress(`移动 ${entry.name} 到 backup...`)
+      sendProgress(`处理 ${entry.name}...`)
 
-      console.log(`[UninstallOld] 开始移动: ${entry.name}`)
-      const moveStartTime = Date.now()
+      console.log(`[UninstallOld] 开始处理: ${entry.name}`)
+      const processStartTime = Date.now()
 
-      try {
-        // 使用异步 rename 移动（比删除更不容易触发锁定问题）
-        await fsRename(srcPath, destPath)
-        movedCount++
-        console.log(`[UninstallOld] ${entry.name} 移动成功，耗时 ${Date.now() - moveStartTime}ms`)
-      } catch (e) {
-        console.error(`[UninstallOld] Failed to move:`, srcPath, e)
+      const result = await moveWithRetry(srcPath, destPath, entry.name === 'resources' ? 7 : 5)
+
+      if (result.success) {
+        processedCount++
+        console.log(`[UninstallOld] ${entry.name} 处理成功，耗时 ${Date.now() - processStartTime}ms`)
+      } else {
+        console.error(`[UninstallOld] Failed to process:`, srcPath, result.error)
         failedEntries.push(entry.name)
       }
 
       // 每处理一个文件后让主线程有机会处理 IPC
       await yieldToMain()
-      onProgress?.(Math.round(20 + ((movedCount + failedEntries.length) / totalEntries) * 70))
+      onProgress?.(Math.round(20 + (processedCount / totalEntries) * 70))
     }
 
     // 如果有失败的，报错
     if (failedEntries.length > 0) {
-      const errorMsg = `以下文件移动失败：${failedEntries.join(', ')}\n请手动关闭相关程序后重试`
-      sendProgress('移动失败', errorMsg)
+      const errorMsg = `以下文件处理失败：${failedEntries.join(', ')}\n请手动关闭相关程序后重试`
+      sendProgress('处理失败', errorMsg)
       return { success: false, error: errorMsg }
     }
 
@@ -591,9 +694,12 @@ export async function copyLauncherFiles(
   onProgress?: (progress: number) => void
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const resourcesDir = process.resourcesPath
-    // packages 目录与 resources 并列
-    const desktopSrcDir = join(resourcesDir, '..', 'packages', 'desktop')
+    // 不再前置检测锁定，直接在替换阶段处理
+    // 原因：Windows释放文件句柄时间不可预测，前置检测会导致不必要的失败
+    // 使用两步替换策略（resources.new）可以绕过锁定问题
+
+    // packages 目录在安装包源目录下
+    const desktopSrcDir = join(sourceDir, 'packages', 'desktop')
 
     if (!existsSync(desktopSrcDir)) {
       return { success: false, error: `桌面版应用目录不存在: ${desktopSrcDir}` }
@@ -637,12 +743,41 @@ export async function copyLauncherFiles(
       fs.renameSync(src, dest)
     }
 
-    // 原子替换目录到目标目录
-    const atomicReplaceDir = (src: string, dest: string) => {
-      if (fs.existsSync(dest)) {
-        fs.rmSync(dest, { recursive: true, force: true })
+    // 原子替换目录到目标目录（带重试机制）
+    // resources 目录特殊处理：不先删除，因为 app.asar 可能被锁定
+    const atomicReplaceDir = (src: string, dest: string, maxRetries: number = 3, skipDelete: boolean = false) => {
+      for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+          // 对于 skipDelete 模式，直接尝试 rename（Windows 会覆盖空目录，非空会失败）
+          // 对于正常模式，先删除目标再 rename
+          if (!skipDelete && fs.existsSync(dest)) {
+            fs.rmSync(dest, { recursive: true, force: true })
+          }
+          fs.renameSync(src, dest)
+          return // 成功则退出
+        } catch (err) {
+          const errorMsg = err instanceof Error ? err.message : String(err)
+          console.log(`[Retry] atomicReplaceDir attempt ${attempt + 1} failed for ${dest}: ${errorMsg}`)
+
+          if (attempt < maxRetries - 1) {
+            // 等待 2 秒后重试
+            execSync('powershell -Command "Start-Sleep -Seconds 2"', { encoding: 'utf8' })
+          } else {
+            // 最后一次尝试失败，如果目标存在且我们还没删除过，尝试删除后重试一次
+            if (fs.existsSync(dest) && skipDelete) {
+              console.log(`[Retry] Final attempt: trying to delete ${dest}`)
+              try {
+                fs.rmSync(dest, { recursive: true, force: true })
+                fs.renameSync(src, dest)
+                return
+              } catch (finalErr) {
+                console.error(`[Retry] Final delete+rename failed:`, finalErr)
+              }
+            }
+            throw err // 抛出错误
+          }
+        }
       }
-      fs.renameSync(src, dest)
     }
 
     // Step 2: 将所有文件原子复制到 staging 目录
@@ -680,7 +815,8 @@ export async function copyLauncherFiles(
       }
     }
 
-    // Step 3: 从 staging 原子替换到目标目录
+    // Step 3: 从 staging 原子替换到目标目录（带重试机制）
+    // 特殊处理 resources 目录：使用两步替换策略避免锁定问题
     for (const entry of entries) {
       const stagingPath = join(stagingDir, entry.name)
       const destPath = join(destDir, entry.name)
@@ -689,23 +825,75 @@ export async function copyLauncherFiles(
         continue  // 跳过未成功复制的文件
       }
 
-      try {
-        if (entry.isDirectory()) {
-          atomicReplaceDir(stagingPath, destPath)
-        } else {
-          atomicReplaceFile(stagingPath, destPath)
+      // 对于 resources 目录，使用特殊的两步替换策略
+      if (entry.name === 'resources') {
+        console.log('[Copy] Using two-step replacement for resources directory')
+        const tempDestPath = destPath + '.new'
+
+        try {
+          // Step 3a: 先将 staging/resources 移动到 resources.new
+          if (fs.existsSync(tempDestPath)) {
+            fs.rmSync(tempDestPath, { recursive: true, force: true })
+          }
+          fs.renameSync(stagingPath, tempDestPath)
+          console.log('[Copy] Moved staging/resources to resources.new')
+
+          // Step 3b: 尝试删除旧的 resources（可能失败如果锁定）
+          let deleted = false
+          for (let attempt = 0; attempt < 10; attempt++) {
+            if (!fs.existsSync(destPath)) {
+              deleted = true
+              break
+            }
+            try {
+              fs.rmSync(destPath, { recursive: true, force: true })
+              deleted = true
+              console.log('[Copy] Deleted old resources directory')
+              break
+            } catch (delErr) {
+              console.log(`[Copy] Delete attempt ${attempt + 1} failed, retrying...`)
+              execSync('powershell -Command "Start-Sleep -Seconds 3"', { encoding: 'utf8' })
+            }
+          }
+
+          if (!deleted && fs.existsSync(destPath)) {
+            // 无法删除旧目录，保留新的在 resources.new，提示用户重启
+            console.warn('[Copy] Could not delete old resources, leaving resources.new')
+            // 不报错，让用户手动处理或下次重启自动处理
+          } else {
+            // Step 3c: 将 resources.new 重命名为 resources
+            fs.renameSync(tempDestPath, destPath)
+            console.log('[Copy] Renamed resources.new to resources')
+          }
+
+          processedFiles++
+          onProgress?.(Math.round(50 + (processedFiles / totalFiles) * 50))
+        } catch (replaceError) {
+          console.error('[Copy] Failed to replace resources:', replaceError)
+          try { fs.rmSync(stagingDir, { recursive: true, force: true }) } catch {}
+          const errorMsg = replaceError instanceof Error ? replaceError.message : '未知错误'
+          return { success: false, error: `resources 替换失败: ${errorMsg}\n请关闭 Colink 后重试，或手动删除 ${destPath}` }
         }
-        processedFiles++
-        onProgress?.(Math.round(50 + (processedFiles / totalFiles) * 50))
-      } catch (replaceError) {
-        console.error(`[Copy] Failed to replace ${entry.name}:`, replaceError)
-        // 清理 staging 目录
-        try { fs.rmSync(stagingDir, { recursive: true, force: true }) } catch {}
-        const errorMsg = replaceError instanceof Error ? replaceError.message : '未知错误'
-        if (errorMsg.includes('EPERM') || errorMsg.includes('EACCES') || errorMsg.includes('being used')) {
-          return { success: false, error: `${entry.name} 替换失败（文件被锁定），请确保桌面版应用已完全关闭后重试` }
+      } else {
+        // 其他目录/文件使用标准替换
+        const maxRetries = 3
+        try {
+          if (entry.isDirectory()) {
+            atomicReplaceDir(stagingPath, destPath, maxRetries, false)
+          } else {
+            atomicReplaceFile(stagingPath, destPath)
+          }
+          processedFiles++
+          onProgress?.(Math.round(50 + (processedFiles / totalFiles) * 50))
+        } catch (replaceError) {
+          console.error(`[Copy] Failed to replace ${entry.name}:`, replaceError)
+          try { fs.rmSync(stagingDir, { recursive: true, force: true }) } catch {}
+          const errorMsg = replaceError instanceof Error ? replaceError.message : '未知错误'
+          if (errorMsg.includes('EPERM') || errorMsg.includes('EACCES') || errorMsg.includes('being used')) {
+            return { success: false, error: `${entry.name} 替换失败（文件被锁定），请确保桌面版应用已完全关闭后重试` }
+          }
+          return { success: false, error: `${entry.name} 替换失败: ${errorMsg}` }
         }
-        return { success: false, error: `${entry.name} 替换失败: ${errorMsg}` }
       }
     }
 
@@ -715,6 +903,81 @@ export async function copyLauncherFiles(
         fs.rmSync(stagingDir, { recursive: true, force: true })
       }
     } catch {}
+
+    // Step 5: 复制 web 目录到顶层（供后端静态文件服务使用）
+    // 后端期望 ./web/，而不是 ./resources/app.asar.unpacked/resources/web/
+    const unpackedWebSrc = join(destDir, 'resources', 'app.asar.unpacked', 'resources', 'web')
+    const topLevelWebDest = join(destDir, 'web')
+
+    if (fs.existsSync(unpackedWebSrc)) {
+      console.log('[Copy] Copying web from unpacked to top level:', unpackedWebSrc, '->', topLevelWebDest)
+      try {
+        // 先删除目标（如果存在）
+        if (fs.existsSync(topLevelWebDest)) {
+          fs.rmSync(topLevelWebDest, { recursive: true, force: true })
+        }
+        // 复制 web 目录
+        const entries = fs.readdirSync(unpackedWebSrc, { withFileTypes: true })
+        fs.mkdirSync(topLevelWebDest, { recursive: true })
+        for (const entry of entries) {
+          const srcPath = join(unpackedWebSrc, entry.name)
+          const destPath = join(topLevelWebDest, entry.name)
+          if (entry.isDirectory()) {
+            atomicCopyDir(srcPath, destPath)
+          } else {
+            atomicCopyFile(srcPath, destPath)
+          }
+        }
+        console.log('[Copy] Web copied to top level successfully')
+      } catch (webCopyErr) {
+        console.error('[Copy] Failed to copy web to top level:', webCopyErr)
+        // 不阻止安装，但记录错误
+      }
+    } else {
+      console.warn('[Copy] Unpacked web not found at:', unpackedWebSrc)
+    }
+
+    // Step 6: 复制 data 目录到顶层（供后端数据存储使用）
+    // 配置文件中 data.base_path 默认是 ./data
+    // 新结构下 data 在 packages/runtime/data，需要复制到顶层
+    const runtimeDataSrc = join(sourceDir, 'packages', 'runtime', 'data')
+    const topLevelDataDest = join(destDir, 'data')
+
+    if (fs.existsSync(runtimeDataSrc)) {
+      console.log('[Copy] Copying data from runtime to top level:', runtimeDataSrc, '->', topLevelDataDest)
+      try {
+        // data 目录可能已存在（copyApplicationFiles 创建了空目录结构）
+        // 只复制必要的子目录，避免覆盖用户数据
+        const dataSubDirs = ['configs', 'sql-change']
+        for (const subDir of dataSubDirs) {
+          const srcSubDir = join(runtimeDataSrc, subDir)
+          const destSubDir = join(topLevelDataDest, subDir)
+          if (fs.existsSync(srcSubDir)) {
+            if (!fs.existsSync(destSubDir)) {
+              fs.mkdirSync(destSubDir, { recursive: true })
+            }
+            const subEntries = fs.readdirSync(srcSubDir, { withFileTypes: true })
+            for (const entry of subEntries) {
+              const srcPath = join(srcSubDir, entry.name)
+              const destPath = join(destSubDir, entry.name)
+              if (entry.isDirectory()) {
+                atomicCopyDir(srcPath, destPath)
+              } else {
+                // 只复制模板文件，不覆盖已有配置
+                if (entry.name.includes('.example') || !fs.existsSync(destPath)) {
+                  atomicCopyFile(srcPath, destPath)
+                }
+              }
+            }
+          }
+        }
+        console.log('[Copy] Data copied to top level successfully')
+      } catch (dataCopyErr) {
+        console.error('[Copy] Failed to copy data to top level:', dataCopyErr)
+      }
+    } else {
+      console.warn('[Copy] Runtime data not found at:', runtimeDataSrc)
+    }
 
     onProgress?.(100)
     return { success: true }
@@ -830,11 +1093,22 @@ export async function readExistingConfig(installDir: string): Promise<{
     const content = await fsReadFile(configPath, 'utf-8')
     const parsed = YAML.parse(content)
 
+    // 从配置文件读取端口，如果没有则尝试从模板读取默认值
+    let serverPort = parsed?.server?.port
+    if (!serverPort) {
+      const templatePath = findConfigTemplate()
+      if (templatePath) {
+        const templateContent = await fsReadFile(templatePath, 'utf-8')
+        const templateYaml = YAML.parse(templateContent)
+        serverPort = templateYaml?.server?.port
+      }
+    }
+
     return {
       success: true,
       config: {
         database: { type: 'sqlite' },
-        serverPort: parsed?.server?.port || 8080
+        serverPort: serverPort
       }
     }
   } catch (error) {
@@ -1040,7 +1314,7 @@ export async function runInstallation(
     if (config.currentVersion && config.newVersion) {
       // 升级场景：自动执行迁移
       const currentVer = config.currentVersion || '0.0.0'
-      const targetVer = config.newVersion || '1.1.0'
+      const targetVer = config.newVersion || '1.2.5'
 
       // 扫描所有版本目录，筛选需要执行的
       const versionDirs = readdirSync(sqlChangeDir)
@@ -1104,8 +1378,51 @@ export async function runInstallation(
         sendProgress('migration', 'success', 100, 'SQLite 数据库迁移完成', detailStr)
       }
     } else {
-      // 新安装，无需迁移
-      sendProgress('migration', 'success', 100, '跳过迁移', '新安装无需执行数据库迁移')
+      // 新安装：按版本顺序执行所有迁移（从 v1.1.0 到最新版本）
+      // 扫描所有版本目录
+      const allVersionDirs = readdirSync(sqlChangeDir)
+        .filter(f => f.startsWith('v') && existsSync(join(sqlChangeDir, f, 'sqlite')))
+        .sort()
+
+      if (allVersionDirs.length === 0) {
+        sendProgress('migration', 'warning', 100, '无迁移脚本', 'sql-change 目录下未找到迁移脚本')
+      } else {
+        // 创建数据库目录
+        await fsMkdir(dirname(dbPath), { recursive: true })
+
+        const migrationDetails: string[] = []
+
+        // 按版本顺序逐个执行
+        for (let i = 0; i < allVersionDirs.length; i++) {
+          const versionDir = allVersionDirs[i]
+          const progress = Math.round(((i + 1) / allVersionDirs.length) * 100)
+
+          sendProgress('migration', 'running', progress,
+            `初始化数据库 ${versionDir}...`,
+            `执行 sql-change/${versionDir}/sqlite/ 下的脚本（共 ${allVersionDirs.length} 个版本）`)
+
+          const result = await runDatabaseMigration(
+            dbPath,
+            sqlChangeDir,
+            versionDir.replace('v', ''),
+            mainWindow
+          )
+
+          if (!result.success) {
+            sendProgress('migration', 'failed', 0, '数据库初始化失败', result.error || '未知错误')
+            return { success: false, error: `数据库初始化失败 (${versionDir}): ${result.error}` }
+          }
+
+          if (result.message) {
+            migrationDetails.push(`${versionDir}: ${result.message}`)
+          }
+        }
+
+        const detailStr = migrationDetails.length > 0
+          ? migrationDetails.join('\n')
+          : `所有版本已执行（${allVersionDirs.length} 个）`
+        sendProgress('migration', 'success', 100, 'SQLite 数据库初始化完成', detailStr)
+      }
     }
 
     // Step 2: 配置文件处理（所见即所得）

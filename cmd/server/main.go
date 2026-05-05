@@ -628,13 +628,37 @@ func main() {
 	governanceHandler.RegisterRoutes(v1)
 
 	// 前端静态文件服务
-	router.Static("/assets", "./web/assets")
-	router.StaticFile("/favicon.svg", "./web/favicon.svg")
-	router.StaticFile("/favicon.ico", "./web/favicon.ico")
+	// 支持三种部署方式：
+	// 1. 开发环境：./web/dist/ (项目根目录启动)
+	// 2. 安装环境：./web/ (安装器复制到顶层)
+	// 3. 桌面应用开发：./resources/web/ (packages/desktop 目录启动)
+	webPaths := []string{
+		"./web/dist",      // 开发环境（从项目根目录启动）
+		"./web",           // 安装环境（安装器复制到顶层）
+		"./resources/web", // 桌面应用开发（从 packages/desktop 启动）
+	}
+
+	var webDir string
+	for _, path := range webPaths {
+		if _, err := os.Stat(filepath.Join(path, "index.html")); err == nil {
+			webDir = path
+			logger.Info("Found web directory", zap.String("path", webDir))
+			break
+		}
+	}
+
+	if webDir == "" {
+		logger.Warn("Web directory not found, using default")
+		webDir = "./web/dist"
+	}
+
+	router.Static("/assets", filepath.Join(webDir, "assets"))
+	router.StaticFile("/favicon.svg", filepath.Join(webDir, "favicon.svg"))
+	router.StaticFile("/favicon.ico", filepath.Join(webDir, "favicon.ico"))
 
 	// SPA fallback - 所有未匹配的路由返回 index.html
 	router.NoRoute(func(c *gin.Context) {
-		c.File("./web/index.html")
+		c.File(filepath.Join(webDir, "index.html"))
 	})
 
 	// 启动服务器

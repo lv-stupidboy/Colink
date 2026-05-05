@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, nativeImage } from "electron";
+import { app, BrowserWindow, ipcMain, nativeImage, Menu } from "electron";
 import { homedir } from "os";
 import { join } from "path";
 import { electronApp, optimizer, is } from "@electron-toolkit/utils";
@@ -60,8 +60,36 @@ function createWindow(): void {
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
       sandbox: false,
+      webSecurity: false, // Allow iframe to load localhost
+      nodeIntegration: false,
+      contextIsolation: true,
     },
   });
+
+  // Allow iframe to load localhost without CORS restrictions
+  // Also disable caching to prevent stale content
+  mainWindow.webContents.session.webRequest.onBeforeSendHeaders(
+    { urls: ["http://localhost:*/*", "http://127.0.0.1:*/*"] },
+    (details, callback) => {
+      // Add cache-control headers to prevent caching
+      details.requestHeaders["Cache-Control"] = "no-cache, no-store, must-revalidate";
+      details.requestHeaders["Pragma"] = "no-cache";
+      callback({ requestHeaders: details.requestHeaders });
+    },
+  );
+
+  // Allow all content to be loaded in iframe
+  mainWindow.webContents.session.webRequest.onHeadersReceived(
+    { urls: ["http://localhost:*/*", "http://127.0.0.1:*/*"] },
+    (details, callback) => {
+      const responseHeaders = { ...details.responseHeaders };
+      // Remove CSP headers that might block iframe content
+      delete responseHeaders["content-security-policy"];
+      delete responseHeaders["content-security-policy-report-only"];
+      delete responseHeaders["x-content-security-policy"];
+      callback({ responseHeaders });
+    },
+  );
 
   // Strip Origin header from WebSocket upgrade requests
   mainWindow.webContents.session.webRequest.onBeforeSendHeaders(
@@ -74,6 +102,10 @@ function createWindow(): void {
 
   mainWindow.on("ready-to-show", () => {
     mainWindow?.show();
+    // 开发环境默认开启 DevTools
+    if (is.dev) {
+      mainWindow?.webContents.openDevTools({ mode: "detach" });
+    }
   });
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -82,6 +114,26 @@ function createWindow(): void {
   });
 
   installContextMenu(mainWindow.webContents);
+
+  // 创建应用菜单（包含 DevTools 快捷方式）
+  const menuTemplate: Electron.MenuItemConstructorOptions[] = [
+    {
+      label: "View",
+      submenu: [
+        { role: "reload" },
+        { role: "forceReload" },
+        {
+          label: "Open DevTools",
+          accelerator: "F12",
+          click: () => mainWindow?.webContents.openDevTools({ mode: "detach" })
+        },
+        { type: "separator" },
+        { role: "togglefullscreen" },
+      ],
+    },
+  ];
+  const menu = Menu.buildFromTemplate(menuTemplate);
+  Menu.setApplicationMenu(menu);
 
   // Load renderer
   if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
@@ -148,15 +200,6 @@ if (!gotTheLock) {
       optimizer.watchWindowShortcuts(window);
     });
 
-    // IPC: set target API URL (switch between local/remote)
-    ipcMain.handle("daemon:set-target-api-url", async (_e, url: string) => {
-      const normalized = url || null;
-      if (targetApiBaseUrl !== normalized) {
-        console.log(`[daemon] target API URL set to ${normalized ?? "(local)"}`);
-        targetApiBaseUrl = normalized;
-      }
-    });
-
     createWindow();
 
     setupDaemonManager(() => mainWindow, targetApiBaseUrl);
@@ -181,5 +224,12 @@ if (!gotTheLock) {
 }
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
+  if (process.platform !== "darwin") {
+    // On Windows, ensure daemon is stopped before quitting
+    // The before-quit handler will be triggered by app.quit()
+    app.quit();
+  }
 });
+
+// Clean up on quit - no global shortcuts registered
+// app.on("will-quit", () => { });

@@ -130,6 +130,7 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execut
 	logDebug("Claude: Starting execution", zap.String("workDir", req.WorkDir), zap.String("configDir", req.ConfigDir))
 
 	cmd := exec.CommandContext(ctx, a.cliPath, args...)
+	hideCommandLineWindow(cmd) // 隐藏命令行窗口（Windows）
 
 	// 使用 stdin 管道发送 prompt，发送后关闭让 CLI 知道输入结束
 	stdinPipe, err := cmd.StdinPipe()
@@ -588,6 +589,7 @@ func (a *ClaudeAdapter) buildEnv(req *agent.ExecutionRequest) []string {
 // GetAvailableModels 获取可用模型列表
 func (a *ClaudeAdapter) GetAvailableModels(ctx context.Context) ([]string, error) {
 	cmd := exec.CommandContext(ctx, a.cliPath, "--list-models")
+	hideCommandLineWindow(cmd) // 隐藏命令行窗口（Windows）
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, err
@@ -621,6 +623,7 @@ func (a *ClaudeAdapter) CheckHealth(ctx context.Context) error {
 	}
 
 	cmd := exec.CommandContext(ctx, a.cliPath, args...)
+	hideCommandLineWindow(cmd) // 隐藏命令行窗口（Windows）
 
 	// 构建与正常执行相同的环境变量（使用空的 ExecutionRequest，但包含基本配置）
 	execReq := &agent.ExecutionRequest{
