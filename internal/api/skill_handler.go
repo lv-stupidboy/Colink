@@ -4,7 +4,6 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -616,56 +615,70 @@ func (h *SkillHandler) ImportFromFederated(c *gin.Context) {
 		return
 	}
 
-	// TODO: 从数据库查询 Registry 信息
-	// 这里先硬编码支持 skills.sh
-	federatedURL := "https://skills.sh"
+	registryID, err := uuid.Parse(req.RegistryID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的联邦源 ID"})
+		return
+	}
 
 	// 如果没有指定技能名称，返回可用技能列表
 	if req.SkillName == "" {
-		skills, err := h.listFederatedSkills(federatedURL)
+		result, err := h.scanner.ScanRegistry(c.Request.Context(), registryID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("获取联邦技能列表失败: %v", err)})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("扫描联邦技能列表失败: %v", err)})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"skills": skills})
+		c.JSON(http.StatusOK, gin.H{"skills": result.Skills})
 		return
 	}
 
-	// 下载指定技能
-	skillData, err := h.downloadFederatedSkill(federatedURL, req.SkillName)
+	// 先扫描获取技能信息（包含 path）
+	scanResult, err := h.scanner.ScanRegistry(c.Request.Context(), registryID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("下载技能失败: %v", err)})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("扫描联邦源失败: %v", err)})
 		return
 	}
 
-	// 创建技能记录
-	createReq := &model.CreateSkillRequest{
-		Name:        skillData.Name,
-		Description: skillData.Description,
-		SourceType:  model.SkillSourceFederated,
-		IsPublic:    true,
+	// 从扫描结果中找到对应的技能
+	var targetSkill *model.RemoteSkill
+	for _, skill := range scanResult.Skills {
+		if skill.Name == req.SkillName {
+			targetSkill = skill
+			break
+		}
 	}
 
-	skillRecord, err := h.skillSvc.Create(c.Request.Context(), createReq)
+	if targetSkill == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("未找到技能: %s", req.SkillName)})
+		return
+	}
+
+	// 使用批量导入接口导入单个技能（复用认证注入逻辑）
+	importReq := &model.BatchImportRequest{
+		RegistryID: registryID,
+		Skills: []model.SkillImportItem{
+			{
+				Name:            targetSkill.Name,
+				Path:            targetSkill.Path,
+				Description:     targetSkill.Description,
+				Tags:            []string{},
+				SupportedAgents: []string{"claude"}, // 默认支持 claude
+			},
+		},
+	}
+
+	result, err := h.scanner.ImportSkills(c.Request.Context(), importReq)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("导入技能失败: %v", err)})
 		return
 	}
 
-	// 创建技能目录
-	if err := os.MkdirAll(h.storagePath, 0755); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建存储目录失败"})
+	if len(result.Imported) == 0 {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "导入失败，请检查技能名称"})
 		return
 	}
 
-	// 解压 zip 内容到技能目录
-	skillDir := filepath.Join(h.storagePath, skillRecord.Name)
-	if err := extractZipToDirectory(skillData.ZipContent, skillDir); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("解压技能包失败: %v", err)})
-		return
-	}
-
-	c.JSON(http.StatusCreated, skillRecord)
+	c.JSON(http.StatusCreated, result.Imported[0])
 }
 
 // isValidRepoURL 验证仓库地址
@@ -837,91 +850,6 @@ func extractZipToDirectory(zipContent []byte, destDir string) error {
 	}
 
 	return nil
-}
-
-// FederatedSkillData 联邦技能数据
-type FederatedSkillData struct {
-	Name        string
-	Description string
-	ZipContent  []byte
-}
-
-// listFederatedSkills 列出联邦源可用技能
-func (h *SkillHandler) listFederatedSkills(baseURL string) ([]map[string]interface{}, error) {
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Get(baseURL + "/api/v1/skills")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
-	}
-
-	var result struct {
-		Data []map[string]interface{} `json:"data"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, err
-	}
-
-	return result.Data, nil
-}
-
-// downloadFederatedSkill 从联邦源下载技能
-func (h *SkillHandler) downloadFederatedSkill(baseURL, skillName string) (*FederatedSkillData, error) {
-	client := &http.Client{Timeout: 30 * time.Second}
-
-	// 1. 获取技能元数据
-	resp, err := client.Get(fmt.Sprintf("%s/api/v1/skills?search=%s", baseURL, skillName))
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("获取技能元数据失败: HTTP %d", resp.StatusCode)
-	}
-
-	var listResult struct {
-		Data []struct {
-			ID          string `json:"id"`
-			Name        string `json:"name"`
-			Description string `json:"description"`
-		} `json:"data"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&listResult); err != nil {
-		return nil, err
-	}
-
-	if len(listResult.Data) == 0 {
-		return nil, fmt.Errorf("未找到技能: %s", skillName)
-	}
-
-	skill := listResult.Data[0]
-
-	// 2. 下载技能包
-	downloadResp, err := client.Get(fmt.Sprintf("%s/api/v1/skills/%s/download", baseURL, skill.ID))
-	if err != nil {
-		return nil, err
-	}
-	defer downloadResp.Body.Close()
-
-	if downloadResp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("下载技能包失败: HTTP %d", downloadResp.StatusCode)
-	}
-
-	zipContent, err := io.ReadAll(downloadResp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	return &FederatedSkillData{
-		Name:        skill.Name,
-		Description: skill.Description,
-		ZipContent:  zipContent,
-	}, nil
 }
 
 // RegisterRoutes 注册路由
