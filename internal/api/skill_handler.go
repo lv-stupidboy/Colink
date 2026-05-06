@@ -426,8 +426,8 @@ func (h *SkillHandler) Upload(c *gin.Context) {
 		return
 	}
 
-	// 使用技能名称作为目录名
-	skillDir := filepath.Join(storagePath, skillRecord.Name)
+	// 使用技能 ID 作为目录名
+	skillDir := filepath.Join(storagePath, skillRecord.ID.String())
 	if err := os.MkdirAll(skillDir, 0755); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "创建技能目录失败"})
 		return
