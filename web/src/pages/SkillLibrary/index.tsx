@@ -309,6 +309,22 @@ const SkillLibrary: React.FC = () => {
         // 编辑现有记录
         await api.skills.update(editingSkill.id, values);
         message.success('更新成功');
+      } else if (sourceType === 'federated' && selectedRegistryId) {
+        // 单选联邦导入：下载并创建 skill 文件
+        await api.skills.importFederated(selectedRegistryId, values.name);
+        // 更新额外字段（如果有）
+        if (values.tags?.length || values.supportedAgents?.length) {
+          // 需要先获取刚创建的 skill id
+          const skillsList = await api.skills.list({ search: values.name });
+          const newSkill = skillsList.data.find(s => s.name === values.name);
+          if (newSkill) {
+            await api.skills.update(newSkill.id, {
+              tags: values.tags,
+              supportedAgents: values.supportedAgents,
+            });
+          }
+        }
+        message.success('联邦导入成功');
       } else {
         // 手动创建
         await api.skills.create(values);
