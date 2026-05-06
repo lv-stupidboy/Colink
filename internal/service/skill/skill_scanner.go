@@ -574,16 +574,6 @@ func (s *SkillScanner) ImportSkills(ctx context.Context, req *model.BatchImportR
 			// 加锁防止同批次目录复制冲突（仅用于目录操作）
 			nameMu.Lock()
 
-			// 复制技能目录
-			srcDir := filepath.Join(tempDir, item.Path)
-			dstDir := filepath.Join(s.storagePath, item.Name)
-
-			if err := s.copySkillDirectory(srcDir, dstDir); err != nil {
-				nameMu.Unlock()
-				errChan <- fmt.Errorf("复制技能目录 %s 失败: %w", item.Name, err)
-				return
-			}
-
 			// 创建 Skill 记录
 			skill := &model.Skill{
 				ID:               uuid.New(),
@@ -598,6 +588,16 @@ func (s *SkillScanner) ImportSkills(ctx context.Context, req *model.BatchImportR
 				UseCount:         0,
 				CreatedAt:        time.Now(),
 				UpdatedAt:        time.Now(),
+			}
+
+			// 复制技能目录（使用 skill.ID 作为目录名）
+			srcDir := filepath.Join(tempDir, item.Path)
+			dstDir := filepath.Join(s.storagePath, skill.ID.String())
+
+			if err := s.copySkillDirectory(srcDir, dstDir); err != nil {
+				nameMu.Unlock()
+				errChan <- fmt.Errorf("复制技能目录 %s 失败: %w", item.Name, err)
+				return
 			}
 
 			if err := s.skillRepo.Create(ctx, skill); err != nil {
