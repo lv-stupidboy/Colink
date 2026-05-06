@@ -165,7 +165,7 @@ func (g *OpenCodeConfigGenerator) PreviewConfig(ctx context.Context, req *agent.
 // copySkill 复制技能目录到目标配置目录
 func (g *OpenCodeConfigGenerator) copySkill(skill *model.Skill, targetDir string) error {
 	// 技能源目录: {skillStoragePath}/{skillName}/
-	sourceDir := filepath.Join(g.skillStoragePath, skill.Name)
+	sourceDir := filepath.Join(g.skillStoragePath, skill.ID.String())
 
 	// 检查目录是否存在
 	if stat, err := os.Stat(sourceDir); err != nil || !stat.IsDir() {

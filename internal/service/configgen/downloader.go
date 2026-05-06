@@ -46,7 +46,7 @@ type DownloadResult struct {
 // targetDir: 目标目录（如 .claude/ 或 .opencode/）
 func (d *Downloader) DownloadSkill(ctx context.Context, skill *model.Skill, agentType, targetDir string) (string, error) {
 	// 技能源目录: {skillStoragePath}/{skillName}/
-	sourceDir := filepath.Join(d.skillStoragePath, skill.Name)
+	sourceDir := filepath.Join(d.skillStoragePath, skill.ID.String())
 
 	// 检查目录是否存在
 	if stat, err := os.Stat(sourceDir); err != nil || !stat.IsDir() {

@@ -90,3 +90,4 @@ openspec/
 
 # Git worktrees
 .worktrees/
+.gstack/

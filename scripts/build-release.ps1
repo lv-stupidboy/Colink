@@ -312,3 +312,8 @@ if (Test-Path $IconsDir) {
     }
     Write-Host "Icons cleaned (moved to target/release/icons-cache)" -ForegroundColor Green
 }
+
+# Return to scripts directory
+$ScriptsDir = if ($PSScriptRoot) { $PSScriptRoot } else { Join-Path $ProjectRoot "scripts" }
+Set-Location $ScriptsDir
+Write-Host "Returned to: $ScriptsDir" -ForegroundColor Green

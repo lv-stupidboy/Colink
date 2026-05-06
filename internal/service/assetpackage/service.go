@@ -106,7 +106,7 @@ func (s *Service) Export(ctx context.Context, req *model.ExportAssetPackageReque
 		}
 
 		// 复制 Skill 目录到临时目录
-		skillDir := filepath.Join(s.skillStoragePath, skill.Name)
+		skillDir := filepath.Join(s.skillStoragePath, skill.ID.String())
 		targetDir := filepath.Join(tempDir, "skills", skill.Name)
 		if err := copyDir(skillDir, targetDir); err != nil {
 			s.logger.Warn("复制技能目录失败，跳过", zap.String("skill", skill.Name), zap.Error(err))
@@ -621,16 +621,7 @@ func (s *Service) importSkill(ctx context.Context, tempDir string, item model.As
 		os.RemoveAll(oldDir) // 删除旧文件目录
 	}
 
-	// 复制 Skill 目录
-	srcDir := filepath.Join(tempDir, "skills", item.Name)
-	targetDir := filepath.Join(s.skillStoragePath, item.Name)
-	if err := copyDir(srcDir, targetDir); err != nil {
-		detail.Status = "failed"
-		detail.Message = fmt.Sprintf("复制 Skill 目录失败: %v", err)
-		return uuid.Nil, detail
-	}
-
-	// 创建 Skill 记录
+	// 创建 Skill 对象（先创建以获取 ID）
 	now := time.Now()
 	sourceType := item.SourceType
 	if sourceType == "" {
@@ -648,6 +639,15 @@ func (s *Service) importSkill(ctx context.Context, tempDir string, item model.As
 		SupportedAgents: item.SupportedAgents,
 		CreatedAt:       now,
 		UpdatedAt:       now,
+	}
+
+	// 复制 Skill 目录（使用 skill.ID 作为目录名）
+	srcDir := filepath.Join(tempDir, "skills", item.Name)
+	targetDir := filepath.Join(s.skillStoragePath, skill.ID.String())
+	if err := copyDir(srcDir, targetDir); err != nil {
+		detail.Status = "failed"
+		detail.Message = fmt.Sprintf("复制 Skill 目录失败: %v", err)
+		return uuid.Nil, detail
 	}
 
 	if err := s.skillRepo.Create(ctx, skill); err != nil {
