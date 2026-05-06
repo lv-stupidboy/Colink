@@ -33,6 +33,9 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+plist = "1"
+
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]

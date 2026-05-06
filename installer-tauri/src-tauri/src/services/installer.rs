@@ -709,18 +709,36 @@ where
         details: None,
     });
 
+    #[cfg(target_os = "windows")]
     let launcher_exe_dest = install_dir.join("Colink.exe");
+
+    #[cfg(target_os = "macos")]
+    let launcher_exe_dest = install_dir.join("Contents/MacOS/Colink");  // CRITICAL-02: App Bundle path
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let launcher_exe_dest = install_dir.join("Colink");
+
     let mut launcher_copied = false;
 
-    // Try multiple locations to find Colink.exe:
+    // Try multiple locations to find Colink.exe/Colink:
     // 1. exe same directory (dev mode: target/debug or target/release)
-    // 2. resources/launcher directory (packaged NSIS install)
-    let launcher_candidates = vec![
-        // Dev mode: Colink.exe in same directory as installer exe
+    // 2. resources/launcher directory (packaged install)
+    #[cfg(target_os = "windows")]
+    let launcher_candidates: Vec<Option<std::path::PathBuf>> = vec![
         exe_dir.map(|d| d.join("Colink.exe")),
-        // Packaged mode: resources/launcher/Colink.exe
         Some(resources_base.join("launcher").join("Colink.exe")),
     ];
+
+    #[cfg(target_os = "macos")]
+    let launcher_candidates: Vec<Option<std::path::PathBuf>> = vec![
+        exe_dir.map(|d| d.join("Colink.exe")),
+        exe_dir.map(|d| d.join("Colink")),
+        Some(resources_base.join("launcher").join("Colink.exe")),
+        Some(resources_base.join("launcher").join("Colink")),
+    ];
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let launcher_candidates: Vec<Option<std::path::PathBuf>> = vec![];
 
     for candidate in launcher_candidates.iter().flatten() {
         if candidate.exists() {
@@ -731,6 +749,22 @@ where
                     source: e,
                 })?;
             log::info!("Copied launcher exe to {:?}", launcher_exe_dest);
+
+            #[cfg(target_os = "macos")]
+            {
+                // CRITICAL-02: Set executable permission on Mac
+                use std::os::unix::fs::PermissionsExt;
+                let mut perms = std::fs::metadata(&launcher_exe_dest).map_err(|e| InstallerError::Io {
+                    context: "get launcher metadata".to_string(),
+                    source: e,
+                })?.permissions();
+                perms.set_mode(0o755);
+                std::fs::set_permissions(&launcher_exe_dest, perms).map_err(|e| InstallerError::Io {
+                    context: "set launcher permission".to_string(),
+                    source: e,
+                })?;
+            }
+
             launcher_copied = true;
             break;
         } else {

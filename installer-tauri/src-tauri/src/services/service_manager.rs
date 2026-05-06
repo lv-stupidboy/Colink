@@ -145,11 +145,27 @@ impl ServiceManager {
             return Ok(()); // Already running
         }
 
+        #[cfg(target_os = "windows")]
         let server_path = PathBuf::from(&self.install_dir).join("colink-server.exe");
+
+        #[cfg(target_os = "macos")]
+        let server_path = PathBuf::from(&self.install_dir)
+            .join("Contents/MacOS/colink-server");  // CRITICAL-02: no .exe extension
+
+        #[cfg(target_os = "windows")]
         let config_path = PathBuf::from(&self.install_dir)
             .join("data")
             .join("configs")
             .join("config.yaml");
+
+        #[cfg(target_os = "macos")]
+        let config_path = {
+            // CRITICAL-01: config file is in ~/Library/Application Support/Colink/
+            let data_dir = dirs::data_dir()
+                .unwrap_or_else(|| PathBuf::from("~/.local/share"))
+                .join("Colink");
+            data_dir.join("configs/config.yaml")
+        };
 
         log::info!("Server exe path: {}", server_path.display());
         log::info!("Config file path: {}", config_path.display());
@@ -170,23 +186,84 @@ impl ServiceManager {
         }
 
         // Check config file exists
-        if !config_path.exists() {
-            log::error!("Config file NOT FOUND at: {}", config_path.display());
-            log::error!("data/configs directory contents:");
-            let configs_dir = PathBuf::from(&self.install_dir).join("data").join("configs");
-            if configs_dir.exists() {
-                if let Ok(entries) = std::fs::read_dir(&configs_dir) {
-                    for entry in entries.flatten() {
-                        log::error!("  - {}", entry.file_name().to_string_lossy());
+        #[cfg(target_os = "windows")]
+        {
+            if !config_path.exists() {
+                log::error!("Config file NOT FOUND at: {}", config_path.display());
+                log::error!("data/configs directory contents:");
+                let configs_dir = PathBuf::from(&self.install_dir).join("data").join("configs");
+                if configs_dir.exists() {
+                    if let Ok(entries) = std::fs::read_dir(&configs_dir) {
+                        for entry in entries.flatten() {
+                            log::error!("  - {}", entry.file_name().to_string_lossy());
+                        }
                     }
+                } else {
+                    log::error!("  configs directory does not exist");
                 }
-            } else {
-                log::error!("  configs directory does not exist");
+                return Err(InstallerError::Config(format!(
+                    "配置文件不存在: {}",
+                    config_path.display()
+                )));
             }
-            return Err(InstallerError::Config(format!(
-                "配置文件不存在: {}",
-                config_path.display()
-            )));
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            // CRITICAL-01: Mac first run - auto create data directory and config
+            if !config_path.exists() {
+                log::info!("Config file not found, initializing data directory for first run...");
+
+                // Create data directory structure
+                let data_dir = dirs::data_dir()
+                    .unwrap_or_else(|| PathBuf::from("~/.local/share"))
+                    .join("Colink");
+
+                std::fs::create_dir_all(data_dir.join("configs")).map_err(|e| InstallerError::Io {
+                    context: "create configs directory".to_string(),
+                    source: e,
+                })?;
+                std::fs::create_dir_all(data_dir.join("logs")).map_err(|e| InstallerError::Io {
+                    context: "create logs directory".to_string(),
+                    source: e,
+                })?;
+                std::fs::create_dir_all(data_dir.join("sqlite")).map_err(|e| InstallerError::Io {
+                    context: "create sqlite directory".to_string(),
+                    source: e,
+                })?;
+                std::fs::create_dir_all(data_dir.join("agent-assets")).map_err(|e| InstallerError::Io {
+                    context: "create agent-assets directory".to_string(),
+                    source: e,
+                })?;
+                std::fs::create_dir_all(data_dir.join("agent-configs")).map_err(|e| InstallerError::Io {
+                    context: "create agent-configs directory".to_string(),
+                    source: e,
+                })?;
+                std::fs::create_dir_all(data_dir.join("repos")).map_err(|e| InstallerError::Io {
+                    context: "create repos directory".to_string(),
+                    source: e,
+                })?;
+
+                // Copy config.yaml.example from Resources
+                let example_path = PathBuf::from(&self.install_dir)
+                    .join("Contents/Resources/config.yaml.example");
+
+                if example_path.exists() {
+                    std::fs::copy(&example_path, &config_path).map_err(|e| InstallerError::Io {
+                        context: "copy config.yaml.example".to_string(),
+                        source: e,
+                    })?;
+                    log::info!("Config file created from template: {}", config_path.display());
+                } else {
+                    log::warn!("config.yaml.example not found in Resources, creating default config");
+                    // Create minimal default config
+                    let default_config = "server:\n  port: 26305\ndatabase:\n  type: sqlite\n";
+                    std::fs::write(&config_path, default_config).map_err(|e| InstallerError::Io {
+                        context: "write default config".to_string(),
+                        source: e,
+                    })?;
+                }
+            }
         }
 
         // Read port from config
@@ -316,6 +393,12 @@ impl ServiceManager {
         #[cfg(target_os = "windows")]
         {
             crate::services::file_ops::kill_all_processes("colink-server.exe")?;
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            // CRITICAL-02: Mac process name without .exe
+            crate::services::file_ops::kill_all_processes("colink-server")?;
         }
 
         Ok(())

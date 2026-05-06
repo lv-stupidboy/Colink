@@ -13,8 +13,18 @@ pub fn uninstall(install_dir: &str, keep_data: bool) -> Result<()> {
     }
 
     // Step 1: Kill running processes
-    kill_all_processes("colink-server.exe")?;
-    kill_all_processes("Colink.exe")?;
+    #[cfg(target_os = "windows")]
+    {
+        kill_all_processes("colink-server.exe")?;
+        kill_all_processes("Colink.exe")?;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        // CRITICAL-02: Mac process names without .exe
+        kill_all_processes("colink-server")?;
+        kill_all_processes("Colink")?;
+    }
 
     // Step 2: Delete shortcuts
     delete_all_shortcuts()?;
@@ -52,11 +62,25 @@ pub fn prepare_upgrade(install_dir: &str) -> Result<()> {
     }
 
     // Check for running processes
-    if crate::services::file_ops::is_process_running("Colink.exe")? {
-        return Err(InstallerError::ProcessAlreadyRunning("Colink.exe".into()));
+    #[cfg(target_os = "windows")]
+    {
+        if crate::services::file_ops::is_process_running("Colink.exe")? {
+            return Err(InstallerError::ProcessAlreadyRunning("Colink.exe".into()));
+        }
+        if crate::services::file_ops::is_process_running("colink-server.exe")? {
+            return Err(InstallerError::ProcessAlreadyRunning("colink-server.exe".into()));
+        }
     }
-    if crate::services::file_ops::is_process_running("colink-server.exe")? {
-        return Err(InstallerError::ProcessAlreadyRunning("colink-server.exe".into()));
+
+    #[cfg(target_os = "macos")]
+    {
+        // CRITICAL-02: Mac process names without .exe
+        if crate::services::file_ops::is_process_running("Colink")? {
+            return Err(InstallerError::ProcessAlreadyRunning("Colink".into()));
+        }
+        if crate::services::file_ops::is_process_running("colink-server")? {
+            return Err(InstallerError::ProcessAlreadyRunning("colink-server".into()));
+        }
     }
 
     // Delete shortcuts
@@ -66,8 +90,19 @@ pub fn prepare_upgrade(install_dir: &str) -> Result<()> {
     // Important: backup may contain executable files from previous failed install
     // Kill processes first to ensure files are not locked
     log::info!("Preparing to clean old backup directory");
-    kill_all_processes("colink-server.exe")?;
-    kill_all_processes("Colink.exe")?;
+
+    #[cfg(target_os = "windows")]
+    {
+        kill_all_processes("colink-server.exe")?;
+        kill_all_processes("Colink.exe")?;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        // CRITICAL-02: Mac process names without .exe
+        kill_all_processes("colink-server")?;
+        kill_all_processes("Colink")?;
+    }
 
     let backup_dir = dir.join("backup");
     if backup_dir.exists() {

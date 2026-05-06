@@ -10,6 +10,7 @@ use std::os::windows::process::CommandExt;
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 /// Create desktop shortcut
+#[cfg(target_os = "windows")]
 pub fn create_desktop_shortcut(install_dir: &str) -> Result<()> {
     let launcher_path = PathBuf::from(install_dir).join("Colink.exe");
     let desktop_path = std::env::var("USERPROFILE")
@@ -20,7 +21,15 @@ pub fn create_desktop_shortcut(install_dir: &str) -> Result<()> {
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
+pub fn create_desktop_shortcut(_install_dir: &str) -> Result<()> {
+    // Mac App Bundle automatically appears in Launchpad
+    // No need to manually create shortcuts
+    Ok(())
+}
+
 /// Create start menu shortcut
+#[cfg(target_os = "windows")]
 pub fn create_start_menu_shortcut(install_dir: &str) -> Result<()> {
     let launcher_path = PathBuf::from(install_dir).join("Colink.exe");
     let start_menu_path = std::env::var("APPDATA")
@@ -35,6 +44,13 @@ pub fn create_start_menu_shortcut(install_dir: &str) -> Result<()> {
         .map_err(|e| InstallerError::Process(e.to_string()))?;
 
     create_shortcut(&launcher_path, &start_menu_path, install_dir)?;
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+pub fn create_start_menu_shortcut(_install_dir: &str) -> Result<()> {
+    // Mac has no Start Menu equivalent
+    // App Bundle appears in Launchpad and can be dragged to Finder sidebar
     Ok(())
 }
 
@@ -122,6 +138,7 @@ fn write_vbs_utf16(path: &PathBuf, content: &str) -> Result<()> {
 }
 
 /// Delete desktop shortcut
+#[cfg(target_os = "windows")]
 pub fn delete_desktop_shortcut() -> Result<()> {
     let desktop_path = std::env::var("USERPROFILE")
         .map(|p| PathBuf::from(p).join("Desktop").join("Colink.lnk"))
@@ -135,7 +152,15 @@ pub fn delete_desktop_shortcut() -> Result<()> {
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
+pub fn delete_desktop_shortcut() -> Result<()> {
+    // Mac shortcuts are handled by Finder/Launchpad
+    // App Bundle deletion automatically removes from Launchpad
+    Ok(())
+}
+
 /// Delete start menu shortcut
+#[cfg(target_os = "windows")]
 pub fn delete_start_menu_shortcut() -> Result<()> {
     let start_menu_path = std::env::var("APPDATA")
         .map(|p| {
@@ -153,6 +178,12 @@ pub fn delete_start_menu_shortcut() -> Result<()> {
         // Windows often locks .lnk files when Explorer is refreshing icons or Search Indexer
         remove_file_with_retry(&start_menu_path, 3, 500)?;
     }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+pub fn delete_start_menu_shortcut() -> Result<()> {
+    // Mac has no Start Menu
     Ok(())
 }
 

@@ -106,6 +106,7 @@ pub fn generate_config_preview(
 }
 
 /// Save config file
+#[cfg(target_os = "windows")]
 pub fn save_config_file(install_dir: &str, yaml_content: &str) -> Result<()> {
     let config_path = Path::new(install_dir)
         .join("data")
@@ -123,7 +124,33 @@ pub fn save_config_file(install_dir: &str, yaml_content: &str) -> Result<()> {
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
+pub fn save_config_file(_install_dir: &str, yaml_content: &str) -> Result<()> {
+    // CRITICAL-01: Mac config is in ~/Library/Application Support/Colink/
+    let data_dir = dirs::data_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("~/.local/share"))
+        .join("Colink");
+
+    let config_path = data_dir.join("configs/config.yaml");
+
+    // Ensure directory exists
+    std::fs::create_dir_all(config_path.parent().unwrap())
+        .map_err(|e| InstallerError::Io {
+            context: "create config dir".to_string(),
+            source: e,
+        })?;
+
+    atomic_write(&config_path, yaml_content.as_bytes())?;
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+pub fn save_config_file(_install_dir: &str, _yaml_content: &str) -> Result<()> {
+    Ok(())
+}
+
 /// Read existing config file content
+#[cfg(target_os = "windows")]
 pub fn read_config_file(install_dir: &str) -> Result<String> {
     let config_path = Path::new(install_dir)
         .join("data")
@@ -139,6 +166,31 @@ pub fn read_config_file(install_dir: &str) -> Result<String> {
             context: "read config".to_string(),
             source: e,
         })
+}
+
+#[cfg(target_os = "macos")]
+pub fn read_config_file(_install_dir: &str) -> Result<String> {
+    // CRITICAL-01: Mac config is in ~/Library/Application Support/Colink/
+    let data_dir = dirs::data_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("~/.local/share"))
+        .join("Colink");
+
+    let config_path = data_dir.join("configs/config.yaml");
+
+    if !config_path.exists() {
+        return Err(InstallerError::Config("配置文件不存在".into()));
+    }
+
+    std::fs::read_to_string(&config_path)
+        .map_err(|e| InstallerError::Io {
+            context: "read config".to_string(),
+            source: e,
+        })
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+pub fn read_config_file(_install_dir: &str) -> Result<String> {
+    Err(InstallerError::Config("不支持的平台".into()))
 }
 
 /// Read existing config and extract server port

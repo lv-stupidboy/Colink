@@ -76,6 +76,23 @@ fn extract_install_info(key: &RegKey, root_name: &str) -> Option<InstalledVersio
 }
 
 #[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
+pub fn get_installed_version() -> Result<InstalledVersion> {
+    // Mac uses plist instead of registry
+    use crate::services::plist::get_installed_version_plist;
+
+    let plist_info = get_installed_version_plist()?;
+
+    // Convert InstalledVersionPlist to InstalledVersion
+    Ok(InstalledVersion {
+        installed: plist_info.installed,
+        install_dir: plist_info.install_dir,
+        version: plist_info.version,
+        has_data: plist_info.has_data,
+    })
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub fn get_installed_version() -> Result<InstalledVersion> {
     Ok(InstalledVersion::default())
 }
@@ -154,6 +171,17 @@ fn try_write_to_root(
 }
 
 #[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
+pub fn write_registry(install_dir: &str, version: &str) -> Result<()> {
+    // Mac uses plist instead of registry
+    use crate::services::plist::{write_install_plist, get_mac_data_dir};
+
+    let data_dir = get_mac_data_dir();
+    write_install_plist(install_dir, &data_dir.to_string_lossy(), version)?;
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub fn write_registry(_install_dir: &str, _version: &str) -> Result<()> {
     Ok(())
 }
@@ -172,6 +200,16 @@ pub fn delete_registry() -> Result<()> {
 }
 
 #[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
+pub fn delete_registry() -> Result<()> {
+    // Mac uses plist instead of registry
+    use crate::services::plist::delete_install_plist;
+
+    delete_install_plist()?;
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub fn delete_registry() -> Result<()> {
     Ok(())
 }

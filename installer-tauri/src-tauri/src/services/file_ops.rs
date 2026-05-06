@@ -414,7 +414,26 @@ pub fn is_process_running(process_name: &str) -> Result<bool> {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
+/// Check if a process is running (macOS)
+#[cfg(target_os = "macos")]
+pub fn is_process_running(process_name: &str) -> Result<bool> {
+    use std::process::Command;
+
+    let output = Command::new("pgrep")
+        .args(["-x", process_name])  // -x: exact match
+        .output();
+
+    match output {
+        Ok(o) => {
+            // pgrep returns 0 if process found, non-zero if not found
+            // stdout contains PID(s) if found
+            Ok(o.status.success())
+        }
+        Err(e) => Err(InstallerError::Process(e.to_string())),
+    }
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub fn is_process_running(_process_name: &str) -> Result<bool> {
     Ok(false)
 }
@@ -438,7 +457,26 @@ pub fn kill_all_processes(process_name: &str) -> Result<()> {
     }
 }
 
-#[cfg(not(target_os = "windows"))]
+/// Kill all processes with given name (macOS)
+#[cfg(target_os = "macos")]
+pub fn kill_all_processes(process_name: &str) -> Result<()> {
+    use std::process::Command;
+
+    let output = Command::new("pkill")
+        .args(["-x", process_name])  // -x: exact match
+        .output();
+
+    // pkill returns non-zero if no matching process (ignore this)
+    match output {
+        Ok(_) => {
+            log::info!("pkill {} completed", process_name);
+            Ok(())
+        }
+        Err(e) => Err(InstallerError::Process(e.to_string())),
+    }
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub fn kill_all_processes(_process_name: &str) -> Result<()> {
     Ok(())
 }
