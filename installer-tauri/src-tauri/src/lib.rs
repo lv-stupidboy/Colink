@@ -90,6 +90,7 @@ pub fn run() {
             commands::window_minimize,
             commands::window_maximize,
             commands::window_close,
+            commands::window_close_with_confirm,
         ])
 
         .setup(|app| {

@@ -1,5 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 
+export type CloseResult = 'allowClose' | 'blockClose';
+
 export const windowApi = {
   minimize: async (): Promise<void> => {
     await invoke('window_minimize');
@@ -10,6 +12,9 @@ export const windowApi = {
   },
 
   close: async (): Promise<void> => {
-    await invoke('window_close');
+    const result = await invoke<{ result: CloseResult }>('window_close_with_confirm');
+    if (result.result === 'allowClose') {
+      await invoke('window_close');
+    }
   },
 };
