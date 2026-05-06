@@ -12,8 +12,8 @@ export const windowApi = {
   },
 
   close: async (): Promise<void> => {
-    const result = await invoke<{ result: CloseResult }>('window_close_with_confirm');
-    if (result.result === 'allowClose') {
+    const result = await invoke<CloseResult>('window_close_with_confirm');
+    if (result === 'allowClose') {
       await invoke('window_close');
     }
   },
