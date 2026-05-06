@@ -193,13 +193,21 @@ pub fn run_single_migration(
     db_path: &str,
     version: &str,
 ) -> Result<String> {
+    #[cfg(target_os = "windows")]
     let migrate_exe = Path::new(install_dir)
         .join("bin")
         .join("migrate.exe");
 
+    #[cfg(target_os = "macos")]
+    let migrate_exe = Path::new(install_dir)
+        .join("Contents/MacOS/migrate");  // CRITICAL-02: no .exe extension
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let migrate_exe = Path::new(install_dir).join("bin/migrate");
+
     if !migrate_exe.exists() {
-        log::warn!("migrate.exe not found at {:?}, skipping migration", migrate_exe);
-        return Ok("跳过迁移：migrate.exe 未找到".to_string());
+        log::warn!("migrate not found at {:?}, skipping migration", migrate_exe);
+        return Ok("跳过迁移：migrate 未找到".to_string());
     }
 
     // Point to the specific version's sqlite directory
@@ -274,13 +282,21 @@ pub fn run_database_migration(
         return Ok("无需迁移".to_string());
     }
 
+    #[cfg(target_os = "windows")]
     let migrate_exe = Path::new(install_dir)
         .join("bin")
         .join("migrate.exe");
 
+    #[cfg(target_os = "macos")]
+    let migrate_exe = Path::new(install_dir)
+        .join("Contents/MacOS/migrate");  // CRITICAL-02: no .exe extension
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let migrate_exe = Path::new(install_dir).join("bin/migrate");
+
     if !migrate_exe.exists() {
-        log::warn!("migrate.exe not found at {:?}, skipping migration", migrate_exe);
-        return Ok("跳过迁移：migrate.exe 未找到".to_string());
+        log::warn!("migrate not found at {:?}, skipping migration", migrate_exe);
+        return Ok("跳过迁移：migrate 未找到".to_string());
     }
 
     let mut results: Vec<String> = vec![];
@@ -345,8 +361,18 @@ where
         });
 
         // Kill running processes
-        kill_all_processes("colink-server.exe")?;
-        kill_all_processes("Colink.exe")?;
+        #[cfg(target_os = "windows")]
+        {
+            kill_all_processes("colink-server.exe")?;
+            kill_all_processes("Colink.exe")?;
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            // CRITICAL-02: Mac process names without .exe
+            kill_all_processes("colink-server")?;
+            kill_all_processes("Colink")?;
+        }
 
         // Prepare upgrade (move old files to backup)
         prepare_upgrade(&config.install_dir)?;
@@ -401,8 +427,18 @@ where
     }
 
     // Kill running processes
-    kill_all_processes("colink-server.exe")?;
-    kill_all_processes("Colink.exe")?;
+    #[cfg(target_os = "windows")]
+    {
+        kill_all_processes("colink-server.exe")?;
+        kill_all_processes("Colink.exe")?;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        // CRITICAL-02: Mac process names without .exe
+        kill_all_processes("colink-server")?;
+        kill_all_processes("Colink")?;
+    }
 
     emit_progress(&InstallProgress {
         step: "prepare".to_string(),
@@ -548,23 +584,57 @@ where
     let exe_path = std::env::current_exe().ok();
     let exe_dir = exe_path.as_ref().and_then(|p| p.parent());
 
+    #[cfg(target_os = "windows")]
     let resources_candidates = vec![
         resource_path.join("resources"),
         resource_path.to_path_buf(),
         exe_dir.map(|d| d.join("..").join("resources")).unwrap_or_default(),
     ];
 
+    #[cfg(target_os = "windows")]
     let resources_base = resources_candidates
         .iter()
         .find(|p| p.exists() && p.join("colink-server.exe").exists())
         .cloned()
         .unwrap_or_else(|| resource_path.to_path_buf());
 
+    #[cfg(target_os = "macos")]
+    let resources_base = {
+        // Mac: look for colink-server (without .exe)
+        let candidates = vec![
+            resource_path.join("resources"),
+            resource_path.to_path_buf(),
+            exe_dir.map(|d| d.join("..").join("resources")).unwrap_or_default(),
+        ];
+        candidates
+            .iter()
+            .find(|p| p.exists() && (p.join("colink-server.exe").exists() || p.join("colink-server").exists()))
+            .cloned()
+            .unwrap_or_else(|| resource_path.to_path_buf())
+    };
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let resources_base = resource_path.to_path_buf();
+
     log::info!("Using resources from: {:?}", resources_base);
 
     // Copy server exe
-    let server_src = resources_base.join("colink-server.exe");
+    #[cfg(target_os = "windows")]
     let server_dest = install_dir.join("colink-server.exe");
+
+    #[cfg(target_os = "macos")]
+    let server_dest = install_dir.join("Contents/MacOS/colink-server");  // CRITICAL-02: App Bundle path
+
+    #[cfg(target_os = "windows")]
+    let server_src = resources_base.join("colink-server.exe");
+
+    #[cfg(target_os = "macos")]
+    let server_src = if resources_base.join("colink-server.exe").exists() {
+        resources_base.join("colink-server.exe")  // Windows build output
+    } else {
+        resources_base.join("colink-server")  // Mac build output
+    };
+
     if server_src.exists() {
         std::fs::copy(&server_src, &server_dest)
             .map_err(|e| InstallerError::Io {
@@ -731,6 +801,35 @@ where
             message: Some("数据库迁移完成".into()),
             details: Some(migration_log),
         });
+
+        // Step: Skill storage migration
+        emit_progress(&InstallProgress {
+            step: "skillstorage".to_string(),
+            status: "running".to_string(),
+            progress: Some(76),
+            message: Some("割接 Skill 存储路径...".into()),
+            details: None,
+        });
+
+        let skills_dir = install_dir
+            .join("data")
+            .join("agent-assets")
+            .join("skills");
+
+        let db_path = install_dir
+            .join("data")
+            .join("sqlite")
+            .join("colink.db");
+
+        let migration_result = migrate_skill_storage(&db_path, &skills_dir)?;
+
+        emit_progress(&InstallProgress {
+            step: "skillstorage".to_string(),
+            status: "success".to_string(),
+            progress: Some(78),
+            message: Some("Skill 存储路径割接完成".into()),
+            details: Some(migration_result),
+        });
     } else {
         // 首次安装或无需迁移
         emit_progress(&InstallProgress {
@@ -740,13 +839,22 @@ where
             message: Some("无需数据库迁移".into()),
             details: Some("首次安装或未发现数据库变更".into()),
         });
+
+        // 新安装无需割接 skill 存储
+        emit_progress(&InstallProgress {
+            step: "skillstorage".to_string(),
+            status: "success".to_string(),
+            progress: Some(73),
+            message: Some("新安装无需割接 Skill 存储".into()),
+            details: None,
+        });
     }
 
     // Step: Configuration file
     emit_progress(&InstallProgress {
         step: "config".to_string(),
         status: "running".to_string(),
-        progress: Some(75),
+        progress: Some(80),
         message: Some("写入配置文件...".into()),
         details: None,
     });
@@ -803,7 +911,7 @@ where
         emit_progress(&InstallProgress {
             step: "shortcut".to_string(),
             status: "running".to_string(),
-            progress: Some(85),
+            progress: Some(90),
             message: Some("创建快捷方式...".into()),
             details: None,
         });
