@@ -8,6 +8,7 @@ use crate::services::{
     config::generate_config_preview,
     config::save_config_file,
 };
+use rusqlite;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::process::Command;
@@ -853,4 +854,74 @@ where
         error: None,
         db_changes: Some(db_changes.changes),
     })
+}
+
+/// Migrate skill storage directories from {name} to {id}
+fn migrate_skill_storage(db_path: &Path, skills_dir: &Path) -> Result<String> {
+    if !db_path.exists() {
+        return Ok("数据库不存在，跳过割接".to_string());
+    }
+
+    if !skills_dir.exists() {
+        return Ok("skills 目录不存在，跳过割接".to_string());
+    }
+
+    // 连接 SQLite 数据库
+    let conn = rusqlite::Connection::open(db_path)
+        .map_err(|e| InstallerError::Io {
+            context: "open database for skill migration".to_string(),
+            source: std::io::Error::new(std::io::ErrorKind::Other, e),
+        })?;
+
+    // 查询所有 skill
+    let mut stmt = conn.prepare("SELECT id, name FROM skills")
+        .map_err(|e| InstallerError::Io {
+            context: "prepare skill query".to_string(),
+            source: std::io::Error::new(std::io::ErrorKind::Other, e),
+        })?;
+
+    let skills: Vec<(String, String)> = stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })
+        .map_err(|e| InstallerError::Io {
+            context: "query skills".to_string(),
+            source: std::io::Error::new(std::io::ErrorKind::Other, e),
+        })?
+        .collect::<std::result::Result<Vec<_>, rusqlite::Error>>()
+        .map_err(|e| InstallerError::Io {
+            context: "collect skill results".to_string(),
+            source: std::io::Error::new(std::io::ErrorKind::Other, e),
+        })?;
+
+    let mut migrated = 0;
+    let mut skipped = 0;
+
+    // 遍历每个 skill
+    for (id, name) in skills {
+        let src_dir = skills_dir.join(&name);
+        let dst_dir = skills_dir.join(&id);
+
+        if src_dir.exists() {
+            // 目标目录已存在：删除后重命名
+            if dst_dir.exists() {
+                std::fs::remove_dir_all(&dst_dir)
+                    .map_err(|e| InstallerError::Io {
+                        context: format!("remove existing dst dir: {}", dst_dir.display()),
+                        source: e,
+                    })?;
+            }
+            std::fs::rename(&src_dir, &dst_dir)
+                .map_err(|e| InstallerError::Io {
+                    context: format!("rename skill dir: {} -> {}", src_dir.display(), dst_dir.display()),
+                    source: e,
+                })?;
+            migrated += 1;
+            log::info!("Migrated skill directory: {} -> {}", name, id);
+        } else {
+            skipped += 1;
+            log::info!("Skipped skill (directory not found): {}", name);
+        }
+    }
+
+    Ok(format!("割接完成: {} 个迁移, {} 个跳过", migrated, skipped))
 }
