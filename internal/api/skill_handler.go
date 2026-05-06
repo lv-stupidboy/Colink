@@ -595,7 +595,7 @@ func (h *SkillHandler) ImportFromRepo(c *gin.Context) {
 	}
 
 	// 复制整个目录到技能存储目录
-	skillDir := filepath.Join(h.storagePath, skillRecord.Name)
+	skillDir := filepath.Join(h.storagePath, skillRecord.ID.String())
 	if err := copyDirectory(tempDir, skillDir); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("复制技能目录失败: %v", err)})
 		return
