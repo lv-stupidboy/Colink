@@ -270,7 +270,7 @@ func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
 
 	// 删除对应的技能目录
 	if s.storagePath != "" && skillRecord != nil {
-		skillDir := filepath.Join(s.storagePath, skillRecord.Name)
+		skillDir := filepath.Join(s.storagePath, skillRecord.ID.String())
 		if _, err := os.Stat(skillDir); err == nil {
 			if err := os.RemoveAll(skillDir); err != nil {
 				s.logger.Warn("删除技能目录失败", zap.String("path", skillDir), zap.Error(err))
