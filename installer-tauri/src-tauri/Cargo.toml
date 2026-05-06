@@ -28,6 +28,7 @@ regex = "1"
 chrono = { version = "0.4", features = ["serde"] }
 log = "0.4"
 reqwest = { version = "0.12", features = ["json", "blocking"] }
+rusqlite = { version = "0.31", features = ["bundled"] }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
