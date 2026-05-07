@@ -751,6 +751,60 @@ export interface SyncResult {
   error?: string;
 }
 
+// ========== 同步冲突处理相关类型 ==========
+
+// 同步预览 skill（同源）
+export interface SyncPreviewSkill {
+  name: string;
+  localSkillId: string;
+  description: string;
+}
+
+// 同步冲突 skill（异源）
+export interface SyncConflictSkill {
+  name: string;
+  description: string;
+  localSkill: LocalSkillInfo; // 复用已有类型
+}
+
+// 同步预览结果
+export interface SyncPreviewResult {
+  registryId: string;
+  registryName: string;
+  autoUpdateSkills: SyncPreviewSkill[]; // 同源同名
+  conflictSkills: SyncConflictSkill[];  // 异源同名
+  newSkills: RemoteSkill[];             // 远程有本地无
+  skippedSkills: RemoteSkill[];         // 本地有远程无
+}
+
+// 同步操作
+export interface SyncOperation {
+  action: 'update' | 'skip';
+  skillName: string;
+  targetSkillId?: string; // 仅 update 时需要
+  description: string;    // 远程 skill 描述
+}
+
+// 同步确认请求
+export interface SyncConfirmRequest {
+  registryId: string;
+  operations: SyncOperation[];
+}
+
+// 同步确认结果
+export interface SyncConfirmResult {
+  updated: Skill[];
+  skipped: SkippedSkill[];
+  autoUpdated: number;  // 自动更新数量
+  userUpdated: number;  // 用户选择更新数量
+  userSkipped: number;  // 用户选择跳过数量
+}
+
+// 跳过的 skill
+export interface SkippedSkill {
+  name: string;
+}
+
 // ========== Knowledge Base 相关类型 ==========
 
 // 知识库类型
