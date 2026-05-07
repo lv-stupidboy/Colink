@@ -24,44 +24,29 @@ const ConfigEditorModal: React.FC<ConfigEditorModalProps> = ({
   // Load config file when modal opens
   useEffect(() => {
     if (open) {
-      loadConfig();
+      setLoading(true);
+      setYamlError(null);
+      configApi.readConfigFile()
+        .then(result => {
+          if (result.success && result.content) {
+            setYamlContent(result.content);
+          } else {
+            setYamlError(result.error || '读取配置文件失败');
+          }
+        })
+        .catch(err => setYamlError(err instanceof Error ? err.message : '读取配置文件失败'))
+        .finally(() => setLoading(false));
     }
   }, [open]);
 
-  const loadConfig = async () => {
-    setLoading(true);
-    setYamlError(null);
-    try {
-      const result = await configApi.readConfigFile();
-      if (result.success && result.content) {
-        setYamlContent(result.content);
-      } else {
-        setYamlError(result.error || '读取配置文件失败');
-      }
-    } catch (err) {
-      setYamlError(err instanceof Error ? err.message : '读取配置文件失败');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   // YAML format validation (frontend)
   const validateYaml = (content: string): boolean => {
-    try {
-      // Simple validation: check basic syntax
-      // Empty content not allowed
-      if (!content.trim()) {
-        setYamlError('配置不能为空');
-        return false;
-      }
-      // Check for obvious syntax errors (like unmatched quotes)
-      // Here we use simple check, actual parsing is handled by backend
-      setYamlError(null);
-      return true;
-    } catch {
-      setYamlError('配置格式错误');
+    if (!content.trim()) {
+      setYamlError('配置不能为空');
       return false;
     }
+    setYamlError(null);
+    return true;
   };
 
   const handleSave = async () => {
