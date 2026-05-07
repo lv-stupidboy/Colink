@@ -39,7 +39,7 @@ const INSTALL_PAGES = {
 };
 
 const STEP_LABELS = ['欢迎', '目录选择', '智能体检测', '系统配置'];
-const UPGRADE_STEP_LABELS = ['欢迎', '智能体检测', '系统配置'];
+const UPGRADE_STEP_LABELS = ['欢迎', '系统配置'];
 
 type AppMode = 'checking' | 'launcher' | 'select-action' | 'install' | 'installing' | 'complete' | 'uninstall';
 
@@ -103,9 +103,8 @@ function App() {
     if (currentStep >= 4) return;
     let nextStep = currentStep + 1;
     if (isUpgrade) {
-      // 升级跳过目录选择(步骤2)：1->3->4
-      if (currentStep === 1) nextStep = 3;
-      else if (currentStep === 3) nextStep = 4;
+      // 升级跳过目录选择和智能体检测：1->4
+      if (currentStep === 1) nextStep = 4;
     }
     setCurrentStep(nextStep);
   };
@@ -114,9 +113,8 @@ function App() {
     if (currentStep <= 1) return;
     let prevStep = currentStep - 1;
     if (isUpgrade) {
-      // 升级跳过目录选择(步骤2)：4->3->1
-      if (currentStep === 4) prevStep = 3;
-      else if (currentStep === 3) prevStep = 1;
+      // 升级跳过目录选择和智能体检测：4->1
+      if (currentStep === 4) prevStep = 1;
     }
     setCurrentStep(prevStep);
   };
@@ -224,9 +222,9 @@ function App() {
 
   // 安装向导
   const PageComponent = INSTALL_PAGES[currentStep as keyof typeof INSTALL_PAGES];
-  // 升级跳过目录选择(步骤2)：计算步骤索引
+  // 升级跳过目录选择和智能体检测：计算步骤索引
   const stepIndex = isUpgrade
-    ? (currentStep === 1 ? 0 : currentStep === 3 ? 1 : 2)
+    ? (currentStep === 1 ? 0 : 1)
     : currentStep - 1;
 
   // 获取安装按钮文本

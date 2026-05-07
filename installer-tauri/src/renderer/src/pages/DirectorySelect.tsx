@@ -128,11 +128,7 @@ const DirectorySelect: React.FC<DirectorySelectProps> = ({
         </div>
       )}
 
-      {/* 简化的空间提示 */}
-      <div style={{ color: '#666', fontSize: 14 }}>
-        <span>所需空间：约 500 MB</span>
       </div>
-    </div>
   );
 };
 
