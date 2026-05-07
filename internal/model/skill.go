@@ -187,21 +187,33 @@ type SyncResult struct {
 	Error         string    `json:"error,omitempty"`
 }
 
+// LocalSkillInfo 本地同名 Skill 信息（用于冲突展示）
+type LocalSkillInfo struct {
+	ID               uuid.UUID `json:"id"`
+	SourceType       string    `json:"sourceType"`
+	SourceRegistryID uuid.UUID `json:"sourceRegistryId,omitempty"`
+	SourceRegistryName string  `json:"sourceRegistryName,omitempty"` // 联邦源名称（如果是 federated）
+	Description      string    `json:"description"`
+}
+
 // RemoteSkill 远程 Skill 信息（扫描结果）
 type RemoteSkill struct {
-	Name          string `json:"name"`
-	Description   string `json:"description"`
-	Path          string `json:"path"`          // Skill 在仓库中的相对路径
-	ExistsLocally bool   `json:"existsLocally"` // 是否已存在本地同名 Skill
+	Name          string          `json:"name"`
+	Description   string          `json:"description"`
+	Path          string          `json:"path"`          // Skill 在仓库中的相对路径
+	ExistsLocally bool            `json:"existsLocally"` // 是否已存在本地同名 Skill
+	LocalSkill    *LocalSkillInfo `json:"localSkill,omitempty"` // 本地同名 Skill 信息
 }
 
 // SkillImportItem 单个 Skill 导入项
 type SkillImportItem struct {
-	Name            string   `json:"name" binding:"required"`
-	Path            string   `json:"path" binding:"required"`
-	Description     string   `json:"description"`
-	Tags            []string `json:"tags"`
-	SupportedAgents []string `json:"supportedAgents" binding:"required,min=1"`
+	Name            string    `json:"name" binding:"required"`
+	Path            string    `json:"path" binding:"required"`
+	Description     string    `json:"description"`
+	Tags            []string  `json:"tags"`
+	SupportedAgents []string  `json:"supportedAgents" binding:"required,min=1"`
+	ImportMode      string    `json:"importMode"`    // create 或 update（默认 create）
+	TargetSkillID   uuid.UUID `json:"targetSkillId"` // update 时指定目标 Skill ID
 }
 
 // BatchImportRequest 批量导入请求
@@ -212,8 +224,17 @@ type BatchImportRequest struct {
 
 // BatchImportResult 批量导入结果
 type BatchImportResult struct {
-	Imported []*Skill           `json:"imported"`
-	Skipped  []SkippedSkillInfo `json:"skipped"`
+	Imported        []*Skill           `json:"imported"`
+	Updated         []*Skill           `json:"updated"` // 更新的 Skill 列表
+	Skipped         []SkippedSkillInfo `json:"skipped"`
+	ConflictSummary *ConflictSummary   `json:"conflictSummary,omitempty"` // 冲突处理汇总
+}
+
+// ConflictSummary 冲突处理汇总
+type ConflictSummary struct {
+	AutoUpdated int `json:"autoUpdated"` // 自动更新的数量（同源）
+	UserCreated int `json:"userCreated"` // 用户选择新建的数量
+	UserUpdated int `json:"userUpdated"` // 用户选择更新的数量
 }
 
 // SkippedSkillInfo 跳过的 Skill 信息
