@@ -106,10 +106,7 @@ pub async fn window_close_with_confirm(
                 .message(format!("有 {} 个 Agent 实例正在运行，请先在 Web 控制台停止后才能关闭窗口。", agent_count))
                 .title("无法关闭")
                 .kind(tauri_plugin_dialog::MessageDialogKind::Warning)
-                .buttons(tauri_plugin_dialog::MessageDialogButtons::OkCancelCustom(
-                    "取消".to_string(),
-                    "".to_string()  // Single button mode
-                ))
+                .buttons(tauri_plugin_dialog::MessageDialogButtons::OkCustom("知道了".to_string()))
                 .blocking_show()
         })
         .await
