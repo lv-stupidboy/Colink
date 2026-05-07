@@ -468,8 +468,9 @@ impl ServiceManager {
         match response {
             Ok(res) => {
                 if res.status().is_success() {
-                    let instances: Vec<RunningAgentInstance> = res.json().await?;
-                    Ok(instances)
+                    // API returns { "instances": [...] }, need to deserialize the wrapper
+                    let wrapper: RunningAgentsResponse = res.json().await?;
+                    Ok(wrapper.instances)
                 } else {
                     Ok(vec![])
                 }
@@ -477,6 +478,12 @@ impl ServiceManager {
             Err(_) => Ok(vec![]),
         }
     }
+}
+
+/// Wrapper for API response { "instances": [...] }
+#[derive(Debug, Clone, serde::Deserialize)]
+struct RunningAgentsResponse {
+    instances: Vec<RunningAgentInstance>,
 }
 
 /// Running agent instance info
