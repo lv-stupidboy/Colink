@@ -59,7 +59,9 @@ const ConfigEditorModal: React.FC<ConfigEditorModalProps> = ({
       const result = await configApi.saveConfig(yamlContent);
       if (result.success) {
         message.success('配置已保存');
-        // Show restart prompt modal
+        // Close main modal immediately
+        onCancel();
+        // Show restart prompt modal (independent)
         setRestartModalVisible(true);
       } else {
         message.error(result.error || '保存失败');
@@ -73,7 +75,7 @@ const ConfigEditorModal: React.FC<ConfigEditorModalProps> = ({
 
   const handleCloseRestartModal = () => {
     setRestartModalVisible(false);
-    onCancel(); // Close main modal
+    onRestartRequired?.();
   };
 
   const handleRestart = async () => {
@@ -98,7 +100,7 @@ const ConfigEditorModal: React.FC<ConfigEditorModalProps> = ({
       }
 
       message.success('服务已重启');
-      onCancel(); // Close main modal after successful restart
+      setRestartModalVisible(false);
       onRestartRequired?.();
     } catch (err) {
       message.error(err instanceof Error ? err.message : '重启服务失败');

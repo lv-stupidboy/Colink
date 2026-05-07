@@ -40,7 +40,7 @@ pub fn get_resource_path(app: tauri::AppHandle) -> Result<String, String> {
 
 /// Get version from VERSION file
 #[tauri::command]
-pub fn get_version(app: tauri::AppHandle) -> Result<String, String> {
+pub fn get_version(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<String, String> {
     let resource_path = app
         .path()
         .resource_dir()
@@ -49,19 +49,30 @@ pub fn get_version(app: tauri::AppHandle) -> Result<String, String> {
     let exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
     let exe_dir = exe_path.parent().unwrap_or(std::path::Path::new("."));
 
+    // Get install directory from state (for launcher mode)
+    let install_dir = state.get_install_dir();
+
     // Try multiple locations to find VERSION file:
     // 1. resource_path/resources/VERSION (dev mode)
     // 2. resource_path/VERSION (release mode bundled)
     // 3. exe_dir/resources/VERSION (ZIP packaged mode: exe in exe/, VERSION in exe/resources/)
     // 4. exe_dir/../resources/VERSION (ZIP packaged mode alternative)
     // 5. exe_dir/VERSION (fallback)
-    let version_candidates = vec![
+    // 6. install_dir/VERSION (installed launcher mode - VERSION in install root)
+    // 7. exe_dir/../VERSION (ZIP packaged exe in exe/, VERSION at root)
+    let mut version_candidates = vec![
         resource_path.join("resources/VERSION"),
         resource_path.join("VERSION"),
         exe_dir.join("resources/VERSION"),
         exe_dir.join("..").join("resources/VERSION"),
         exe_dir.join("VERSION"),
+        exe_dir.join("..").join("VERSION"),
     ];
+
+    // Add install directory path if available
+    if let Some(install) = install_dir {
+        version_candidates.push(std::path::PathBuf::from(install).join("VERSION"));
+    }
 
     for version_path in version_candidates {
         if version_path.exists() {

@@ -776,6 +776,20 @@ where
         log::warn!("Launcher exe not found in any location, skipping launcher copy");
     }
 
+    // Copy VERSION file to install directory
+    let version_src = resources_base.join("VERSION");
+    let version_dest = install_dir.join("VERSION");
+    if version_src.exists() {
+        std::fs::copy(&version_src, &version_dest)
+            .map_err(|e| InstallerError::Io {
+                context: "copy VERSION file".to_string(),
+                source: e,
+            })?;
+        log::info!("Copied VERSION file to {:?}", version_dest);
+    } else {
+        log::warn!("VERSION file not found at {:?}, using default version in registry", version_src);
+    }
+
     emit_progress(&InstallProgress {
         step: "launcher".to_string(),
         status: "success".to_string(),
