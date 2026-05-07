@@ -24,6 +24,7 @@ import {
 } from '@ant-design/icons';
 import { serviceApi, launcherApi, modeApi, installApi, dependencyApi } from '../../../lib/api';
 import type { RunningAgentInstance, DependencyInfo } from '../../../lib/api/types';
+import ConfigEditorModal from '../components/ConfigEditorModal';
 
 const { Title, Text } = Typography;
 
@@ -86,6 +87,7 @@ const LauncherDashboard: React.FC = () => {
   const [agentDependencies, setAgentDependencies] = useState<DependencyInfo[]>([]);
   const [loadingAgents, setLoadingAgents] = useState(true);
   const [agentModalVisible, setAgentModalVisible] = useState(false);
+  const [configModalVisible, setConfigModalVisible] = useState(false);
 
   useEffect(() => {
     checkStatus();
@@ -193,12 +195,8 @@ const LauncherDashboard: React.FC = () => {
     }
   };
 
-  const handleOpenConfig = async () => {
-    try {
-      await launcherApi.openConfig();
-    } catch (err) {
-      console.error('Failed to open config:', err);
-    }
+  const handleOpenConfig = () => {
+    setConfigModalVisible(true);
   };
 
   const checkAgentDependencies = async () => {
@@ -437,6 +435,13 @@ const LauncherDashboard: React.FC = () => {
           </>
         )}
       </Modal>
+
+      {/* 系统配置编辑弹窗 */}
+      <ConfigEditorModal
+        open={configModalVisible}
+        onCancel={() => setConfigModalVisible(false)}
+        onRestartRequired={checkStatus}
+      />
     </div>
   );
 };
