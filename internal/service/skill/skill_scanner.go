@@ -158,6 +158,20 @@ func (s *SkillScanner) ScanRegistry(ctx context.Context, registryID uuid.UUID) (
 		existing, err := s.skillRepo.FindByName(ctx, skill.Name)
 		if err == nil && existing != nil {
 			skill.ExistsLocally = true
+				// 填充本地 Skill 详情
+				skill.LocalSkill = &model.LocalSkillInfo{
+					ID:          existing.ID,
+					SourceType:  string(existing.SourceType),
+					Description: existing.Description,
+				}
+				// 如果是 federated 类型，查询联邦源名称
+				if existing.SourceType == model.SkillSourceFederated && existing.SourceRegistryID != uuid.Nil {
+					registry, err := s.registryRepo.FindByID(ctx, existing.SourceRegistryID)
+					if err == nil && registry != nil {
+						skill.LocalSkill.SourceRegistryID = existing.SourceRegistryID
+						skill.LocalSkill.SourceRegistryName = registry.Name
+					}
+				}
 		} else {
 			skill.ExistsLocally = false
 		}
