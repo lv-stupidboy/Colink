@@ -123,6 +123,11 @@ const SkillLibrary: React.FC = () => {
   const [batchImporting, setBatchImporting] = useState(false);
   const [unifySettings, setUnifySettings] = useState(false);
   const [unifiedTags, setUnifiedTags] = useState<string[]>([]);
+  // 冲突处理状态
+  const [conflictModalVisible, setConflictModalVisible] = useState(false);
+  const [conflictItems, setConflictItems] = useState<RemoteSkill[]>([]);
+  const [conflictChoices, setConflictChoices] = useState<Record<string, 'create' | 'update'>>({});
+  const [currentRegistryName, setCurrentRegistryName] = useState('');
   const [unifiedAgents, setUnifiedAgents] = useState<string[]>([]);
 
   // 创建方式状态
@@ -603,6 +608,128 @@ const SkillLibrary: React.FC = () => {
     }
   };
 
+  // 冲突分析函数
+  const analyzeConflicts = (selectedSkills: RemoteSkill[], registryId: string): {
+    autoUpdateItems: RemoteSkill[];
+    conflictItems: RemoteSkill[];
+    createItems: RemoteSkill[];
+  } => {
+    const autoUpdateItems: RemoteSkill[] = [];
+    const conflictItems: RemoteSkill[] = [];
+    const createItems: RemoteSkill[] = [];
+
+    for (const skill of selectedSkills) {
+      if (!skill.existsLocally) {
+        createItems.push(skill);
+      } else if (skill.localSkill?.sourceType === 'federated' &&
+                 skill.localSkill.sourceRegistryId === registryId) {
+        autoUpdateItems.push(skill);
+      } else {
+        conflictItems.push(skill);
+      }
+    }
+
+    return { autoUpdateItems, conflictItems, createItems };
+  };
+
+  // 执行导入操作
+  const performImport = async (
+    autoUpdateItems: RemoteSkill[],
+    createItems: RemoteSkill[],
+    conflictChoices: Record<string, 'create' | 'update'>
+  ) => {
+    setBatchImporting(true);
+    try {
+      const skills: SkillImportItem[] = [];
+
+      // 创建项
+      for (const skill of createItems) {
+        skills.push({
+          name: skill.name,
+          path: skill.path,
+          description: skill.description,
+          tags: [],
+          supportedAgents: ['claude_code'],
+          importMode: 'create',
+        });
+      }
+
+      // 自动更新项（同源）
+      for (const skill of autoUpdateItems) {
+        skills.push({
+          name: skill.name,
+          path: skill.path,
+          description: skill.description,
+          tags: [],
+          supportedAgents: ['claude_code'],
+          importMode: 'update',
+          targetSkillId: skill.localSkill?.id,
+        });
+      }
+
+      // 冲突项（根据用户选择）
+      for (const skill of conflictItems) {
+        const choice = conflictChoices[skill.name];
+        skills.push({
+          name: skill.name,
+          path: skill.path,
+          description: skill.description,
+          tags: [],
+          supportedAgents: ['claude_code'],
+          importMode: choice,
+          targetSkillId: choice === 'update' ? skill.localSkill?.id : undefined,
+        });
+      }
+
+      const result = await api.skills.batchImportFederated({
+        registryId: selectedRegistryId,
+        skills,
+      });
+
+      // 显示导入结果
+      const summary = result.conflictSummary;
+      let successMsg = `成功导入 ${result.imported.length} 个 Skill`;
+      if (result.updated?.length > 0) {
+        successMsg += `，更新 ${result.updated.length} 个`;
+      }
+      if (summary) {
+        if (summary.autoUpdated > 0) successMsg += `（自动更新 ${summary.autoUpdated} 个）`;
+        if (summary.userCreated > 0) successMsg += `（新建 ${summary.userCreated} 个）`;
+        if (summary.userUpdated > 0) successMsg += `（更新 ${summary.userUpdated} 个）`;
+      }
+      message.success(successMsg);
+
+      if (result.skipped.length > 0) {
+        message.warning(`跳过 ${result.skipped.length} 个：${result.skipped.map(s => s.name).join(', ')}`);
+      }
+
+      setSelectedRemoteSkills([]);
+      loadSkills();
+    } catch (error: any) {
+      message.error(error.response?.data?.error || '导入失败');
+    } finally {
+      setBatchImporting(false);
+    }
+  };
+
+  // 确认冲突选择
+  const handleConfirmConflict = () => {
+    // 检查是否所有冲突项都已选择
+    const unselected = conflictItems.filter(s => !conflictChoices[s.name]);
+    if (unselected.length > 0) {
+      message.error(`以下 Skill 未选择操作：${unselected.map(s => s.name).join(', ')}`);
+      return;
+    }
+
+    setConflictModalVisible(false);
+
+    // 重新分析冲突（获取 autoUpdateItems 和 createItems）
+    const { autoUpdateItems, createItems } = analyzeConflicts(selectedRemoteSkills, selectedRegistryId);
+
+    // 执行导入
+    performImport(autoUpdateItems, createItems, conflictChoices);
+  };
+
   // 确认导入选中的 Skill
   const handleConfirmImport = () => {
     if (selectedRemoteSkills.length === 0) {
@@ -610,45 +737,25 @@ const SkillLibrary: React.FC = () => {
       return;
     }
 
-    setScanModalVisible(false);
+    // 分析冲突情况
+    const { autoUpdateItems, conflictItems, createItems } = analyzeConflicts(
+      selectedRemoteSkills,
+      selectedRegistryId
+    );
 
-    // 单选：填入表单
-    if (selectedRemoteSkills.length === 1) {
-      const skill = selectedRemoteSkills[0];
-      setEditingSkill({
-        id: '',
-        name: skill.name,
-        description: skill.description,
-        sourceType: 'federated',
-        sourceRegistryId: selectedRegistryId,
-        isPublic: true,
-      } as any);
-      setIsAfterUpload(false);
-      form.setFieldsValue({
-        name: skill.name,
-        description: skill.description || '',
-        tags: [],
-        sourceType: 'federated',
-        supportedAgents: [],
-        isPublic: true,
-      });
-      setSourceType('federated');
-      setModalVisible(true);
-    } else {
-      // 多选：切换为批量编辑模式
-      setBatchSkills(selectedRemoteSkills.map(s => ({
-        name: s.name,
-        path: s.path,
-        description: s.description,
-        tags: [],
-        supportedAgents: [],
-      })));
-      setBatchEditMode(true);
-      setUnifySettings(false);
-      setUnifiedTags([]);
-      setUnifiedAgents([]);
-      setModalVisible(true);
+    // 如果没有冲突项，直接导入
+    if (conflictItems.length === 0) {
+      setScanModalVisible(false);
+      performImport(autoUpdateItems, createItems, {});
+      return;
     }
+
+    // 有冲突项，显示冲突弹窗
+    setConflictItems(conflictItems);
+    setConflictChoices({});
+    setCurrentRegistryName(scanResult?.registryName || '');
+    setScanModalVisible(false);
+    setConflictModalVisible(true);
   };
 
   // 批量保存 Skill
@@ -1280,6 +1387,116 @@ const SkillLibrary: React.FC = () => {
             />
           </>
         )}
+      </Modal>
+
+      {/* 冲突选择弹窗 */}
+      <Modal
+        title="导入冲突处理"
+        open={conflictModalVisible}
+        onCancel={() => setConflictModalVisible(false)}
+        width={800}
+        footer={[
+          <Button key="cancel" onClick={() => setConflictModalVisible(false)}>取消</Button>,
+          <Button key="all-create" onClick={() => {
+            const choices: Record<string, 'create'> = {};
+            conflictItems.forEach(s => choices[s.name] = 'create');
+            setConflictChoices(choices);
+          }}>
+            全部新建
+          </Button>,
+          <Button key="all-update" type="primary" onClick={() => {
+            const choices: Record<string, 'update'> = {};
+            conflictItems.forEach(s => choices[s.name] = 'update');
+            setConflictChoices(choices);
+          }}>
+            全部更新
+          </Button>,
+          <Button key="confirm" type="primary" onClick={handleConfirmConflict}>
+            确认导入
+          </Button>,
+        ]}
+      >
+        <Text type="secondary" style={{ marginBottom: 16, display: 'block' }}>
+          以下 Skill 与本地已有同名 Skill 来源不同，请选择处理方式：
+        </Text>
+        <Table
+          dataSource={conflictItems}
+          columns={[
+            {
+              title: '名称',
+              dataIndex: 'name',
+              key: 'name',
+              width: 120,
+            },
+            {
+              title: '本地来源',
+              key: 'localSource',
+              width: 120,
+              render: (_, record) => {
+                if (!record.localSkill) return '未知';
+                const sourceType = record.localSkill.sourceType as SkillSourceType;
+                return (
+                  <Tag color={getSourceTypeColor(sourceType)}>
+                    {record.localSkill.sourceRegistryName || getSourceTypeLabel(sourceType)}
+                  </Tag>
+                );
+              },
+            },
+            {
+              title: '远程来源',
+              key: 'remoteSource',
+              width: 120,
+              render: () => (
+                <Tag color="cyan">{currentRegistryName}</Tag>
+              ),
+            },
+            {
+              title: '本地描述',
+              key: 'localDesc',
+              width: 200,
+              render: (_, record) => (
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {record.localSkill?.description?.slice(0, 50) || '暂无'}
+                  {record.localSkill?.description?.length > 50 ? '...' : ''}
+                </Text>
+              ),
+            },
+            {
+              title: '远程描述',
+              dataIndex: 'description',
+              key: 'remoteDesc',
+              width: 200,
+              render: (desc: string) => (
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  {desc?.slice(0, 50) || '暂无'}
+                  {desc?.length > 50 ? '...' : ''}
+                </Text>
+              ),
+            },
+            {
+              title: '操作',
+              key: 'action',
+              width: 150,
+              render: (_, record) => (
+                <Radio.Group
+                  value={conflictChoices[record.name]}
+                  onChange={(e) => {
+                    setConflictChoices(prev => ({
+                      ...prev,
+                      [record.name]: e.target.value,
+                    }));
+                  }}
+                >
+                  <Radio value="create">新建</Radio>
+                  <Radio value="update">更新</Radio>
+                </Radio.Group>
+              ),
+            },
+          ]}
+          rowKey="name"
+          pagination={false}
+          size="small"
+        />
       </Modal>
     </div>
   );
