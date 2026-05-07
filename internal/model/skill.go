@@ -250,3 +250,55 @@ type ScanResult struct {
 	RegistryURL  string          `json:"registryUrl"`
 	Skills       []*RemoteSkill  `json:"skills"`
 }
+
+// SyncPreviewSkill 同步预览 skill（同源）
+type SyncPreviewSkill struct {
+	Name         string    `json:"name"`
+	LocalSkillID uuid.UUID `json:"localSkillId"`
+	Description  string    `json:"description"`
+}
+
+// SyncConflictSkill 同步冲突 skill（异源）
+type SyncConflictSkill struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	LocalSkill  *LocalSkillInfo `json:"localSkill"` // 复用已有类型
+}
+
+// SyncPreviewResult 同步预览结果
+type SyncPreviewResult struct {
+	RegistryID       uuid.UUID            `json:"registryId"`
+	RegistryName     string               `json:"registryName"`
+	AutoUpdateSkills []*SyncPreviewSkill  `json:"autoUpdateSkills"` // 同源同名
+	ConflictSkills   []*SyncConflictSkill `json:"conflictSkills"`   // 异源同名
+	NewSkills        []*RemoteSkill       `json:"newSkills"`        // 远程有本地无
+	SkippedSkills    []*RemoteSkill       `json:"skippedSkills"`    // 本地有远程无
+}
+
+// SyncOperation 同步操作
+type SyncOperation struct {
+	Action        string    `json:"action"`        // "update" 或 "skip"
+	SkillName     string    `json:"skillName"`
+	TargetSkillID uuid.UUID `json:"targetSkillId"` // 仅 update 时需要
+	Description   string    `json:"description"`   // 远程 skill 描述
+}
+
+// SyncConfirmRequest 同步确认请求
+type SyncConfirmRequest struct {
+	RegistryID uuid.UUID        `json:"registryId"`
+	Operations []*SyncOperation `json:"operations"`
+}
+
+// SkippedSkill 跳过的 skill
+type SkippedSkill struct {
+	Name string `json:"name"`
+}
+
+// SyncConfirmResult 同步确认结果
+type SyncConfirmResult struct {
+	Updated     []*Skill        `json:"updated"`
+	Skipped     []*SkippedSkill `json:"skipped"`
+	AutoUpdated int             `json:"autoUpdated"` // 自动更新数量
+	UserUpdated int             `json:"userUpdated"` // 用户选择更新数量
+	UserSkipped int             `json:"userSkipped"` // 用户选择跳过数量
+}
