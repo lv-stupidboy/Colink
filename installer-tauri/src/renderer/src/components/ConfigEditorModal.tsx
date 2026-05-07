@@ -51,7 +51,7 @@ const ConfigEditorModal: React.FC<ConfigEditorModalProps> = ({
       // Simple validation: check basic syntax
       // Empty content not allowed
       if (!content.trim()) {
-        setYamlError('Config cannot be empty');
+        setYamlError('配置不能为空');
         return false;
       }
       // Check for obvious syntax errors (like unmatched quotes)
@@ -59,7 +59,7 @@ const ConfigEditorModal: React.FC<ConfigEditorModalProps> = ({
       setYamlError(null);
       return true;
     } catch {
-      setYamlError('Config format error');
+      setYamlError('配置格式错误');
       return false;
     }
   };
@@ -73,14 +73,14 @@ const ConfigEditorModal: React.FC<ConfigEditorModalProps> = ({
     try {
       const result = await configApi.saveConfig(yamlContent);
       if (result.success) {
-        message.success('Config saved');
+        message.success('配置已保存');
         // Show restart prompt modal
         setRestartModalVisible(true);
       } else {
-        message.error(result.error || 'Failed to save');
+        message.error(result.error || '保存失败');
       }
     } catch (err) {
-      message.error(err instanceof Error ? err.message : 'Failed to save');
+      message.error(err instanceof Error ? err.message : '保存失败');
     } finally {
       setSaving(false);
     }
@@ -94,8 +94,8 @@ const ConfigEditorModal: React.FC<ConfigEditorModalProps> = ({
       if (!stopResult.success) {
         // Stop failed, show error
         Modal.warning({
-          title: 'Cannot restart service',
-          content: stopResult.error || 'Failed to stop service',
+          title: '无法重启服务',
+          content: stopResult.error || '停止服务失败',
         });
         return;
       }
@@ -103,14 +103,14 @@ const ConfigEditorModal: React.FC<ConfigEditorModalProps> = ({
       // 2. Start service
       const startResult = await serviceApi.start();
       if (!startResult.success) {
-        message.error(startResult.error || 'Failed to start service');
+        message.error(startResult.error || '启动服务失败');
         return;
       }
 
-      message.success('Service restarted');
+      message.success('服务已重启');
       onRestartRequired?.();
     } catch (err) {
-      message.error(err instanceof Error ? err.message : 'Failed to restart service');
+      message.error(err instanceof Error ? err.message : '重启服务失败');
     }
   };
 
@@ -125,16 +125,16 @@ const ConfigEditorModal: React.FC<ConfigEditorModalProps> = ({
   return (
     <>
       <Modal
-        title="System Config"
+        title="系统配置"
         open={open}
         onCancel={onCancel}
         width={700}
         footer={[
           <Button key="cancel" onClick={onCancel}>
-            Cancel
+            取消
           </Button>,
           <Button key="save" type="primary" loading={saving} onClick={handleSave}>
-            Save
+            保存
           </Button>,
         ]}
         destroyOnClose
@@ -164,19 +164,19 @@ const ConfigEditorModal: React.FC<ConfigEditorModalProps> = ({
 
       {/* Restart prompt modal */}
       <Modal
-        title="Config Updated"
+        title="配置已更新"
         open={restartModalVisible}
         onCancel={() => setRestartModalVisible(false)}
         footer={[
           <Button key="close" onClick={() => setRestartModalVisible(false)}>
-            Close
+            关闭
           </Button>,
           <Button key="restart" type="primary" onClick={handleRestart}>
-            Restart Service
+            重启服务
           </Button>,
         ]}
       >
-        <p>Config has been updated. Restart service to apply changes.</p>
+        <p>配置已更新，重启服务生效。</p>
       </Modal>
     </>
   );
