@@ -14,6 +14,7 @@ import {
   Popconfirm,
   Tooltip,
   Badge,
+  Radio,
 } from 'antd';
 import {
   PlusOutlined,
@@ -25,7 +26,15 @@ import {
   ClockCircleOutlined,
 } from '@ant-design/icons';
 import api from '@/api/client';
-import type { SkillRegistry, CreateRegistryRequest, RegistryType, RegistryStatus } from '@/types';
+import type {
+  SkillRegistry,
+  CreateRegistryRequest,
+  RegistryType,
+  RegistryStatus,
+  SyncPreviewResult,
+  SyncOperation,
+  SkillSourceType,
+} from '@/types';
 
 const { Text, Title } = Typography;
 const { Option } = Select;
@@ -43,11 +52,36 @@ const RegistryManagement: React.FC = () => {
   const [editingRegistry, setEditingRegistry] = useState<SkillRegistry | null>(null);
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const [selectedType, setSelectedType] = useState<RegistryType>('github');
+  const [syncPreview, setSyncPreview] = useState<SyncPreviewResult | null>(null);
+  const [conflictModalVisible, setConflictModalVisible] = useState(false);
+  const [conflictChoices, setConflictChoices] = useState<Record<string, 'update' | 'skip'>>({});
+  const [syncingRegistryId, setSyncingRegistryId] = useState<string | null>(null);
+  const [syncingRegistryName, setSyncingRegistryName] = useState('');
   const [form] = Form.useForm();
 
   useEffect(() => {
     loadRegistries();
   }, [page, pageSize]);
+
+  // 获取来源类型颜色
+  const getSourceTypeColor = (sourceType: SkillSourceType): string => {
+    const colors: Record<SkillSourceType, string> = {
+      personal: 'blue',
+      platform: 'green',
+      federated: 'purple',
+    };
+    return colors[sourceType] || 'default';
+  };
+
+  // 获取来源类型标签
+  const getSourceTypeLabel = (sourceType: SkillSourceType): string => {
+    const labels: Record<SkillSourceType, string> = {
+      personal: '个人',
+      platform: '平台',
+      federated: '联邦源',
+    };
+    return labels[sourceType] || sourceType;
+  };
 
   const loadRegistries = async () => {
     setLoading(true);
@@ -114,18 +148,104 @@ const RegistryManagement: React.FC = () => {
   const handleSync = async (id: string) => {
     setSyncingId(id);
     try {
-      const result = await api.registries.sync(id);
-      if (result.error) {
-        message.error(`同步失败: ${result.error}`);
+      // 先调用 sync-preview API
+      const preview = await api.registries.syncPreview(id);
+
+      // 分析冲突情况
+      if (preview.conflictSkills.length === 0) {
+        // 无冲突，直接执行同步（调用原有 sync API）
+        const result = await api.registries.sync(id);
+        if (result.error) {
+          message.error(`同步失败: ${result.error}`);
+        } else {
+          message.success(`同步完成：自动更新 ${preview.autoUpdateSkills.length} 个，跳过 ${preview.newSkills.length} 个新 skill`);
+          loadRegistries();
+        }
       } else {
-        message.success(`同步成功：更新 ${result.skillsUpdated} 个技能`);
-        loadRegistries();
+        // 有冲突，显示弹窗
+        setSyncPreview(preview);
+        setSyncingRegistryId(id);
+        setSyncingRegistryName(preview.registryName);
+        setConflictChoices({});
+        setConflictModalVisible(true);
       }
     } catch (error: any) {
-      message.error(error.response?.data?.error || '同步失败');
+      message.error(error.response?.data?.error || '同步预览失败');
     } finally {
       setSyncingId(null);
     }
+  };
+
+  // 确认冲突选择
+  const handleConfirmConflict = async () => {
+    if (!syncPreview || !syncingRegistryId) return;
+
+    // 检查是否所有冲突项都已选择
+    const unselected = syncPreview.conflictSkills.filter(s => !conflictChoices[s.name]);
+    if (unselected.length > 0) {
+      message.error(`以下 Skill 未选择操作：${unselected.map(s => s.name).join(', ')}`);
+      return;
+    }
+
+    setConflictModalVisible(false);
+    setSyncingId(syncingRegistryId);
+
+    try {
+      // 构建同步确认请求
+      const operations: SyncOperation[] = [];
+      for (const skill of syncPreview.conflictSkills) {
+        const choice = conflictChoices[skill.name];
+        operations.push({
+          action: choice,
+          skillName: skill.name,
+          targetSkillId: choice === 'update' ? skill.localSkill.id : undefined,
+          description: skill.description,
+        });
+      }
+
+      const result = await api.registries.syncConfirm(syncingRegistryId, {
+        registryId: syncingRegistryId,
+        operations,
+      });
+
+      // 显示结果汇总
+      let successMsg = `同步完成：自动更新 ${result.autoUpdated} 个`;
+      if (result.userUpdated > 0) {
+        successMsg += `，更新 ${result.userUpdated} 个`;
+      }
+      if (result.userSkipped > 0) {
+        successMsg += `，跳过 ${result.userSkipped} 个`;
+      }
+      message.success(successMsg);
+
+      if (result.skipped.length > 0) {
+        message.warning(`跳过 ${result.skipped.length} 个失败项：${result.skipped.map(s => s.name).join(', ')}`);
+      }
+
+      loadRegistries();
+    } catch (error: any) {
+      message.error(error.response?.data?.error || '同步确认失败');
+    } finally {
+      setSyncingId(null);
+      setSyncPreview(null);
+      setSyncingRegistryId(null);
+    }
+  };
+
+  // 全部更新
+  const handleAllUpdate = () => {
+    if (!syncPreview) return;
+    const choices: Record<string, 'update'> = {};
+    syncPreview.conflictSkills.forEach(s => choices[s.name] = 'update');
+    setConflictChoices(choices);
+  };
+
+  // 全部跳过
+  const handleAllSkip = () => {
+    if (!syncPreview) return;
+    const choices: Record<string, 'skip'> = {};
+    syncPreview.conflictSkills.forEach(s => choices[s.name] = 'skip');
+    setConflictChoices(choices);
   };
 
   const handleSyncAll = async () => {
@@ -388,6 +508,116 @@ const RegistryManagement: React.FC = () => {
             </Form.Item>
           )}
         </Form>
+      </Modal>
+
+      {/* 同步冲突处理弹窗 */}
+      <Modal
+        title="同步冲突处理"
+        open={conflictModalVisible}
+        onCancel={() => setConflictModalVisible(false)}
+        width={800}
+        footer={[
+          <Button key="cancel" onClick={() => setConflictModalVisible(false)}>取消</Button>,
+          <Button key="all-skip" onClick={handleAllSkip}>
+            全部跳过
+          </Button>,
+          <Button key="all-update" type="primary" onClick={handleAllUpdate}>
+            全部更新
+          </Button>,
+          <Button key="confirm" type="primary" onClick={handleConfirmConflict}>
+            确认同步
+          </Button>,
+        ]}
+      >
+        <Text type="secondary" style={{ marginBottom: 16, display: 'block' }}>
+          以下 Skill 与本地已有同名 Skill 来源不同，请选择处理方式：
+        </Text>
+        {syncPreview && (
+          <>
+            {syncPreview.autoUpdateSkills.length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <Tag color="green">{syncPreview.autoUpdateSkills.length} 个同源 Skill 将自动更新</Tag>
+              </div>
+            )}
+            <Table
+              dataSource={syncPreview.conflictSkills}
+              columns={[
+                {
+                  title: '名称',
+                  dataIndex: 'name',
+                  key: 'name',
+                  width: 120,
+                },
+                {
+                  title: '本地来源',
+                  key: 'localSource',
+                  width: 120,
+                  render: (_, record) => {
+                    const sourceType = record.localSkill.sourceType as SkillSourceType;
+                    return (
+                      <Tag color={getSourceTypeColor(sourceType)}>
+                        {record.localSkill.sourceRegistryName || getSourceTypeLabel(sourceType)}
+                      </Tag>
+                    );
+                  },
+                },
+                {
+                  title: '远程来源',
+                  key: 'remoteSource',
+                  width: 120,
+                  render: () => (
+                    <Tag color="cyan">{syncingRegistryName}</Tag>
+                  ),
+                },
+                {
+                  title: '本地描述',
+                  key: 'localDesc',
+                  width: 200,
+                  render: (_, record) => (
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      {record.localSkill.description?.slice(0, 50) || '暂无'}
+                      {record.localSkill.description?.length > 50 ? '...' : ''}
+                    </Text>
+                  ),
+                },
+                {
+                  title: '远程描述',
+                  dataIndex: 'description',
+                  key: 'remoteDesc',
+                  width: 200,
+                  render: (desc: string) => (
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      {desc?.slice(0, 50) || '暂无'}
+                      {desc?.length > 50 ? '...' : ''}
+                    </Text>
+                  ),
+                },
+                {
+                  title: '操作',
+                  key: 'action',
+                  width: 150,
+                  render: (_, record) => (
+                    <Radio.Group
+                      value={conflictChoices[record.name]}
+                      onChange={(e) => {
+                        setConflictChoices(prev => ({
+                          ...prev,
+                          [record.name]: e.target.value,
+                        }));
+                      }}
+                    >
+                      <Radio value="skip">跳过</Radio>
+                      <Radio value="update">更新</Radio>
+                    </Radio.Group>
+                  ),
+                },
+              ]}
+              rowKey="name"
+              pagination={false}
+              size="small"
+            />
+          </>
+        )}
       </Modal>
     </div>
   );
