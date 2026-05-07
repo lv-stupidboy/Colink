@@ -565,12 +565,21 @@ func (s *SkillScanner) ImportSkills(ctx context.Context, req *model.BatchImportR
 
 	// 使用 goroutine pool 进行并发导入
 	imported := make([]*model.Skill, 0, len(req.Skills))
+	updated := make([]*model.Skill, 0, len(req.Skills))  // 更新的 Skill 列表
 	skipped := make([]model.SkippedSkillInfo, 0, len(req.Skills))
+
+	// 冲突统计
+	conflictSummary := &model.ConflictSummary{}
 
 	// 创建通道收集结果
 	importChan := make(chan *model.Skill, len(req.Skills))
+	updateChan := make(chan *model.Skill, len(req.Skills))  // 更新结果通道
 	skipChan := make(chan model.SkippedSkillInfo, len(req.Skills))
 	errChan := make(chan error, len(req.Skills))
+	// 冲突统计通道
+	autoUpdateChan := make(chan struct{}, len(req.Skills))
+	userCreateChan := make(chan struct{}, len(req.Skills))
+	userUpdateChan := make(chan struct{}, len(req.Skills))
 
 	// 创建信号量控制并发数
 	sem := make(chan struct{}, s.importPoolSize)
@@ -587,6 +596,60 @@ func (s *SkillScanner) ImportSkills(ctx context.Context, req *model.BatchImportR
 			// 允许 skill 重名，不再检查名称唯一性
 			// 加锁防止同批次目录复制冲突（仅用于目录操作）
 			nameMu.Lock()
+
+					// 确定导入模式（默认 create）
+					importMode := item.ImportMode
+					if importMode == "" {
+						importMode = "create"
+					}
+
+					if importMode == "update" {
+						// 更新模式：需要 targetSkillID
+						if item.TargetSkillID == uuid.Nil {
+							nameMu.Unlock()
+							errChan <- fmt.Errorf("更新模式需要指定 targetSkillId: %s", item.Name)
+							return
+						}
+
+						// 获取现有 Skill
+						existing, err := s.skillRepo.FindByID(ctx, item.TargetSkillID)
+						if err != nil {
+							nameMu.Unlock()
+							errChan <- fmt.Errorf("找不到目标 Skill %s: %w", item.Name, err)
+							return
+						}
+
+						// 更新元数据（替换策略）
+						existing.Description = item.Description
+						existing.Tags = item.Tags
+						existing.SupportedAgents = item.SupportedAgents
+						existing.SourceType = model.SkillSourceFederated
+						existing.SourceRegistryID = registry.ID
+						existing.UpdatedAt = time.Now()
+
+						// 更新文件目录
+						srcDir := filepath.Join(tempDir, item.Path)
+						dstDir := filepath.Join(s.storagePath, existing.ID.String())
+						if err := s.updateSkillFiles(srcDir, dstDir); err != nil {
+							nameMu.Unlock()
+							errChan <- fmt.Errorf("更新 Skill 文件 %s 失败: %w", item.Name, err)
+							return
+						}
+
+						// 保存更新
+						if err := s.skillRepo.Update(ctx, existing); err != nil {
+							nameMu.Unlock()
+							errChan <- fmt.Errorf("更新 Skill 记录 %s 失败: %w", item.Name, err)
+							return
+						}
+
+						nameMu.Unlock()
+						updateChan <- existing
+						userUpdateChan <- struct{}{}
+						return
+					}
+
+					// 创建模式：创建 Skill 记录
 
 			// 创建 Skill 记录
 			skill := &model.Skill{
@@ -630,12 +693,19 @@ func (s *SkillScanner) ImportSkills(ctx context.Context, req *model.BatchImportR
 	// 等待所有任务完成
 	wg.Wait()
 	close(importChan)
+	close(updateChan)
 	close(skipChan)
 	close(errChan)
+	close(autoUpdateChan)
+	close(userCreateChan)
+	close(userUpdateChan)
 
 	// 收集结果
 	for skill := range importChan {
 		imported = append(imported, skill)
+	}
+	for skill := range updateChan {
+		updated = append(updated, skill)
 	}
 	for skip := range skipChan {
 		skipped = append(skipped, skip)
@@ -644,12 +714,25 @@ func (s *SkillScanner) ImportSkills(ctx context.Context, req *model.BatchImportR
 		s.logger.Warn("导入技能失败", zap.Error(err))
 	}
 
+	// 收集冲突统计
+	for range autoUpdateChan {
+		conflictSummary.AutoUpdated++
+	}
+	for range userCreateChan {
+		conflictSummary.UserCreated++
+	}
+	for range userUpdateChan {
+		conflictSummary.UserUpdated++
+	}
+
 	// 异步删除临时目录
 	go os.RemoveAll(tempDir)
 
 	return &model.BatchImportResult{
-		Imported: imported,
-		Skipped:  skipped,
+		Imported:        imported,
+		Updated:         updated,
+		Skipped:         skipped,
+		ConflictSummary: conflictSummary,
 	}, nil
 }
 
@@ -717,4 +800,40 @@ func copyFile(src, dst string, mode os.FileMode) error {
 
 	_, err = io.Copy(dstFile, srcFile)
 	return err
+}
+
+// updateSkillFiles 更新 Skill 文件目录（清空原目录，复制新文件）
+func (s *SkillScanner) updateSkillFiles(srcDir, dstDir string) error {
+	// 检查源目录是否存在
+	srcInfo, err := os.Stat(srcDir)
+	if err != nil {
+		return fmt.Errorf("源目录不存在: %w", err)
+	}
+	if !srcInfo.IsDir() {
+		return fmt.Errorf("源路径不是目录: %s", srcDir)
+	}
+
+	// 清空目标目录（保留目录本身）
+	entries, err := os.ReadDir(dstDir)
+	if err != nil {
+		// 如果目录不存在，创建它
+		if os.IsNotExist(err) {
+			if err := os.MkdirAll(dstDir, 0755); err != nil {
+				return fmt.Errorf("创建目标目录失败: %w", err)
+			}
+		} else {
+			return fmt.Errorf("读取目标目录失败: %w", err)
+		}
+	} else {
+		// 删除目录内的所有内容
+		for _, entry := range entries {
+			path := filepath.Join(dstDir, entry.Name())
+			if err := os.RemoveAll(path); err != nil {
+				return fmt.Errorf("清理目标目录失败: %w", err)
+			}
+		}
+	}
+
+	// 复制新文件到目标目录
+	return s.copySkillDirectory(srcDir, dstDir)
 }
