@@ -2,6 +2,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use crate::store::AppState;
+use crate::services::service_manager::ServiceManager;
+use crate::services::config::read_existing_config;
 
 // Global guard to prevent double-click race condition
 static CLOSE_PENDING: AtomicBool = AtomicBool::new(false);
@@ -73,6 +75,54 @@ pub async fn window_close_with_confirm(
         return Ok(CloseResult::AllowClose);
     }
 
+    // Service is running - check for running agents first
+    let install_dir = state.get_install_dir();
+    let agent_count = if let Some(dir) = install_dir {
+        // Get port from config
+        let port = read_existing_config(&dir)
+            .map(|(p, _)| p)
+            .unwrap_or(26305);
+
+        // Check running agents
+        let manager = ServiceManager::new(dir);
+        match manager.get_running_agents(port).await {
+            Ok(agents) => agents.len(),
+            Err(e) => {
+                // API failure - log warning, treat as no agents (conservative)
+                log::warn!("Failed to check running agents: {}", e);
+                0
+            }
+        }
+    } else {
+        0
+    };
+
+    // If agents are running, show dialog and block close
+    if agent_count > 0 {
+        let app_for_dialog = app.clone();
+
+        tauri::async_runtime::spawn_blocking(move || {
+            app_for_dialog.dialog()
+                .message(format!("有 {} 个 Agent 实例正在运行，请先在 Web 控制台停止后才能关闭窗口。", agent_count))
+                .title("无法关闭")
+                .kind(tauri_plugin_dialog::MessageDialogKind::Warning)
+                .buttons(tauri_plugin_dialog::MessageDialogButtons::OkCancelCustom(
+                    "取消".to_string(),
+                    "".to_string()  // Single button mode
+                ))
+                .blocking_show()
+        })
+        .await
+        .map_err(|e| {
+            CLOSE_PENDING.store(false, Ordering::SeqCst);
+            e.to_string()
+        })?;
+
+        CLOSE_PENDING.store(false, Ordering::SeqCst);
+        return Ok(CloseResult::BlockClose);
+    }
+
+    // No agents running - proceed with original service confirmation flow
     // Clone app for use in blocking thread and for potential error dialog
     let app_for_dialog = app.clone();
     let app_for_error = app.clone();

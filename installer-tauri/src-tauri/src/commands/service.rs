@@ -1,5 +1,6 @@
 use crate::store::AppState;
 use crate::services::service_manager::{ServiceManager, RunningAgentInstance};
+use crate::services::config::read_existing_config;
 use tauri::State;
 
 /// Start service
@@ -38,6 +39,39 @@ pub async fn start_service(
 pub async fn stop_service(
     state: State<'_, AppState>,
 ) -> Result<serde_json::Value, String> {
+    // Get install_dir for agent check
+    let install_dir = state.get_install_dir();
+
+    // Defensive check: verify no agents are running before stopping
+    if let Some(dir) = install_dir {
+        let port = read_existing_config(&dir)
+            .map(|(p, _)| p)
+            .unwrap_or(26305);
+
+        let manager = ServiceManager::new(dir);
+        match manager.get_running_agents(port).await {
+            Ok(agents) if !agents.is_empty() => {
+                // Agents running - block stop and return error
+                let count = agents.len();
+                log::warn!("Cannot stop service: {} agent instances running", count);
+                return Ok(serde_json::json!({
+                    "success": false,
+                    "error": format!("有 {} 个 Agent 实例正在运行，请先在 Web 控制台停止", count),
+                    "agentCount": count
+                }));
+            }
+            Ok(_) => {
+                // No agents - proceed with stop
+                log::info!("No agents running, proceeding with service stop");
+            }
+            Err(e) => {
+                // API failure - log warning, proceed with stop (conservative)
+                log::warn!("Failed to check running agents before stop: {}", e);
+            }
+        }
+    }
+
+    // Stop service
     {
         let service_guard = state.service_manager.read().unwrap();
         if let Some(manager) = service_guard.as_ref() {
