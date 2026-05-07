@@ -1253,13 +1253,8 @@ const SkillLibrary: React.FC = () => {
               dataSource={scanResult.skills}
               renderItem={(skill) => (
                 <List.Item
-                  style={{
-                    opacity: skill.existsLocally ? 0.5 : 1,
-                    background: skill.existsLocally ? 'var(--ant-color-bg-container-disabled)' : undefined,
-                  }}
                 >
                   <Checkbox
-                    disabled={skill.existsLocally}
                     checked={selectedRemoteSkills.some(s => s.name === skill.name)}
                     onChange={(e) => {
                       if (e.target.checked) {
@@ -1271,7 +1266,11 @@ const SkillLibrary: React.FC = () => {
                   >
                     <div>
                       <Text strong>{skill.name}</Text>
-                      {skill.existsLocally && <Tag color="default" style={{ marginLeft: 8 }}>已存在本地</Tag>}
+                      {skill.existsLocally && skill.localSkill && (
+                        <Tag color={getSourceTypeColor(skill.localSkill.sourceType as SkillSourceType)} style={{ marginLeft: 8 }}>
+                          来自: {skill.localSkill.sourceRegistryName || getSourceTypeLabel(skill.localSkill.sourceType as SkillSourceType)}
+                        </Tag>
+                      )}
                       <br />
                       <Text type="secondary" style={{ fontSize: 12 }}>{skill.description || '暂无描述'}</Text>
                     </div>
