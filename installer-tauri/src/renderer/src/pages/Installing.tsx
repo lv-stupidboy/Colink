@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Progress, Button, Tag, Alert, message, Space } from 'antd';
 import { CheckCircleOutlined, LoadingOutlined, CloseCircleOutlined, RightOutlined, WarningOutlined } from '@ant-design/icons';
 import { installApi, modeApi } from '../../../lib/api';
@@ -107,31 +107,30 @@ const Installing: React.FC<InstallingProps> = ({
   const [isStarting, setIsStarting] = useState(true);
   const [eventListenerReady, setEventListenerReady] = useState(false);
   const [progressReceived, setProgressReceived] = useState<string[]>([]);
-  const [version, setVersion] = useState<string>('1.0.0');
+  const [version, setVersion] = useState<string | null>(null);
+  const [versionError, setVersionError] = useState<string | null>(null);
+  const installationStartedRef = useRef(false); // 防止重复启动安装
 
-  // Get version on mount
+  // useEffect 1: 获取版本（只在挂载时执行）
   useEffect(() => {
     modeApi.getVersion().then(v => {
       console.log('[Installing] Got version:', v);
       setVersion(v);
     }).catch(e => {
-      console.warn('[Installing] Failed to get version:', e);
-      setVersion('1.0.0');
+      console.error('[Installing] Failed to get version:', e);
+      setVersionError(e);
     });
   }, []);
 
+  // useEffect 2: 设置事件监听器（独立 useEffect，只注册一次）
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     let isMounted = true;
 
-    console.log('[Installing] useEffect running, config:', config);
-    console.log('[Installing] installType:', installType);
-    console.log('[Installing] oldInstallDir:', oldInstallDir);
+    console.log('[Installing] Setting up event listener (independent useEffect)');
 
-    // 直接使用 listen API
     const setupListener = async () => {
       try {
-        console.log('[Installing] Setting up event listener...');
         const { listen } = await import('@tauri-apps/api/event');
 
         unlisten = await listen<InstallProgress>('install-progress', (event) => {
@@ -143,13 +142,10 @@ const Installing: React.FC<InstallingProps> = ({
           }
 
           console.log('[Install Progress] Received:', progress);
-          console.log('[Install Progress] step:', progress.step, 'status:', progress.status);
-
           setProgressReceived(prev => [...prev, `${progress.step}:${progress.status}`]);
 
           setSteps(prev => prev.map(s => {
             if (s.step === progress.step) {
-              console.log('[Install Progress] Updating step:', s.step);
               return {
                 ...s,
                 status: progress.status as any,
@@ -164,15 +160,12 @@ const Installing: React.FC<InstallingProps> = ({
           }));
 
           if (progress.status === 'failed') {
-            console.log('[Install Progress] Step failed:', progress.step, progress.message);
             setInstallError(progress.message || `${progress.step} 失败`);
             setFailedStep(progress.step);
             setIsStarting(false);
           }
 
-          // registry 成功时完成
           if (progress.status === 'success' && progress.step === 'registry') {
-            console.log('[Install Progress] Installation complete!');
             setInstallComplete(true);
             setIsStarting(false);
           }
@@ -180,47 +173,6 @@ const Installing: React.FC<InstallingProps> = ({
 
         console.log('[Installing] Event listener set up successfully');
         setEventListenerReady(true);
-
-        // 事件监听设置好后，再启动安装
-        if (!isRetrying && isMounted) {
-          const installParams = {
-            installDir: config.installDir,
-            installMode: installType === 'upgrade' ? 'upgrade' : installType === 'reinstall' ? 'reinstall' : 'install',
-            installType: installType, // Pass install type to backend
-            oldInstallDir: installType === 'reinstall' ? oldInstallDir : undefined,
-            keepData: config.keepData,
-            database: config.database || { type: 'sqlite' },
-            serverPort: config.serverPort || 26305,
-            webPort: config.webPort || 26306,
-            createShortcut: config.createShortcut,
-            newVersion: version,
-            configYaml: config.configYaml,
-          };
-          console.log('[Installing] Starting installation with params:', installParams);
-
-          try {
-            const result = await installApi.startInstallation(installParams);
-            if (!isMounted) return;
-
-            console.log('[Installing] Installation result:', result);
-            setIsStarting(false);
-
-            if (!result.success) {
-              console.log('[Installing] Installation failed:', result.error);
-              setInstallError(result.error || '安装失败');
-              message.error(result.error || '安装失败');
-            }
-          } catch (installErr) {
-            if (!isMounted) return;
-            console.error('[Installing] Installation API error:', installErr);
-            setIsStarting(false);
-            const errorMsg = installErr instanceof Error ? installErr.message : String(installErr);
-            setInstallError(errorMsg);
-            message.error(errorMsg);
-          }
-        } else {
-          console.log('[Installing] Skipping installation start:', { isRetrying, isMounted });
-        }
       } catch (err) {
         console.error('[Installing] Failed to set up event listener:', err);
         const errorMsg = err instanceof Error ? err.message : String(err);
@@ -232,11 +184,82 @@ const Installing: React.FC<InstallingProps> = ({
     setupListener();
 
     return () => {
-      console.log('[Installing] useEffect cleanup');
+      console.log('[Installing] Event listener cleanup');
       isMounted = false;
       unlisten?.();
     };
-  }, [config, isRetrying, installType, oldInstallDir, version]);
+  }, []); // 空依赖数组，监听器只注册一次
+
+  // 从 config 提取原始值，避免对象引用导致 useEffect 重复执行
+  const configInstallDir = config.installDir;
+  const configKeepData = config.keepData;
+  const configDatabaseType = config.database?.type || 'sqlite';
+  const configServerPort = config.serverPort || 26305;
+  const configWebPort = config.webPort || 26306;
+  const configCreateShortcut = config.createShortcut;
+  const configConfigYaml = config.configYaml;
+
+  // useEffect 3: 启动安装（依赖 version 和 eventListenerReady，用 ref 防止重复）
+  useEffect(() => {
+    // 检查条件
+    if (versionError) {
+      console.error('[Installing] Version error, not starting installation:', versionError);
+      setInstallError('无法获取版本信息：' + versionError + '。请检查安装包完整性。');
+      setIsStarting(false);
+      return;
+    }
+    if (!version) {
+      console.log('[Installing] Version not loaded yet, waiting...');
+      return;
+    }
+    if (!eventListenerReady) {
+      console.log('[Installing] Event listener not ready, waiting...');
+      return;
+    }
+    if (isRetrying) {
+      console.log('[Installing] In retry mode, skipping auto start');
+      return;
+    }
+    // 防止重复启动（StrictMode 双重执行或 version 变化）
+    if (installationStartedRef.current) {
+      console.log('[Installing] Installation already started, skipping duplicate call');
+      return;
+    }
+    installationStartedRef.current = true;
+
+    console.log('[Installing] Starting installation with version:', version);
+
+    const installParams = {
+      installDir: configInstallDir,
+      installMode: installType === 'upgrade' ? 'upgrade' : installType === 'reinstall' ? 'reinstall' : 'install',
+      installType: installType,
+      oldInstallDir: installType === 'reinstall' ? oldInstallDir : undefined,
+      keepData: configKeepData,
+      database: { type: configDatabaseType },
+      serverPort: configServerPort,
+      webPort: configWebPort,
+      createShortcut: configCreateShortcut,
+      newVersion: version,
+      configYaml: configConfigYaml,
+    };
+    console.log('[Installing] Install params:', installParams);
+
+    installApi.startInstallation(installParams).then(result => {
+      console.log('[Installing] Installation result:', result);
+      setIsStarting(false);
+
+      if (!result.success) {
+        setInstallError(result.error || '安装失败');
+        message.error(result.error || '安装失败');
+      }
+    }).catch(err => {
+      console.error('[Installing] Installation API error:', err);
+      setIsStarting(false);
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      setInstallError(errorMsg);
+      message.error(errorMsg);
+    });
+  }, [version, versionError, eventListenerReady, isRetrying, configInstallDir, installType, oldInstallDir, configKeepData, configDatabaseType, configServerPort, configWebPort, configCreateShortcut, configConfigYaml]);
 
   // 监控状态变化
   useEffect(() => {
@@ -252,6 +275,14 @@ const Installing: React.FC<InstallingProps> = ({
   // 重试安装
   const handleRetry = async () => {
     console.log('Retrying installation...');
+
+    // 检查版本是否可用
+    if (versionError || !version) {
+      console.error('[Installing] Cannot retry - version not available');
+      message.error('无法获取版本信息，请重新下载安装包');
+      return;
+    }
+
     setIsRetrying(true);
     setInstallError(null);
     setFailedStep(null);
@@ -352,6 +383,7 @@ const Installing: React.FC<InstallingProps> = ({
       {/* 调试信息 - 仅在安装过程中显示 */}
       {isStarting && !installError && !installComplete && (
         <div style={{ marginBottom: 16, padding: 12, background: '#f5f5f5', borderRadius: 8, fontSize: 12 }}>
+          <div style={{ marginBottom: 4 }}>版本: {version || '加载中...'}</div>
           <div style={{ marginBottom: 4 }}>事件监听器: {eventListenerReady ? '✓ 已就绪' : '⏳ 设置中...'}</div>
           <div style={{ marginBottom: 4 }}>安装启动: {isStarting ? '⏳ 正在启动...' : '✓ 已启动'}</div>
           <div style={{ marginBottom: 4 }}>收到进度事件: {progressReceived.length} 个</div>

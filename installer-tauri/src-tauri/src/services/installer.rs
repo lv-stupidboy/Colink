@@ -779,16 +779,18 @@ where
     // Copy VERSION file to install directory
     let version_src = resources_base.join("VERSION");
     let version_dest = install_dir.join("VERSION");
-    if version_src.exists() {
-        std::fs::copy(&version_src, &version_dest)
-            .map_err(|e| InstallerError::Io {
-                context: "copy VERSION file".to_string(),
-                source: e,
-            })?;
-        log::info!("Copied VERSION file to {:?}", version_dest);
-    } else {
-        log::warn!("VERSION file not found at {:?}, using default version in registry", version_src);
+    if !version_src.exists() {
+        return Err(InstallerError::Io {
+            context: "VERSION file not found in resources".to_string(),
+            source: std::io::Error::new(std::io::ErrorKind::NotFound, version_src.to_string_lossy().to_string()),
+        });
     }
+    std::fs::copy(&version_src, &version_dest)
+        .map_err(|e| InstallerError::Io {
+            context: "copy VERSION file".to_string(),
+            source: e,
+        })?;
+    log::info!("Copied VERSION file to {:?}", version_dest);
 
     emit_progress(&InstallProgress {
         step: "launcher".to_string(),
@@ -985,7 +987,8 @@ where
         details: None,
     });
 
-    let version = config.new_version.clone().unwrap_or_else(|| "1.0.0".to_string());
+    let version = config.new_version.clone()
+        .ok_or_else(|| InstallerError::Config("new_version not provided".to_string()))?;
     write_registry(&config.install_dir, &version)?;
 
     emit_progress(&InstallProgress {

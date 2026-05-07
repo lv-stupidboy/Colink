@@ -85,6 +85,5 @@ pub fn get_version(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<
         }
     }
 
-    log::warn!("VERSION file not found, using default 1.0.0");
-    Ok("1.0.0".to_string()) // Default version
+    Err("VERSION file not found".to_string())
 }
