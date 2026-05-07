@@ -150,14 +150,17 @@ const LauncherDashboard: React.FC = () => {
   };
 
   const handleStop = async () => {
-    if (agentCount > 0) {
-      message.warning('有 Agent 实例正在运行，请先在 Web 控制台停止');
-      return;
-    }
     setStoppingService(true);
     try {
-      await serviceApi.stop();
-      await checkStatus();
+      const result = await serviceApi.stop();
+      if (!result.success && result.error) {
+        Modal.warning({
+          title: '无法停止服务',
+          content: result.error,
+        });
+      } else {
+        await checkStatus();
+      }
     } catch (err) {
       console.error('Failed to stop service:', err);
       message.error('停止服务失败');

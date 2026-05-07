@@ -6,7 +6,7 @@ export const serviceApi = {
     return invoke('start_service');
   },
 
-  stop: async (): Promise<{ success: boolean }> => {
+  stop: async (): Promise<{ success: boolean; error?: string; agentCount?: number }> => {
     return invoke('stop_service');
   },
 
