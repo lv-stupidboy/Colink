@@ -257,6 +257,101 @@ func (s *RegistryService) SyncPreview(ctx context.Context, id uuid.UUID) (*model
 	return result, nil
 }
 
+// SyncConfirm 同步确认（执行用户选择的更新操作）
+func (s *RegistryService) SyncConfirm(ctx context.Context, id uuid.UUID, req *model.SyncConfirmRequest) (*model.SyncConfirmResult, error) {
+	registry, err := s.registryRepo.FindByID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("注册表不存在: %w", err)
+	}
+
+	result := &model.SyncConfirmResult{}
+
+	// 扫描联邦源获取 skills 信息
+	var remoteSkills []*RemoteSkill
+	switch registry.Type {
+	case model.RegistryTypeGitHub:
+		remoteSkills, err = s.syncFromGitHub(ctx, registry)
+	case model.RegistryTypeGitLab:
+		remoteSkills, err = s.syncFromGitLab(ctx, registry)
+	case model.RegistryTypeAPI:
+		remoteSkills, err = s.syncFromAPI(ctx, registry)
+	case model.RegistryTypeCustom, model.RegistryTypeCodeHub:
+		remoteSkills, err = s.syncFromGitRepo(ctx, registry)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("扫描联邦源失败: %w", err)
+	}
+
+	// 创建 remoteSkills 的 name -> skill 映射
+	remoteSkillMap := make(map[string]*RemoteSkill)
+	for _, skill := range remoteSkills {
+		remoteSkillMap[skill.Name] = skill
+	}
+
+	// 执行自动更新（同源同名）
+	for _, skill := range remoteSkills {
+		existing, err := s.skillRepo.FindByName(ctx, skill.Name)
+		if err != nil {
+			continue // 不存在，跳过
+		}
+		if existing.SourceRegistryID == registry.ID {
+			// 同源，自动更新
+			existing.Description = skill.Description
+			existing.Tags = skill.Tags
+			existing.SupportedAgents = skill.SupportedAgents
+			existing.UpdatedAt = time.Now()
+			if err := s.skillRepo.Update(ctx, existing); err != nil {
+				continue
+			}
+			result.AutoUpdated++
+		}
+	}
+
+	// 执行用户选择的操作
+	for _, op := range req.Operations {
+		switch op.Action {
+		case "update":
+			existing, err := s.skillRepo.FindByID(ctx, op.TargetSkillID)
+			if err != nil {
+				result.Skipped = append(result.Skipped, &model.SkippedSkill{Name: op.SkillName})
+				continue
+			}
+			// 获取远程 skill 信息
+			remoteSkill := remoteSkillMap[op.SkillName]
+			if remoteSkill == nil {
+				result.Skipped = append(result.Skipped, &model.SkippedSkill{Name: op.SkillName})
+				continue
+			}
+			// 更新元数据
+			existing.Description = op.Description
+			if len(remoteSkill.Tags) > 0 {
+				existing.Tags = remoteSkill.Tags
+			}
+			if len(remoteSkill.SupportedAgents) > 0 {
+				existing.SupportedAgents = remoteSkill.SupportedAgents
+			}
+			existing.SourceType = model.SkillSourceFederated
+			existing.SourceRegistryID = registry.ID
+			existing.UpdatedAt = time.Now()
+			if err := s.skillRepo.Update(ctx, existing); err != nil {
+				result.Skipped = append(result.Skipped, &model.SkippedSkill{Name: op.SkillName})
+				continue
+			}
+			result.Updated = append(result.Updated, existing)
+			result.UserUpdated++
+		case "skip":
+			result.Skipped = append(result.Skipped, &model.SkippedSkill{Name: op.SkillName})
+			result.UserSkipped++
+		}
+	}
+
+	// 更新同步状态
+	s.registryRepo.UpdateSyncStatus(ctx, id, model.RegistrySyncSuccess, result.AutoUpdated+result.UserUpdated)
+
+	return result, nil
+}
+
 // RemoteSkill 远程技能结构
 type RemoteSkill struct {
 	Name            string   `json:"name"`
