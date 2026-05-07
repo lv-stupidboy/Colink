@@ -1284,12 +1284,22 @@ export interface UpdateMarketRequest {
 
 // ========== 联邦源导入相关类型 ==========
 
+// 本地同名 Skill 信息（用于冲突展示）
+export interface LocalSkillInfo {
+  id: string;
+  sourceType: SkillSourceType;
+  sourceRegistryId?: string;
+  sourceRegistryName?: string; // 联邦源名称（如果是 federated）
+  description: string;
+}
+
 // 远程 Skill 信息（扫描结果）
 export interface RemoteSkill {
   name: string;
   description: string;
   path: string;          // Skill 在仓库中的相对路径
   existsLocally: boolean; // 是否已存在本地同名 Skill
+  localSkill?: LocalSkillInfo; // 本地同名 Skill 信息
 }
 
 // 扫描结果
@@ -1307,6 +1317,8 @@ export interface SkillImportItem {
   description: string;
   tags: string[];
   supportedAgents: string[];
+  importMode?: 'create' | 'update'; // 导入模式（默认 create）
+  targetSkillId?: string;           // update 时指定目标 Skill ID
 }
 
 // 批量导入请求
@@ -1318,7 +1330,16 @@ export interface BatchImportRequest {
 // 批量导入结果
 export interface BatchImportResult {
   imported: Skill[];
+  updated: Skill[];     // 更新的 Skill 列表
   skipped: SkippedSkillInfo[];
+  conflictSummary?: ConflictSummary; // 冲突处理汇总
+}
+
+// 冲突处理汇总
+export interface ConflictSummary {
+  autoUpdated: number; // 自动更新的数量（同源）
+  userCreated: number; // 用户选择新建的数量
+  userUpdated: number; // 用户选择更新的数量
 }
 
 // 跳过的 Skill 信息
