@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Button, Input } from 'antd'
 import { FolderOpenOutlined } from '@ant-design/icons'
 import { InstallConfig, InstalledVersion } from '../types'
@@ -12,16 +12,53 @@ interface DirectorySelectProps {
 }
 
 export default function DirectorySelect({ config, onConfigUpdate, onValidationChange }: DirectorySelectProps) {
-  // 始终允许继续，无需验证磁盘空间
-  useEffect(() => {
+  const [freeSpace, setFreeSpace] = useState<number>(0)
+
+  // 获取磁盘空间（不阻止用户继续）
+  const checkDiskSpace = async (path: string) => {
+    if (!path || path.trim() === '') {
+      setFreeSpace(0)
+      onValidationChange?.(true)
+      return
+    }
+
+    // 提取驱动器字母
+    const normalizedPath = path.replace(/\//g, '\\')
+    const windowsPathRegex = /^[A-Za-z]:\\/
+    if (!windowsPathRegex.test(normalizedPath)) {
+      setFreeSpace(0)
+      onValidationChange?.(true)
+      return
+    }
+
+    const drive = normalizedPath.substring(0, 2).toUpperCase()
+
+    try {
+      const result = await window.electronAPI.getDiskSpace(drive)
+      setFreeSpace(result.free)
+    } catch {
+      setFreeSpace(0)
+    }
+
+    // 始终允许继续
     onValidationChange?.(true)
-  }, [onValidationChange])
+  }
+
+  useEffect(() => {
+    checkDiskSpace(config.installDir)
+  }, [config.installDir])
 
   const handleBrowse = async () => {
     const result = await window.electronAPI.selectDirectory()
     if (result) {
       onConfigUpdate({ installDir: result })
     }
+  }
+
+  const formatSize = (bytes: number) => {
+    if (bytes === 0) return '未知'
+    const gb = bytes / (1024 * 1024 * 1024)
+    return `${gb.toFixed(1)} GB`
   }
 
   return (
@@ -46,6 +83,11 @@ export default function DirectorySelect({ config, onConfigUpdate, onValidationCh
         <div style={{ color: '#999', fontSize: 12, marginTop: 8 }}>
           目录不存在时将自动创建
         </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 40, color: '#666', fontSize: 14 }}>
+        <span>所需空间：约 500 MB</span>
+        <span>可用空间：{formatSize(freeSpace)}</span>
       </div>
     </div>
   )
