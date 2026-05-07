@@ -179,6 +179,84 @@ func (s *RegistryService) Sync(ctx context.Context, id uuid.UUID) (*model.SyncRe
 	return result, nil
 }
 
+// SyncPreview 同步预览（返回冲突情况，不执行更新）
+func (s *RegistryService) SyncPreview(ctx context.Context, id uuid.UUID) (*model.SyncPreviewResult, error) {
+	registry, err := s.registryRepo.FindByID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("注册表不存在: %w", err)
+	}
+
+	// 扫描联邦源 skills（复用现有扫描逻辑）
+	var remoteSkills []*RemoteSkill
+	switch registry.Type {
+	case model.RegistryTypeGitHub:
+		remoteSkills, err = s.syncFromGitHub(ctx, registry)
+	case model.RegistryTypeGitLab:
+		remoteSkills, err = s.syncFromGitLab(ctx, registry)
+	case model.RegistryTypeAPI:
+		remoteSkills, err = s.syncFromAPI(ctx, registry)
+	case model.RegistryTypeCustom, model.RegistryTypeCodeHub:
+		remoteSkills, err = s.syncFromGitRepo(ctx, registry)
+	default:
+		err = fmt.Errorf("不支持的注册表类型: %s", registry.Type)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("扫描联邦源失败: %w", err)
+	}
+
+	result := &model.SyncPreviewResult{
+		RegistryID:   registry.ID,
+		RegistryName: registry.Name,
+	}
+
+	// 分析冲突情况
+	for _, remoteSkill := range remoteSkills {
+		existing, err := s.skillRepo.FindByName(ctx, remoteSkill.Name)
+		if err != nil {
+			// 本地无同名 → newSkills（手动同步跳过）
+			result.NewSkills = append(result.NewSkills, &model.RemoteSkill{
+				Name:        remoteSkill.Name,
+				Description: remoteSkill.Description,
+				Path:        "",
+			})
+			continue
+		}
+
+		// 本地有同名，检查来源
+		if existing.SourceRegistryID == registry.ID {
+			// 同源 → autoUpdateSkills
+			result.AutoUpdateSkills = append(result.AutoUpdateSkills, &model.SyncPreviewSkill{
+				Name:         remoteSkill.Name,
+				LocalSkillID: existing.ID,
+				Description:  remoteSkill.Description,
+			})
+		} else {
+			// 异源 → conflictSkills
+			conflictSkill := &model.SyncConflictSkill{
+				Name:        remoteSkill.Name,
+				Description: remoteSkill.Description,
+				LocalSkill: &model.LocalSkillInfo{
+					ID:          existing.ID,
+					SourceType:  string(existing.SourceType),
+					Description: existing.Description,
+				},
+			}
+			// 如果本地是 federated，查询联邦源名称
+			if existing.SourceType == model.SkillSourceFederated && existing.SourceRegistryID != uuid.Nil {
+				sourceRegistry, _ := s.registryRepo.FindByID(ctx, existing.SourceRegistryID)
+				if sourceRegistry != nil {
+					conflictSkill.LocalSkill.SourceRegistryID = existing.SourceRegistryID
+					conflictSkill.LocalSkill.SourceRegistryName = sourceRegistry.Name
+				}
+			}
+			result.ConflictSkills = append(result.ConflictSkills, conflictSkill)
+		}
+	}
+
+	return result, nil
+}
+
 // RemoteSkill 远程技能结构
 type RemoteSkill struct {
 	Name            string   `json:"name"`
