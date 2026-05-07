@@ -73,6 +73,9 @@ import type {
   ScanResult,
   BatchImportRequest,
   BatchImportResult,
+  SyncPreviewResult,
+  SyncConfirmRequest,
+  SyncConfirmResult,
 } from '@/types';
 import {
   transformProjects,
@@ -543,6 +546,10 @@ class APIClient {
       this.request(`/registries/${id}`, 'DELETE'),
     sync: (id: string): Promise<SyncResult> =>
       this.request(`/registries/${id}/sync`, 'POST'),
+    syncPreview: (id: string): Promise<SyncPreviewResult> =>
+      this.request(`/registries/${id}/sync-preview`, 'POST'),
+    syncConfirm: (id: string, request: SyncConfirmRequest): Promise<SyncConfirmResult> =>
+      this.request(`/registries/${id}/sync-confirm`, 'POST', request),
     syncAll: (): Promise<{ message: string; results: SyncResult[] }> =>
       this.request('/registries/sync', 'POST'),
   };
