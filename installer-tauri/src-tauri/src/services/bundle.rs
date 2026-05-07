@@ -102,6 +102,7 @@ pub fn create_app_bundle(
 fn copy_exe_without_extension(src: PathBuf, dest: PathBuf) -> Result<()> {
     // Windows build: src has .exe suffix
     // Mac build: src may not have suffix
+    let src_display = src.display().to_string();
     let actual_src = if src.exists() {
         src
     } else {
@@ -117,7 +118,7 @@ fn copy_exe_without_extension(src: PathBuf, dest: PathBuf) -> Result<()> {
         // Set executable permission (chmod +x)
         set_executable_permission(&dest)?;
     } else {
-        log::warn!("Executable not found at {} or {}", src.display(), actual_src.display());
+        log::warn!("Executable not found at {} or {}", src_display, actual_src.display());
     }
     Ok(())
 }

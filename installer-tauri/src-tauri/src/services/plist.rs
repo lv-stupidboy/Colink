@@ -118,7 +118,7 @@ pub fn write_install_plist(install_dir: &str, data_dir: &str, version: &str) -> 
         chrono::Local::now().format("%Y-%m-%d").to_string()
     ));
 
-    plist::to_file(&plist_path, &plist::Value::Dictionary(plist_dict)).map_err(|e| InstallerError::Io {
+    plist::Value::Dictionary(plist_dict).to_file_xml(&plist_path).map_err(|e| InstallerError::Io {
         context: "write install plist".to_string(),
         source: std::io::Error::new(std::io::ErrorKind::Other, e),
     })?;
