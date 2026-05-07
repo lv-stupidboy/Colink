@@ -206,8 +206,12 @@ func (s *RegistryService) SyncPreview(ctx context.Context, id uuid.UUID) (*model
 	}
 
 	result := &model.SyncPreviewResult{
-		RegistryID:   registry.ID,
-		RegistryName: registry.Name,
+		RegistryID:       registry.ID,
+		RegistryName:     registry.Name,
+		AutoUpdateSkills: []*model.SyncPreviewSkill{},
+		ConflictSkills:   []*model.SyncConflictSkill{},
+		NewSkills:        []*model.RemoteSkill{},
+		SkippedSkills:    []*model.RemoteSkill{},
 	}
 
 	// 分析冲突情况

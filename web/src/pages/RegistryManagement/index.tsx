@@ -152,7 +152,7 @@ const RegistryManagement: React.FC = () => {
       const preview = await api.registries.syncPreview(id);
 
       // 分析冲突情况
-      if (preview.conflictSkills.length === 0) {
+      if ((preview.conflictSkills?.length ?? 0) === 0) {
         // 无冲突，直接执行同步（调用原有 sync API）
         const result = await api.registries.sync(id);
         if (result.error) {
