@@ -71,6 +71,11 @@ const ConfigEditorModal: React.FC<ConfigEditorModalProps> = ({
     }
   };
 
+  const handleCloseRestartModal = () => {
+    setRestartModalVisible(false);
+    onCancel(); // Close main modal
+  };
+
   const handleRestart = async () => {
     setRestartModalVisible(false);
     try {
@@ -93,6 +98,7 @@ const ConfigEditorModal: React.FC<ConfigEditorModalProps> = ({
       }
 
       message.success('服务已重启');
+      onCancel(); // Close main modal after successful restart
       onRestartRequired?.();
     } catch (err) {
       message.error(err instanceof Error ? err.message : '重启服务失败');
@@ -151,9 +157,9 @@ const ConfigEditorModal: React.FC<ConfigEditorModalProps> = ({
       <Modal
         title="配置已更新"
         open={restartModalVisible}
-        onCancel={() => setRestartModalVisible(false)}
+        onCancel={handleCloseRestartModal}
         footer={[
-          <Button key="close" onClick={() => setRestartModalVisible(false)}>
+          <Button key="close" onClick={handleCloseRestartModal}>
             关闭
           </Button>,
           <Button key="restart" type="primary" onClick={handleRestart}>
