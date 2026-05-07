@@ -145,6 +145,49 @@ func (h *RegistryHandler) Sync(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
+// SyncPreview 同步预览
+func (h *RegistryHandler) SyncPreview(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的注册表 ID"})
+		return
+	}
+
+	result, err := h.registrySvc.SyncPreview(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
+// SyncConfirm 同步确认
+func (h *RegistryHandler) SyncConfirm(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的注册表 ID"})
+		return
+	}
+
+	var req model.SyncConfirmRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 确保 RegistryID 与 URL 参数一致
+	req.RegistryID = id
+
+	result, err := h.registrySvc.SyncConfirm(c.Request.Context(), id, &req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
 // SyncAll 同步所有注册表
 func (h *RegistryHandler) SyncAll(c *gin.Context) {
 	results, err := h.registrySvc.SyncAll(c.Request.Context())
@@ -169,6 +212,8 @@ func (h *RegistryHandler) RegisterRoutes(r *gin.RouterGroup) {
 		registries.PUT("/:id", h.Update)
 		registries.DELETE("/:id", h.Delete)
 		registries.POST("/:id/sync", h.Sync)
+			registries.POST("/:id/sync-preview", h.SyncPreview)
+			registries.POST("/:id/sync-confirm", h.SyncConfirm)
 		registries.POST("/sync", h.SyncAll)
 	}
 }
