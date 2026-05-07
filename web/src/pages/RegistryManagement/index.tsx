@@ -15,6 +15,8 @@ import {
   Tooltip,
   Badge,
   Radio,
+  Checkbox,
+  List,
 } from 'antd';
 import {
   PlusOutlined,
@@ -158,7 +160,7 @@ const RegistryManagement: React.FC = () => {
         if (result.error) {
           message.error(`同步失败: ${result.error}`);
         } else {
-          message.success(`同步完成：自动更新 ${preview.autoUpdateSkills.length} 个，跳过 ${preview.newSkills.length} 个新 skill`);
+          message.success(`同步完成：更新 ${preview.autoUpdateSkills.length} 个`);
           loadRegistries();
         }
       } else {
@@ -180,13 +182,6 @@ const RegistryManagement: React.FC = () => {
   const handleConfirmConflict = async () => {
     if (!syncPreview || !syncingRegistryId) return;
 
-    // 检查是否所有冲突项都已选择
-    const unselected = syncPreview.conflictSkills.filter(s => !conflictChoices[s.name]);
-    if (unselected.length > 0) {
-      message.error(`以下 Skill 未选择操作：${unselected.map(s => s.name).join(', ')}`);
-      return;
-    }
-
     setConflictModalVisible(false);
     setSyncingId(syncingRegistryId);
 
@@ -194,7 +189,7 @@ const RegistryManagement: React.FC = () => {
       // 构建同步确认请求
       const operations: SyncOperation[] = [];
       for (const skill of syncPreview.conflictSkills) {
-        const choice = conflictChoices[skill.name];
+        const choice = conflictChoices[skill.name] || 'skip'; // 默认跳过
         operations.push({
           action: choice,
           skillName: skill.name,
@@ -209,18 +204,7 @@ const RegistryManagement: React.FC = () => {
       });
 
       // 显示结果汇总
-      let successMsg = `同步完成：自动更新 ${result.autoUpdated} 个`;
-      if (result.userUpdated > 0) {
-        successMsg += `，更新 ${result.userUpdated} 个`;
-      }
-      if (result.userSkipped > 0) {
-        successMsg += `，跳过 ${result.userSkipped} 个`;
-      }
-      message.success(successMsg);
-
-      if (result.skipped.length > 0) {
-        message.warning(`跳过 ${result.skipped.length} 个失败项：${result.skipped.map(s => s.name).join(', ')}`);
-      }
+      message.success(`同步完成：更新 ${result.autoUpdated + result.userUpdated} 个`);
 
       loadRegistries();
     } catch (error: any) {
@@ -230,22 +214,6 @@ const RegistryManagement: React.FC = () => {
       setSyncPreview(null);
       setSyncingRegistryId(null);
     }
-  };
-
-  // 全部更新
-  const handleAllUpdate = () => {
-    if (!syncPreview) return;
-    const choices: Record<string, 'update'> = {};
-    syncPreview.conflictSkills.forEach(s => choices[s.name] = 'update');
-    setConflictChoices(choices);
-  };
-
-  // 全部跳过
-  const handleAllSkip = () => {
-    if (!syncPreview) return;
-    const choices: Record<string, 'skip'> = {};
-    syncPreview.conflictSkills.forEach(s => choices[s.name] = 'skip');
-    setConflictChoices(choices);
   };
 
   const handleSyncAll = async () => {
@@ -518,19 +486,13 @@ const RegistryManagement: React.FC = () => {
         width={800}
         footer={[
           <Button key="cancel" onClick={() => setConflictModalVisible(false)}>取消</Button>,
-          <Button key="all-skip" onClick={handleAllSkip}>
-            全部跳过
-          </Button>,
-          <Button key="all-update" type="primary" onClick={handleAllUpdate}>
-            全部更新
-          </Button>,
           <Button key="confirm" type="primary" onClick={handleConfirmConflict}>
-            确认同步
+            确认同步（已选择 {Object.values(conflictChoices).filter(v => v === 'update').length} 个更新）
           </Button>,
         ]}
       >
         <Text type="secondary" style={{ marginBottom: 16, display: 'block' }}>
-          以下 Skill 与本地已有同名 Skill 来源不同，请选择处理方式：
+          勾选需要更新的 Skill，未勾选的将被跳过：
         </Text>
         {syncPreview && (
           <>
@@ -539,83 +501,52 @@ const RegistryManagement: React.FC = () => {
                 <Tag color="green">{syncPreview.autoUpdateSkills.length} 个同源 Skill 将自动更新</Tag>
               </div>
             )}
-            <Table
+            <List
               dataSource={syncPreview.conflictSkills}
-              columns={[
-                {
-                  title: '名称',
-                  dataIndex: 'name',
-                  key: 'name',
-                  width: 120,
-                },
-                {
-                  title: '本地来源',
-                  key: 'localSource',
-                  width: 120,
-                  render: (_, record) => {
-                    const sourceType = record.localSkill.sourceType as SkillSourceType;
-                    return (
-                      <Tag color={getSourceTypeColor(sourceType)}>
-                        {record.localSkill.sourceRegistryName || getSourceTypeLabel(sourceType)}
-                      </Tag>
-                    );
-                  },
-                },
-                {
-                  title: '远程来源',
-                  key: 'remoteSource',
-                  width: 120,
-                  render: () => (
-                    <Tag color="cyan">{syncingRegistryName}</Tag>
-                  ),
-                },
-                {
-                  title: '本地描述',
-                  key: 'localDesc',
-                  width: 200,
-                  render: (_, record) => (
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      {record.localSkill.description?.slice(0, 50) || '暂无'}
-                      {record.localSkill.description?.length > 50 ? '...' : ''}
-                    </Text>
-                  ),
-                },
-                {
-                  title: '远程描述',
-                  dataIndex: 'description',
-                  key: 'remoteDesc',
-                  width: 200,
-                  render: (desc: string) => (
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      {desc?.slice(0, 50) || '暂无'}
-                      {desc?.length > 50 ? '...' : ''}
-                    </Text>
-                  ),
-                },
-                {
-                  title: '操作',
-                  key: 'action',
-                  width: 150,
-                  render: (_, record) => (
-                    <Radio.Group
-                      value={conflictChoices[record.name]}
+              renderItem={(skill) => {
+                const isChecked = conflictChoices[skill.name] === 'update';
+                const sourceType = skill.localSkill.sourceType as SkillSourceType;
+                return (
+                  <List.Item>
+                    <Checkbox
+                      checked={isChecked}
                       onChange={(e) => {
                         setConflictChoices(prev => ({
                           ...prev,
-                          [record.name]: e.target.value,
+                          [skill.name]: e.target.checked ? 'update' : 'skip',
                         }));
                       }}
                     >
-                      <Radio value="skip">跳过</Radio>
-                      <Radio value="update">更新</Radio>
-                    </Radio.Group>
-                  ),
-                },
-              ]}
-              rowKey="name"
-              pagination={false}
-              size="small"
+                      <div style={{ display: 'flex', alignItems: 'center', width: '100%' }}>
+                        <div style={{ flex: 1 }}>
+                          <Text strong>{skill.name}</Text>
+                          <div style={{ marginTop: 4, marginBottom: 4 }}>
+                            <Tag color={getSourceTypeColor(sourceType)}>
+                              {skill.localSkill.sourceRegistryName || getSourceTypeLabel(sourceType)}
+                            </Tag>
+                            <Text type="secondary" style={{ margin: '0 8px' }}>→</Text>
+                            <Tag color="cyan">{syncingRegistryName}</Tag>
+                          </div>
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            远程描述: {skill.description?.slice(0, 60) || '暂无'}
+                            {skill.description?.length > 60 ? '...' : ''}
+                          </Text>
+                        </div>
+                        <Text style={{ color: isChecked ? '#52c41a' : '#999', fontSize: 12, marginLeft: 16 }}>
+                          {isChecked ? '将更新' : '将跳过'}
+                        </Text>
+                      </div>
+                    </Checkbox>
+                  </List.Item>
+                );
+              }}
             />
+            <div style={{ marginTop: 12, textAlign: 'right' }}>
+              <Text type="secondary">
+                已选择 {Object.values(conflictChoices).filter(v => v === 'update').length} 个更新，
+                {syncPreview.conflictSkills.length - Object.values(conflictChoices).filter(v => v === 'update').length} 个跳过
+              </Text>
+            </div>
           </>
         )}
       </Modal>
