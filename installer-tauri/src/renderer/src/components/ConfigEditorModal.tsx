@@ -36,10 +36,10 @@ const ConfigEditorModal: React.FC<ConfigEditorModalProps> = ({
       if (result.success && result.content) {
         setYamlContent(result.content);
       } else {
-        setYamlError(result.error || 'Failed to read config file');
+        setYamlError(result.error || '读取配置文件失败');
       }
     } catch (err) {
-      setYamlError(err instanceof Error ? err.message : 'Failed to read config file');
+      setYamlError(err instanceof Error ? err.message : '读取配置文件失败');
     } finally {
       setLoading(false);
     }
