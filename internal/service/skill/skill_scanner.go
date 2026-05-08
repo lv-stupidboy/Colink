@@ -69,6 +69,11 @@ func (s *SkillScanner) GetLogger() *zap.Logger {
 	return s.logger
 }
 
+// GetStoragePath 获取 skill 存储路径
+func (s *SkillScanner) GetStoragePath() string {
+	return s.storagePath
+}
+
 // ScanRegistry 扫描注册表中的技能
 func (s *SkillScanner) ScanRegistry(ctx context.Context, registryID uuid.UUID) (*model.ScanResult, error) {
 	s.logger.Info("开始扫描联邦源技能",

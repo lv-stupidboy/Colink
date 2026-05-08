@@ -7,12 +7,16 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
+	pkgexec "github.com/anthropic/isdp/pkg/exec"
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
 
 // RegistryService 联邦技能源服务
@@ -270,8 +274,10 @@ func (s *RegistryService) SyncConfirm(ctx context.Context, id uuid.UUID, req *mo
 
 	result := &model.SyncConfirmResult{}
 
-	// 扫描联邦源获取 skills 信息
+	// 对于 Git 类型仓库（Custom/CodeHub），需要创建临时目录用于文件更新
+	var tempDir string
 	var remoteSkills []*RemoteSkill
+
 	switch registry.Type {
 	case model.RegistryTypeGitHub:
 		remoteSkills, err = s.syncFromGitHub(ctx, registry)
@@ -280,11 +286,19 @@ func (s *RegistryService) SyncConfirm(ctx context.Context, id uuid.UUID, req *mo
 	case model.RegistryTypeAPI:
 		remoteSkills, err = s.syncFromAPI(ctx, registry)
 	case model.RegistryTypeCustom, model.RegistryTypeCodeHub:
-		remoteSkills, err = s.syncFromGitRepo(ctx, registry)
+		// Git 类型仓库：创建临时目录并克隆，用于后续文件更新
+		tempDir, remoteSkills, err = s.cloneAndScanGitRepo(ctx, registry)
+	default:
+		err = fmt.Errorf("不支持的注册表类型: %s", registry.Type)
 	}
 
 	if err != nil {
 		return nil, fmt.Errorf("扫描联邦源失败: %w", err)
+	}
+
+	// 确保临时目录在方法结束时被清理
+	if tempDir != "" {
+		defer os.RemoveAll(tempDir)
 	}
 
 	// 创建 remoteSkills 的 name -> skill 映射
@@ -307,6 +321,17 @@ func (s *RegistryService) SyncConfirm(ctx context.Context, id uuid.UUID, req *mo
 			existing.UpdatedAt = time.Now()
 			if err := s.skillRepo.Update(ctx, existing); err != nil {
 				continue
+			}
+			// 更新 agent-assets 目录的 skill 文件
+			if tempDir != "" && skill.Path != "" {
+				srcDir := filepath.Join(tempDir, skill.Path)
+				dstDir := filepath.Join(s.skillScanner.GetStoragePath(), existing.ID.String())
+				if err := s.skillScanner.updateSkillFiles(srcDir, dstDir); err != nil {
+					s.skillScanner.GetLogger().Warn("更新 agent-assets 目录文件失败",
+						zap.String("skillId", existing.ID.String()),
+						zap.String("skillName", skill.Name),
+						zap.Error(err))
+				}
 			}
 			// 刷新关联角色的配置目录
 			s.skillScanner.RefreshAgentConfigsForSkill(ctx, existing.ID)
@@ -344,6 +369,17 @@ func (s *RegistryService) SyncConfirm(ctx context.Context, id uuid.UUID, req *mo
 				result.Skipped = append(result.Skipped, &model.SkippedSkill{Name: op.SkillName})
 				continue
 			}
+			// 更新 agent-assets 目录的 skill 文件
+			if tempDir != "" && remoteSkill.Path != "" {
+				srcDir := filepath.Join(tempDir, remoteSkill.Path)
+				dstDir := filepath.Join(s.skillScanner.GetStoragePath(), existing.ID.String())
+				if err := s.skillScanner.updateSkillFiles(srcDir, dstDir); err != nil {
+					s.skillScanner.GetLogger().Warn("更新 agent-assets 目录文件失败",
+						zap.String("skillId", existing.ID.String()),
+						zap.String("skillName", remoteSkill.Name),
+						zap.Error(err))
+				}
+			}
 			// 刷新关联角色的配置目录
 			refreshErrors := s.skillScanner.RefreshAgentConfigsForSkill(ctx, existing.ID)
 			result.ConfigRefreshErrors = append(result.ConfigRefreshErrors, refreshErrors...)
@@ -361,10 +397,64 @@ func (s *RegistryService) SyncConfirm(ctx context.Context, id uuid.UUID, req *mo
 	return result, nil
 }
 
+// cloneAndScanGitRepo 克隆 Git 仓库并扫描 skills，返回临时目录路径和 skills 信息
+func (s *RegistryService) cloneAndScanGitRepo(ctx context.Context, registry *model.SkillRegistry) (string, []*RemoteSkill, error) {
+	if s.skillScanner == nil {
+		return "", nil, fmt.Errorf("SkillScanner 未初始化")
+	}
+
+	// 创建临时目录
+	tempUUID := uuid.New()
+	tempDir := filepath.Join(s.skillScanner.GetStoragePath(), ".temp", tempUUID.String())
+	if err := os.MkdirAll(tempDir, 0755); err != nil {
+		return "", nil, fmt.Errorf("创建临时目录失败: %w", err)
+	}
+
+	// 构建克隆 URL（带认证注入）
+	cloneURL := s.skillScanner.buildCloneURL(registry)
+
+	// 执行 git clone --depth 1
+	cloneCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
+	defer cancel()
+
+	cmd := pkgexec.CommandContext(cloneCtx, "git", "clone", "--depth", "1", cloneURL, tempDir)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// 清理临时目录
+		os.RemoveAll(tempDir)
+		if cloneCtx.Err() == context.DeadlineExceeded {
+			return "", nil, fmt.Errorf("git clone 超时: %w", err)
+		}
+		return "", nil, fmt.Errorf("git clone 失败: %s, %w", string(output), err)
+	}
+
+	// 扫描临时目录中的 skills
+	skills, err := s.skillScanner.scanSkillsConcurrent(ctx, tempDir)
+	if err != nil {
+		os.RemoveAll(tempDir)
+		return "", nil, fmt.Errorf("扫描技能目录失败: %w", err)
+	}
+
+	// 转换为 RemoteSkill 格式
+	remoteSkills := make([]*RemoteSkill, 0, len(skills))
+	for _, skill := range skills {
+		remoteSkills = append(remoteSkills, &RemoteSkill{
+			Name:        skill.Name,
+			Description: skill.Description,
+			Path:        skill.Path,
+			Tags:        []string{},
+			Version:     "",
+		})
+	}
+
+	return tempDir, remoteSkills, nil
+}
+
 // RemoteSkill 远程技能结构
 type RemoteSkill struct {
 	Name            string   `json:"name"`
 	Description     string   `json:"description"`
+	Path            string   `json:"path"` // 文件在仓库中的相对路径
 	Tags            []string `json:"tags"`
 	SupportedAgents []string `json:"supported_agents"`
 	Version         string   `json:"version"`
@@ -653,6 +743,7 @@ func (s *RegistryService) syncFromGitRepo(ctx context.Context, registry *model.S
 		skills = append(skills, &RemoteSkill{
 			Name:            scannedSkill.Name,
 			Description:     scannedSkill.Description,
+			Path:            scannedSkill.Path, // 保留文件路径
 			Tags:            []string{},
 			SupportedAgents: []string{},
 			Version:         "",
