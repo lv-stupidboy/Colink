@@ -2612,16 +2612,33 @@ func (es *ExecutionService) broadcastChunk(threadID, invocationID uuid.UUID, chu
 			})
 		case ChunkTypeToolUse:
 			// 工具调用开始
-			agent.AccumulatedContentBlocks = append(agent.AccumulatedContentBlocks, ContentBlockData{
-				ID:        fmt.Sprintf("tool-%s", chunk.ToolID),
-				Type:      "tool_use",
-				Timestamp: now,
-				Status:    "streaming",
-				ToolName:  chunk.ToolName,
-				ToolID:    chunk.ToolID,
-				Input:     chunk.ToolInput,
-				StartedAt: now,
-			})
+			// 去重检查：parser 可能发送两次（content_block_start + assistant 消息）
+			blockID := fmt.Sprintf("tool-%s", chunk.ToolID)
+			existingToolIdx := -1
+			for i, b := range agent.AccumulatedContentBlocks {
+				if b.ID == blockID {
+					existingToolIdx = i
+					break
+				}
+			}
+			if existingToolIdx >= 0 {
+				// 已存在，更新 Input（assistant 消息可能包含完整 Input）
+				if chunk.ToolInput != nil {
+					agent.AccumulatedContentBlocks[existingToolIdx].Input = chunk.ToolInput
+				}
+			} else {
+				// 不存在，追加新块
+				agent.AccumulatedContentBlocks = append(agent.AccumulatedContentBlocks, ContentBlockData{
+					ID:        blockID,
+					Type:      "tool_use",
+					Timestamp: now,
+					Status:    "streaming",
+					ToolName:  chunk.ToolName,
+					ToolID:    chunk.ToolID,
+					Input:     chunk.ToolInput,
+					StartedAt: now,
+				})
+			}
 		case ChunkTypeToolResult:
 			// 工具调用结果：更新对应的工具块
 			// 特殊处理：AskUserQuestion 工具的 tool_result 表示"拒绝"
