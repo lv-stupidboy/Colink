@@ -108,33 +108,48 @@ function generateDefaultSummary(toolName: string, input?: Record<string, unknown
 
 /** 工具摘要生成（根据工具类型生成结构化摘要） */
 function generateToolSummary(toolName: string, input?: Record<string, unknown>): ToolSummary {
+  // 检查 input 是否有实际内容（非空对象）
+  const hasInput = input && Object.keys(input).length > 0;
+
   switch (toolName) {
     case 'Read':
     case 'Write':
-      return {
-        name: toolName,
-        param: truncatePath(input?.file_path as string),
-      };
+      const filePath = input?.file_path as string;
+      if (filePath) {
+        return { name: toolName, param: truncatePath(filePath) };
+      }
+      // 等待完整 input 数据时的占位文本
+      return { name: toolName, param: hasInput ? '' : '...' };
     case 'Edit':
-      return {
-        name: toolName,
-        param: `${truncatePath(input?.file_path as string)}:${input?.start_line}-${input?.end_line}`,
-      };
+      const editPath = input?.file_path as string;
+      if (editPath) {
+        return {
+          name: toolName,
+          param: `${truncatePath(editPath)}:${input?.old_string ? 'edit' : 'new'}`,
+        };
+      }
+      return { name: toolName, param: hasInput ? '' : '...' };
     case 'Bash':
-      return {
-        name: toolName,
-        param: truncateCommand(input?.command as string),
-      };
+      const command = input?.command as string;
+      if (command) {
+        return { name: toolName, param: truncateCommand(command) };
+      }
+      // 等待完整 input 数据时的占位文本
+      return { name: toolName, param: hasInput ? '' : '...' };
     case 'Grep':
-      return {
-        name: toolName,
-        param: `"${truncateQuery(input?.pattern as string, 20)}" in ${truncatePath(input?.path as string, 30)}`,
-      };
+      const pattern = input?.pattern as string;
+      const grepPath = input?.path as string;
+      if (pattern) {
+        const pathPart = grepPath ? ` in ${truncatePath(grepPath, 30)}` : '';
+        return { name: toolName, param: `"${truncateQuery(pattern, 20)}"${pathPart}` };
+      }
+      return { name: toolName, param: hasInput ? '' : '...' };
     case 'Glob':
-      return {
-        name: toolName,
-        param: input?.pattern as string || '',
-      };
+      const globPattern = input?.pattern as string;
+      if (globPattern) {
+        return { name: toolName, param: globPattern };
+      }
+      return { name: toolName, param: hasInput ? '' : '...' };
     case 'Skill':
       return {
         name: toolName,
@@ -161,9 +176,13 @@ function generateToolSummary(toolName: string, input?: Record<string, unknown>):
         param: `"${truncateQuery(input?.query as string)}"`,
       };
     case 'AskUserQuestion':
+      const questions = input?.questions;
+      const firstQuestion = Array.isArray(questions) && questions.length > 0
+        ? (questions[0] as { question?: string })?.question
+        : undefined;
       return {
         name: 'Ask',
-        param: truncateQuestion(input?.questions?.[0]?.question as string),
+        param: truncateQuestion(firstQuestion || ''),
       };
     case 'TodoWrite':
       return {

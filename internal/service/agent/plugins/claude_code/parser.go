@@ -206,24 +206,35 @@ func parseStreamJSONLine(line string, isStreaming bool) []agent.Chunk {
 		// 完整消息（非增量模式下的输出）
 		// AskUserQuestion 特殊处理：即使在增量模式下也需要解析，因为 questions 数据只在 assistant 消息中出现
 		// stream_event.content_block_start 时 input 为空，只有 assistant 消息才有完整的 questions
+		// 同样，其他 tool_use 的完整 input 也只在 assistant 消息中才有（input_json_delta 累积后）
 		for _, content := range msg.Message.Content {
-			if content.Type == "tool_use" && content.Name == "AskUserQuestion" {
-				// 特殊处理 AskUserQuestion 工具 - 增量模式下也需要
-				var questions []agent.QuestionItem
-				if questionsRaw, ok := content.Input["questions"]; ok {
-					questionsJSON, err := json.Marshal(questionsRaw)
-					if err == nil {
-						json.Unmarshal(questionsJSON, &questions)
+			if content.Type == "tool_use" {
+				if content.Name == "AskUserQuestion" {
+					// 特殊处理 AskUserQuestion 工具 - 增量模式下也需要
+					var questions []agent.QuestionItem
+					if questionsRaw, ok := content.Input["questions"]; ok {
+						questionsJSON, err := json.Marshal(questionsRaw)
+						if err == nil {
+							json.Unmarshal(questionsJSON, &questions)
+						}
+						logInfo("parseStreamJSONLine: AskUserQuestion parsed from assistant message", zap.Int("questionsCount", len(questions)), zap.String("toolId", content.ID))
 					}
-					logInfo("parseStreamJSONLine: AskUserQuestion parsed from assistant message", zap.Int("questionsCount", len(questions)), zap.String("toolId", content.ID))
+					chunks = append(chunks, agent.Chunk{
+						Type:      agent.ChunkTypeQuestion,
+						ToolName:  content.Name,
+						ToolID:    content.ID,
+						ToolInput: content.Input,
+						Questions: questions,
+					})
+				} else if isStreaming {
+					// 增量模式下，发送完整 ToolInput 更新（input_json_delta 累积后的完整数据）
+					chunks = append(chunks, agent.Chunk{
+						Type:      agent.ChunkTypeToolUse,
+						ToolName:  content.Name,
+						ToolID:    content.ID,
+						ToolInput: content.Input,
+					})
 				}
-				chunks = append(chunks, agent.Chunk{
-					Type:      agent.ChunkTypeQuestion,
-					ToolName:  content.Name,
-					ToolID:    content.ID,
-					ToolInput: content.Input,
-					Questions: questions,
-				})
 			} else if !isStreaming {
 				// 非增量模式下处理其他内容
 				if content.Type == "text" && content.Text != "" {
