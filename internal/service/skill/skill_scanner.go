@@ -846,3 +846,72 @@ func (s *SkillScanner) updateSkillFiles(srcDir, dstDir string) error {
 	// 复制新文件到目标目录
 	return s.copySkillDirectory(srcDir, dstDir)
 }
+
+// RefreshAgentConfigsForSkill 刷新角色配置目录中的 skill 文件
+// 参数：skillID - 被更新的 skill ID
+// 返回：刷新错误列表（空表示全部成功）
+func (s *SkillScanner) RefreshAgentConfigsForSkill(ctx context.Context, skillID uuid.UUID) []model.RefreshError {
+	if s.agentConfigPath == "" || s.bindingRepo == nil {
+		return nil // 未配置 agent-configs 目录，跳过刷新
+	}
+
+	// 1. 获取 skill 信息
+	skill, err := s.skillRepo.FindByID(ctx, skillID)
+	if err != nil {
+		s.logger.Warn("获取 skill 信息失败，跳过刷新", zap.String("skillId", skillID.String()), zap.Error(err))
+		return nil
+	}
+
+	// 2. 查询关联角色 ID 列表
+	agentRoleIDs, err := s.bindingRepo.FindBySkillID(ctx, skillID)
+	if err != nil {
+		s.logger.Warn("查询角色关联失败，跳过刷新", zap.String("skillId", skillID.String()), zap.Error(err))
+		return nil
+	}
+	if len(agentRoleIDs) == 0 {
+		s.logger.Info("skill 未被任何角色关联，无需刷新", zap.String("skillId", skillID.String()))
+		return nil
+	}
+
+	// 3. 遍历角色，过滤已生成配置的，执行刷新
+	var refreshErrors []model.RefreshError
+	srcDir := filepath.Join(s.storagePath, skill.ID.String())
+
+	for _, agentRoleID := range agentRoleIDs {
+		// 查询角色配置信息
+		agentConfig, err := s.agentConfigRepo.FindByID(ctx, agentRoleID)
+		if err != nil {
+			s.logger.Warn("获取角色配置失败", zap.String("agentRoleId", agentRoleID.String()), zap.Error(err))
+			continue
+		}
+
+		// 过滤：只刷新已生成配置的角色
+		if agentConfig.ConfigGeneratedAt == nil {
+			s.logger.Info("角色未生成配置，跳过刷新",
+				zap.String("agentRoleId", agentRoleID.String()),
+				zap.String("agentRoleName", agentConfig.Name))
+			continue
+		}
+
+		// 刷新 skill 文件
+		dstDir := filepath.Join(s.agentConfigPath, agentRoleID.String(), "skills", skill.Name)
+		if err := s.updateSkillFiles(srcDir, dstDir); err != nil {
+			refreshErrors = append(refreshErrors, model.RefreshError{
+				AgentRoleID:   agentRoleID,
+				AgentRoleName: agentConfig.Name,
+				Error:         err.Error(),
+			})
+			s.logger.Warn("刷新角色配置 skill 文件失败",
+				zap.String("agentRoleId", agentRoleID.String()),
+				zap.String("skillName", skill.Name),
+				zap.Error(err))
+		} else {
+			s.logger.Info("刷新角色配置 skill 文件成功",
+				zap.String("agentRoleId", agentRoleID.String()),
+				zap.String("agentRoleName", agentConfig.Name),
+				zap.String("skillName", skill.Name))
+		}
+	}
+
+	return refreshErrors
+}
