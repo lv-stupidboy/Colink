@@ -703,6 +703,10 @@ const SkillLibrary: React.FC = () => {
         message.warning(`跳过 ${result.skipped.length} 个：${result.skipped.map(s => s.name).join(', ')}`);
       }
 
+      // 关闭所有相关弹窗
+      setScanModalVisible(false);
+      setConflictModalVisible(false);
+      setModalVisible(false);
       setSelectedRemoteSkills([]);
       loadSkills();
     } catch (error: any) {
