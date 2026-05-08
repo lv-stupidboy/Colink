@@ -161,24 +161,25 @@ created: 2026-05-08
 
 | Phase | Task | Priority | Time | Status |
 |-------|------|----------|------|--------|
-| 1 | agent_handler_test.go | P0 | 2-3h | pending |
+| 1 | agent_handler_test.go | P0 | 2-3h | **completed** |
 | 2 | db_test.go | P0 | 1-2h | **completed** |
 | 2 | agent_repo_test.go | P0 | 1h | **completed** |
 | 3 | parser mention_parser_test.go | P1 | 30m | **completed** |
-| 3 | execution_service_test.go | P1 | 2h | pending |
-| 4 | E2E fixtures 改进 | P1 | 1h | pending |
+| 3 | execution_service_test.go | P1 | 2h | **completed** |
+| 4 | E2E fixtures 改进 | P1 | 1h | **completed** |
 
-**Completed tests**: 31 real tests (repo: 14 + parser: 9 + humantask: 8)
-**Skeleton tests**: 14 in agent_handler_test.go (pending implementation)
+**Completed tests**: 58 real tests (repo: 14 + parser: 9 + humantask: 8 + api: 15 + execution: 12)
+**Skeleton tests**: 0 (all pending tests implemented)
+**E2E improvements**: testData fixture with auto-cleanup, testDataApi helpers
 
 ---
 
 ## Acceptance Criteria
 
-- [ ] `make test-backend` 所有 P0 测试通过
-- [ ] 无 `TODO.*Initialize router` 骨架注释
-- [ ] 覆盖率报告生成成功
-- [ ] E2E 测试不依赖现有项目数据
+- [x] `make test-backend` 所有 P0 测试通过
+- [x] 无 `TODO.*Initialize router` 骨架注释
+- [x] 覆盖率报告生成成功（parser: 96.7%, api: 1.6%, repo: 6.2%）
+- [ ] E2E 测试不依赖现有项目数据（需要前端运行验证）
 
 ---
 
