@@ -331,25 +331,6 @@ const BaseAgentSettings: React.FC = () => {
             }}
           </Form.Item>
 
-          {/* GitBash 路径配置 */}
-          <Form.Item shouldUpdate noStyle>
-            {({ getFieldValue }) => {
-              const agentType = getFieldValue('type');
-              if (agentType === 'claude_code') {
-                return (
-                  <Form.Item
-                    name="gitBashPath"
-                    label="Git-Bash路径"
-                    extra="Windows下 Claude CLI 需要 git-bash 执行。如果 Git 已添加到系统 PATH，此项可留空；若 Claude CLI 无法启动，请配置 Git 安装目录下的 bash.exe 路径"
-                  >
-                    <Input placeholder="如: D:\Program Files\Git\bin\bash.exe" />
-                  </Form.Item>
-                );
-              }
-              return null;
-            }}
-          </Form.Item>
-
           {/* 高级配置：默认折叠 */}
           <Collapse
             style={{ marginBottom: 16 }}
@@ -359,6 +340,25 @@ const BaseAgentSettings: React.FC = () => {
                 label: <Space><SettingOutlined />高级配置</Space>,
                 children: (
                   <>
+                    {/* GitBash 路径配置 - 仅 Claude Code 类型显示 */}
+                    <Form.Item shouldUpdate noStyle>
+                      {({ getFieldValue }) => {
+                        const agentType = getFieldValue('type');
+                        if (agentType === 'claude_code') {
+                          return (
+                            <Form.Item
+                              name="gitBashPath"
+                              label="Git-Bash路径"
+                              extra="Windows下 Claude CLI 需要 git-bash 执行。如果 Git 已添加到系统 PATH，此项可留空；若 Claude CLI 无法启动，请配置 Git 安装目录下的 bash.exe 路径"
+                            >
+                              <Input placeholder="如: D:\Program Files\Git\bin\bash.exe" />
+                            </Form.Item>
+                          );
+                        }
+                        return null;
+                      }}
+                    </Form.Item>
+
                     <Form.Item name="cliPath" label="CLI路径" extra="CLI 命令路径，默认为 claude 或 opencode">
                       <Input placeholder="如: claude, opencode, /usr/local/bin/claude" />
                     </Form.Item>
