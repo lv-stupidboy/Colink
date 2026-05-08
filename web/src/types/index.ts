@@ -2,8 +2,8 @@
 /** @deprecated 'human' 类型已废弃 */
 export type AgentRole = 'agent' | 'human';
 
-// 基础Agent类型
-export type BaseAgentType = 'claude_code' | 'open_code';
+// 基础Agent类型（动态从 API 获取，不限制具体值）
+export type BaseAgentType = string;
 
 // Thread状态
 export type ThreadStatus =

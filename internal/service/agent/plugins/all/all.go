@@ -3,5 +3,6 @@ package all
 
 import (
 	_ "github.com/anthropic/isdp/internal/service/agent/plugins/claude_code"
+	_ "github.com/anthropic/isdp/internal/service/agent/plugins/hermes"
 	_ "github.com/anthropic/isdp/internal/service/agent/plugins/open_code"
 )

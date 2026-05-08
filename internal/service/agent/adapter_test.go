@@ -22,7 +22,7 @@ func TestGetAdapter_NilBaseAgent(t *testing.T) {
 func TestGetMeta_RegisteredPlugin(t *testing.T) {
 	// This test only works if plugins are registered
 	// For now, we test the registry structure without plugins
-	meta := GetMeta(model.BaseAgentTypeClaudeCode)
+	meta := GetMeta("claude_code")
 	// If no plugins registered, meta will be nil - that's expected in this test context
 	if meta != nil {
 		if meta.Name != "ClaudeCode" {

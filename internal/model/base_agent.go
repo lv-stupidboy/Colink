@@ -11,11 +11,6 @@ import (
 // BaseAgentType 基础Agent类型
 type BaseAgentType string
 
-const (
-	BaseAgentTypeClaudeCode BaseAgentType = "claude_code"
-	BaseAgentTypeOpenCode   BaseAgentType = "open_code"
-)
-
 // BaseAgent 基础Agent配置模型
 type BaseAgent struct {
 	ID             uuid.UUID     `json:"id"`

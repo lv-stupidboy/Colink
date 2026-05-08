@@ -6,6 +6,9 @@ import type { BaseAgent, BaseAgentType, BaseAgentTypeInfo } from '@/types';
 
 const { Title, Text } = Typography;
 
+// Agent 类型颜色列表（按顺序分配）
+const AGENT_TYPE_COLORS = ['blue', 'green', 'purple', 'orange', 'cyan', 'magenta', 'red', 'geekblue'];
+
 const BaseAgentSettings: React.FC = () => {
   const [agents, setAgents] = useState<BaseAgent[]>([]);
   const [agentTypes, setAgentTypes] = useState<BaseAgentTypeInfo[]>([]);
@@ -139,14 +142,11 @@ const BaseAgentSettings: React.FC = () => {
   };
 
   const getTypeColor = (type: BaseAgentType) => {
-    switch (type) {
-      case 'claude_code':
-        return 'blue';
-      case 'open_code':
-        return 'green';
-      default:
-        return 'default';
+    const index = agentTypes.findIndex(t => t.type === type);
+    if (index >= 0 && index < AGENT_TYPE_COLORS.length) {
+      return AGENT_TYPE_COLORS[index];
     }
+    return 'default';
   };
 
   const columns = [
@@ -232,7 +232,9 @@ const BaseAgentSettings: React.FC = () => {
             基础Agent设置
           </Space>
         </Title>
-        <Text type="secondary">管理Claude Code和OpenCode等基础Agent实例的配置。角色中未指定基础Agent时将使用默认的基础Agent。</Text>
+        <Text type="secondary">
+          管理{agentTypes.map(t => t.name).join('、')}等基础Agent实例的配置。角色中未指定基础Agent时将使用默认的基础Agent。
+        </Text>
       </div>
 
       <Card
@@ -359,8 +361,8 @@ const BaseAgentSettings: React.FC = () => {
                       }}
                     </Form.Item>
 
-                    <Form.Item name="cliPath" label="CLI路径" extra="CLI 命令路径，默认为 claude 或 opencode">
-                      <Input placeholder="如: claude, opencode, /usr/local/bin/claude" />
+                    <Form.Item name="cliPath" label="CLI路径" extra="CLI 命令路径，不填则使用默认值">
+                      <Input placeholder="如: claude, opencode, hermes, /usr/local/bin/claude" />
                     </Form.Item>
 
                     <Form.Item name="maxTokens" label="最大Token数" extra="限制输出 Token 数量，0 表示不限制">
