@@ -308,6 +308,8 @@ func (s *RegistryService) SyncConfirm(ctx context.Context, id uuid.UUID, req *mo
 			if err := s.skillRepo.Update(ctx, existing); err != nil {
 				continue
 			}
+			// 刷新关联角色的配置目录
+			s.skillScanner.RefreshAgentConfigsForSkill(ctx, existing.ID)
 			result.AutoUpdated++
 		}
 	}
@@ -342,6 +344,9 @@ func (s *RegistryService) SyncConfirm(ctx context.Context, id uuid.UUID, req *mo
 				result.Skipped = append(result.Skipped, &model.SkippedSkill{Name: op.SkillName})
 				continue
 			}
+			// 刷新关联角色的配置目录
+			refreshErrors := s.skillScanner.RefreshAgentConfigsForSkill(ctx, existing.ID)
+			result.ConfigRefreshErrors = append(result.ConfigRefreshErrors, refreshErrors...)
 			result.Updated = append(result.Updated, existing)
 			result.UserUpdated++
 		case "skip":
