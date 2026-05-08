@@ -228,6 +228,7 @@ type BatchImportResult struct {
 	Updated         []*Skill           `json:"updated"` // 更新的 Skill 列表
 	Skipped         []SkippedSkillInfo `json:"skipped"`
 	ConflictSummary *ConflictSummary   `json:"conflictSummary,omitempty"` // 冲突处理汇总
+	ConfigRefreshErrors []RefreshError `json:"configRefreshErrors,omitempty"` // 配置刷新错误列表
 }
 
 // ConflictSummary 冲突处理汇总
@@ -301,4 +302,12 @@ type SyncConfirmResult struct {
 	AutoUpdated int             `json:"autoUpdated"` // 自动更新数量
 	UserUpdated int             `json:"userUpdated"` // 用户选择更新数量
 	UserSkipped int             `json:"userSkipped"` // 用户选择跳过数量
+	ConfigRefreshErrors []RefreshError `json:"configRefreshErrors,omitempty"` // 配置刷新错误列表
+}
+
+// RefreshError 刷新配置目录错误
+type RefreshError struct {
+	AgentRoleID   uuid.UUID `json:"agentRoleId"`
+	AgentRoleName string    `json:"agentRoleName"`
+	Error         string    `json:"error"`
 }
