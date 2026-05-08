@@ -1030,8 +1030,20 @@ export const useAppStore = create<AppState & AppActions>()(
         const existingIndex = blocks.findIndex((b) => b.id === block.id);
         if (existingIndex >= 0) {
           // 已存在，更新该块（合并属性）
+          const existingBlock = blocks[existingIndex];
+          // 保护终止状态：如果现有块已是 success/failed，不应被 streaming 覆盖
+          // 这防止 tool_use 更新在 tool_result 之后到达时重置状态
+          const existingStatus = (existingBlock as any).status;
+          const newStatus = (block as any).status;
+          const shouldPreserveStatus = existingStatus === 'success' || existingStatus === 'failed';
+          const finalStatus = shouldPreserveStatus ? existingStatus : newStatus;
+
           const updatedBlocks = [...blocks];
-          updatedBlocks[existingIndex] = { ...updatedBlocks[existingIndex], ...block } as MessageContentBlock;
+          updatedBlocks[existingIndex] = {
+            ...existingBlock,
+            ...block,
+            status: finalStatus,
+          } as MessageContentBlock;
           return {
             isStreaming: true,
             streamingInvocationId: invocationId,
