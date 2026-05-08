@@ -345,6 +345,25 @@ func main() {
 		defer usageReporter.Stop()
 	}
 
+	// 启动 MessageReporter（会话消息上报，如果配置启用）
+	if cfg.MessageReporter.IsRunnable() {
+		msgReporterCfg := reporter.MessageReporterConfig{
+			Enabled:       cfg.MessageReporter.Enabled,
+			Endpoint:      cfg.MessageReporter.Endpoint,
+			Interval:      cfg.MessageReporter.GetInterval(),
+			BatchSize:     cfg.MessageReporter.BatchSize,
+			RetryTimes:    cfg.MessageReporter.RetryTimes,
+			RetryInterval: cfg.MessageReporter.GetRetryInterval(),
+		}
+		msgReporter := reporter.NewMessageReporter(db, msgReporterCfg, dbType)
+		msgReporter.SetLogger(logger)
+		msgReporter.Start()
+		defer msgReporter.Stop()
+		logger.Info("MessageReporter 已启动",
+			zap.String("endpoint", cfg.MessageReporter.Endpoint),
+			zap.String("interval", cfg.MessageReporter.Interval))
+	}
+
 	// 启动 TeamPackageSync Checker（团队包同步检查，自动检查所有启用自动更新的市场）
 	syncChecker := teampackagesync.NewSyncChecker(
 		teamPackageSyncSvc,
