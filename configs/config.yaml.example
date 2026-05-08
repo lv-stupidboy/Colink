@@ -115,7 +115,7 @@ reporter:
   # 是否启用上报，默认开启
   enabled: true
   # 上报服务地址，如 https://stats.example.com/api/report
-  endpoint: ""
+  endpoint: "https://dataops-drdev.hwcloudtest.cn/aiToolUseLog/colink/v1/push"
   # 上报间隔，格式: "30m", "1h"
   interval: "30m"
   # 失败重试次数
@@ -125,12 +125,12 @@ reporter:
 
 # 会话消息上报配置 - 用于日志分析和审计
 message_reporter:
-  # 是否启用上报，默认关闭
-  enabled: false
+  # 是否启用上报，默认开启
+  enabled: true
   # 上报服务地址
   endpoint: "https://dataops-drdev.hwcloudtest.cn/aiToolUseLog/v1/message/push"
   # 上报间隔，格式: "30m", "1h"
-  interval: "30m"
+  interval: "5m"
   # 单次上报最大消息数
   batch_size: 100
   # 失败重试次数
