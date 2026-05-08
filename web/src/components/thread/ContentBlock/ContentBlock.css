@@ -83,13 +83,15 @@
   animation: blink 1s ease-in-out infinite;
 }
 
-/* 工具详情展开 */
+/* 工具详情展开 - 靠左紧接工具行 */
 .tool-call-detail {
-  margin-top: 4px;
-  padding: 8px 12px;
+  margin-top: 2px;
+  margin-left: 30px; /* 与工具行图标区域对齐 */
+  padding: 6px 10px;
   background: #FAFAFA;
   border-radius: 4px;
   border: 1px solid #E5E5E5;
+  text-align: left;
 }
 
 .tool-call-detail-section {
