@@ -272,12 +272,113 @@ func deserializeStrings(data []byte) []string {
 // Update 更新消息（用于更新 content_blocks 等字段）
 func (r *MessageRepository) Update(ctx context.Context, msg *model.Message) error {
 	query := `
-		UPDATE messages 
+		UPDATE messages
 		SET content_blocks = ?, metadata = ?, content = ?
 		WHERE id = ?
 	`
 	_, err := r.DB().ExecContext(ctx, query,
 		msg.ContentBlocks, msg.Metadata, msg.Content, msg.ID.String(),
 	)
+	return err
+}
+
+// FindUnreportedForReporting 查询未上报的消息（用于消息上报功能）
+// 只查询 role='user' 和 role='agent' 的消息，排除 system 消息
+// 按 created_at 升序排列，限制单次上报数量
+func (r *MessageRepository) FindUnreportedForReporting(ctx context.Context, limit int) ([]*model.Message, error) {
+	query := `
+		SELECT id, thread_id, role, agent_id, content, content_blocks, message_type, metadata, created_at, reported_at, mentions, origin, reply_to
+		FROM messages
+		WHERE reported_at IS NULL AND role IN ('user', 'agent')
+		ORDER BY created_at ASC
+		LIMIT ?
+	`
+	rows, err := r.DB().QueryContext(ctx, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var messages = make([]*model.Message, 0)
+	for rows.Next() {
+		msg, err := r.scanMessageWithReported(rows)
+		if err != nil {
+			return nil, err
+		}
+		messages = append(messages, msg)
+	}
+	return messages, nil
+}
+
+// scanMessageWithReported 扫描消息行（包含 reported_at 字段）
+func (r *MessageRepository) scanMessageWithReported(rows *sql.Rows) (*model.Message, error) {
+	msg := &model.Message{}
+	var idStr, threadIDStr string
+	var contentBlocks []byte
+	var metadata []byte
+	var mentionsJSON []byte
+	var origin sql.NullString
+	var replyTo sql.NullString
+	var createdAt SQLiteTimeScanner
+	var reportedAt sql.NullTime // 使用 sql.NullTime 处理 NULL 值
+
+	err := rows.Scan(
+		&idStr, &threadIDStr, &msg.Role, &msg.AgentID, &msg.Content, &contentBlocks, &msg.MessageType, &metadata, &createdAt,
+		&reportedAt, // 新增字段
+		&mentionsJSON, &origin, &replyTo,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	msg.ID, _ = uuid.Parse(idStr)
+	msg.ThreadID, _ = uuid.Parse(threadIDStr)
+	msg.ContentBlocks = json.RawMessage(contentBlocks)
+	msg.Metadata = json.RawMessage(metadata)
+	msg.Mentions = deserializeStrings(mentionsJSON)
+	msg.Origin = origin.String
+	msg.CreatedAt = createdAt.Time
+	if reportedAt.Valid {
+		msg.ReportedAt = &reportedAt.Time
+	}
+	if replyTo.Valid {
+		replyToID, _ := uuid.Parse(replyTo.String)
+		msg.ReplyTo = &replyToID
+	}
+
+	return msg, nil
+}
+
+// BatchUpdateReportedAt 批量更新消息的上报时间
+// 使用事务保证数据一致性
+func (r *MessageRepository) BatchUpdateReportedAt(ctx context.Context, messageIDs []uuid.UUID, reportedAt time.Time) error {
+	if len(messageIDs) == 0 {
+		return nil
+	}
+
+	// 构建 IN 查询的参数
+	idStrs := make([]string, len(messageIDs))
+	for i, id := range messageIDs {
+		idStrs[i] = id.String()
+	}
+
+	// 构建 IN 子句
+	inQuery := `UPDATE messages SET reported_at = ? WHERE id IN (`
+	for i := range idStrs {
+		if i > 0 {
+			inQuery += `,`
+		}
+		inQuery += `?`
+	}
+	inQuery += `)`
+
+	// 构建参数列表
+	args := make([]interface{}, len(idStrs)+1)
+	args[0] = reportedAt
+	for i, idStr := range idStrs {
+		args[i+1] = idStr
+	}
+
+	_, err := r.DB().ExecContext(ctx, inQuery, args...)
 	return err
 }
