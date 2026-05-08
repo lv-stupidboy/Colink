@@ -28,30 +28,39 @@ var (
 
 // SkillScanner 联邦技能扫描服务
 type SkillScanner struct {
-	registryRepo  *repo.SkillRegistryRepository
-	skillRepo     *repo.SkillRepository
-	storagePath   string
-	logger        *zap.Logger
-	cloneTimeout  time.Duration // git clone 超时时间
-	scanPoolSize  int           // 扫描并发数
-	importPoolSize int          // 导入并发数
+	registryRepo    *repo.SkillRegistryRepository
+	skillRepo       *repo.SkillRepository
+	bindingRepo     *repo.AgentSkillBindingRepository // 角色-Skill 关联
+	agentConfigRepo *repo.AgentConfigRepository       // 角色配置
+	storagePath     string
+	agentConfigPath string                            // agent-configs 目录路径
+	logger          *zap.Logger
+	cloneTimeout    time.Duration // git clone 超时时间
+	scanPoolSize    int           // 扫描并发数
+	importPoolSize  int           // 导入并发数
 }
 
 // NewSkillScanner 创建 SkillScanner
 func NewSkillScanner(
 	registryRepo *repo.SkillRegistryRepository,
 	skillRepo *repo.SkillRepository,
+	bindingRepo *repo.AgentSkillBindingRepository,
+	agentConfigRepo *repo.AgentConfigRepository,
 	storagePath string,
+	agentConfigPath string,
 	logger *zap.Logger,
 ) *SkillScanner {
 	return &SkillScanner{
-		registryRepo:   registryRepo,
-		skillRepo:      skillRepo,
-		storagePath:    storagePath,
-		logger:         logger,
-		cloneTimeout:   120 * time.Second, // 默认120秒
-		scanPoolSize:   10,                 // 默认扫描并发数
-		importPoolSize: 5,                  // 默认导入并发数（导入较慢）
+		registryRepo:    registryRepo,
+		skillRepo:       skillRepo,
+		bindingRepo:     bindingRepo,
+		agentConfigRepo: agentConfigRepo,
+		storagePath:     storagePath,
+		agentConfigPath: agentConfigPath,
+		logger:          logger,
+		cloneTimeout:    120 * time.Second, // 默认120秒
+		scanPoolSize:    10,                 // 默认扫描并发数
+		importPoolSize:  5,                  // 默认导入并发数（导入较慢）
 	}
 }
 
