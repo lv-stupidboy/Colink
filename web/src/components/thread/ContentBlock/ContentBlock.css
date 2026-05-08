@@ -52,6 +52,17 @@
   color: #374151;
 }
 
+.tool-call-param {
+  flex: 1;
+  font-size: 11px;
+  color: #6B7280;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  margin-left: 4px;
+}
+
 .tool-call-input {
   flex: 1;
   font-size: 11px;
@@ -462,6 +473,11 @@
   white-space: nowrap;
 }
 
+/* streaming 状态下的样式 */
+.tool-call-row.streaming .tool-call-param {
+  color: #C084FC;
+}
+
 /* 工具组块样式 */
 .tool-group-block {
   margin: 8px 0;
@@ -518,6 +534,14 @@
 
 [data-theme='dark'] .tool-call-name {
   color: var(--text-primary);
+}
+
+[data-theme='dark'] .tool-call-param {
+  color: var(--text-secondary);
+}
+
+[data-theme='dark'] .tool-call-row.streaming .tool-call-param {
+  color: var(--color-primary-light);
 }
 
 [data-theme='dark'] .tool-call-input {

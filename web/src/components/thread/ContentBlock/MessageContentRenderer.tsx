@@ -1,6 +1,6 @@
 import React, { useState, useEffect, memo } from 'react';
 import { useAppStore } from '@/store';
-import type { MessageContentBlock, ToolUseBlock, ThinkingBlock as ThinkingBlockType, TextBlock as TextBlockType, RichBlock, AgentConfig, QuestionBlock } from '@/types';
+import type { MessageContentBlock, ToolUseBlock, ThinkingBlock as ThinkingBlockType, TextBlock as TextBlockType, RichBlock, AgentConfig, QuestionBlock, CardRichBlock, DiffRichBlock, ChecklistRichBlock } from '@/types';
 import ThinkingBlockComponent from './ThinkingBlock';
 import ToolBlockComponent, { ToolCallRow } from './ToolBlock';
 import TextBlockComponent from './TextBlock';
@@ -278,11 +278,37 @@ function WrenchIcon({ color }: { color?: string }) {
 
 /**
  * 工具组块组件
- * 聚合显示多个工具调用，统一外壳
+ * 三层折叠设计：
+ * - 第 1 层：CLI Output Block 整体
+ * - 第 2 层：tools 区（可独立折叠）
+ * - 第 3 层：单个工具（点击展开看细节）
  */
 interface ToolGroupBlockProps {
   tools: ToolUseBlock[];
   defaultExpanded?: boolean;
+}
+
+/** stdout 预览构建（从 richBlocks 提取摘要） */
+function buildStdoutPreview(richBlocks?: RichBlock[], maxChars = 48): string {
+  if (!richBlocks || richBlocks.length === 0) return '';
+
+  // 从 richBlocks 中提取可用的文本预览
+  for (const block of richBlocks) {
+    if (block.richType === 'card' && (block as CardRichBlock).description) {
+      const desc = (block as CardRichBlock).description;
+      return desc.length > maxChars ? `${desc.slice(0, maxChars)}…` : desc;
+    }
+    if (block.richType === 'diff') {
+      const diff = block as DiffRichBlock;
+      return `${diff.filename} (${diff.additions}+/${diff.deletions}-)`;
+    }
+    if (block.richType === 'checklist') {
+      const list = block as ChecklistRichBlock;
+      const done = list.items.filter(i => i.checked).length;
+      return `${done}/${list.items.length} items`;
+    }
+  }
+  return '';
 }
 
 const ToolGroupBlock: React.FC<ToolGroupBlockProps> = memo(({ tools, defaultExpanded = false }) => {
@@ -293,35 +319,46 @@ const ToolGroupBlock: React.FC<ToolGroupBlockProps> = memo(({ tools, defaultExpa
     return <ToolBlockComponent block={tools[0]} defaultExpanded={defaultExpanded} />;
   }
 
-  // 多个工具：聚合显示，统一外壳
+  // 多个工具：三层折叠显示
   const anyStreaming = tools.some(t => t.status === 'streaming');
   const anyFailed = tools.some(t => t.status === 'failed');
   const totalDuration = tools.reduce((sum, t) => sum + (t.duration || 0), 0);
 
-  const [expanded, setExpanded] = useState(anyStreaming || defaultExpanded);
+  // 第 1 层：整体折叠状态
+  const [blockExpanded, setBlockExpanded] = useState(anyStreaming || defaultExpanded);
+  // 第 2 层：tools 区折叠状态
+  const [toolsCollapsed, setToolsCollapsed] = useState(!anyStreaming);
+
   const userInteracted = React.useRef(false);
 
-  // streaming 时自动展开
+  // streaming 时自动展开整体和 tools 区
   useEffect(() => {
-    if (anyStreaming && !expanded) {
-      setExpanded(true);
+    if (anyStreaming) {
+      if (!blockExpanded) setBlockExpanded(true);
+      if (toolsCollapsed) setToolsCollapsed(false);
     }
   }, [anyStreaming]);
 
-  // 完成后自动折叠
+  // 完成后自动折叠（除非用户操作过）
   const prevStreamingRef = React.useRef(anyStreaming);
   useEffect(() => {
     if (prevStreamingRef.current && !anyStreaming) {
       if (!userInteracted.current) {
-        setExpanded(false);
+        setBlockExpanded(false);
+        setToolsCollapsed(true);
       }
     }
     prevStreamingRef.current = anyStreaming;
   }, [anyStreaming]);
 
-  const handleToggle = () => {
+  const handleToggleBlock = () => {
     userInteracted.current = true;
-    setExpanded(v => !v);
+    setBlockExpanded(v => !v);
+  };
+
+  const handleToggleTools = () => {
+    userInteracted.current = true;
+    setToolsCollapsed(v => !v);
   };
 
   // 状态文本和颜色
@@ -330,13 +367,15 @@ const ToolGroupBlock: React.FC<ToolGroupBlockProps> = memo(({ tools, defaultExpa
 
   return (
     <div className="tool-block-wrapper" style={{ marginTop: 8 }}>
-      {/* Header - 统一头 */}
+      {/* 第 1 层 Header - CLI Output Block 整体 */}
       <button
         type="button"
-        onClick={handleToggle}
+        onClick={handleToggleBlock}
         className="tool-block-header"
+        aria-expanded={blockExpanded}
+        aria-controls="cli-output-body"
       >
-        <ChevronIcon expanded={expanded} color={accentColor} />
+        <ChevronIcon expanded={blockExpanded} color={accentColor} />
         <WrenchIcon color="#6B7280" />
         <span className="tool-block-label">CLI Output</span>
         <span className="tool-block-status" style={{ color: anyStreaming ? accentColor : anyFailed ? '#ff4d4f' : '#52c41a' }}>
@@ -348,24 +387,43 @@ const ToolGroupBlock: React.FC<ToolGroupBlockProps> = memo(({ tools, defaultExpa
         )}
       </button>
 
-      {/* Body - 工具列表 */}
-      {expanded && (
-        <div className="tool-block-body">
-          <div className="tool-block-list">
-            {tools.map((tool, index) => (
-              <ToolCallRow
-                key={tool.id || `tool-${index}`}
-                toolName={tool.toolName}
-                input={tool.input}
-                output={tool.output}
-                status={tool.status}
-                duration={tool.duration}
-                startedAt={tool.startedAt}
-                defaultExpanded={tool.status === 'streaming'}
-                accentColor={accentColor}
-              />
-            ))}
+      {/* 第 2 层 Body - tools 区 + stdout 区 */}
+      {blockExpanded && (
+        <div className="tool-block-body" id="cli-output-body">
+          {/* Tools 区折叠按钮 */}
+          <div className="tool-block-summary">
+            <button
+              type="button"
+              onClick={handleToggleTools}
+              className="tool-block-summary-btn"
+              aria-expanded={!toolsCollapsed}
+            >
+              <ChevronIcon expanded={!toolsCollapsed} color="#6B7280" />
+              <span>{toolsCollapsed ? '▶' : '▼'} {tools.length} tools</span>
+              <span className="tool-block-summary-collapsed">
+                {toolsCollapsed ? '(collapsed)' : '(expanded)'}
+              </span>
+            </button>
           </div>
+
+          {/* 第 3 层：工具列表 */}
+          {!toolsCollapsed && (
+            <div className="tool-block-list">
+              {tools.map((tool, index) => (
+                <ToolCallRow
+                  key={tool.id || `tool-${index}`}
+                  toolName={tool.toolName}
+                  input={tool.input}
+                  output={tool.output}
+                  status={tool.status}
+                  duration={tool.duration}
+                  startedAt={tool.startedAt}
+                  defaultExpanded={tool.status === 'streaming'}
+                  accentColor={accentColor}
+                />
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
