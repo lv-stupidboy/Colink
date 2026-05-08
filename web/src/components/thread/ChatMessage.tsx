@@ -360,18 +360,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
             </span>
             {/* 基础Agent信息 */}
             {message.metadata?.baseAgentType && (
-              <span style={{ marginLeft: 8, display: 'inline-flex', gap: 0 }}>
-                <Tag color={getTypeColorByIndex(_agentTypes, String(message.metadata.baseAgentType))}>
-                  {String(message.metadata.baseAgentTypeName || message.metadata.baseAgentType)}
-                </Tag>
-                <Tag style={{
-                  color: 'var(--color-primary)',
-                  borderColor: 'var(--color-primary)',
-                  background: 'var(--color-primary-bg)'
-                }}>
-                  {message.metadata.baseAgentModel as string}
-                </Tag>
-              </span>
+              <Tag color={getTypeColorByIndex(_agentTypes, String(message.metadata.baseAgentType))} style={{ marginLeft: 8 }}>
+                {String(message.metadata.baseAgentTypeName || message.metadata.baseAgentType)} · {message.metadata.baseAgentModel as string}
+              </Tag>
             )}
             {timestamp && (
               <span
