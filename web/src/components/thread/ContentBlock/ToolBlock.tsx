@@ -1,4 +1,4 @@
-import React, { useState, useEffect, memo } from 'react';
+import React, { useState, useEffect, useRef, memo } from 'react';
 import type { ToolUseBlock as ToolUseBlockType, ContentBlockStatus } from '@/types';
 import './ContentBlock.css';
 
@@ -10,8 +10,8 @@ import './ContentBlock.css';
 /** 工具摘要结构 */
 interface ToolSummary {
   name: string;       // 工具名
-  param: string;      // 关键参数摘要
-  paramDetail?: string; // 参数详情（可选显示）
+  param: string;      // 关键参数摘要（截断后）
+  paramFull?: string; // 完整参数（用于 tooltip）
 }
 
 /** 路径截断（保留文件名和关键目录） */
@@ -100,6 +100,7 @@ function generateDefaultSummary(toolName: string, input?: Record<string, unknown
       return {
         name: toolName,
         param: truncatePath(val, 40),
+        paramFull: val,
       };
     }
   }
@@ -116,23 +117,21 @@ function generateToolSummary(toolName: string, input?: Record<string, unknown>):
     case 'Write':
       const filePath = input?.file_path as string;
       if (filePath) {
-        return { name: toolName, param: truncatePath(filePath) };
+        return { name: toolName, param: truncatePath(filePath), paramFull: filePath };
       }
       // 等待完整 input 数据时的占位文本
       return { name: toolName, param: hasInput ? '' : '...' };
     case 'Edit':
       const editPath = input?.file_path as string;
       if (editPath) {
-        return {
-          name: toolName,
-          param: `${truncatePath(editPath)}:${input?.old_string ? 'edit' : 'new'}`,
-        };
+        const param = `${truncatePath(editPath)}:${input?.old_string ? 'edit' : 'new'}`;
+        return { name: toolName, param, paramFull: editPath };
       }
       return { name: toolName, param: hasInput ? '' : '...' };
     case 'Bash':
       const command = input?.command as string;
       if (command) {
-        return { name: toolName, param: truncateCommand(command) };
+        return { name: toolName, param: truncateCommand(command), paramFull: command };
       }
       // 等待完整 input 数据时的占位文本
       return { name: toolName, param: hasInput ? '' : '...' };
@@ -141,13 +140,15 @@ function generateToolSummary(toolName: string, input?: Record<string, unknown>):
       const grepPath = input?.path as string;
       if (pattern) {
         const pathPart = grepPath ? ` in ${truncatePath(grepPath, 30)}` : '';
-        return { name: toolName, param: `"${truncateQuery(pattern, 20)}"${pathPart}` };
+        const param = `"${truncateQuery(pattern, 20)}"${pathPart}`;
+        const paramFull = grepPath ? `"${pattern}" in ${grepPath}` : `"${pattern}"`;
+        return { name: toolName, param, paramFull };
       }
       return { name: toolName, param: hasInput ? '' : '...' };
     case 'Glob':
       const globPattern = input?.pattern as string;
       if (globPattern) {
-        return { name: toolName, param: globPattern };
+        return { name: toolName, param: globPattern, paramFull: globPattern };
       }
       return { name: toolName, param: hasInput ? '' : '...' };
     case 'Skill':
@@ -156,25 +157,31 @@ function generateToolSummary(toolName: string, input?: Record<string, unknown>):
         param: input?.skill as string || 'unknown',
       };
     case 'Task':
+      const taskDesc = input?.description as string;
       return {
         name: toolName,
-        param: `@${input?.subagent_name || 'agent'} ${truncateDescription(input?.description as string)}`,
+        param: `@${input?.subagent_name || 'agent'} ${truncateDescription(taskDesc)}`,
+        paramFull: taskDesc,
       };
     case 'NotebookEdit':
+      const notebookPath = input?.notebook_path as string;
       return {
         name: toolName,
-        param: `${truncatePath(input?.notebook_path as string)}[${input?.cell_number}]`,
+        param: `${truncatePath(notebookPath)}[${input?.cell_number}]`,
+        paramFull: notebookPath,
       };
     case 'WebFetch':
-      return {
-        name: toolName,
-        param: truncateUrl(input?.url as string),
-      };
+      const url = input?.url as string;
+      if (url) {
+        return { name: toolName, param: truncateUrl(url), paramFull: url };
+      }
+      return { name: toolName, param: '' };
     case 'WebSearch':
-      return {
-        name: toolName,
-        param: `"${truncateQuery(input?.query as string)}"`,
-      };
+      const query = input?.query as string;
+      if (query) {
+        return { name: toolName, param: `"${truncateQuery(query)}"`, paramFull: query };
+      }
+      return { name: toolName, param: '' };
     case 'AskUserQuestion':
       const questions = input?.questions;
       const firstQuestion = Array.isArray(questions) && questions.length > 0
@@ -183,6 +190,7 @@ function generateToolSummary(toolName: string, input?: Record<string, unknown>):
       return {
         name: 'Ask',
         param: truncateQuestion(firstQuestion || ''),
+        paramFull: firstQuestion,
       };
     case 'TodoWrite':
       return {
@@ -200,11 +208,14 @@ function generateToolSummary(toolName: string, input?: Record<string, unknown>):
       return { name: toolName, param: `delay ${(input?.delaySeconds as number) || 0}s` };
     case 'EnterWorktree':
     case 'ExitWorktree':
-      return { name: toolName, param: truncatePath(input?.path as string || input?.name as string) };
+      const worktreePath = input?.path as string || input?.name as string;
+      return { name: toolName, param: truncatePath(worktreePath), paramFull: worktreePath };
     case 'Agent':
+      const agentDesc = input?.description as string;
       return {
         name: toolName,
-        param: `${input?.subagent_type || 'agent'}: ${truncateDescription(input?.description as string)}`,
+        param: `${input?.subagent_type || 'agent'}: ${truncateDescription(agentDesc)}`,
+        paramFull: agentDesc,
       };
     default:
       return generateDefaultSummary(toolName, input);
@@ -358,6 +369,7 @@ export const ToolCallRow: React.FC<ToolCallRowProps> = memo(({
 }) => {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [runningTime, setRunningTime] = useState(duration || 0);
+  const prevStatusRef = useRef(status);
 
   // 实时计算运行时间
   useEffect(() => {
@@ -381,11 +393,17 @@ export const ToolCallRow: React.FC<ToolCallRowProps> = memo(({
 
   const hasDetail = (input && Object.keys(input).length > 0) || output;
 
-  // streaming 时自动展开
+  // streaming 时自动展开，完成后自动折叠
   useEffect(() => {
+    // streaming 状态：自动展开
     if (status === 'streaming' && !expanded) {
       setExpanded(true);
     }
+    // 从 streaming 变为非 streaming：自动折叠
+    if (prevStatusRef.current === 'streaming' && status !== 'streaming') {
+      setExpanded(false);
+    }
+    prevStatusRef.current = status;
   }, [status]);
 
   return (
@@ -412,9 +430,12 @@ export const ToolCallRow: React.FC<ToolCallRowProps> = memo(({
           {summary.name}
         </span>
 
-        {/* 主要参数 */}
+        {/* 主要参数（带 tooltip） */}
         {summary.param && (
-          <span className="tool-call-param">
+          <span
+            className="tool-call-param"
+            title={summary.paramFull || summary.param}
+          >
             {summary.param}
           </span>
         )}
