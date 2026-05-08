@@ -1,8 +1,10 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 
+	"github.com/anthropic/isdp/internal/service/agent"
 	"github.com/anthropic/isdp/internal/service/configgen"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -47,10 +49,17 @@ func (h *ConfigGenHandler) SyncConfig(c *gin.Context) {
 		return
 	}
 
-	// 验证 baseAgentType
-	validTypes := map[string]bool{"claude_code": true, "open_code": true, "open_code_acp": true}
-	if !validTypes[req.BaseAgentType] {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "baseAgentType 必须是 claude_code、open_code 或 open_code_acp"})
+	// 动态验证 baseAgentType（从插件注册中心获取支持的类型）
+	validTypes := agent.GetTypes()
+	typeValid := false
+	for _, t := range validTypes {
+		if string(t.Type) == req.BaseAgentType {
+			typeValid = true
+			break
+		}
+	}
+	if !typeValid {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("不支持的 baseAgentType: %s", req.BaseAgentType)})
 		return
 	}
 
@@ -97,10 +106,17 @@ func (h *ConfigGenHandler) GenerateAgentConfig(c *gin.Context) {
 		return
 	}
 
-	// 验证 baseAgentType
-	validTypes := map[string]bool{"claude_code": true, "open_code": true, "open_code_acp": true}
-	if !validTypes[req.BaseAgentType] {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "baseAgentType 必须是 claude_code、open_code 或 open_code_acp"})
+	// 动态验证 baseAgentType（从插件注册中心获取支持的类型）
+	validTypes := agent.GetTypes()
+	typeValid := false
+	for _, t := range validTypes {
+		if string(t.Type) == req.BaseAgentType {
+			typeValid = true
+			break
+		}
+	}
+	if !typeValid {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("不支持的 baseAgentType: %s", req.BaseAgentType)})
 		return
 	}
 

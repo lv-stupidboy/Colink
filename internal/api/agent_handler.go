@@ -625,13 +625,21 @@ func (h *AgentHandler) BatchGenerateConfig(c *gin.Context) {
 
 	cliType := req.CliType
 	if cliType == "" {
-		cliType = "claude_code"
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cliType 不能为空"})
+		return
 	}
 
-	// 验证 cliType
-	validTypes := map[string]bool{"claude_code": true, "open_code": true, "open_code_acp": true}
-	if !validTypes[cliType] {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "cliType 必须是 claude_code、open_code 或 open_code_acp"})
+	// 动态验证 cliType（从插件注册中心获取支持的类型）
+	validTypes := agent.GetTypes()
+	typeValid := false
+	for _, t := range validTypes {
+		if string(t.Type) == cliType {
+			typeValid = true
+			break
+		}
+	}
+	if !typeValid {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("不支持的 cliType: %s", cliType)})
 		return
 	}
 

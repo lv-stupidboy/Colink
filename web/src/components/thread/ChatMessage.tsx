@@ -3,6 +3,7 @@ import React, { memo, useCallback } from 'react';
 import { Tag, Button, Tooltip, Alert, Card, Space, Avatar } from 'antd';
 import { StopOutlined, ReloadOutlined, FileTextOutlined, ExclamationCircleOutlined, ThunderboltOutlined, UserOutlined } from '@ant-design/icons';
 import AgentTypeIcon from '@/components/AgentTypeIcon';
+import { getTypeColorByIndex } from '@/config/agentTypeColors';
 import type { Message, AgentConfig, AgentRole, MessageRole, ReviewIssue, ToolEvent, MessageContentBlock } from '@/types';
 import type { HumanTask, HumanTaskStatus } from '@/types';
 import type { FileChange } from '@/types/content';
@@ -13,13 +14,6 @@ import MessageContentRenderer from './ContentBlock/MessageContentRenderer';
 import { ReplyPill } from './ContentBlock/ReplyPill';
 import { WhisperBadge } from './ContentBlock/WhisperBadge';
 import './ChatMessage.css';
-
-// Agent 类型颜色映射（与 BaseAgentSettings 保持一致）
-const AGENT_TYPE_COLORS: Record<string, string> = {
-  'claude_code': 'blue',
-  'open_code': 'green',
-  'hermes': 'purple',
-};
 
 /**
  * 聊天消息组件
@@ -40,6 +34,7 @@ interface ChatMessageProps {
   message: Message;
   agentConfig?: AgentConfig;
   agentConfigs?: AgentConfig[];
+  agentTypes?: { type: string }[];
   projectPath?: string;
   isStreaming?: boolean;
   progress?: ProgressInfo;
@@ -148,6 +143,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
   message,
   agentConfig,
   agentConfigs: _agentConfigs = [],
+  agentTypes: _agentTypes = [],
   projectPath: _projectPath,
   isStreaming = false,
   progress,
@@ -365,8 +361,8 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
             {/* 基础Agent信息 */}
             {message.metadata?.baseAgentType && (
               <span style={{ marginLeft: 8, display: 'inline-flex', gap: 0 }}>
-                <Tag color={AGENT_TYPE_COLORS[message.metadata.baseAgentType as string] || 'default'}>
-                  {(message.metadata.baseAgentTypeName as string) || (message.metadata.baseAgentType as string)}
+                <Tag color={getTypeColorByIndex(_agentTypes, String(message.metadata.baseAgentType))}>
+                  {String(message.metadata.baseAgentTypeName || message.metadata.baseAgentType)}
                 </Tag>
                 <Tag style={{
                   color: 'var(--color-primary)',

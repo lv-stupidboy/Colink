@@ -48,6 +48,7 @@ import { StatusPanel } from '@/components/thread/StatusPanel';
 import MessageScrollIndicator from '@/components/thread/MessageScrollIndicator';
 import FileTree from '@/components/FileTree';
 import api from '@/api/client';
+import { AGENT_TYPE_COLORS } from '@/config/agentTypeColors';
 import './ThreadView.css';
 
 const { Title, Text } = Typography;
@@ -149,6 +150,9 @@ const ThreadView: React.FC = () => {
   // 调试模式的本地 WebSocket 连接状态（避免使用全局状态导致重新渲染）
   // 必须在使用之前定义
   const [debugWsConnected, setDebugWsConnected] = useState(false);
+
+  // Agent 类型列表（用于颜色动态分配）
+  const [agentTypes, setAgentTypes] = useState<{ type: string }[]>([]);
 
   // 工具事件本地状态（用于旧版 CLI 输出块兼容显示）
   const [toolEvents, setToolEvents] = useState<Record<string, ToolEvent[]>>({});
@@ -376,6 +380,9 @@ const ThreadView: React.FC = () => {
       loadArtifacts(threadId);
       loadReviewData(threadId);
     }
+
+    // 加载 agentTypes（两种模式都需要）
+    api.baseAgents.getTypes().then(types => setAgentTypes(types)).catch(() => {});
 
     return () => {
       // 清理：关闭 WebSocket 连接
@@ -1620,6 +1627,7 @@ const ThreadView: React.FC = () => {
                   agentConfigs={mentionableAgents}
                   projectPath={displayProjectPath}
                   toolEvents={toolEvents}
+                  agentTypes={agentTypes}
                   onStopAgent={handleStopAgent}
                   onRetryAgent={handleRetryAgent}
                   onOpenCodePanel={openCodePanel}

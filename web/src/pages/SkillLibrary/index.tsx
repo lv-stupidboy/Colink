@@ -15,7 +15,8 @@ import {
 } from '@ant-design/icons';
 import JSZip from 'jszip';
 import api from '@/api/client';
-import type { Skill, SkillSourceType, BuiltInTagCategory, SkillRegistry, RemoteSkill, ScanResult, SkillImportItem } from '@/types';
+import { getTypeColorByIndex, AGENT_TYPE_COLORS } from '@/config/agentTypeColors';
+import type { Skill, SkillSourceType, BuiltInTagCategory, SkillRegistry, RemoteSkill, ScanResult, SkillImportItem, BaseAgentTypeInfo } from '@/types';
 
 const { Title, Text, Paragraph } = Typography;
 const { CheckableTag: CheckableTagAnt } = Tag;
@@ -174,11 +175,7 @@ const SkillLibrary: React.FC = () => {
     </>
   );
 
-  // Agent 类型选项
-  const agentTypeOptions = [
-    { label: 'Claude Code', value: 'claude_code' },
-    { label: 'OpenCode', value: 'open_code' },
-  ];
+  const [agentTypes, setAgentTypes] = useState<BaseAgentTypeInfo[]>([]);
 
   const loadSkills = useCallback(async () => {
     setLoading(true);
@@ -223,6 +220,7 @@ const SkillLibrary: React.FC = () => {
     loadSkills();
     loadTags();
     loadRegistries();
+    api.baseAgents.getTypes().then(setAgentTypes).catch(() => {});
   }, [loadSkills, loadTags, loadRegistries]);
 
   const handleCreate = () => {
@@ -649,7 +647,7 @@ const SkillLibrary: React.FC = () => {
           path: skill.path,
           description: skill.description,
           tags: [],
-          supportedAgents: ['claude_code'],
+          supportedAgents: [],
           importMode: 'create',
         });
       }
@@ -661,7 +659,7 @@ const SkillLibrary: React.FC = () => {
           path: skill.path,
           description: skill.description,
           tags: [],
-          supportedAgents: ['claude_code'],
+          supportedAgents: [],
           importMode: 'update',
           targetSkillId: skill.localSkill?.id,
         });
@@ -675,7 +673,7 @@ const SkillLibrary: React.FC = () => {
           path: skill.path,
           description: skill.description,
           tags: [],
-          supportedAgents: ['claude_code'],
+          supportedAgents: [],
           importMode: choice,
           targetSkillId: choice === 'update' ? skill.localSkill?.id : undefined,
         });
@@ -978,7 +976,7 @@ const SkillLibrary: React.FC = () => {
           mode="multiple"
           placeholder="选择兼容的 Agent 类型"
           style={{ width: '100%' }}
-          options={agentTypeOptions}
+          options={agentTypes.map(t => ({ label: t.name, value: t.type }))}
         />
       </Form.Item>
 
@@ -1040,8 +1038,8 @@ const SkillLibrary: React.FC = () => {
               allowClear
               placeholder="全部类型"
             >
-              {agentTypeOptions.map(opt => (
-                <Select.Option key={opt.value} value={opt.value}>{opt.label}</Select.Option>
+              {agentTypes.map(t => (
+                <Select.Option key={t.type} value={t.type}>{t.name}</Select.Option>
               ))}
             </Select>
           </Space>
@@ -1144,11 +1142,15 @@ const SkillLibrary: React.FC = () => {
 
                 {/* Agent 区域 */}
                 <div style={{ height: 30, marginBottom: 4, overflow: 'hidden' }}>
-                  {skill.supportedAgents && skill.supportedAgents.length > 0 && skill.supportedAgents.map(agent => (
-                    <Tag key={agent} color="blue" style={{ fontSize: 11, margin: '0 4px 0 0' }}>
-                      {agent === 'claude_code' ? 'Claude Code' : 'OpenCode'}
-                    </Tag>
-                  ))}
+                  {skill.supportedAgents && skill.supportedAgents.length > 0 && skill.supportedAgents.map(agent => {
+                    const typeInfo = agentTypes.find(t => t.type === agent);
+                    const color = getTypeColorByIndex(agentTypes, agent);
+                    return (
+                      <Tag key={agent} color={color} style={{ fontSize: 11, margin: '0 4px 0 0' }}>
+                        {typeInfo?.name || agent}
+                      </Tag>
+                    );
+                  })}
                 </div>
 
                 <div style={{
@@ -1233,7 +1235,7 @@ const SkillLibrary: React.FC = () => {
                     mode="multiple"
                     placeholder="统一 Agent（必填）"
                     style={{ width: '100%' }}
-                    options={agentTypeOptions}
+                    options={agentTypes.map(t => ({ label: t.name, value: t.type }))}
                     value={unifiedAgents}
                     onChange={setUnifiedAgents}
                   />
@@ -1312,7 +1314,7 @@ const SkillLibrary: React.FC = () => {
                         mode="multiple"
                         placeholder="Agent（必填）"
                         style={{ width: '100%' }}
-                        options={agentTypeOptions}
+                        options={agentTypes.map(t => ({ label: t.name, value: t.type }))}
                         value={batchSkills[index].supportedAgents}
                         onChange={(val) => {
                           const updated = [...batchSkills];

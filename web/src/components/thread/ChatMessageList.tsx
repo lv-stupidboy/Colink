@@ -33,6 +33,7 @@ interface ChatMessageListProps {
     createdAt: string;
   }>;
   agentConfigs: AgentConfig[];
+  agentTypes?: { type: string }[];
   projectPath?: string;
   toolEvents?: Record<string, ToolEvent[]>;
   onStopAgent?: (invocationId: string) => void;
@@ -72,6 +73,7 @@ export const ChatMessageList = forwardRef<HTMLDivElement, ChatMessageListProps>(
     const {
       messages,
       agentConfigs,
+      agentTypes = [],
       projectPath,
       toolEvents = {},
       onStopAgent,
@@ -217,6 +219,7 @@ export const ChatMessageList = forwardRef<HTMLDivElement, ChatMessageListProps>(
             message={message as any}
             agentConfig={agentConfig}
             agentConfigs={agentConfigs}
+            agentTypes={agentTypes}
             projectPath={projectPath}
             toolEvents={messageToolEvents}
             onRetry={onRetryAgent ? () => onRetryAgent(message) : undefined}

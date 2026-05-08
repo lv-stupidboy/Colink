@@ -48,9 +48,7 @@ const BaseAgentSettings: React.FC = () => {
   const handleCreate = () => {
     setEditingAgent(null);
     form.resetFields();
-    form.setFieldsValue({
-      type: 'claude_code',
-    });
+    // 不设置默认类型，让用户必须手动选择
     setModalVisible(true);
   };
 

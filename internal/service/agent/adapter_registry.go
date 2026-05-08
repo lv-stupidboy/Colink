@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 
 	"github.com/anthropic/isdp/internal/model"
@@ -61,6 +62,10 @@ func GetTypes() []PluginTypeInfo {
 			Description: meta.Description,
 		})
 	}
+	// 按类型名称排序，确保顺序固定（Go map 遍历顺序不固定）
+	sort.Slice(types, func(i, j int) bool {
+		return types[i].Type < types[j].Type
+	})
 	return types
 }
 
