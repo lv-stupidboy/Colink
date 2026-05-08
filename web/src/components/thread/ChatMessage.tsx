@@ -14,6 +14,13 @@ import { ReplyPill } from './ContentBlock/ReplyPill';
 import { WhisperBadge } from './ContentBlock/WhisperBadge';
 import './ChatMessage.css';
 
+// Agent 类型颜色映射（与 BaseAgentSettings 保持一致）
+const AGENT_TYPE_COLORS: Record<string, string> = {
+  'claude_code': 'blue',
+  'open_code': 'green',
+  'hermes': 'purple',
+};
+
 /**
  * 聊天消息组件
  * 统一使用 contentBlocks 渲染，支持 thinking/tool_use/text 块
@@ -159,7 +166,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
   const roleDisplay = getRoleDisplayName(message.role, agentRole);
 
   // 头像颜色
-  const avatarColor = isUser ? '#52c41a' : 'var(--color-primary)';
+  const avatarColor = 'var(--color-primary)';
 
   // Agent 名称（用于点击事件）
   const displayAgentName = agentConfig?.name || message.agentName || roleDisplay;
@@ -355,6 +362,21 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
             >
               {displayAgentName}
             </span>
+            {/* 基础Agent信息 */}
+            {message.metadata?.baseAgentType && (
+              <span style={{ marginLeft: 8, display: 'inline-flex', gap: 0 }}>
+                <Tag color={AGENT_TYPE_COLORS[message.metadata.baseAgentType as string] || 'default'}>
+                  {(message.metadata.baseAgentTypeName as string) || (message.metadata.baseAgentType as string)}
+                </Tag>
+                <Tag style={{
+                  color: 'var(--color-primary)',
+                  borderColor: 'var(--color-primary)',
+                  background: 'var(--color-primary-bg)'
+                }}>
+                  {message.metadata.baseAgentModel as string}
+                </Tag>
+              </span>
+            )}
             {timestamp && (
               <span
                 className="chat-message-time"
@@ -388,7 +410,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
           className={`chat-message-bubble ${styleConfig.radius}`}
           style={{
             backgroundColor: '#fff',
-            border: isUser ? '1px solid #52c41a' : `1px solid ${styleConfig.color}20`,
+            border: `1px solid var(--color-primary-border)`,
             padding: '12px 16px',
             wordBreak: 'break-word',
             ...(styleConfig.font ? { fontFamily: 'monospace' } : {}),

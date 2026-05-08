@@ -30,12 +30,18 @@ const AgentAvatar: React.FC<AgentAvatarProps> = ({
   isDragOver,
   disabled = false,
 }) => {
-  // hover 展示内容：角色名称 + 人工参与状态
+  // hover 展示内容：角色名称 + 人工参与状态 + 基础Agent信息
   const humanStatus = agent.config.requiresHuman ? 'Human In' : 'Human Out';
   const tooltipContent = (
     <div>
       <div>角色名称：{agent.config.name}</div>
       <div>人工参与：{humanStatus}</div>
+      {agent.config.baseAgent && (
+        <>
+          <div>基础Agent：{agent.config.baseAgent.type}</div>
+          <div>模型：{agent.config.baseAgent.defaultModel}</div>
+        </>
+      )}
     </div>
   );
 

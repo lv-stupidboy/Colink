@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -513,6 +514,18 @@ func (o *Orchestrator) executeDebugAgent(
 		output = outputBuilder.String()
 	}
 
+		// 构建 metadata（保存基础Agent信息）
+		metadata := map[string]string{
+			"baseAgentType":  string(baseAgent.Type),
+			"baseAgentModel": baseAgent.DefaultModel,
+		}
+		// 从插件注册中心获取类型名称
+		pluginMeta := GetMeta(baseAgent.Type)
+		if pluginMeta != nil {
+			metadata["baseAgentTypeName"] = pluginMeta.Name
+		}
+		metadataJSON, _ := json.Marshal(metadata)
+
 	// 添加Agent消息到内存
 	agentMsg := &model.Message{
 		ID:        uuid.New(),
@@ -521,6 +534,7 @@ func (o *Orchestrator) executeDebugAgent(
 		AgentID:   config.ID.String(),
 		Content:   output,
 		CreatedAt: time.Now(),
+			Metadata:  metadataJSON,
 	}
 	o.debugThreadMgr.AddMessage(threadID, agentMsg)
 

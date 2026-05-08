@@ -176,7 +176,7 @@ interface AppActions {
   markQuestionSubmitted: (blockId: string) => void;
 
   // 用真实消息替换临时消息（完整替换，包括 contentBlocks 和 metadata）
-  replaceMessageId: (tempId: string, realId: string, realContentBlocks?: MessageContentBlock[], agentName?: string, agentRole?: string) => void;
+  replaceMessageId: (tempId: string, realId: string, realContentBlocks?: MessageContentBlock[], agentName?: string, agentRole?: string, metadata?: Record<string, unknown>) => void;
 
   // 更新进度状态
   updateProgress: (invocationId: string, status: string, toolName?: string, toolInput?: Record<string, unknown>) => void;
@@ -966,7 +966,7 @@ export const useAppStore = create<AppState & AppActions>()(
       });
     },
 
-    replaceMessageId: (tempId, realId, realContentBlocks, agentName, agentRole) => {
+    replaceMessageId: (tempId, realId, realContentBlocks, agentName, agentRole, metadata) => {
       set((state) => {
         const messages = state.messages.map((m) =>
           m.id === tempId ? {
@@ -976,8 +976,8 @@ export const useAppStore = create<AppState & AppActions>()(
             contentBlocks: realContentBlocks || m.contentBlocks,
             // 更新 agentName 直接属性（用于 ChatMessage 组件渲染）
             agentName: agentName || m.agentName,
-            // 更新 metadata（包含 agentName 和 agentRole）
-            metadata: {
+            // 更新 metadata（优先使用传入的 metadata，否则合并现有 metadata）
+            metadata: metadata || {
               ...m.metadata,
               agentName: agentName || m.metadata?.agentName,
               agentRole: agentRole || m.metadata?.agentRole,
