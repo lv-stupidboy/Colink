@@ -1126,6 +1126,15 @@ const SkillLibrary: React.FC = () => {
                   {skill.description || '暂无描述'}
                 </Paragraph>
 
+                {/* 路径区域 - 仅联邦类型显示 */}
+                {skill.sourceType === 'federated' && skill.sourcePath && (
+                  <div style={{ marginBottom: 4 }}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      路径: {skill.sourcePath}
+                    </Text>
+                  </div>
+                )}
+
                 {/* 标签区域 */}
                 <div style={{ height: 32, marginBottom: 4, overflow: 'hidden' }}>
                   {skill.tags && skill.tags.length > 0 && (
@@ -1431,6 +1440,13 @@ const SkillLibrary: React.FC = () => {
               dataIndex: 'name',
               key: 'name',
               width: 120,
+            },
+            {
+              title: '路径',
+              dataIndex: 'path',
+              key: 'path',
+              width: 150,
+              render: (path: string) => <Text type="secondary" style={{ fontSize: 12 }}>{path || '-'}</Text>,
             },
             {
               title: '本地来源',

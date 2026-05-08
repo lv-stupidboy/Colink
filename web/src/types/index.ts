@@ -608,6 +608,7 @@ export interface Skill {
   tags?: string[];
   sourceType: SkillSourceType;
   sourceRegistryId?: string;
+  sourcePath?: string; // 联邦源仓库相对路径
   authorId?: string;
   projectId?: string;
   supportedAgents?: string[];
@@ -758,12 +759,14 @@ export interface SyncPreviewSkill {
   name: string;
   localSkillId: string;
   description: string;
+  path?: string; // 远程路径
 }
 
 // 同步冲突 skill（异源）
 export interface SyncConflictSkill {
   name: string;
   description: string;
+  path?: string; // 远程路径
   localSkill: LocalSkillInfo; // 复用已有类型
 }
 
@@ -1344,6 +1347,7 @@ export interface LocalSkillInfo {
   sourceType: SkillSourceType;
   sourceRegistryId?: string;
   sourceRegistryName?: string; // 联邦源名称（如果是 federated）
+  sourcePath?: string; // 本地路径
   description: string;
 }
 

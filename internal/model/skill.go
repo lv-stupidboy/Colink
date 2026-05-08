@@ -35,6 +35,7 @@ type Skill struct {
 	// 来源信息
 	SourceType       SkillSourceType `json:"sourceType"`
 	SourceRegistryID uuid.UUID       `json:"sourceRegistryId,omitempty"`
+	SourcePath       string          `json:"sourcePath,omitempty"` // 联邦源仓库相对路径
 	AuthorID         uuid.UUID       `json:"authorId,omitempty"`
 	ProjectID        uuid.UUID       `json:"projectId,omitempty"`
 
@@ -193,6 +194,7 @@ type LocalSkillInfo struct {
 	SourceType       string    `json:"sourceType"`
 	SourceRegistryID uuid.UUID `json:"sourceRegistryId,omitempty"`
 	SourceRegistryName string  `json:"sourceRegistryName,omitempty"` // 联邦源名称（如果是 federated）
+	SourcePath       string    `json:"sourcePath,omitempty"` // 本地路径
 	Description      string    `json:"description"`
 }
 
@@ -257,12 +259,14 @@ type SyncPreviewSkill struct {
 	Name         string    `json:"name"`
 	LocalSkillID uuid.UUID `json:"localSkillId"`
 	Description  string    `json:"description"`
+	Path         string    `json:"path,omitempty"` // 远程路径
 }
 
 // SyncConflictSkill 同步冲突 skill（异源）
 type SyncConflictSkill struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
+	Path        string          `json:"path,omitempty"` // 远程路径
 	LocalSkill  *LocalSkillInfo `json:"localSkill"` // 复用已有类型
 }
 

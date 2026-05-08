@@ -520,6 +520,11 @@ const RegistryManagement: React.FC = () => {
                       <div style={{ display: 'flex', alignItems: 'center', width: '100%' }}>
                         <div style={{ flex: 1 }}>
                           <Text strong>{skill.name}</Text>
+                          {skill.path && (
+                            <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
+                              路径: {skill.path}
+                            </Text>
+                          )}
                           <div style={{ marginTop: 4, marginBottom: 4 }}>
                             <Tag color={getSourceTypeColor(sourceType)}>
                               {skill.localSkill.sourceRegistryName || getSourceTypeLabel(sourceType)}
