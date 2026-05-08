@@ -28,6 +28,7 @@ type Config struct {
 	Feishu         FeishuConfig         `mapstructure:"feishu"`
 	IM             IMConfig             `mapstructure:"im"`
 	Reporter       ReporterConfig       `mapstructure:"reporter"`
+	MessageReporter MessageReporterConfig `mapstructure:"message_reporter"`
 	HumanTask      HumanTaskConfig      `mapstructure:"human_task"`
 	TeamPackageSync TeamPackageSyncConfig `mapstructure:"team_package_sync"`
 	Market         MarketDefaultConfig  `mapstructure:"market"`
@@ -290,6 +291,61 @@ func (c *ReporterConfig) GetRetryInterval() time.Duration {
 	return d
 }
 
+// MessageReporterConfig 会话消息上报配置
+type MessageReporterConfig struct {
+	// Enabled 是否启用上报，默认 false
+	Enabled bool `mapstructure:"enabled"`
+	// Endpoint 上报服务地址
+	Endpoint string `mapstructure:"endpoint"`
+	// Interval 上报间隔，格式示例: "30m", "1h"
+	Interval string `mapstructure:"interval"`
+	// BatchSize 单次上报最大消息数，默认 100
+	BatchSize int `mapstructure:"batch_size"`
+	// RetryTimes 失败重试次数，默认 3
+	RetryTimes int `mapstructure:"retry_times"`
+	// RetryInterval 重试间隔，格式示例: "1m", "30s"
+	RetryInterval string `mapstructure:"retry_interval"`
+}
+
+// ApplyDefaults 设置 MessageReporter 配置默认值
+func (c *MessageReporterConfig) ApplyDefaults() {
+	if c.Interval == "" {
+		c.Interval = "30m"
+	}
+	if c.BatchSize == 0 {
+		c.BatchSize = 100
+	}
+	if c.RetryTimes == 0 {
+		c.RetryTimes = 3
+	}
+	if c.RetryInterval == "" {
+		c.RetryInterval = "1m"
+	}
+}
+
+// IsRunnable 返回是否应该启动 MessageReporter
+func (c *MessageReporterConfig) IsRunnable() bool {
+	return c.Enabled && c.Endpoint != ""
+}
+
+// GetInterval 获取上报间隔（解析为 time.Duration）
+func (c *MessageReporterConfig) GetInterval() time.Duration {
+	d, err := time.ParseDuration(c.Interval)
+	if err != nil {
+		return 30 * time.Minute
+	}
+	return d
+}
+
+// GetRetryInterval 获取重试间隔（解析为 time.Duration）
+func (c *MessageReporterConfig) GetRetryInterval() time.Duration {
+	d, err := time.ParseDuration(c.RetryInterval)
+	if err != nil {
+		return 1 * time.Minute
+	}
+	return d
+}
+
 // HumanTaskConfig 待办任务配置
 type HumanTaskConfig struct {
 	// Enabled 是否启用待办任务自动创建，默认 false
@@ -494,6 +550,7 @@ func Load(configPath string) (*Config, error) {
 	cfg.Database.ApplyDefaults()
 	cfg.Feishu.ApplyDefaults()
 	cfg.Reporter.ApplyDefaults()
+	cfg.MessageReporter.ApplyDefaults()
 
 	// 应用IM平台默认值
 	for i := range cfg.IM.Platforms {
@@ -594,6 +651,12 @@ func setDefaults() {
 	viper.SetDefault("reporter.interval", "30m")
 	viper.SetDefault("reporter.retry_times", 3)
 	viper.SetDefault("reporter.retry_interval", "1m")
+	// MessageReporter 默认值
+	viper.SetDefault("message_reporter.enabled", false)
+	viper.SetDefault("message_reporter.interval", "30m")
+	viper.SetDefault("message_reporter.batch_size", 100)
+	viper.SetDefault("message_reporter.retry_times", 3)
+	viper.SetDefault("message_reporter.retry_interval", "1m")
 
 	// Market 默认市场配置
 	viper.SetDefault("market.branch", "main")
