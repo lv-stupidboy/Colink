@@ -36,6 +36,7 @@ type Message struct {
 	MessageType MessageType     `json:"messageType"`
 	Metadata    json.RawMessage `json:"metadata,omitempty"`
 	CreatedAt   time.Time       `json:"createdAt"`
+	ReportedAt  *time.Time      `json:"reportedAt,omitempty"` // 上报时间，NULL 表示未上报
 
 	// A2A 相关字段
 	Mentions     []string    `json:"mentions,omitempty"`      // 被 @mention 的 Agent IDs
