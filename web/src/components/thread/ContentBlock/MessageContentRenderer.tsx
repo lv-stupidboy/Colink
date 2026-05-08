@@ -93,6 +93,8 @@ const MessageContentRenderer: React.FC<MessageContentRendererProps> = memo(({
               <ToolGroupBlock
                 key={`tool-group-${index}`}
                 tools={block.tools as ToolUseBlock[]}
+                stdoutBlocks={block.stdoutBlocks as TextBlockType[]}
+                richBlocks={block.richBlocks as RichBlock[]}
                 defaultExpanded={defaultExpanded}
               />
             );
@@ -172,31 +174,42 @@ function extractRichBlocks(block: MessageContentBlock | { type: 'tool_use_group'
  * 聚合内容块
  * - 连续的 thinking 块合并（取最后一个，内容已由 Store 累积）
  * - 连续的 tool_use 块聚合为一个组
+ * - 紧跟 tool_use 的 text 块收集为 stdoutBlocks
  * - rich 块保持独立
  */
-function aggregateBlocks(blocks: MessageContentBlock[]): Array<MessageContentBlock | { type: 'tool_use_group'; tools: ToolUseBlock[]; richBlocks?: RichBlock[] }> {
-  const result: Array<MessageContentBlock | { type: 'tool_use_group'; tools: ToolUseBlock[]; richBlocks?: RichBlock[] }> = [];
+function aggregateBlocks(blocks: MessageContentBlock[]): Array<MessageContentBlock | { type: 'tool_use_group'; tools: ToolUseBlock[]; stdoutBlocks?: TextBlockType[]; richBlocks?: RichBlock[] }> {
+  const result: Array<MessageContentBlock | { type: 'tool_use_group'; tools: ToolUseBlock[]; stdoutBlocks?: TextBlockType[]; richBlocks?: RichBlock[] }> = [];
   let currentToolGroup: ToolUseBlock[] = [];
+  let currentStdoutBlocks: TextBlockType[] = [];
   let currentRichBlocks: RichBlock[] = [];
 
   for (const block of blocks) {
     if (block.type === 'tool_use') {
       // 累积 tool_use 块
       currentToolGroup.push(block as ToolUseBlock);
+    } else if (block.type === 'text') {
+      // 如果当前有工具组，text 块作为 stdout 累积
+      if (currentToolGroup.length > 0) {
+        currentStdoutBlocks.push(block as TextBlockType);
+      } else {
+        // 独立的 text 块直接输出
+        result.push(block);
+      }
     } else if (block.type === 'rich') {
       // 累积 rich 块
       currentRichBlocks.push(block as RichBlock);
     } else {
-      // 遇到非 tool_use/rich 块，先输出累积的块
+      // 遇到非 tool_use/text/rich 块，先输出累积的块
       if (currentToolGroup.length > 0) {
-        // 如果有 rich 块，附加到工具组
-        if (currentRichBlocks.length > 0) {
-          result.push({ type: 'tool_use_group', tools: currentToolGroup, richBlocks: currentRichBlocks });
-          currentRichBlocks = [];
-        } else {
-          result.push({ type: 'tool_use_group', tools: currentToolGroup });
-        }
+        result.push({
+          type: 'tool_use_group',
+          tools: currentToolGroup,
+          stdoutBlocks: currentStdoutBlocks.length > 0 ? currentStdoutBlocks : undefined,
+          richBlocks: currentRichBlocks.length > 0 ? currentRichBlocks : undefined,
+        });
         currentToolGroup = [];
+        currentStdoutBlocks = [];
+        currentRichBlocks = [];
       }
       // 输出累积的 rich 块
       if (currentRichBlocks.length > 0) {
@@ -211,11 +224,12 @@ function aggregateBlocks(blocks: MessageContentBlock[]): Array<MessageContentBlo
 
   // 处理末尾的累积块
   if (currentToolGroup.length > 0) {
-    if (currentRichBlocks.length > 0) {
-      result.push({ type: 'tool_use_group', tools: currentToolGroup, richBlocks: currentRichBlocks });
-    } else {
-      result.push({ type: 'tool_use_group', tools: currentToolGroup });
-    }
+    result.push({
+      type: 'tool_use_group',
+      tools: currentToolGroup,
+      stdoutBlocks: currentStdoutBlocks.length > 0 ? currentStdoutBlocks : undefined,
+      richBlocks: currentRichBlocks.length > 0 ? currentRichBlocks : undefined,
+    });
   }
   if (currentRichBlocks.length > 0) {
     for (const richBlock of currentRichBlocks) {
@@ -280,23 +294,47 @@ function WrenchIcon({ color }: { color?: string }) {
  * 工具组块组件
  * 三层折叠设计：
  * - 第 1 层：CLI Output Block 整体
- * - 第 2 层：tools 区（可独立折叠）
+ * - 第 2 层：tools 区（可独立折叠） + stdout 区（始终可见）
  * - 第 3 层：单个工具（点击展开看细节）
  */
 interface ToolGroupBlockProps {
   tools: ToolUseBlock[];
+  stdoutBlocks?: TextBlockType[];
+  richBlocks?: RichBlock[];
   defaultExpanded?: boolean;
 }
 
-/** stdout 预览构建（从 richBlocks 提取摘要） */
-function buildStdoutPreview(richBlocks?: RichBlock[], maxChars = 48): string {
+/** stdout 预览构建（从 text 块提取前 48 字符） */
+function buildStdoutPreview(stdoutBlocks?: TextBlockType[], maxChars = 48): string {
+  if (!stdoutBlocks || stdoutBlocks.length === 0) return '';
+
+  let preview = '';
+  for (const block of stdoutBlocks) {
+    const content = block.content || '';
+    for (const char of content) {
+      if (/\s/.test(char)) {
+        preview = preview && !preview.endsWith(' ') ? `${preview} ` : preview;
+      } else {
+        preview = `${preview}${char}`;
+      }
+      if (preview.length > maxChars) {
+        return `${preview.slice(0, maxChars)}…`;
+      }
+    }
+  }
+  return preview.trimEnd();
+}
+
+/** rich 块预览构建（从 richBlocks 提取摘要） */
+function buildRichPreview(richBlocks?: RichBlock[], maxChars = 48): string {
   if (!richBlocks || richBlocks.length === 0) return '';
 
-  // 从 richBlocks 中提取可用的文本预览
   for (const block of richBlocks) {
-    if (block.richType === 'card' && (block as CardRichBlock).description) {
+    if (block.richType === 'card') {
       const desc = (block as CardRichBlock).description;
-      return desc.length > maxChars ? `${desc.slice(0, maxChars)}…` : desc;
+      if (desc) {
+        return desc.length > maxChars ? `${desc.slice(0, maxChars)}…` : desc;
+      }
     }
     if (block.richType === 'diff') {
       const diff = block as DiffRichBlock;
@@ -311,7 +349,7 @@ function buildStdoutPreview(richBlocks?: RichBlock[], maxChars = 48): string {
   return '';
 }
 
-const ToolGroupBlock: React.FC<ToolGroupBlockProps> = memo(({ tools, defaultExpanded = false }) => {
+const ToolGroupBlock: React.FC<ToolGroupBlockProps> = memo(({ tools, stdoutBlocks, richBlocks, defaultExpanded = false }) => {
   if (tools.length === 0) return null;
 
   // 单个工具：直接用单行显示
@@ -323,6 +361,10 @@ const ToolGroupBlock: React.FC<ToolGroupBlockProps> = memo(({ tools, defaultExpa
   const anyStreaming = tools.some(t => t.status === 'streaming');
   const anyFailed = tools.some(t => t.status === 'failed');
   const totalDuration = tools.reduce((sum, t) => sum + (t.duration || 0), 0);
+
+  // stdout 和 rich 预览
+  const stdoutPreview = buildStdoutPreview(stdoutBlocks);
+  const richPreview = buildRichPreview(richBlocks);
 
   // 第 1 层：整体折叠状态
   const [blockExpanded, setBlockExpanded] = useState(anyStreaming || defaultExpanded);
@@ -365,6 +407,10 @@ const ToolGroupBlock: React.FC<ToolGroupBlockProps> = memo(({ tools, defaultExpa
   const statusText = anyStreaming ? 'running' : anyFailed ? 'failed' : 'completed';
   const accentColor = '#7C3AED';
 
+  // 摘要行预览（折叠时显示）
+  const previewText = stdoutPreview || richPreview;
+  const previewDisplay = previewText && !blockExpanded ? ` · ${previewText}` : '';
+
   return (
     <div className="tool-block-wrapper" style={{ marginTop: 8 }}>
       {/* 第 1 层 Header - CLI Output Block 整体 */}
@@ -384,6 +430,9 @@ const ToolGroupBlock: React.FC<ToolGroupBlockProps> = memo(({ tools, defaultExpa
         <span className="tool-block-duration-badge">{tools.length} tools</span>
         {totalDuration > 0 && (
           <span className="tool-block-duration-badge">{formatDuration(totalDuration)}</span>
+        )}
+        {previewDisplay && (
+          <span className="tool-block-preview">{previewDisplay}</span>
         )}
       </button>
 
@@ -422,6 +471,28 @@ const ToolGroupBlock: React.FC<ToolGroupBlockProps> = memo(({ tools, defaultExpa
                   accentColor={accentColor}
                 />
               ))}
+            </div>
+          )}
+
+          {/* stdout 区（展开后始终可见） */}
+          {stdoutBlocks && stdoutBlocks.length > 0 && (
+            <>
+              <div className="cli-output-stdout-divider">─── stdout ───</div>
+              <div className="cli-output-stdout">
+                {stdoutBlocks.map((block, i) => (
+                  <React.Fragment key={i}>
+                    {block.content}
+                    {i < stdoutBlocks.length - 1 && '\n'}
+                  </React.Fragment>
+                ))}
+              </div>
+            </>
+          )}
+
+          {/* rich 块渲染 */}
+          {richBlocks && richBlocks.length > 0 && (
+            <div className="cli-output-rich">
+              <RichBlocks blocks={richBlocks} onInteractiveAction={undefined} />
             </div>
           )}
         </div>

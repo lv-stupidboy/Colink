@@ -718,3 +718,54 @@
 [data-theme='dark'] .tool-group-duration {
   color: var(--text-secondary);
 }
+
+/* stdout 区样式 */
+.cli-output-stdout-divider {
+  padding: 4px 12px;
+  font-size: 11px;
+  color: #6B7280;
+  font-family: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace;
+  background: transparent;
+}
+
+.cli-output-stdout {
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #4B5563;
+  font-family: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #FAFAFA;
+  border-radius: 4px;
+  margin: 4px 8px;
+  max-height: 200px;
+  overflow: auto;
+}
+
+.cli-output-rich {
+  padding: 8px;
+}
+
+.tool-block-preview {
+  font-size: 10px;
+  color: #9CA3AF;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
+/* stdout 深色模式 */
+[data-theme='dark'] .cli-output-stdout-divider {
+  color: var(--text-secondary);
+}
+
+[data-theme='dark'] .cli-output-stdout {
+  color: var(--text-primary);
+  background: var(--bg-base);
+}
+
+[data-theme='dark'] .tool-block-preview {
+  color: var(--text-secondary);
+}
