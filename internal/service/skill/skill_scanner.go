@@ -589,6 +589,8 @@ func (s *SkillScanner) ImportSkills(ctx context.Context, req *model.BatchImportR
 	autoUpdateChan := make(chan struct{}, len(req.Skills))
 	userCreateChan := make(chan struct{}, len(req.Skills))
 	userUpdateChan := make(chan struct{}, len(req.Skills))
+	// 刷新错误通道
+	refreshErrChan := make(chan []model.RefreshError, len(req.Skills))
 
 	// 创建信号量控制并发数
 	sem := make(chan struct{}, s.importPoolSize)
@@ -652,6 +654,12 @@ func (s *SkillScanner) ImportSkills(ctx context.Context, req *model.BatchImportR
 							return
 						}
 
+						// 刷新关联角色的配置目录
+						refreshErrors := s.RefreshAgentConfigsForSkill(ctx, existing.ID)
+						if len(refreshErrors) > 0 {
+							refreshErrChan <- refreshErrors
+						}
+
 						nameMu.Unlock()
 						updateChan <- existing
 						userUpdateChan <- struct{}{}
@@ -708,6 +716,7 @@ func (s *SkillScanner) ImportSkills(ctx context.Context, req *model.BatchImportR
 	close(autoUpdateChan)
 	close(userCreateChan)
 	close(userUpdateChan)
+	close(refreshErrChan)
 
 	// 收集结果
 	for skill := range importChan {
@@ -734,14 +743,21 @@ func (s *SkillScanner) ImportSkills(ctx context.Context, req *model.BatchImportR
 		conflictSummary.UserUpdated++
 	}
 
+	// 收集刷新错误
+	var configRefreshErrors []model.RefreshError
+	for errs := range refreshErrChan {
+		configRefreshErrors = append(configRefreshErrors, errs...)
+	}
+
 	// 异步删除临时目录
 	go os.RemoveAll(tempDir)
 
 	return &model.BatchImportResult{
-		Imported:        imported,
-		Updated:         updated,
-		Skipped:         skipped,
-		ConflictSummary: conflictSummary,
+		Imported:            imported,
+		Updated:             updated,
+		Skipped:             skipped,
+		ConflictSummary:     conflictSummary,
+		ConfigRefreshErrors: configRefreshErrors,
 	}, nil
 }
 
