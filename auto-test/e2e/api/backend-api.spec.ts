@@ -106,17 +106,37 @@ test.describe('BT-03: 创建项目 API', () => {
  * @priority P0
  */
 test.describe('BT-04: 线程列表 API', () => {
-  test('BT-04-01: 应该返回线程列表', async ({ page }) => {
+  test('BT-04-01: 应该返回指定项目的线程列表', async ({ page }) => {
     // @feature F005 - 线程管理
     // @priority P0
     // @id BT-04-01
-    const response = await page.request.get(`${API_BASE_URL}/threads`);
+    // 后端 API 设计: threads 通过 project ID 获取，不是列出所有 threads
+    // 路由: GET /api/v1/threads/project/:projectId
+
+    // 先获取项目列表
+    const projectsResponse = await page.request.get(`${API_BASE_URL}/projects`);
+    const projectsStatus = projectsResponse.status();
+
+    if (projectsStatus !== 200) {
+      console.log('⚠️ BT-04: 无法获取项目列表，跳过线程列表测试');
+      return;
+    }
+
+    const projects = await projectsResponse.json();
+    if (!Array.isArray(projects) || projects.length === 0) {
+      console.log('⚠️ BT-04: 没有项目，无法测试线程列表 API');
+      return;
+    }
+
+    // 使用第一个项目的 ID 获取线程列表
+    const projectId = projects[0].id;
+    const response = await page.request.get(`${API_BASE_URL}/threads/project/${projectId}`);
     const status = response.status();
 
     if (status === 200) {
       const data = await response.json();
       expect(Array.isArray(data)).toBeTruthy();
-      console.log('✅ BT-04: 线程列表 API 正常，返回', data.length, '个线程');
+      console.log('✅ BT-04: 线程列表 API 正常，项目', projectId, '返回', data.length, '个线程');
     } else {
       console.log('⚠️ BT-04: 线程列表 API 返回状态:', status);
     }
