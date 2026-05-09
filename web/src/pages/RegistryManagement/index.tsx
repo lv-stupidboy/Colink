@@ -59,6 +59,7 @@ const RegistryManagement: React.FC = () => {
   const [conflictChoices, setConflictChoices] = useState<Record<string, 'update' | 'skip'>>({});
   const [syncingRegistryId, setSyncingRegistryId] = useState<string | null>(null);
   const [syncingRegistryName, setSyncingRegistryName] = useState('');
+  const [conflictSearchText, setConflictSearchText] = useState('');
   const [form] = Form.useForm();
 
   useEffect(() => {
@@ -189,7 +190,9 @@ const RegistryManagement: React.FC = () => {
       // 构建同步确认请求
       const operations: SyncOperation[] = [];
       for (const skill of syncPreview.conflictSkills) {
-        const choice = conflictChoices[skill.name] || 'skip'; // 默认跳过
+        // 使用 name::path 组合作为唯一标识，与渲染时保持一致
+        const uniqueKey = skill.path ? `${skill.name}::${skill.path}` : skill.name;
+        const choice = conflictChoices[uniqueKey] || 'skip'; // 默认跳过
         operations.push({
           action: choice,
           skillName: skill.name,
@@ -482,10 +485,16 @@ const RegistryManagement: React.FC = () => {
       <Modal
         title="同步冲突处理"
         open={conflictModalVisible}
-        onCancel={() => setConflictModalVisible(false)}
+        onCancel={() => {
+          setConflictModalVisible(false);
+          setConflictSearchText('');
+        }}
         width={800}
         footer={[
-          <Button key="cancel" onClick={() => setConflictModalVisible(false)}>取消</Button>,
+          <Button key="cancel" onClick={() => {
+            setConflictModalVisible(false);
+            setConflictSearchText('');
+          }}>取消</Button>,
           <Button key="confirm" type="primary" onClick={handleConfirmConflict}>
             确认同步（已选择 {Object.values(conflictChoices).filter(v => v === 'update').length} 个更新）
           </Button>,
@@ -501,51 +510,70 @@ const RegistryManagement: React.FC = () => {
                 <Tag color="green">{syncPreview.autoUpdateSkills.length} 个同源 Skill 将自动更新</Tag>
               </div>
             )}
-            <List
-              dataSource={syncPreview.conflictSkills}
-              renderItem={(skill) => {
-                const isChecked = conflictChoices[skill.name] === 'update';
-                const sourceType = skill.localSkill.sourceType as SkillSourceType;
-                return (
-                  <List.Item>
-                    <Checkbox
-                      checked={isChecked}
-                      onChange={(e) => {
-                        setConflictChoices(prev => ({
-                          ...prev,
-                          [skill.name]: e.target.checked ? 'update' : 'skip',
-                        }));
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', width: '100%' }}>
-                        <div style={{ flex: 1 }}>
-                          <Text strong>{skill.name}</Text>
-                          {skill.path && (
-                            <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
-                              路径: {skill.path}
-                            </Text>
-                          )}
-                          <div style={{ marginTop: 4, marginBottom: 4 }}>
-                            <Tag color={getSourceTypeColor(sourceType)}>
-                              {skill.localSkill.sourceRegistryName || getSourceTypeLabel(sourceType)}
-                            </Tag>
-                            <Text type="secondary" style={{ margin: '0 8px' }}>→</Text>
-                            <Tag color="cyan">{syncingRegistryName}</Tag>
-                          </div>
-                          <Text type="secondary" style={{ fontSize: 12 }}>
-                            远程描述: {skill.description?.slice(0, 60) || '暂无'}
-                            {skill.description?.length > 60 ? '...' : ''}
-                          </Text>
-                        </div>
-                        <Text style={{ color: isChecked ? '#52c41a' : '#999', fontSize: 12, marginLeft: 16 }}>
-                          {isChecked ? '将更新' : '将跳过'}
-                        </Text>
-                      </div>
-                    </Checkbox>
-                  </List.Item>
-                );
-              }}
+            <Input.Search
+              placeholder="搜索 Skill 名称/路径"
+              allowClear
+              style={{ marginBottom: 12 }}
+              onChange={(e) => setConflictSearchText(e.target.value)}
             />
+            {(() => {
+              const filteredSkills = [...syncPreview.conflictSkills]
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .filter(skill =>
+                  skill.name.includes(conflictSearchText) ||
+                  (skill.path && skill.path.includes(conflictSearchText))
+                );
+
+              return (
+                <List
+                  dataSource={filteredSkills}
+                  renderItem={(skill) => {
+                    // 使用 name::path 组合作为唯一标识，解决同名不同路径 Skill 的选中状态冲突
+                    const uniqueKey = skill.path ? `${skill.name}::${skill.path}` : skill.name;
+                    const isChecked = conflictChoices[uniqueKey] === 'update';
+                    const sourceType = skill.localSkill.sourceType as SkillSourceType;
+                    return (
+                      <List.Item key={uniqueKey}>
+                        <Checkbox
+                          checked={isChecked}
+                          onChange={(e) => {
+                            setConflictChoices(prev => ({
+                              ...prev,
+                              [uniqueKey]: e.target.checked ? 'update' : 'skip',
+                            }));
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', width: '100%' }}>
+                            <div style={{ flex: 1 }}>
+                              <Text strong>{skill.name}</Text>
+                              {skill.path && (
+                                <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
+                                  路径: {skill.path}
+                                </Text>
+                              )}
+                              <div style={{ marginTop: 4, marginBottom: 4 }}>
+                                <Tag color={getSourceTypeColor(sourceType)}>
+                                  {skill.localSkill.sourceRegistryName || getSourceTypeLabel(sourceType)}
+                                </Tag>
+                                <Text type="secondary" style={{ margin: '0 8px' }}>→</Text>
+                                <Tag color="cyan">{syncingRegistryName}</Tag>
+                              </div>
+                              <Text type="secondary" style={{ fontSize: 12 }}>
+                                远程描述: {skill.description?.slice(0, 60) || '暂无'}
+                                {skill.description?.length > 60 ? '...' : ''}
+                              </Text>
+                            </div>
+                            <Text style={{ color: isChecked ? '#52c41a' : '#999', fontSize: 12, marginLeft: 16 }}>
+                              {isChecked ? '将更新' : '将跳过'}
+                            </Text>
+                          </div>
+                        </Checkbox>
+                      </List.Item>
+                    );
+                  }}
+                />
+              );
+            })()}
             <div style={{ marginTop: 12, textAlign: 'right' }}>
               <Text type="secondary">
                 已选择 {Object.values(conflictChoices).filter(v => v === 'update').length} 个更新，
