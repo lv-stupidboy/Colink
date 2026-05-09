@@ -1388,6 +1388,13 @@ const SkillLibrary: React.FC = () => {
               <br />
               <Text type="secondary">{scanResult.registryUrl}</Text>
             </div>
+            <Input.Search
+              placeholder="搜索 Skill 名称/路径/描述"
+              allowClear
+              style={{ marginBottom: 12 }}
+              value={scanSearchText}
+              onChange={(e) => setScanSearchText(e.target.value)}
+            />
             <List
               dataSource={scanResult.skills}
               renderItem={(skill) => {
