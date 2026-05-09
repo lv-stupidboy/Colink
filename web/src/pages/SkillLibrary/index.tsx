@@ -1364,7 +1364,10 @@ const SkillLibrary: React.FC = () => {
       <Modal
         title="从联邦源导入 Skill"
         open={scanModalVisible}
-        onCancel={() => setScanModalVisible(false)}
+        onCancel={() => {
+          setScanModalVisible(false);
+          setScanSearchText('');
+        }}
         width={600}
         footer={[
           <Button key="cancel" onClick={() => setScanModalVisible(false)}>取消</Button>,
