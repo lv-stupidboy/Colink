@@ -1396,7 +1396,13 @@ const SkillLibrary: React.FC = () => {
               onChange={(e) => setScanSearchText(e.target.value)}
             />
             <List
-              dataSource={scanResult.skills}
+              dataSource={scanResult.skills
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .filter(skill =>
+                  skill.name.includes(scanSearchText) ||
+                  (skill.path && skill.path.includes(scanSearchText)) ||
+                  (skill.description && skill.description.includes(scanSearchText))
+                )}
               renderItem={(skill) => {
                 // 使用 name::path 组合作为唯一标识
                 const uniqueKey = `${skill.name}::${skill.path}`;
