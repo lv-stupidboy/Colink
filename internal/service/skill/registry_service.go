@@ -220,46 +220,51 @@ func (s *RegistryService) SyncPreview(ctx context.Context, id uuid.UUID) (*model
 
 	// 分析冲突情况
 	for _, remoteSkill := range remoteSkills {
-		existing, err := s.skillRepo.FindByName(ctx, remoteSkill.Name)
+		// 使用精确匹配：Name + SourceRegistryID + SourcePath
+		existing, err := s.skillRepo.FindBySourcePath(ctx, remoteSkill.Name, registry.ID, remoteSkill.Path)
 		if err != nil {
-			// 本地无同名 → newSkills（手动同步跳过）
-			result.NewSkills = append(result.NewSkills, &model.RemoteSkill{
-				Name:        remoteSkill.Name,
-				Description: remoteSkill.Description,
-				Path:        "",
-			})
-			continue
-		}
-
-		// 本地有同名，检查来源
-		if existing.SourceRegistryID == registry.ID {
-			// 同源 → autoUpdateSkills
-			result.AutoUpdateSkills = append(result.AutoUpdateSkills, &model.SyncPreviewSkill{
-				Name:         remoteSkill.Name,
-				LocalSkillID: existing.ID,
-				Description:  remoteSkill.Description,
-			})
-		} else {
-			// 异源 → conflictSkills
+			// 本地无精确匹配 → 检查是否有同名但不同路径的
+			existingByName, err2 := s.skillRepo.FindByName(ctx, remoteSkill.Name)
+			if err2 != nil {
+				// 本地完全无同名 → newSkills
+				result.NewSkills = append(result.NewSkills, &model.RemoteSkill{
+					Name:        remoteSkill.Name,
+					Description: remoteSkill.Description,
+					Path:        remoteSkill.Path,
+				})
+				continue
+			}
+			// 同名但路径不同 → 异源冲突
 			conflictSkill := &model.SyncConflictSkill{
 				Name:        remoteSkill.Name,
 				Description: remoteSkill.Description,
+				Path:        remoteSkill.Path, // 远程路径
 				LocalSkill: &model.LocalSkillInfo{
-					ID:          existing.ID,
-					SourceType:  string(existing.SourceType),
-					Description: existing.Description,
+					ID:          existingByName.ID,
+					SourceType:  string(existingByName.SourceType),
+					Description: existingByName.Description,
+					SourcePath:  existingByName.SourcePath, // 本地路径
 				},
 			}
 			// 如果本地是 federated，查询联邦源名称
-			if existing.SourceType == model.SkillSourceFederated && existing.SourceRegistryID != uuid.Nil {
-				sourceRegistry, _ := s.registryRepo.FindByID(ctx, existing.SourceRegistryID)
+			if existingByName.SourceType == model.SkillSourceFederated && existingByName.SourceRegistryID != uuid.Nil {
+				sourceRegistry, _ := s.registryRepo.FindByID(ctx, existingByName.SourceRegistryID)
 				if sourceRegistry != nil {
-					conflictSkill.LocalSkill.SourceRegistryID = existing.SourceRegistryID
+					conflictSkill.LocalSkill.SourceRegistryID = existingByName.SourceRegistryID
 					conflictSkill.LocalSkill.SourceRegistryName = sourceRegistry.Name
 				}
 			}
 			result.ConflictSkills = append(result.ConflictSkills, conflictSkill)
+			continue
 		}
+
+		// 精确匹配成功 → 同源同名，自动更新
+		result.AutoUpdateSkills = append(result.AutoUpdateSkills, &model.SyncPreviewSkill{
+			Name:         remoteSkill.Name,
+			LocalSkillID: existing.ID,
+			Description:  remoteSkill.Description,
+			Path:         remoteSkill.Path, // 远程路径
+		})
 	}
 
 	return result, nil
@@ -307,36 +312,36 @@ func (s *RegistryService) SyncConfirm(ctx context.Context, id uuid.UUID, req *mo
 		remoteSkillMap[skill.Name] = skill
 	}
 
-	// 执行自动更新（同源同名）
+	// 执行自动更新（同源同名，精确匹配）
 	for _, skill := range remoteSkills {
-		existing, err := s.skillRepo.FindByName(ctx, skill.Name)
+		// 使用精确匹配：Name + SourceRegistryID + SourcePath
+		existing, err := s.skillRepo.FindBySourcePath(ctx, skill.Name, registry.ID, skill.Path)
 		if err != nil {
-			continue // 不存在，跳过
+			continue // 不存在精确匹配，跳过
 		}
-		if existing.SourceRegistryID == registry.ID {
-			// 同源，自动更新
-			existing.Description = skill.Description
-			existing.Tags = skill.Tags
-			existing.SupportedAgents = skill.SupportedAgents
-			existing.UpdatedAt = time.Now()
-			if err := s.skillRepo.Update(ctx, existing); err != nil {
-				continue
-			}
-			// 更新 agent-assets 目录的 skill 文件
-			if tempDir != "" && skill.Path != "" {
-				srcDir := filepath.Join(tempDir, skill.Path)
-				dstDir := filepath.Join(s.skillScanner.GetStoragePath(), existing.ID.String())
-				if err := s.skillScanner.updateSkillFiles(srcDir, dstDir); err != nil {
-					s.skillScanner.GetLogger().Warn("更新 agent-assets 目录文件失败",
-						zap.String("skillId", existing.ID.String()),
-						zap.String("skillName", skill.Name),
-						zap.Error(err))
-				}
-			}
-			// 刷新关联角色的配置目录
-			s.skillScanner.RefreshAgentConfigsForSkill(ctx, existing.ID)
-			result.AutoUpdated++
+		// 同源同路径，自动更新
+		existing.Description = skill.Description
+		existing.Tags = skill.Tags
+		existing.SupportedAgents = skill.SupportedAgents
+		existing.SourcePath = skill.Path // 更新路径
+		existing.UpdatedAt = time.Now()
+		if err := s.skillRepo.Update(ctx, existing); err != nil {
+			continue
 		}
+		// 更新 agent-assets 目录的 skill 文件
+		if tempDir != "" && skill.Path != "" {
+			srcDir := filepath.Join(tempDir, skill.Path)
+			dstDir := filepath.Join(s.skillScanner.GetStoragePath(), existing.ID.String())
+			if err := s.skillScanner.updateSkillFiles(srcDir, dstDir); err != nil {
+				s.skillScanner.GetLogger().Warn("更新 agent-assets 目录文件失败",
+					zap.String("skillId", existing.ID.String()),
+					zap.String("skillName", skill.Name),
+					zap.Error(err))
+			}
+		}
+		// 刷新关联角色的配置目录
+		s.skillScanner.RefreshAgentConfigsForSkill(ctx, existing.ID)
+		result.AutoUpdated++
 	}
 
 	// 执行用户选择的操作
@@ -364,6 +369,7 @@ func (s *RegistryService) SyncConfirm(ctx context.Context, id uuid.UUID, req *mo
 			}
 			existing.SourceType = model.SkillSourceFederated
 			existing.SourceRegistryID = registry.ID
+			existing.SourcePath = remoteSkill.Path // 联邦源仓库相对路径
 			existing.UpdatedAt = time.Now()
 			if err := s.skillRepo.Update(ctx, existing); err != nil {
 				result.Skipped = append(result.Skipped, &model.SkippedSkill{Name: op.SkillName})

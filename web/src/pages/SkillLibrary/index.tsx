@@ -130,6 +130,10 @@ const SkillLibrary: React.FC = () => {
   const [conflictChoices, setConflictChoices] = useState<Record<string, 'create' | 'update'>>({});
   const [currentRegistryName, setCurrentRegistryName] = useState('');
   const [unifiedAgents, setUnifiedAgents] = useState<string[]>([]);
+  // 冲突弹窗搜索状态
+  const [conflictSearchText, setConflictSearchText] = useState('');
+  // 扫描弹窗搜索状态
+  const [scanSearchText, setScanSearchText] = useState('');
 
   // 创建方式状态
   const [sourceType, setSourceType] = useState<SkillSourceType>('personal');
@@ -667,7 +671,8 @@ const SkillLibrary: React.FC = () => {
 
       // 冲突项（根据用户选择）
       for (const skill of conflictItems) {
-        const choice = conflictChoices[skill.name];
+        const uniqueKey = `${skill.name}::${skill.path}`;
+        const choice = conflictChoices[uniqueKey];
         skills.push({
           name: skill.name,
           path: skill.path,
@@ -717,18 +722,22 @@ const SkillLibrary: React.FC = () => {
   // 确认冲突选择
   const handleConfirmConflict = () => {
     // 检查是否所有冲突项都已选择
-    const unselected = conflictItems.filter(s => !conflictChoices[s.name]);
+    const unselected = conflictItems.filter(s => {
+      const uniqueKey = `${s.name}::${s.path}`;
+      return !conflictChoices[uniqueKey];
+    });
     if (unselected.length > 0) {
       message.error(`以下 Skill 未选择操作：${unselected.map(s => s.name).join(', ')}`);
       return;
     }
 
     setConflictModalVisible(false);
+    setConflictSearchText('');
 
     // 重新分析冲突（获取 autoUpdateItems 和 createItems）
     const { autoUpdateItems, createItems } = analyzeConflicts(selectedRemoteSkills, selectedRegistryId);
 
-    // 执行导入
+    // 执行导入（conflictChoices 已使用 uniqueKey，performImport 也已更新）
     performImport(autoUpdateItems, createItems, conflictChoices);
   };
 
@@ -748,6 +757,7 @@ const SkillLibrary: React.FC = () => {
     // 如果没有冲突项，直接导入
     if (conflictItems.length === 0) {
       setScanModalVisible(false);
+      setScanSearchText('');
       performImport(autoUpdateItems, createItems, {});
       return;
     }
@@ -757,6 +767,7 @@ const SkillLibrary: React.FC = () => {
     setConflictChoices({});
     setCurrentRegistryName(scanResult?.registryName || '');
     setScanModalVisible(false);
+    setScanSearchText('');
     setConflictModalVisible(true);
   };
 
@@ -1124,6 +1135,15 @@ const SkillLibrary: React.FC = () => {
                   {skill.description || '暂无描述'}
                 </Paragraph>
 
+                {/* 路径区域 - 仅联邦类型显示 */}
+                {skill.sourceType === 'federated' && skill.sourcePath && (
+                  <div style={{ marginBottom: 4 }}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      路径: {skill.sourcePath}
+                    </Text>
+                  </div>
+                )}
+
                 {/* 标签区域 */}
                 <div style={{ height: 32, marginBottom: 4, overflow: 'hidden' }}>
                   {skill.tags && skill.tags.length > 0 && (
@@ -1346,10 +1366,16 @@ const SkillLibrary: React.FC = () => {
       <Modal
         title="从联邦源导入 Skill"
         open={scanModalVisible}
-        onCancel={() => setScanModalVisible(false)}
+        onCancel={() => {
+          setScanModalVisible(false);
+          setScanSearchText('');
+        }}
         width={600}
         footer={[
-          <Button key="cancel" onClick={() => setScanModalVisible(false)}>取消</Button>,
+          <Button key="cancel" onClick={() => {
+            setScanModalVisible(false);
+            setScanSearchText('');
+          }}>取消</Button>,
           <Button key="confirm" type="primary" onClick={handleConfirmImport} disabled={selectedRemoteSkills.length === 0}>
             确认导入（已选择 {selectedRemoteSkills.length} 个）
           </Button>,
@@ -1362,35 +1388,63 @@ const SkillLibrary: React.FC = () => {
               <br />
               <Text type="secondary">{scanResult.registryUrl}</Text>
             </div>
-            <List
-              dataSource={scanResult.skills}
-              renderItem={(skill) => (
-                <List.Item
-                >
-                  <Checkbox
-                    checked={selectedRemoteSkills.some(s => s.name === skill.name)}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setSelectedRemoteSkills([...selectedRemoteSkills, skill]);
-                      } else {
-                        setSelectedRemoteSkills(selectedRemoteSkills.filter(s => s.name !== skill.name));
-                      }
-                    }}
-                  >
-                    <div>
-                      <Text strong>{skill.name}</Text>
-                      {skill.existsLocally && skill.localSkill && (
-                        <Tag color={getSourceTypeColor(skill.localSkill.sourceType as SkillSourceType)} style={{ marginLeft: 8 }}>
-                          来自: {skill.localSkill.sourceRegistryName || getSourceTypeLabel(skill.localSkill.sourceType as SkillSourceType)}
-                        </Tag>
-                      )}
-                      <br />
-                      <Text type="secondary" style={{ fontSize: 12 }}>{skill.description || '暂无描述'}</Text>
-                    </div>
-                  </Checkbox>
-                </List.Item>
-              )}
+            <Input.Search
+              placeholder="搜索 Skill 名称/路径/描述"
+              allowClear
+              style={{ marginBottom: 12 }}
+              value={scanSearchText}
+              onChange={(e) => setScanSearchText(e.target.value)}
             />
+            {/* 排序 + 过滤后的数据源 */}
+            {(() => {
+              const filteredSkills = [...scanResult.skills]
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .filter(skill =>
+                  skill.name.includes(scanSearchText) ||
+                  (skill.path && skill.path.includes(scanSearchText)) ||
+                  (skill.description && skill.description.includes(scanSearchText))
+                );
+              return (
+                <List
+                  dataSource={filteredSkills}
+                  renderItem={(skill) => {
+                    // 使用 name::path 组合作为唯一标识
+                    const uniqueKey = `${skill.name}::${skill.path}`;
+                    return (
+                      <List.Item key={uniqueKey}>
+                        <Checkbox
+                          checked={selectedRemoteSkills.some(s => `${s.name}::${s.path}` === uniqueKey)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedRemoteSkills([...selectedRemoteSkills, skill]);
+                            } else {
+                              setSelectedRemoteSkills(selectedRemoteSkills.filter(s => `${s.name}::${s.path}` !== uniqueKey));
+                            }
+                          }}
+                        >
+                          <div>
+                            <Text strong>{skill.name}</Text>
+                            {/* 添加路径显示 */}
+                            {skill.path && (
+                              <Tag style={{ marginLeft: 8, background: 'var(--ant-color-bg-container)', border: '1px solid var(--ant-color-border)' }}>
+                                {skill.path}
+                              </Tag>
+                            )}
+                            {skill.existsLocally && skill.localSkill && (
+                              <Tag color={getSourceTypeColor(skill.localSkill.sourceType as SkillSourceType)} style={{ marginLeft: 8 }}>
+                                来自: {skill.localSkill.sourceRegistryName || getSourceTypeLabel(skill.localSkill.sourceType as SkillSourceType)}
+                              </Tag>
+                            )}
+                            <br />
+                            <Text type="secondary" style={{ fontSize: 12 }}>{skill.description || '暂无描述'}</Text>
+                          </div>
+                        </Checkbox>
+                      </List.Item>
+                    );
+                  }}
+                />
+              );
+            })()}
           </>
         )}
       </Modal>
@@ -1399,20 +1453,32 @@ const SkillLibrary: React.FC = () => {
       <Modal
         title="导入冲突处理"
         open={conflictModalVisible}
-        onCancel={() => setConflictModalVisible(false)}
+        onCancel={() => {
+          setConflictModalVisible(false);
+          setConflictSearchText('');
+        }}
         width={800}
         footer={[
-          <Button key="cancel" onClick={() => setConflictModalVisible(false)}>取消</Button>,
+          <Button key="cancel" onClick={() => {
+            setConflictModalVisible(false);
+            setConflictSearchText('');
+          }}>取消</Button>,
           <Button key="all-create" onClick={() => {
             const choices: Record<string, 'create'> = {};
-            conflictItems.forEach(s => choices[s.name] = 'create');
+            conflictItems.forEach(s => {
+              const uniqueKey = `${s.name}::${s.path}`;
+              choices[uniqueKey] = 'create';
+            });
             setConflictChoices(choices);
           }}>
             全部新建
           </Button>,
           <Button key="all-update" type="primary" onClick={() => {
             const choices: Record<string, 'update'> = {};
-            conflictItems.forEach(s => choices[s.name] = 'update');
+            conflictItems.forEach(s => {
+              const uniqueKey = `${s.name}::${s.path}`;
+              choices[uniqueKey] = 'update';
+            });
             setConflictChoices(choices);
           }}>
             全部更新
@@ -1425,84 +1491,113 @@ const SkillLibrary: React.FC = () => {
         <Text type="secondary" style={{ marginBottom: 16, display: 'block' }}>
           以下 Skill 与本地已有同名 Skill 来源不同，请选择处理方式：
         </Text>
-        <Table
-          dataSource={conflictItems}
-          columns={[
-            {
-              title: '名称',
-              dataIndex: 'name',
-              key: 'name',
-              width: 120,
-            },
-            {
-              title: '本地来源',
-              key: 'localSource',
-              width: 120,
-              render: (_, record) => {
-                if (!record.localSkill) return '未知';
-                const sourceType = record.localSkill.sourceType as SkillSourceType;
-                return (
-                  <Tag color={getSourceTypeColor(sourceType)}>
-                    {record.localSkill.sourceRegistryName || getSourceTypeLabel(sourceType)}
-                  </Tag>
-                );
-              },
-            },
-            {
-              title: '远程来源',
-              key: 'remoteSource',
-              width: 120,
-              render: () => (
-                <Tag color="cyan">{currentRegistryName}</Tag>
-              ),
-            },
-            {
-              title: '本地描述',
-              key: 'localDesc',
-              width: 200,
-              render: (_, record) => (
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  {record.localSkill?.description?.slice(0, 50) || '暂无'}
-                  {record.localSkill?.description?.length > 50 ? '...' : ''}
-                </Text>
-              ),
-            },
-            {
-              title: '远程描述',
-              dataIndex: 'description',
-              key: 'remoteDesc',
-              width: 200,
-              render: (desc: string) => (
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  {desc?.slice(0, 50) || '暂无'}
-                  {desc?.length > 50 ? '...' : ''}
-                </Text>
-              ),
-            },
-            {
-              title: '操作',
-              key: 'action',
-              width: 150,
-              render: (_, record) => (
-                <Radio.Group
-                  value={conflictChoices[record.name]}
-                  onChange={(e) => {
-                    setConflictChoices(prev => ({
-                      ...prev,
-                      [record.name]: e.target.value,
-                    }));
-                  }}
-                >
-                  <Radio value="create">新建</Radio>
-                  <Radio value="update">更新</Radio>
-                </Radio.Group>
-              ),
-            },
-          ]}
-          rowKey="name"
-          pagination={false}
-          size="small"
+        {/* 搜索框 */}
+        <Input.Search
+          placeholder="搜索 Skill 名称/路径"
+          allowClear
+          style={{ marginBottom: 12 }}
+          value={conflictSearchText}
+          onChange={(e) => setConflictSearchText(e.target.value)}
         />
+        {/* 排序 + 过滤后的数据源 */}
+        {(() => {
+          const filteredConflictItems = [...conflictItems]
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .filter(item =>
+              item.name.includes(conflictSearchText) ||
+              (item.path && item.path.includes(conflictSearchText))
+            );
+          return (
+            <Table
+              dataSource={filteredConflictItems}
+              columns={[
+                {
+                  title: '名称',
+                  dataIndex: 'name',
+                  key: 'name',
+                  width: 120,
+                },
+                {
+                  title: '路径',
+                  dataIndex: 'path',
+                  key: 'path',
+                  width: 150,
+                  render: (path: string) => <Text type="secondary" style={{ fontSize: 12 }}>{path || '-'}</Text>,
+                },
+                {
+                  title: '本地来源',
+                  key: 'localSource',
+                  width: 120,
+                  render: (_, record) => {
+                    if (!record.localSkill) return '未知';
+                    const sourceType = record.localSkill.sourceType as SkillSourceType;
+                    return (
+                      <Tag color={getSourceTypeColor(sourceType)}>
+                        {record.localSkill.sourceRegistryName || getSourceTypeLabel(sourceType)}
+                      </Tag>
+                    );
+                  },
+                },
+                {
+                  title: '远程来源',
+                  key: 'remoteSource',
+                  width: 120,
+                  render: () => (
+                    <Tag color="cyan">{currentRegistryName}</Tag>
+                  ),
+                },
+                {
+                  title: '本地描述',
+                  key: 'localDesc',
+                  width: 200,
+                  render: (_, record) => (
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      {record.localSkill?.description?.slice(0, 50) || '暂无'}
+                      {record.localSkill?.description?.length > 50 ? '...' : ''}
+                    </Text>
+                  ),
+                },
+                {
+                  title: '远程描述',
+                  dataIndex: 'description',
+                  key: 'remoteDesc',
+                  width: 200,
+                  render: (desc: string) => (
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      {desc?.slice(0, 50) || '暂无'}
+                      {desc?.length > 50 ? '...' : ''}
+                    </Text>
+                  ),
+                },
+                {
+                  title: '操作',
+                  key: 'action',
+                  width: 150,
+                  render: (_, record) => {
+                    const uniqueKey = `${record.name}::${record.path}`;
+                    return (
+                      <Radio.Group
+                        value={conflictChoices[uniqueKey]}
+                        onChange={(e) => {
+                          setConflictChoices(prev => ({
+                            ...prev,
+                            [uniqueKey]: e.target.value,
+                          }));
+                        }}
+                      >
+                        <Radio value="create">新建</Radio>
+                        <Radio value="update">更新</Radio>
+                      </Radio.Group>
+                    );
+                  },
+                },
+              ]}
+              rowKey={(record) => `${record.name}::${record.path}`}
+              pagination={false}
+              size="small"
+            />
+          );
+        })()}
       </Modal>
     </div>
   );
