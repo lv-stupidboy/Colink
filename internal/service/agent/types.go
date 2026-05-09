@@ -12,14 +12,15 @@ import (
 type ChunkType string
 
 const (
-	ChunkTypeText       ChunkType = "text"
-	ChunkTypeError      ChunkType = "error"
-	ChunkTypeStatus     ChunkType = "status"
-	ChunkTypeThinking   ChunkType = "thinking"    // 思考过程
-	ChunkTypeToolUse    ChunkType = "tool_use"    // 工具调用开始
-	ChunkTypeToolResult ChunkType = "tool_result" // 工具调用结果
-	ChunkTypeUsage      ChunkType = "usage"       // Token 使用更新
-	ChunkTypeQuestion   ChunkType = "question"    // AskUserQuestion 工具调用（需要用户输入）
+	ChunkTypeText          ChunkType = "text"
+	ChunkTypeError         ChunkType = "error"
+	ChunkTypeStatus        ChunkType = "status"
+	ChunkTypeThinking      ChunkType = "thinking"      // 思考过程
+	ChunkTypeToolUse       ChunkType = "tool_use"      // 工具调用开始
+	ChunkTypeToolResult    ChunkType = "tool_result"   // 工具调用结果
+	ChunkTypeInputJSONDelta ChunkType = "input_json_delta" // 工具参数增量更新
+	ChunkTypeUsage         ChunkType = "usage"         // Token 使用更新
+	ChunkTypeQuestion      ChunkType = "question"      // AskUserQuestion 工具调用（需要用户输入）
 )
 
 // SessionStrategy 会话策略类型
@@ -85,6 +86,8 @@ type Chunk struct {
 	ToolName  string                 // 工具名称（仅 tool_use 类型）
 	ToolID    string                 // 工具ID（仅 tool_use 类型）
 	ToolInput map[string]interface{} // 工具参数（仅 tool_use 类型）
+	ToolIndex int                    // 工具在消息中的索引（用于 input_json_delta 定位）
+	PartialJSON string               // 增量 JSON（input_json_delta 类型，需要累积解析）
 	IsError   bool                   // 是否错误（仅 tool_result 类型）
 	Usage     *TokenUsage            // Token使用（仅 usage 类型）
 	Done      bool                   // 是否结束（thinking 完成标记）

@@ -52,6 +52,17 @@
   color: #374151;
 }
 
+.tool-call-param {
+  flex: 1;
+  font-size: 11px;
+  color: #6B7280;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  margin-left: 4px;
+}
+
 .tool-call-input {
   flex: 1;
   font-size: 11px;
@@ -72,13 +83,15 @@
   animation: blink 1s ease-in-out infinite;
 }
 
-/* 工具详情展开 */
+/* 工具详情展开 - 靠左紧接工具行 */
 .tool-call-detail {
-  margin-top: 4px;
-  padding: 8px 12px;
+  margin-top: 2px;
+  margin-left: 30px; /* 与工具行图标区域对齐 */
+  padding: 6px 10px;
   background: #FAFAFA;
   border-radius: 4px;
   border: 1px solid #E5E5E5;
+  text-align: left;
 }
 
 .tool-call-detail-section {
@@ -462,6 +475,11 @@
   white-space: nowrap;
 }
 
+/* streaming 状态下的样式 */
+.tool-call-row.streaming .tool-call-param {
+  color: #C084FC;
+}
+
 /* 工具组块样式 */
 .tool-group-block {
   margin: 8px 0;
@@ -518,6 +536,14 @@
 
 [data-theme='dark'] .tool-call-name {
   color: var(--text-primary);
+}
+
+[data-theme='dark'] .tool-call-param {
+  color: var(--text-secondary);
+}
+
+[data-theme='dark'] .tool-call-row.streaming .tool-call-param {
+  color: var(--color-primary-light);
 }
 
 [data-theme='dark'] .tool-call-input {
@@ -692,5 +718,56 @@
 }
 
 [data-theme='dark'] .tool-group-duration {
+  color: var(--text-secondary);
+}
+
+/* stdout 区样式 */
+.cli-output-stdout-divider {
+  padding: 4px 12px;
+  font-size: 11px;
+  color: #6B7280;
+  font-family: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace;
+  background: transparent;
+}
+
+.cli-output-stdout {
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #4B5563;
+  font-family: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #FAFAFA;
+  border-radius: 4px;
+  margin: 4px 8px;
+  max-height: 200px;
+  overflow: auto;
+}
+
+.cli-output-rich {
+  padding: 8px;
+}
+
+.tool-block-preview {
+  font-size: 10px;
+  color: #9CA3AF;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
+/* stdout 深色模式 */
+[data-theme='dark'] .cli-output-stdout-divider {
+  color: var(--text-secondary);
+}
+
+[data-theme='dark'] .cli-output-stdout {
+  color: var(--text-primary);
+  background: var(--bg-base);
+}
+
+[data-theme='dark'] .tool-block-preview {
   color: var(--text-secondary);
 }

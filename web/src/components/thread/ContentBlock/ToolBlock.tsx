@@ -1,4 +1,4 @@
-import React, { useState, useEffect, memo } from 'react';
+import React, { useState, useEffect, useRef, memo } from 'react';
 import type { ToolUseBlock as ToolUseBlockType, ContentBlockStatus } from '@/types';
 import './ContentBlock.css';
 
@@ -6,6 +6,221 @@ import './ContentBlock.css';
  * 工具调用行组件
  * 只显示单行工具信息：状态图标 + 工具名 + 参数 + 耗时
  */
+
+/** 工具摘要结构 */
+interface ToolSummary {
+  name: string;       // 工具名
+  param: string;      // 关键参数摘要（截断后）
+  paramFull?: string; // 完整参数（用于 tooltip）
+}
+
+/** 路径截断（保留文件名和关键目录） */
+function truncatePath(path: string, maxLen = 50): string {
+  if (!path) return '';
+  if (path.length <= maxLen) return path;
+
+  // 优先保留文件名（最后一个 / 后的内容）
+  const parts = path.split('/');
+  const fileName = parts.pop() || '';
+
+  // 如果只剩文件名且超长，截断文件名
+  if (parts.length === 0) {
+    return fileName.length > maxLen ? `...${fileName.slice(-maxLen + 3)}` : fileName;
+  }
+
+  // 尝试保留：前两级目录 + 文件名
+  if (parts.length >= 2 && fileName.length + parts[0].length + parts[1].length + 10 <= maxLen) {
+    return `${parts[0]}/${parts[1]}/.../${fileName}`;
+  }
+
+  // 退化为只保留文件名
+  return fileName.length > maxLen - 3 ? `...${fileName.slice(-maxLen + 3)}` : `.../${fileName}`;
+}
+
+/** 命令截断（保留命令名和关键参数） */
+function truncateCommand(cmd: string, maxLen = 40): string {
+  if (!cmd) return '';
+  if (cmd.length <= maxLen) return cmd;
+
+  // 尝试保留第一个单词（命令名）
+  const firstWord = cmd.split(' ')[0];
+  if (firstWord.length >= maxLen) {
+    return `${firstWord.slice(0, maxLen - 3)}...`;
+  }
+
+  // 保留命令名 + 部分参数
+  return `${cmd.slice(0, maxLen - 3)}...`;
+}
+
+/** 描述截断（保留核心意图） */
+function truncateDescription(desc: string, maxLen = 25): string {
+  if (!desc) return '';
+  if (desc.length <= maxLen) return desc;
+  return `${desc.slice(0, maxLen)}...`;
+}
+
+/** URL 截断（保留域名和路径关键部分） */
+function truncateUrl(url: string, maxLen = 45): string {
+  if (!url) return '';
+  if (url.length <= maxLen) return url;
+
+  try {
+    const parsed = new URL(url);
+    // 保留域名 + 路径前 20 字符
+    const domain = parsed.hostname;
+    const path = parsed.pathname.slice(0, 20);
+    const result = `${domain}${path}${parsed.pathname.length > 20 ? '...' : ''}`;
+    return result.length > maxLen ? result.slice(0, maxLen - 3) + '...' : result;
+  } catch {
+    // 解析失败，简单截断
+    return `${url.slice(0, maxLen - 3)}...`;
+  }
+}
+
+/** 搜索查询截断 */
+function truncateQuery(query: string, maxLen = 30): string {
+  if (!query) return '';
+  if (query.length <= maxLen) return query;
+  return `${query.slice(0, maxLen)}...`;
+}
+
+/** 问题截断 */
+function truncateQuestion(question: string, maxLen = 20): string {
+  if (!question) return '';
+  if (question.length <= maxLen) return question;
+  return `${question.slice(0, maxLen)}...`;
+}
+
+/** 默认摘要生成（提取首个关键参数） */
+function generateDefaultSummary(toolName: string, input?: Record<string, unknown>): ToolSummary {
+  const keys = ['filePath', 'command', 'pattern', 'url', 'query', 'path', 'content', 'name', 'id'];
+  for (const key of keys) {
+    const val = input?.[key];
+    if (typeof val === 'string' && val.length > 0) {
+      return {
+        name: toolName,
+        param: truncatePath(val, 40),
+        paramFull: val,
+      };
+    }
+  }
+  return { name: toolName, param: '' };
+}
+
+/** 工具摘要生成（根据工具类型生成结构化摘要） */
+function generateToolSummary(toolName: string, input?: Record<string, unknown>): ToolSummary {
+  // 检查 input 是否有实际内容（非空对象）
+  const hasInput = input && Object.keys(input).length > 0;
+
+  switch (toolName) {
+    case 'Read':
+    case 'Write':
+      const filePath = input?.filePath as string;
+      if (filePath) {
+        return { name: toolName, param: truncatePath(filePath), paramFull: filePath };
+      }
+      // 等待完整 input 数据时的占位文本
+      return { name: toolName, param: hasInput ? '' : '...' };
+    case 'Edit':
+      const editPath = input?.filePath as string;
+      if (editPath) {
+        const param = `${truncatePath(editPath)}:${input?.oldString ? 'edit' : 'new'}`;
+        return { name: toolName, param, paramFull: editPath };
+      }
+      return { name: toolName, param: hasInput ? '' : '...' };
+    case 'Bash':
+      const command = input?.command as string;
+      if (command) {
+        return { name: toolName, param: truncateCommand(command), paramFull: command };
+      }
+      // 等待完整 input 数据时的占位文本
+      return { name: toolName, param: hasInput ? '' : '...' };
+    case 'Grep':
+      const pattern = input?.pattern as string;
+      const grepPath = input?.path as string;
+      if (pattern) {
+        const pathPart = grepPath ? ` in ${truncatePath(grepPath, 30)}` : '';
+        const param = `"${truncateQuery(pattern, 20)}"${pathPart}`;
+        const paramFull = grepPath ? `"${pattern}" in ${grepPath}` : `"${pattern}"`;
+        return { name: toolName, param, paramFull };
+      }
+      return { name: toolName, param: hasInput ? '' : '...' };
+    case 'Glob':
+      const globPattern = input?.pattern as string;
+      if (globPattern) {
+        return { name: toolName, param: globPattern, paramFull: globPattern };
+      }
+      return { name: toolName, param: hasInput ? '' : '...' };
+    case 'Skill':
+      return {
+        name: toolName,
+        param: input?.skill as string || 'unknown',
+      };
+    case 'Task':
+      const taskDesc = input?.description as string;
+      return {
+        name: toolName,
+        param: `@${input?.subagentName || 'agent'} ${truncateDescription(taskDesc)}`,
+        paramFull: taskDesc,
+      };
+    case 'NotebookEdit':
+      const notebookPath = input?.notebookPath as string;
+      return {
+        name: toolName,
+        param: `${truncatePath(notebookPath)}[${input?.cellNumber}]`,
+        paramFull: notebookPath,
+      };
+    case 'WebFetch':
+      const url = input?.url as string;
+      if (url) {
+        return { name: toolName, param: truncateUrl(url), paramFull: url };
+      }
+      return { name: toolName, param: '' };
+    case 'WebSearch':
+      const query = input?.query as string;
+      if (query) {
+        return { name: toolName, param: `"${truncateQuery(query)}"`, paramFull: query };
+      }
+      return { name: toolName, param: '' };
+    case 'AskUserQuestion':
+      const questions = input?.questions;
+      const firstQuestion = Array.isArray(questions) && questions.length > 0
+        ? (questions[0] as { question?: string })?.question
+        : undefined;
+      return {
+        name: 'Ask',
+        param: truncateQuestion(firstQuestion || ''),
+        paramFull: firstQuestion,
+      };
+    case 'TodoWrite':
+      return {
+        name: toolName,
+        param: `${(input?.todos as unknown[])?.length || 0} items`,
+      };
+    case 'EnterPlanMode':
+    case 'ExitPlanMode':
+      return { name: toolName, param: '' };
+    case 'CronCreate':
+    case 'CronDelete':
+    case 'CronList':
+      return { name: toolName, param: 'cron job' };
+    case 'ScheduleWakeup':
+      return { name: toolName, param: `delay ${(input?.delaySeconds as number) || 0}s` };
+    case 'EnterWorktree':
+    case 'ExitWorktree':
+      const worktreePath = input?.path as string || input?.name as string;
+      return { name: toolName, param: truncatePath(worktreePath), paramFull: worktreePath };
+    case 'Agent':
+      const agentDesc = input?.description as string;
+      return {
+        name: toolName,
+        param: `${input?.subagentType || 'agent'}: ${truncateDescription(agentDesc)}`,
+        paramFull: agentDesc,
+      };
+    default:
+      return generateDefaultSummary(toolName, input);
+  }
+}
 
 /** 格式化执行时间 */
 function formatDuration(ms?: number): string {
@@ -154,6 +369,7 @@ export const ToolCallRow: React.FC<ToolCallRowProps> = memo(({
 }) => {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [runningTime, setRunningTime] = useState(duration || 0);
+  const prevStatusRef = useRef(status);
 
   // 实时计算运行时间
   useEffect(() => {
@@ -172,24 +388,22 @@ export const ToolCallRow: React.FC<ToolCallRowProps> = memo(({
     ? formatDuration(runningTime)
     : formatDuration(duration);
 
-  // 提取主要参数
-  const primaryArgKeys = ['file_path', 'command', 'pattern', 'url', 'query', 'path', 'content'];
-  let primaryArg = '';
-  for (const key of primaryArgKeys) {
-    const val = input?.[key];
-    if (typeof val === 'string' && val.length > 0) {
-      primaryArg = val.length > 60 ? `${val.slice(0, 60)}...` : val;
-      break;
-    }
-  }
+  // 使用结构化摘要
+  const summary = generateToolSummary(toolName, input);
 
   const hasDetail = (input && Object.keys(input).length > 0) || output;
 
-  // streaming 时自动展开
+  // streaming 时自动展开，完成后自动折叠
   useEffect(() => {
+    // streaming 状态：自动展开
     if (status === 'streaming' && !expanded) {
       setExpanded(true);
     }
+    // 从 streaming 变为非 streaming：自动折叠
+    if (prevStatusRef.current === 'streaming' && status !== 'streaming') {
+      setExpanded(false);
+    }
+    prevStatusRef.current = status;
   }, [status]);
 
   return (
@@ -213,13 +427,16 @@ export const ToolCallRow: React.FC<ToolCallRowProps> = memo(({
           className="tool-call-name"
           style={{ color: status === 'streaming' ? accentColor : undefined }}
         >
-          {toolName}
+          {summary.name}
         </span>
 
-        {/* 主要参数 */}
-        {primaryArg && (
-          <span className="tool-call-input">
-            {primaryArg}
+        {/* 主要参数（带 tooltip） */}
+        {summary.param && (
+          <span
+            className="tool-call-param"
+            title={summary.paramFull || summary.param}
+          >
+            {summary.param}
           </span>
         )}
 

@@ -89,11 +89,13 @@ type ContentBlockData struct {
 	Status    string `json:"status,omitempty"`
 	Done      bool   `json:"done,omitempty"`
 	// 工具调用相关（字段名与前端 ToolUseBlock 对齐）
-	ToolName string                 `json:"toolName,omitempty"`
-	ToolID   string                 `json:"toolId,omitempty"`
-	Input    map[string]interface{} `json:"input,omitempty"`
-	Output   string                 `json:"output,omitempty"`
-	IsError  bool                   `json:"isError,omitempty"`
+	ToolName  string                 `json:"toolName,omitempty"`
+	ToolID    string                 `json:"toolId,omitempty"`
+	ToolIndex int                    `json:"toolIndex,omitempty"` // 工具在消息中的索引（用于 input_json_delta 定位）
+	Input     map[string]interface{} `json:"input,omitempty"`
+	InputJSON string                 `json:"inputJSON,omitempty"` // 累积的 Input JSON（用于 input_json_delta 解析）
+	Output    string                 `json:"output,omitempty"`
+	IsError   bool                   `json:"isError,omitempty"`
 	// AskUserQuestion 相关（字段名与前端 QuestionBlock 对齐）
 	Questions    []QuestionItem    `json:"questions,omitempty"`    // 问题列表
 	InvocationID string            `json:"invocationId,omitempty"` // 关联的 invocation ID

@@ -151,12 +151,13 @@ class APIClient {
             return res;
           };
           result = snakeToCamel(result);
+        } else if (url.includes('/messages')) {
+          // 消息 API - 必须在 /threads 检查之前，因为 URL 包含 /messages/thread/
+          result = Array.isArray(result) ? transformMessages(result) : transformMessage(result);
         } else if (url.includes('/projects')) {
           result = Array.isArray(result) ? transformProjects(result) : transformProject(result);
         } else if (url.includes('/threads')) {
           result = Array.isArray(result) ? transformThreads(result) : transformThread(result);
-        } else if (url.includes('/messages')) {
-          result = Array.isArray(result) ? transformMessages(result) : transformMessage(result);
         } else if (url.includes('/agents') && !url.includes('/config/') && !url.includes('/batch-')) {
           result = Array.isArray(result) ? transformAgentConfigs(result) : transformAgentConfig(result);
         } else if (url.includes('/invocations')) {

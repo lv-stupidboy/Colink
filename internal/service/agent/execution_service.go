@@ -2610,18 +2610,77 @@ func (es *ExecutionService) broadcastChunk(threadID, invocationID uuid.UUID, chu
 				Content:   chunk.Content,
 				Timestamp: now,
 			})
+		case ChunkTypeInputJSONDelta:
+			// 工具参数增量更新 - 累积 PartialJSON 并解析
+			// ToolIndex 在每个 message/turn 中会重置（从 0 开始）
+			// 因此需要找到 LAST block with matching ToolIndex（最新的那个）
+			// 而不是第一个匹配的 block（可能来自之前的 turn）
+			lastMatchingIdx := -1
+			for i := len(agent.AccumulatedContentBlocks) - 1; i >= 0; i-- {
+				b := agent.AccumulatedContentBlocks[i]
+				if b.Type == "tool_use" && b.ToolIndex == chunk.ToolIndex {
+					lastMatchingIdx = i
+					break // 找到最新的匹配块，停止搜索
+				}
+			}
+			if lastMatchingIdx >= 0 {
+				b := agent.AccumulatedContentBlocks[lastMatchingIdx]
+				// 累积 InputJSON
+				accumulatedJSON := b.InputJSON + chunk.PartialJSON
+				agent.AccumulatedContentBlocks[lastMatchingIdx].InputJSON = accumulatedJSON
+
+				// 尝试解析累积的 JSON
+				// PartialJSON 可能是不完整的，只有完整的 JSON 才能解析
+				var input map[string]interface{}
+				if err := json.Unmarshal([]byte(accumulatedJSON), &input); err == nil {
+					// JSON 完整，更新 Input
+					agent.AccumulatedContentBlocks[lastMatchingIdx].Input = input
+					logInfo("ChunkTypeInputJSONDelta: JSON parsed successfully",
+						zap.Int("toolIndex", chunk.ToolIndex),
+						zap.String("toolId", b.ToolID),
+						zap.Int("inputFields", len(input)))
+				} else {
+					// JSON 不完整，等待更多 delta
+					logInfo("ChunkTypeInputJSONDelta: JSON incomplete, waiting for more",
+						zap.Int("toolIndex", chunk.ToolIndex),
+						zap.String("partialJSON", accumulatedJSON[:min(50, len(accumulatedJSON))]))
+				}
+			} else {
+				logInfo("ChunkTypeInputJSONDelta: no matching tool_use block found",
+					zap.Int("toolIndex", chunk.ToolIndex),
+					zap.Int("blocksCount", len(agent.AccumulatedContentBlocks)))
+			}
 		case ChunkTypeToolUse:
-			// 工具调用开始
-			agent.AccumulatedContentBlocks = append(agent.AccumulatedContentBlocks, ContentBlockData{
-				ID:        fmt.Sprintf("tool-%s", chunk.ToolID),
-				Type:      "tool_use",
-				Timestamp: now,
-				Status:    "streaming",
-				ToolName:  chunk.ToolName,
-				ToolID:    chunk.ToolID,
-				Input:     chunk.ToolInput,
-				StartedAt: now,
-			})
+			// 工具调用开始或 assistant message fallback 更新
+			blockID := fmt.Sprintf("tool-%s", chunk.ToolID)
+			existingIdx := -1
+			for i, b := range agent.AccumulatedContentBlocks {
+				if b.ID == blockID {
+					existingIdx = i
+					break
+				}
+			}
+			if existingIdx >= 0 {
+				// 已存在：assistant message fallback，更新 Input
+				// input_json_delta 解析失败时，assistant 消息提供完整 Input
+				if chunk.ToolInput != nil && len(chunk.ToolInput) > 0 {
+					agent.AccumulatedContentBlocks[existingIdx].Input = chunk.ToolInput
+					logInfo("ChunkTypeToolUse: updated Input via fallback", zap.String("toolID", chunk.ToolID))
+				}
+			} else {
+				// 不存在：stream_event content_block_start 创建新块
+				agent.AccumulatedContentBlocks = append(agent.AccumulatedContentBlocks, ContentBlockData{
+					ID:        blockID,
+					Type:      "tool_use",
+					Timestamp: now,
+					Status:    "streaming",
+					ToolName:  chunk.ToolName,
+					ToolID:    chunk.ToolID,
+					ToolIndex: chunk.ToolIndex,
+					Input:     chunk.ToolInput,
+					StartedAt: now,
+				})
+			}
 		case ChunkTypeToolResult:
 			// 工具调用结果：更新对应的工具块
 			// 特殊处理：AskUserQuestion 工具的 tool_result 表示"拒绝"
@@ -2871,6 +2930,7 @@ broadcast:
 		if chunk.Type == ChunkTypeToolUse {
 			payload["toolName"] = chunk.ToolName
 			payload["toolId"] = chunk.ToolID
+			payload["toolIndex"] = chunk.ToolIndex
 			if chunk.ToolInput != nil {
 				payload["toolInput"] = chunk.ToolInput
 			}
@@ -2891,6 +2951,12 @@ broadcast:
 			if chunk.ToolInput != nil {
 				payload["toolInput"] = chunk.ToolInput
 			}
+		}
+
+		// input_json_delta：工具参数增量更新
+		if chunk.Type == ChunkTypeInputJSONDelta {
+			payload["toolIndex"] = chunk.ToolIndex
+			payload["partialJSON"] = chunk.PartialJSON
 		}
 
 		es.wsHub.BroadcastToThread(threadID.String(), ws.WSMessage{

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, memo } from 'react';
 import { useAppStore } from '@/store';
-import type { MessageContentBlock, ToolUseBlock, ThinkingBlock as ThinkingBlockType, TextBlock as TextBlockType, RichBlock, AgentConfig, QuestionBlock } from '@/types';
+import type { MessageContentBlock, ToolUseBlock, ThinkingBlock as ThinkingBlockType, TextBlock as TextBlockType, RichBlock, AgentConfig, QuestionBlock, CardRichBlock, DiffRichBlock, ChecklistRichBlock } from '@/types';
 import ThinkingBlockComponent from './ThinkingBlock';
 import ToolBlockComponent, { ToolCallRow } from './ToolBlock';
 import TextBlockComponent from './TextBlock';
@@ -93,6 +93,8 @@ const MessageContentRenderer: React.FC<MessageContentRendererProps> = memo(({
               <ToolGroupBlock
                 key={`tool-group-${index}`}
                 tools={block.tools as ToolUseBlock[]}
+                stdoutBlocks={block.stdoutBlocks as TextBlockType[]}
+                richBlocks={block.richBlocks as RichBlock[]}
                 defaultExpanded={defaultExpanded}
               />
             );
@@ -172,31 +174,42 @@ function extractRichBlocks(block: MessageContentBlock | { type: 'tool_use_group'
  * 聚合内容块
  * - 连续的 thinking 块合并（取最后一个，内容已由 Store 累积）
  * - 连续的 tool_use 块聚合为一个组
+ * - 紧跟 tool_use 的 text 块收集为 stdoutBlocks
  * - rich 块保持独立
  */
-function aggregateBlocks(blocks: MessageContentBlock[]): Array<MessageContentBlock | { type: 'tool_use_group'; tools: ToolUseBlock[]; richBlocks?: RichBlock[] }> {
-  const result: Array<MessageContentBlock | { type: 'tool_use_group'; tools: ToolUseBlock[]; richBlocks?: RichBlock[] }> = [];
+function aggregateBlocks(blocks: MessageContentBlock[]): Array<MessageContentBlock | { type: 'tool_use_group'; tools: ToolUseBlock[]; stdoutBlocks?: TextBlockType[]; richBlocks?: RichBlock[] }> {
+  const result: Array<MessageContentBlock | { type: 'tool_use_group'; tools: ToolUseBlock[]; stdoutBlocks?: TextBlockType[]; richBlocks?: RichBlock[] }> = [];
   let currentToolGroup: ToolUseBlock[] = [];
+  let currentStdoutBlocks: TextBlockType[] = [];
   let currentRichBlocks: RichBlock[] = [];
 
   for (const block of blocks) {
     if (block.type === 'tool_use') {
       // 累积 tool_use 块
       currentToolGroup.push(block as ToolUseBlock);
+    } else if (block.type === 'text') {
+      // 如果当前有工具组，text 块作为 stdout 累积
+      if (currentToolGroup.length > 0) {
+        currentStdoutBlocks.push(block as TextBlockType);
+      } else {
+        // 独立的 text 块直接输出
+        result.push(block);
+      }
     } else if (block.type === 'rich') {
       // 累积 rich 块
       currentRichBlocks.push(block as RichBlock);
     } else {
-      // 遇到非 tool_use/rich 块，先输出累积的块
+      // 遇到非 tool_use/text/rich 块，先输出累积的块
       if (currentToolGroup.length > 0) {
-        // 如果有 rich 块，附加到工具组
-        if (currentRichBlocks.length > 0) {
-          result.push({ type: 'tool_use_group', tools: currentToolGroup, richBlocks: currentRichBlocks });
-          currentRichBlocks = [];
-        } else {
-          result.push({ type: 'tool_use_group', tools: currentToolGroup });
-        }
+        result.push({
+          type: 'tool_use_group',
+          tools: currentToolGroup,
+          stdoutBlocks: currentStdoutBlocks.length > 0 ? currentStdoutBlocks : undefined,
+          richBlocks: currentRichBlocks.length > 0 ? currentRichBlocks : undefined,
+        });
         currentToolGroup = [];
+        currentStdoutBlocks = [];
+        currentRichBlocks = [];
       }
       // 输出累积的 rich 块
       if (currentRichBlocks.length > 0) {
@@ -211,11 +224,12 @@ function aggregateBlocks(blocks: MessageContentBlock[]): Array<MessageContentBlo
 
   // 处理末尾的累积块
   if (currentToolGroup.length > 0) {
-    if (currentRichBlocks.length > 0) {
-      result.push({ type: 'tool_use_group', tools: currentToolGroup, richBlocks: currentRichBlocks });
-    } else {
-      result.push({ type: 'tool_use_group', tools: currentToolGroup });
-    }
+    result.push({
+      type: 'tool_use_group',
+      tools: currentToolGroup,
+      stdoutBlocks: currentStdoutBlocks.length > 0 ? currentStdoutBlocks : undefined,
+      richBlocks: currentRichBlocks.length > 0 ? currentRichBlocks : undefined,
+    });
   }
   if (currentRichBlocks.length > 0) {
     for (const richBlock of currentRichBlocks) {
@@ -278,14 +292,64 @@ function WrenchIcon({ color }: { color?: string }) {
 
 /**
  * 工具组块组件
- * 聚合显示多个工具调用，统一外壳
+ * 三层折叠设计：
+ * - 第 1 层：CLI Output Block 整体
+ * - 第 2 层：tools 区（可独立折叠） + stdout 区（始终可见）
+ * - 第 3 层：单个工具（点击展开看细节）
  */
 interface ToolGroupBlockProps {
   tools: ToolUseBlock[];
+  stdoutBlocks?: TextBlockType[];
+  richBlocks?: RichBlock[];
   defaultExpanded?: boolean;
 }
 
-const ToolGroupBlock: React.FC<ToolGroupBlockProps> = memo(({ tools, defaultExpanded = false }) => {
+/** stdout 预览构建（从 text 块提取前 48 字符） */
+function buildStdoutPreview(stdoutBlocks?: TextBlockType[], maxChars = 48): string {
+  if (!stdoutBlocks || stdoutBlocks.length === 0) return '';
+
+  let preview = '';
+  for (const block of stdoutBlocks) {
+    const content = block.content || '';
+    for (const char of content) {
+      if (/\s/.test(char)) {
+        preview = preview && !preview.endsWith(' ') ? `${preview} ` : preview;
+      } else {
+        preview = `${preview}${char}`;
+      }
+      if (preview.length > maxChars) {
+        return `${preview.slice(0, maxChars)}…`;
+      }
+    }
+  }
+  return preview.trimEnd();
+}
+
+/** rich 块预览构建（从 richBlocks 提取摘要） */
+function buildRichPreview(richBlocks?: RichBlock[], maxChars = 48): string {
+  if (!richBlocks || richBlocks.length === 0) return '';
+
+  for (const block of richBlocks) {
+    if (block.richType === 'card') {
+      const desc = (block as CardRichBlock).description;
+      if (desc) {
+        return desc.length > maxChars ? `${desc.slice(0, maxChars)}…` : desc;
+      }
+    }
+    if (block.richType === 'diff') {
+      const diff = block as DiffRichBlock;
+      return `${diff.filename} (${diff.additions}+/${diff.deletions}-)`;
+    }
+    if (block.richType === 'checklist') {
+      const list = block as ChecklistRichBlock;
+      const done = list.items.filter(i => i.checked).length;
+      return `${done}/${list.items.length} items`;
+    }
+  }
+  return '';
+}
+
+const ToolGroupBlock: React.FC<ToolGroupBlockProps> = memo(({ tools, stdoutBlocks, richBlocks, defaultExpanded = false }) => {
   if (tools.length === 0) return null;
 
   // 单个工具：直接用单行显示
@@ -293,50 +357,71 @@ const ToolGroupBlock: React.FC<ToolGroupBlockProps> = memo(({ tools, defaultExpa
     return <ToolBlockComponent block={tools[0]} defaultExpanded={defaultExpanded} />;
   }
 
-  // 多个工具：聚合显示，统一外壳
+  // 多个工具：三层折叠显示
   const anyStreaming = tools.some(t => t.status === 'streaming');
   const anyFailed = tools.some(t => t.status === 'failed');
   const totalDuration = tools.reduce((sum, t) => sum + (t.duration || 0), 0);
 
-  const [expanded, setExpanded] = useState(anyStreaming || defaultExpanded);
+  // stdout 和 rich 预览
+  const stdoutPreview = buildStdoutPreview(stdoutBlocks);
+  const richPreview = buildRichPreview(richBlocks);
+
+  // 第 1 层：整体折叠状态
+  const [blockExpanded, setBlockExpanded] = useState(anyStreaming || defaultExpanded);
+  // 第 2 层：tools 区折叠状态
+  const [toolsCollapsed, setToolsCollapsed] = useState(!anyStreaming);
+
   const userInteracted = React.useRef(false);
 
-  // streaming 时自动展开
+  // streaming 时自动展开整体和 tools 区
   useEffect(() => {
-    if (anyStreaming && !expanded) {
-      setExpanded(true);
+    if (anyStreaming) {
+      if (!blockExpanded) setBlockExpanded(true);
+      if (toolsCollapsed) setToolsCollapsed(false);
     }
   }, [anyStreaming]);
 
-  // 完成后自动折叠
+  // 完成后自动折叠（除非用户操作过）
   const prevStreamingRef = React.useRef(anyStreaming);
   useEffect(() => {
     if (prevStreamingRef.current && !anyStreaming) {
       if (!userInteracted.current) {
-        setExpanded(false);
+        setBlockExpanded(false);
+        setToolsCollapsed(true);
       }
     }
     prevStreamingRef.current = anyStreaming;
   }, [anyStreaming]);
 
-  const handleToggle = () => {
+  const handleToggleBlock = () => {
     userInteracted.current = true;
-    setExpanded(v => !v);
+    setBlockExpanded(v => !v);
+  };
+
+  const handleToggleTools = () => {
+    userInteracted.current = true;
+    setToolsCollapsed(v => !v);
   };
 
   // 状态文本和颜色
   const statusText = anyStreaming ? 'running' : anyFailed ? 'failed' : 'completed';
   const accentColor = '#7C3AED';
 
+  // 摘要行预览（折叠时显示）
+  const previewText = stdoutPreview || richPreview;
+  const previewDisplay = previewText && !blockExpanded ? ` · ${previewText}` : '';
+
   return (
     <div className="tool-block-wrapper" style={{ marginTop: 8 }}>
-      {/* Header - 统一头 */}
+      {/* 第 1 层 Header - CLI Output Block 整体 */}
       <button
         type="button"
-        onClick={handleToggle}
+        onClick={handleToggleBlock}
         className="tool-block-header"
+        aria-expanded={blockExpanded}
+        aria-controls="cli-output-body"
       >
-        <ChevronIcon expanded={expanded} color={accentColor} />
+        <ChevronIcon expanded={blockExpanded} color={accentColor} />
         <WrenchIcon color="#6B7280" />
         <span className="tool-block-label">CLI Output</span>
         <span className="tool-block-status" style={{ color: anyStreaming ? accentColor : anyFailed ? '#ff4d4f' : '#52c41a' }}>
@@ -346,26 +431,70 @@ const ToolGroupBlock: React.FC<ToolGroupBlockProps> = memo(({ tools, defaultExpa
         {totalDuration > 0 && (
           <span className="tool-block-duration-badge">{formatDuration(totalDuration)}</span>
         )}
+        {previewDisplay && (
+          <span className="tool-block-preview">{previewDisplay}</span>
+        )}
       </button>
 
-      {/* Body - 工具列表 */}
-      {expanded && (
-        <div className="tool-block-body">
-          <div className="tool-block-list">
-            {tools.map((tool, index) => (
-              <ToolCallRow
-                key={tool.id || `tool-${index}`}
-                toolName={tool.toolName}
-                input={tool.input}
-                output={tool.output}
-                status={tool.status}
-                duration={tool.duration}
-                startedAt={tool.startedAt}
-                defaultExpanded={tool.status === 'streaming'}
-                accentColor={accentColor}
-              />
-            ))}
+      {/* 第 2 层 Body - tools 区 + stdout 区 */}
+      {blockExpanded && (
+        <div className="tool-block-body" id="cli-output-body">
+          {/* Tools 区折叠按钮 */}
+          <div className="tool-block-summary">
+            <button
+              type="button"
+              onClick={handleToggleTools}
+              className="tool-block-summary-btn"
+              aria-expanded={!toolsCollapsed}
+            >
+              <ChevronIcon expanded={!toolsCollapsed} color="#6B7280" />
+              <span>{toolsCollapsed ? '▶' : '▼'} {tools.length} tools</span>
+              <span className="tool-block-summary-collapsed">
+                {toolsCollapsed ? '(collapsed)' : '(expanded)'}
+              </span>
+            </button>
           </div>
+
+          {/* 第 3 层：工具列表 */}
+          {!toolsCollapsed && (
+            <div className="tool-block-list">
+              {tools.map((tool, index) => (
+                <ToolCallRow
+                  key={tool.id || `tool-${index}`}
+                  toolName={tool.toolName}
+                  input={tool.input}
+                  output={tool.output}
+                  status={tool.status}
+                  duration={tool.duration}
+                  startedAt={tool.startedAt}
+                  defaultExpanded={tool.status === 'streaming'}
+                  accentColor={accentColor}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* stdout 区（展开后始终可见） */}
+          {stdoutBlocks && stdoutBlocks.length > 0 && (
+            <>
+              <div className="cli-output-stdout-divider">─── stdout ───</div>
+              <div className="cli-output-stdout">
+                {stdoutBlocks.map((block, i) => (
+                  <React.Fragment key={i}>
+                    {block.content}
+                    {i < stdoutBlocks.length - 1 && '\n'}
+                  </React.Fragment>
+                ))}
+              </div>
+            </>
+          )}
+
+          {/* rich 块渲染 */}
+          {richBlocks && richBlocks.length > 0 && (
+            <div className="cli-output-rich">
+              <RichBlocks blocks={richBlocks} onInteractiveAction={undefined} />
+            </div>
+          )}
         </div>
       )}
     </div>
