@@ -757,6 +757,7 @@ const SkillLibrary: React.FC = () => {
     // 如果没有冲突项，直接导入
     if (conflictItems.length === 0) {
       setScanModalVisible(false);
+      setScanSearchText('');
       performImport(autoUpdateItems, createItems, {});
       return;
     }
@@ -766,6 +767,7 @@ const SkillLibrary: React.FC = () => {
     setConflictChoices({});
     setCurrentRegistryName(scanResult?.registryName || '');
     setScanModalVisible(false);
+    setScanSearchText('');
     setConflictModalVisible(true);
   };
 
@@ -1370,7 +1372,10 @@ const SkillLibrary: React.FC = () => {
         }}
         width={600}
         footer={[
-          <Button key="cancel" onClick={() => setScanModalVisible(false)}>取消</Button>,
+          <Button key="cancel" onClick={() => {
+            setScanModalVisible(false);
+            setScanSearchText('');
+          }}>取消</Button>,
           <Button key="confirm" type="primary" onClick={handleConfirmImport} disabled={selectedRemoteSkills.length === 0}>
             确认导入（已选择 {selectedRemoteSkills.length} 个）
           </Button>,
