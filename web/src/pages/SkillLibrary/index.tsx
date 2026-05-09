@@ -132,6 +132,8 @@ const SkillLibrary: React.FC = () => {
   const [unifiedAgents, setUnifiedAgents] = useState<string[]>([]);
   // 冲突弹窗搜索状态
   const [conflictSearchText, setConflictSearchText] = useState('');
+  // 扫描弹窗搜索状态
+  const [scanSearchText, setScanSearchText] = useState('');
 
   // 创建方式状态
   const [sourceType, setSourceType] = useState<SkillSourceType>('personal');
