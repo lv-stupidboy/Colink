@@ -93,7 +93,7 @@ function truncateQuestion(question: string, maxLen = 20): string {
 
 /** 默认摘要生成（提取首个关键参数） */
 function generateDefaultSummary(toolName: string, input?: Record<string, unknown>): ToolSummary {
-  const keys = ['file_path', 'command', 'pattern', 'url', 'query', 'path', 'content', 'name', 'id'];
+  const keys = ['filePath', 'command', 'pattern', 'url', 'query', 'path', 'content', 'name', 'id'];
   for (const key of keys) {
     const val = input?.[key];
     if (typeof val === 'string' && val.length > 0) {
@@ -115,16 +115,16 @@ function generateToolSummary(toolName: string, input?: Record<string, unknown>):
   switch (toolName) {
     case 'Read':
     case 'Write':
-      const filePath = input?.file_path as string;
+      const filePath = input?.filePath as string;
       if (filePath) {
         return { name: toolName, param: truncatePath(filePath), paramFull: filePath };
       }
       // 等待完整 input 数据时的占位文本
       return { name: toolName, param: hasInput ? '' : '...' };
     case 'Edit':
-      const editPath = input?.file_path as string;
+      const editPath = input?.filePath as string;
       if (editPath) {
-        const param = `${truncatePath(editPath)}:${input?.old_string ? 'edit' : 'new'}`;
+        const param = `${truncatePath(editPath)}:${input?.oldString ? 'edit' : 'new'}`;
         return { name: toolName, param, paramFull: editPath };
       }
       return { name: toolName, param: hasInput ? '' : '...' };
@@ -160,14 +160,14 @@ function generateToolSummary(toolName: string, input?: Record<string, unknown>):
       const taskDesc = input?.description as string;
       return {
         name: toolName,
-        param: `@${input?.subagent_name || 'agent'} ${truncateDescription(taskDesc)}`,
+        param: `@${input?.subagentName || 'agent'} ${truncateDescription(taskDesc)}`,
         paramFull: taskDesc,
       };
     case 'NotebookEdit':
-      const notebookPath = input?.notebook_path as string;
+      const notebookPath = input?.notebookPath as string;
       return {
         name: toolName,
-        param: `${truncatePath(notebookPath)}[${input?.cell_number}]`,
+        param: `${truncatePath(notebookPath)}[${input?.cellNumber}]`,
         paramFull: notebookPath,
       };
     case 'WebFetch':
@@ -214,7 +214,7 @@ function generateToolSummary(toolName: string, input?: Record<string, unknown>):
       const agentDesc = input?.description as string;
       return {
         name: toolName,
-        param: `${input?.subagent_type || 'agent'}: ${truncateDescription(agentDesc)}`,
+        param: `${input?.subagentType || 'agent'}: ${truncateDescription(agentDesc)}`,
         paramFull: agentDesc,
       };
     default:
