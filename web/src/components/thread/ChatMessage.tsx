@@ -3,6 +3,7 @@ import React, { memo, useCallback } from 'react';
 import { Tag, Button, Tooltip, Alert, Card, Space, Avatar } from 'antd';
 import { StopOutlined, ReloadOutlined, FileTextOutlined, ExclamationCircleOutlined, ThunderboltOutlined, UserOutlined } from '@ant-design/icons';
 import AgentTypeIcon from '@/components/AgentTypeIcon';
+import { getTypeColorByIndex } from '@/config/agentTypeColors';
 import type { Message, AgentConfig, AgentRole, MessageRole, ReviewIssue, ToolEvent, MessageContentBlock } from '@/types';
 import type { HumanTask, HumanTaskStatus } from '@/types';
 import type { FileChange } from '@/types/content';
@@ -33,6 +34,7 @@ interface ChatMessageProps {
   message: Message;
   agentConfig?: AgentConfig;
   agentConfigs?: AgentConfig[];
+  agentTypes?: { type: string }[];
   projectPath?: string;
   isStreaming?: boolean;
   progress?: ProgressInfo;
@@ -141,6 +143,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
   message,
   agentConfig,
   agentConfigs: _agentConfigs = [],
+  agentTypes: _agentTypes = [],
   projectPath: _projectPath,
   isStreaming = false,
   progress,
@@ -159,7 +162,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
   const roleDisplay = getRoleDisplayName(message.role, agentRole);
 
   // 头像颜色
-  const avatarColor = isUser ? '#52c41a' : 'var(--color-primary)';
+  const avatarColor = 'var(--color-primary)';
 
   // Agent 名称（用于点击事件）
   const displayAgentName = agentConfig?.name || message.agentName || roleDisplay;
@@ -355,6 +358,12 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
             >
               {displayAgentName}
             </span>
+            {/* 基础Agent信息 */}
+            {message.metadata?.baseAgentType && (
+              <Tag color={getTypeColorByIndex(_agentTypes, String(message.metadata.baseAgentType))} style={{ marginLeft: 8 }}>
+                {String(message.metadata.baseAgentTypeName || message.metadata.baseAgentType)} · {message.metadata.baseAgentModel as string}
+              </Tag>
+            )}
             {timestamp && (
               <span
                 className="chat-message-time"
@@ -388,7 +397,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
           className={`chat-message-bubble ${styleConfig.radius}`}
           style={{
             backgroundColor: '#fff',
-            border: isUser ? '1px solid #52c41a' : `1px solid ${styleConfig.color}20`,
+            border: `1px solid var(--color-primary-border)`,
             padding: '12px 16px',
             wordBreak: 'break-word',
             ...(styleConfig.font ? { fontFamily: 'monospace' } : {}),

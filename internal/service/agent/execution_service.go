@@ -618,7 +618,7 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 					}
 					outputForSave := outputBuilderForSave.String()
 
-					msgForSave := es.saveAgentMessageWithReturn(saveCtx, req.ThreadID, config, outputForSave, contentBlocksForSave)
+					msgForSave := es.saveAgentMessageWithReturn(saveCtx, req.ThreadID, config, baseAgent, outputForSave, contentBlocksForSave)
 					if msgForSave != nil {
 						es.broadcastAgentMessage(req.ThreadID, msgForSave, config.Name, string(config.Role))
 					}
@@ -755,7 +755,7 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 
 
 	// 保存输出消息到数据库（包含内容块）
-	msg := es.saveAgentMessageWithReturn(ctx, req.ThreadID, config, output, contentBlocks)
+	msg := es.saveAgentMessageWithReturn(ctx, req.ThreadID, config, baseAgent, output, contentBlocks)
 
 	// 广播消息（让前端用真实 ID 更新）
 	if msg != nil {
@@ -894,11 +894,22 @@ func (es *ExecutionService) resolveConfigAndBaseAgent(ctx context.Context, req *
 }
 
 // saveAgentMessage 保存Agent消息
-func (es *ExecutionService) saveAgentMessage(ctx context.Context, threadID uuid.UUID, config *model.AgentRoleConfig, output string, contentBlocks []ContentBlockData) {
-	metadata, _ := json.Marshal(map[string]string{
+func (es *ExecutionService) saveAgentMessage(ctx context.Context, threadID uuid.UUID, config *model.AgentRoleConfig, baseAgent *model.BaseAgent, output string, contentBlocks []ContentBlockData) {
+	metadata := map[string]string{
 		"agentName": config.Name,
 		"agentRole": string(config.Role),
-	})
+	}
+	// 添加基础Agent信息
+	if baseAgent != nil {
+		metadata["baseAgentType"] = string(baseAgent.Type)
+		metadata["baseAgentModel"] = baseAgent.DefaultModel
+		// 从插件注册中心获取类型名称
+		pluginMeta := GetMeta(baseAgent.Type)
+		if pluginMeta != nil {
+			metadata["baseAgentTypeName"] = pluginMeta.Name
+		}
+	}
+	metadataJSON, _ := json.Marshal(metadata)
 
 	// 序列化内容块
 	var contentBlocksJSON []byte
@@ -913,7 +924,7 @@ func (es *ExecutionService) saveAgentMessage(ctx context.Context, threadID uuid.
 		Content:       output,
 		ContentBlocks: contentBlocksJSON,
 		MessageType:   model.MessageTypeText,
-		Metadata:      metadata,
+		Metadata:      metadataJSON,
 		CreatedAt:     time.Now(),
 	}
 	if err := es.msgRepo.Create(ctx, msg); err != nil {
@@ -922,11 +933,22 @@ func (es *ExecutionService) saveAgentMessage(ctx context.Context, threadID uuid.
 }
 
 // saveAgentMessageWithReturn 保存Agent消息并返回消息对象（含真实ID）
-func (es *ExecutionService) saveAgentMessageWithReturn(ctx context.Context, threadID uuid.UUID, config *model.AgentRoleConfig, output string, contentBlocks []ContentBlockData) *model.Message {
-	metadata, _ := json.Marshal(map[string]string{
+func (es *ExecutionService) saveAgentMessageWithReturn(ctx context.Context, threadID uuid.UUID, config *model.AgentRoleConfig, baseAgent *model.BaseAgent, output string, contentBlocks []ContentBlockData) *model.Message {
+	metadata := map[string]string{
 		"agentName": config.Name,
 		"agentRole": string(config.Role),
-	})
+	}
+	// 添加基础Agent信息
+	if baseAgent != nil {
+		metadata["baseAgentType"] = string(baseAgent.Type)
+		metadata["baseAgentModel"] = baseAgent.DefaultModel
+		// 从插件注册中心获取类型名称
+		pluginMeta := GetMeta(baseAgent.Type)
+		if pluginMeta != nil {
+			metadata["baseAgentTypeName"] = pluginMeta.Name
+		}
+	}
+	metadataJSON, _ := json.Marshal(metadata)
 
 	// 序列化内容块
 	var contentBlocksJSON []byte
@@ -941,7 +963,7 @@ func (es *ExecutionService) saveAgentMessageWithReturn(ctx context.Context, thre
 		Content:       output,
 		ContentBlocks: contentBlocksJSON,
 		MessageType:   model.MessageTypeText,
-		Metadata:      metadata,
+		Metadata:      metadataJSON,
 		CreatedAt:     time.Now(),
 	}
 	if err := es.msgRepo.Create(ctx, msg); err != nil {
@@ -960,6 +982,12 @@ func (es *ExecutionService) broadcastAgentMessage(threadID uuid.UUID, msg *model
 			json.Unmarshal(msg.ContentBlocks, &contentBlocks)
 		}
 
+		// 解析 metadata
+		var metadata map[string]string
+		if len(msg.Metadata) > 0 {
+			json.Unmarshal(msg.Metadata, &metadata)
+		}
+
 		es.wsHub.BroadcastToThread(threadID.String(), ws.WSMessage{
 			Type:      "agent_message",
 			ThreadID:  threadID.String(),
@@ -971,6 +999,7 @@ func (es *ExecutionService) broadcastAgentMessage(threadID uuid.UUID, msg *model
 				"contentBlocks": contentBlocks,
 				"agentName":     agentName,
 				"agentRole":     agentRole,
+				"metadata":      metadata,
 			},
 		})
 	}

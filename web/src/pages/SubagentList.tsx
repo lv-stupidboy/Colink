@@ -11,7 +11,8 @@ import {
   CloudUploadOutlined
 } from '@ant-design/icons';
 import api from '@/api/client';
-import type { Subagent, SubagentListResponse, Skill } from '@/types';
+import { getTypeColorByIndex } from '@/config/agentTypeColors';
+import type { Subagent, SubagentListResponse, Skill, BaseAgentTypeInfo } from '@/types';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -131,12 +132,7 @@ const SubagentList: React.FC = () => {
   const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
   const [subagentSkillCounts, setSubagentSkillCounts] = useState<Record<string, number>>({});
   const [subagentSkillsMap, setSubagentSkillsMap] = useState<Record<string, Skill[]>>({});
-
-  // Agent 类型选项
-  const agentTypeOptions = [
-    { label: 'Claude Code', value: 'claude_code', color: 'blue' },
-    { label: 'OpenCode', value: 'open_code', color: 'green' },
-  ];
+  const [agentTypes, setAgentTypes] = useState<BaseAgentTypeInfo[]>([]);
 
   // 存储解析后的内容，用户确认后才上传
   const pendingContentRef = useRef<string>('');
@@ -176,6 +172,7 @@ const SubagentList: React.FC = () => {
 
   useEffect(() => {
     loadSubagents();
+    api.baseAgents.getTypes().then(setAgentTypes).catch(() => {});
   }, [loadSubagents]);
 
   // 加载技能列表
@@ -399,15 +396,16 @@ const SubagentList: React.FC = () => {
       width: 150,
       render: (supportedAgents: string[] | undefined) => {
         if (!supportedAgents || supportedAgents.length === 0) {
-          return <Tag color="blue">Claude Code</Tag>;
+          return <Tag color="blue">默认</Tag>;
         }
         return (
           <Space size="small">
             {supportedAgents.map(agent => {
-              const option = agentTypeOptions.find(o => o.value === agent);
+              const typeInfo = agentTypes.find(t => t.type === agent);
+              const color = getTypeColorByIndex(agentTypes, agent);
               return (
-                <Tag key={agent} color={option?.color || 'default'}>
-                  {option?.label || agent}
+                <Tag key={agent} color={color}>
+                  {typeInfo?.name || agent}
                 </Tag>
               );
             })}
@@ -649,7 +647,7 @@ const SubagentList: React.FC = () => {
               mode="multiple"
               placeholder="选择支持的 Agent 类型"
               style={{ width: '100%' }}
-              options={agentTypeOptions}
+              options={agentTypes.map(t => ({ label: t.name, value: t.type }))}
             />
           </Form.Item>
 

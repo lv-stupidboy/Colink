@@ -3,8 +3,9 @@ import { Table, Button, Card, Modal, Form, Input, Select, message, Space, Tag, T
 import { PlusOutlined, EditOutlined, DeleteOutlined, RobotOutlined, BugOutlined, CopyOutlined, CrownOutlined, ExclamationCircleOutlined, EyeOutlined, SettingOutlined, BookOutlined, ApiOutlined, CodeOutlined, SafetyCertificateOutlined, MoreOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '@/api/client';
+import { getTypeColorByIndex } from '@/config/agentTypeColors';
 import AgentTypeIcon from '@/components/AgentTypeIcon';
-import type { AgentConfig, BaseAgent, Skill, Subagent, Command, Rule, Settings, BatchGenerateResult, BatchUpdateResult, GenerateResultItem, WorkflowTemplate } from '@/types';
+import type { AgentConfig, BaseAgent, Skill, Subagent, Command, Rule, Settings, BatchGenerateResult, BatchUpdateResult, GenerateResultItem, WorkflowTemplate, BaseAgentTypeInfo } from '@/types';
 
 const { Title, Text } = Typography;
 
@@ -18,6 +19,7 @@ interface PreviewItem {
 interface ConfigPreview {
   agentId: string;
   agentName: string;
+  baseAgentType?: string;
   skills: PreviewItem[];
   commands: PreviewItem[];
   subagents: PreviewItem[];
@@ -41,6 +43,7 @@ const AgentRoleList: React.FC = () => {
   const navigate = useNavigate();
   const [configs, setConfigs] = useState<AgentConfig[]>([]);
   const [baseAgents, setBaseAgents] = useState<BaseAgent[]>([]);
+  const [agentTypes, setAgentTypes] = useState<BaseAgentTypeInfo[]>([]);
   const [skills, setSkills] = useState<Skill[]>([]);
   const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
   const [subagents, setSubagents] = useState<Subagent[]>([]);
@@ -89,6 +92,7 @@ const AgentRoleList: React.FC = () => {
     loadRules();
     loadSettings();
     loadWorkflows();
+    api.baseAgents.getTypes().then(setAgentTypes).catch(() => {});
   }, []);
 
   const loadConfigs = async () => {
@@ -627,7 +631,10 @@ const AgentRoleList: React.FC = () => {
     if (!previewData) return;
     setGenerateLoading(previewData.agentId);
     try {
-      const result = await api.agents.generateConfig(previewData.agentId, 'claude_code');
+      // 获取 agent 关联的 baseAgentType
+      const agentConfig = configs.find(c => c.id === previewData.agentId);
+      const baseAgentType = previewData.baseAgentType || agentConfig?.baseAgent?.type || 'claude_code';
+      const result = await api.agents.generateConfig(previewData.agentId, baseAgentType);
       message.success(`配置生成成功，包含 ${result.commandsCount} 个 Commands、${result.subagentsCount} 个 Subagents、${result.skillsCount} 个 Skills、${result.rulesCount} 个 Rules、${result.settingsCount} 个 Settings`);
       setPreviewVisible(false);
       setPreviewData(null);
@@ -680,11 +687,16 @@ const AgentRoleList: React.FC = () => {
       width: 120,
       render: (baseAgentId: string) => {
         const agent = baseAgents.find(a => a.id === baseAgentId);
-        return agent ? (
-          <Tag color={agent.type === 'claude_code' ? 'blue' : 'green'}>
-            {agent.name}
-          </Tag>
-        ) : <Tag>默认</Tag>;
+        if (agent) {
+          const typeInfo = agentTypes.find(t => t.type === agent.type);
+          const color = getTypeColorByIndex(agentTypes, agent.type);
+          return (
+            <Tag color={color}>
+              {agent.name}
+            </Tag>
+          );
+        }
+        return <Tag>默认</Tag>;
       },
     },
     {
@@ -956,11 +968,14 @@ const AgentRoleList: React.FC = () => {
 
           <Form.Item name="baseAgentId" label="基础Agent">
             <Select placeholder="选择基础Agent" allowClear>
-              {baseAgents.map(agent => (
-                <Select.Option key={agent.id} value={agent.id}>
-                  {agent.name} ({agent.type === 'claude_code' ? 'Claude Code' : 'OpenCode'})
-                </Select.Option>
-              ))}
+              {baseAgents.map(agent => {
+                const typeInfo = agentTypes.find(t => t.type === agent.type);
+                return (
+                  <Select.Option key={agent.id} value={agent.id}>
+                    {agent.name} ({typeInfo?.name || agent.type})
+                  </Select.Option>
+                );
+              })}
             </Select>
           </Form.Item>
 
@@ -1306,11 +1321,16 @@ const AgentRoleList: React.FC = () => {
                 width: 120,
                 render: (baseAgentId: string) => {
                   const agent = baseAgents.find(a => a.id === baseAgentId);
-                  return agent ? (
-                    <Tag color={agent.type === 'claude_code' ? 'blue' : 'green'}>
-                      {agent.name}
-                    </Tag>
-                  ) : <Tag>默认</Tag>;
+                  if (agent) {
+                    const typeInfo = agentTypes.find(t => t.type === agent.type);
+                    const color = getTypeColorByIndex(agentTypes, agent.type);
+                    return (
+                      <Tag color={color}>
+                        {agent.name}
+                      </Tag>
+                    );
+                  }
+                  return <Tag>默认</Tag>;
                 },
               },
             ]}
@@ -1332,11 +1352,14 @@ const AgentRoleList: React.FC = () => {
             onChange={setTargetBaseAgentId}
             style={{ width: '100%' }}
           >
-            {baseAgents.map(agent => (
-              <Select.Option key={agent.id} value={agent.id}>
-                {agent.name} ({agent.type === 'claude_code' ? 'Claude Code' : 'OpenCode'})
-              </Select.Option>
-            ))}
+            {baseAgents.map(agent => {
+              const typeInfo = agentTypes.find(t => t.type === agent.type);
+              return (
+                <Select.Option key={agent.id} value={agent.id}>
+                  {agent.name} ({typeInfo?.name || agent.type})
+                </Select.Option>
+              );
+            })}
           </Select>
         </div>
       </Modal>

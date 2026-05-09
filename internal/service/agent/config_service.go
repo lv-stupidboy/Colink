@@ -49,6 +49,9 @@ func (s *ConfigService) GetByID(ctx context.Context, id uuid.UUID) (*model.Agent
 		return nil, err
 	}
 
+	// 填充 BaseAgent 详情
+	s.fillBaseAgent(ctx, config)
+
 	s.cacheMu.Lock()
 	s.cache[id] = config
 	s.cacheMu.Unlock()
@@ -58,7 +61,15 @@ func (s *ConfigService) GetByID(ctx context.Context, id uuid.UUID) (*model.Agent
 
 // GetByRole 根据角色获取配置
 func (s *ConfigService) GetByRole(ctx context.Context, role model.AgentRole) ([]*model.AgentRoleConfig, error) {
-	return s.repo.FindByRole(ctx, role)
+	configs, err := s.repo.FindByRole(ctx, role)
+	if err != nil {
+		return nil, err
+	}
+
+	// 填充 BaseAgent 详情
+	s.fillBaseAgentForList(ctx, configs)
+
+	return configs, nil
 }
 
 // GetDefaultByRole 获取角色的默认配置
@@ -165,7 +176,15 @@ func (s *ConfigService) Delete(ctx context.Context, id uuid.UUID) error {
 
 // List 列出所有配置
 func (s *ConfigService) List(ctx context.Context) ([]*model.AgentRoleConfig, error) {
-	return s.repo.List(ctx)
+	configs, err := s.repo.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// 填充 BaseAgent 详情
+	s.fillBaseAgentForList(ctx, configs)
+
+	return configs, nil
 }
 
 // InvalidateCache 失效指定Agent的缓存（配置生成后需要调用）
@@ -313,4 +332,36 @@ func (s *ConfigService) BatchUpdateBaseAgent(ctx context.Context,
 	}
 
 	return result, nil
+}
+
+// fillBaseAgent 填充 AgentRoleConfig 的 BaseAgent 详情
+func (s *ConfigService) fillBaseAgent(ctx context.Context, config *model.AgentRoleConfig) error {
+	if config == nil {
+		return nil
+	}
+
+	// 如果有指定的 BaseAgentID，查询对应的 BaseAgent
+	if config.BaseAgentID != uuid.Nil {
+		baseAgent, err := s.baseAgentRepo.FindByID(ctx, config.BaseAgentID)
+		if err == nil {
+			config.BaseAgent = baseAgent
+			return nil
+		}
+	}
+
+	// 如果没有指定或查询失败，获取默认 BaseAgent
+	defaultAgent, err := s.baseAgentRepo.FindDefault(ctx)
+	if err == nil && defaultAgent != nil {
+		config.BaseAgent = defaultAgent
+	}
+
+	return nil
+}
+
+// fillBaseAgentForList 批量填充多个 AgentRoleConfig 的 BaseAgent 详情
+func (s *ConfigService) fillBaseAgentForList(ctx context.Context, configs []*model.AgentRoleConfig) error {
+	for _, config := range configs {
+		s.fillBaseAgent(ctx, config)
+	}
+	return nil
 }

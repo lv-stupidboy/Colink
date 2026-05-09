@@ -12,15 +12,11 @@ import {
 } from '@ant-design/icons';
 import JSZip from 'jszip';
 import settingsApi from '@/api/settingsApi';
-import type { Settings } from '@/types';
+import api from '@/api/client';
+import { getTypeColorByIndex } from '@/config/agentTypeColors';
+import type { Settings, BaseAgentTypeInfo } from '@/types';
 
 const { Title, Text } = Typography;
-
-// Agent 类型选项
-const agentTypeOptions = [
-  { label: 'Claude Code', value: 'claude_code', color: 'blue' },
-  { label: 'OpenCode', value: 'open_code', color: 'green' },
-];
 
 // 根据Settings名称生成头像
 const generateAvatar = (name: string): { initials: string; color: string } => {
@@ -78,6 +74,7 @@ const cleanName = (name: string): string => {
 
 const SettingsManagement: React.FC = () => {
   const [settingsList, setSettingsList] = useState<Settings[]>([]);
+  const [agentTypes, setAgentTypes] = useState<BaseAgentTypeInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -107,9 +104,19 @@ const SettingsManagement: React.FC = () => {
     }
   }, [page, pageSize, searchText]);
 
+  const loadAgentTypes = useCallback(async () => {
+    try {
+      const data = await api.baseAgents.getTypes();
+      setAgentTypes(data);
+    } catch (error) {
+      console.error('加载Agent类型失败', error);
+    }
+  }, []);
+
   useEffect(() => {
     loadSettings();
-  }, [loadSettings]);
+    loadAgentTypes();
+  }, [loadSettings, loadAgentTypes]);
 
   // 新建Settings
   const handleCreate = () => {
@@ -263,15 +270,16 @@ const SettingsManagement: React.FC = () => {
       width: 150,
       render: (supportedAgents: string[] | undefined) => {
         if (!supportedAgents || supportedAgents.length === 0) {
-          return <Tag color="blue">Claude Code</Tag>;
+          return <Tag color="blue">默认</Tag>;
         }
         return (
           <Space size="small">
             {supportedAgents.map(agent => {
-              const option = agentTypeOptions.find(o => o.value === agent);
+              const typeInfo = agentTypes.find(t => t.type === agent);
+              const color = getTypeColorByIndex(agentTypes, agent);
               return (
-                <Tag key={agent} color={option?.color || 'default'}>
-                  {option?.label || agent}
+                <Tag key={agent} color={color}>
+                  {typeInfo?.name || agent}
                 </Tag>
               );
             })}
@@ -440,7 +448,7 @@ const SettingsManagement: React.FC = () => {
               mode="multiple"
               placeholder="选择支持的 Agent 类型"
               style={{ width: '100%' }}
-              options={agentTypeOptions}
+              options={agentTypes.map(t => ({ label: t.name, value: t.type, color: t.color }))}
             />
           </Form.Item>
         </Form>

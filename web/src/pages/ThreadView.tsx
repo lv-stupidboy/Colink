@@ -48,6 +48,7 @@ import { StatusPanel } from '@/components/thread/StatusPanel';
 import MessageScrollIndicator from '@/components/thread/MessageScrollIndicator';
 import FileTree from '@/components/FileTree';
 import api from '@/api/client';
+import { AGENT_TYPE_COLORS } from '@/config/agentTypeColors';
 import './ThreadView.css';
 
 const { Title, Text } = Typography;
@@ -149,6 +150,9 @@ const ThreadView: React.FC = () => {
   // 调试模式的本地 WebSocket 连接状态（避免使用全局状态导致重新渲染）
   // 必须在使用之前定义
   const [debugWsConnected, setDebugWsConnected] = useState(false);
+
+  // Agent 类型列表（用于颜色动态分配）
+  const [agentTypes, setAgentTypes] = useState<{ type: string }[]>([]);
 
   // 工具事件本地状态（用于旧版 CLI 输出块兼容显示）
   const [toolEvents, setToolEvents] = useState<Record<string, ToolEvent[]>>({});
@@ -376,6 +380,9 @@ const ThreadView: React.FC = () => {
       loadArtifacts(threadId);
       loadReviewData(threadId);
     }
+
+    // 加载 agentTypes（两种模式都需要）
+    api.baseAgents.getTypes().then(types => setAgentTypes(types)).catch(() => {});
 
     return () => {
       // 清理：关闭 WebSocket 连接
@@ -706,13 +713,14 @@ const ThreadView: React.FC = () => {
       }
       case 'agent_message': {
         // Agent 完成消息：后端已保存到数据库并广播真实ID
-        // payload 包含: messageId（真实UUID）、agentId、content、contentBlocks、agentName、agentRole
+        // payload 包含: messageId（真实UUID）、agentId、content、contentBlocks、agentName、agentRole、metadata
         const realMessageId = data.payload.messageId as string;
         const agentId = data.payload.agentId as string;
         const content = data.payload.content as string;
         const contentBlocks = data.payload.contentBlocks as MessageContentBlock[] | undefined;
         const agentName = data.payload.agentName as string;
         const agentRole = data.payload.agentRole as string;
+        const metadataFromPayload = data.payload.metadata as Record<string, unknown> | undefined;
 
         if (!realMessageId) {
           break;
@@ -728,15 +736,15 @@ const ThreadView: React.FC = () => {
           // 先完成流式消息（添加临时消息）- finalizeStreamingMessage 会将 question block IDs 加入 submittedQuestionBlockIds
           finalizeStreamingMessage(invocationId);
           // 然后用真实ID和真实contentBlocks替换临时消息（避免重复渲染 question blocks）
-          // 同时更新 agentName 和 agentRole
-          useAppStore.getState().replaceMessageId(tempId, realMessageId, contentBlocks, agentName, agentRole);
+          // 同时更新 agentName 和 agentRole 以及 metadata
+          useAppStore.getState().replaceMessageId(tempId, realMessageId, contentBlocks, agentName, agentRole, metadataFromPayload);
         } else {
           // 非流式场景：检查是否已有临时消息（可能由 agent_status/completed 创建）
           const tempId = `agent-${realMessageId}`;
           const existingTemp = state.messages.find(m => m.id === tempId);
           if (existingTemp) {
             // 替换临时ID为真实ID，同时替换contentBlocks和metadata
-            useAppStore.getState().replaceMessageId(tempId, realMessageId, contentBlocks, agentName, agentRole);
+            useAppStore.getState().replaceMessageId(tempId, realMessageId, contentBlocks, agentName, agentRole, metadataFromPayload);
           } else {
             // 直接添加新消息（使用真实ID）
             addMessage({
@@ -748,7 +756,7 @@ const ThreadView: React.FC = () => {
               content: content,
               contentBlocks: contentBlocks,
               messageType: 'text',
-              metadata: {
+              metadata: metadataFromPayload || {
                 agentName: agentName,
                 agentRole: agentRole,
               },
@@ -1619,6 +1627,7 @@ const ThreadView: React.FC = () => {
                   agentConfigs={mentionableAgents}
                   projectPath={displayProjectPath}
                   toolEvents={toolEvents}
+                  agentTypes={agentTypes}
                   onStopAgent={handleStopAgent}
                   onRetryAgent={handleRetryAgent}
                   onOpenCodePanel={openCodePanel}

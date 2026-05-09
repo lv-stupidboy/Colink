@@ -77,6 +77,7 @@ type AgentRoleConfig struct {
 	Name         string    `json:"name"`
 	Role         AgentRole `json:"role"`
 	BaseAgentID  uuid.UUID `json:"baseAgentId,omitempty"`
+	BaseAgent    *BaseAgent `json:"baseAgent,omitempty"` // 关联的基础Agent详情（API返回时填充）
 	Description  string    `json:"description"`
 	SystemPrompt string    `json:"systemPrompt"`
 	MaxTokens    int       `json:"maxTokens"`
