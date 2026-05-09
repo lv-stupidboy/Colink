@@ -2610,35 +2610,48 @@ func (es *ExecutionService) broadcastChunk(threadID, invocationID uuid.UUID, chu
 				Content:   chunk.Content,
 				Timestamp: now,
 			})
-		case ChunkTypeToolUse:
-			// 工具调用开始
-			// 去重检查：parser 可能发送两次（content_block_start + assistant 消息）
-			blockID := fmt.Sprintf("tool-%s", chunk.ToolID)
-			existingToolIdx := -1
+		case ChunkTypeInputJSONDelta:
+			// 工具参数增量更新 - 累积 PartialJSON 并解析
+			// 根据 ToolIndex 找到对应的 tool_use block 并更新 Input
 			for i, b := range agent.AccumulatedContentBlocks {
-				if b.ID == blockID {
-					existingToolIdx = i
+				if b.Type == "tool_use" && b.ToolIndex == chunk.ToolIndex {
+					// 累积 InputJSON
+					accumulatedJSON := b.InputJSON + chunk.PartialJSON
+					agent.AccumulatedContentBlocks[i].InputJSON = accumulatedJSON
+
+					// 尝试解析累积的 JSON
+					// PartialJSON 可能是不完整的，只有完整的 JSON 才能解析
+					var input map[string]interface{}
+					if err := json.Unmarshal([]byte(accumulatedJSON), &input); err == nil {
+						// JSON 完整，更新 Input
+						agent.AccumulatedContentBlocks[i].Input = input
+						logInfo("ChunkTypeInputJSONDelta: JSON parsed successfully",
+							zap.Int("toolIndex", chunk.ToolIndex),
+							zap.String("toolId", b.ToolID),
+							zap.Int("inputFields", len(input)))
+					} else {
+						// JSON 不完整，等待更多 delta
+						logInfo("ChunkTypeInputJSONDelta: JSON incomplete, waiting for more",
+							zap.Int("toolIndex", chunk.ToolIndex),
+							zap.String("partialJSON", accumulatedJSON[:min(50, len(accumulatedJSON))]))
+					}
 					break
 				}
 			}
-			if existingToolIdx >= 0 {
-				// 已存在，更新 Input（assistant 消息可能包含完整 Input）
-				if chunk.ToolInput != nil {
-					agent.AccumulatedContentBlocks[existingToolIdx].Input = chunk.ToolInput
-				}
-			} else {
-				// 不存在，追加新块
-				agent.AccumulatedContentBlocks = append(agent.AccumulatedContentBlocks, ContentBlockData{
-					ID:        blockID,
-					Type:      "tool_use",
-					Timestamp: now,
-					Status:    "streaming",
-					ToolName:  chunk.ToolName,
-					ToolID:    chunk.ToolID,
-					Input:     chunk.ToolInput,
-					StartedAt: now,
-				})
-			}
+		case ChunkTypeToolUse:
+			// 工具调用开始 - 直接追加新块（不再需要去重）
+			// input_json_delta 会后续更新 Input
+			agent.AccumulatedContentBlocks = append(agent.AccumulatedContentBlocks, ContentBlockData{
+				ID:        fmt.Sprintf("tool-%s", chunk.ToolID),
+				Type:      "tool_use",
+				Timestamp: now,
+				Status:    "streaming",
+				ToolName:  chunk.ToolName,
+				ToolID:    chunk.ToolID,
+				ToolIndex: chunk.ToolIndex,
+				Input:     chunk.ToolInput,
+				StartedAt: now,
+			})
 		case ChunkTypeToolResult:
 			// 工具调用结果：更新对应的工具块
 			// 特殊处理：AskUserQuestion 工具的 tool_result 表示"拒绝"
