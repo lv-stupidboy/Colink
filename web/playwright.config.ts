@@ -1,9 +1,12 @@
 import { defineConfig } from '@playwright/test';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+import { getTestConfig } from '../auto-test/e2e/fixtures/test-config.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+const testConfig = getTestConfig();
 
 /**
  * 生成时间戳格式的运行 ID
@@ -40,7 +43,7 @@ export default defineConfig({
     timeout: 5000,
   },
   use: {
-    baseURL: 'http://localhost:26306',
+    baseURL: testConfig.webBaseUrl, // 从 config.yaml 读取前端端口
     headless: true, // headless 模式，适合 CI/CLI 环境
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',

@@ -1,5 +1,6 @@
 // auto-test/e2e/fixtures/test-fixtures.ts
 import { test as base, expect, APIRequestContext } from '@playwright/test';
+import { testConfig } from './test-config.ts';
 
 export interface TestReport {
   timestamp: string;
@@ -36,8 +37,8 @@ export interface TestFixtures {
   reportTestResult: (result: TestResult) => Promise<void>;
 }
 
-// API 基础 URL
-const API_BASE_URL = 'http://localhost:26305/api/v1';
+// API 基础 URL（从 config.yaml 读取后端端口）
+const API_BASE_URL = testConfig.apiBaseUrl;
 
 // 生成唯一 ID
 function generateId(): string {

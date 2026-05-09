@@ -1,5 +1,6 @@
 // auto-test/e2e/fixtures/fixtures-demo.spec.ts
 import { test, expect, testDataApi } from './test-fixtures';
+import { testConfig } from './test-config.ts';
 
 /**
  * E2E-01: 测试 Fixtures 演示
@@ -24,7 +25,7 @@ test.describe('E2E-01: Fixtures Demo', () => {
     expect(project.name).toContain('E2E-Test');
 
     // 获取项目详情验证
-    const response = await request.get(`http://localhost:26305/api/v1/projects/${project.id}`);
+    const response = await request.get(`${testConfig.apiBaseUrl}/projects/${project.id}`);
     expect(response.ok()).toBeTruthy();
 
     const data = await response.json();
@@ -67,7 +68,7 @@ test.describe('E2E-01: Fixtures Demo', () => {
     expect(agent.name).toContain('E2E-Agent');
 
     // 验证 Agent 详情
-    const response = await request.get(`http://localhost:26305/api/v1/agents/${agent.id}`);
+    const response = await request.get(`${testConfig.apiBaseUrl}/agents/${agent.id}`);
     expect(response.ok()).toBeTruthy();
 
     console.log('✅ E2E-01-03: 测试 Agent 创建成功');
