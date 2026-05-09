@@ -217,7 +217,7 @@ func parseStreamJSONLine(line string, isStreaming bool) []agent.Chunk {
 		// 完整消息（非增量模式下的输出）
 		// AskUserQuestion 特殊处理：即使在增量模式下也需要解析，因为 questions 数据只在 assistant 消息中出现
 		// stream_event.content_block_start 时 input 为空，只有 assistant 消息才有完整的 questions
-		// 其他 tool_use 的 input 已通过 input_json_delta 累积，无需在此处理
+		// 其他 tool_use 的 input 通过 input_json_delta 累积，但 assistant 消息作为 fallback 更新
 		for _, content := range msg.Message.Content {
 			if content.Type == "tool_use" {
 				if content.Name == "AskUserQuestion" {
@@ -237,9 +237,17 @@ func parseStreamJSONLine(line string, isStreaming bool) []agent.Chunk {
 						ToolInput: content.Input,
 						Questions: questions,
 					})
+				} else if isStreaming {
+					// 增量模式下，发送 ChunkTypeToolUse 作为 fallback
+					// 如果 input_json_delta 已成功处理，execution_service 会去重更新
+					// 如果 input_json_delta 处理失败，这个 chunk 会补充完整 Input
+					chunks = append(chunks, agent.Chunk{
+						Type:      agent.ChunkTypeToolUse,
+						ToolName:  content.Name,
+						ToolID:    content.ID,
+						ToolInput: content.Input,
+					})
 				}
-				// 增量模式下，其他 tool_use 不发送 ChunkTypeToolUse
-				// 因为 input 已通过 input_json_delta 累积，前端已收到完整参数
 			} else if !isStreaming {
 				// 非增量模式下处理其他内容（无 streaming event）
 				if content.Type == "text" && content.Text != "" {

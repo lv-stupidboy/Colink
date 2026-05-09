@@ -48,6 +48,7 @@ import { StatusPanel } from '@/components/thread/StatusPanel';
 import MessageScrollIndicator from '@/components/thread/MessageScrollIndicator';
 import FileTree from '@/components/FileTree';
 import api from '@/api/client';
+import { snakeToCamel } from '@/api/transform';
 import { AGENT_TYPE_COLORS } from '@/config/agentTypeColors';
 import './ThreadView.css';
 
@@ -614,8 +615,11 @@ const ThreadView: React.FC = () => {
         } else if (chunkType === 'tool_use') {
           // 工具调用块
           const toolName = data.payload.toolName as string;
-          const toolInput = data.payload.toolInput as Record<string, unknown>;
+          // 转换 input 字段为 camelCase（后端返回 snake_case）
+          const rawInput = data.payload.toolInput as Record<string, unknown>;
+          const toolInput = rawInput ? snakeToCamel(rawInput) : rawInput;
           const toolId = data.payload.toolId as string;
+          const toolIndex = data.payload.toolIndex as number;
           updateProgress(invocId, 'tool_use', toolName, toolInput);
 
           // 追加工具调用块
@@ -624,11 +628,62 @@ const ThreadView: React.FC = () => {
             type: 'tool_use',
             toolName: toolName || 'Unknown',
             toolId: toolId || '',
+            toolIndex: toolIndex,
             input: toolInput,
             timestamp: Date.now(),
             status: 'streaming',
             startedAt: Date.now(),
           });
+        } else if (chunkType === 'input_json_delta') {
+          // 工具参数增量更新 - 累积 partialJSON 并更新 input
+          const toolIndex = data.payload.toolIndex as number;
+          const partialJSON = data.payload.partialJSON as string;
+
+          if (toolIndex !== undefined && partialJSON) {
+            // 找到对应的 tool_use block（找最后一个匹配 toolIndex 的）
+            const blocks = useAppStore.getState().streamingContentBlocks;
+            // 反向查找，找到最新的匹配块
+            let targetBlockIdx = -1;
+            for (let i = blocks.length - 1; i >= 0; i--) {
+              const b = blocks[i];
+              if (b.type === 'tool_use' && (b as any).toolIndex === toolIndex) {
+                targetBlockIdx = i;
+                break;
+              }
+            }
+
+            if (targetBlockIdx >= 0) {
+              const targetBlock = blocks[targetBlockIdx] as any;
+              // 累积 inputJSON
+              const accumulatedJSON = (targetBlock.inputJSON || '') + partialJSON;
+
+              // 尝试解析 JSON
+              try {
+                const parsedRaw = JSON.parse(accumulatedJSON);
+                // 转换为 camelCase（后端返回 snake_case）
+                const parsedInput = snakeToCamel(parsedRaw);
+                // JSON 完整，更新 input
+                updateContentBlock(invocId, targetBlock.id, {
+                  input: parsedInput,
+                  inputJSON: accumulatedJSON,
+                });
+                console.log('[WebSocket] input_json_delta parsed successfully', {
+                  toolIndex,
+                  blockId: targetBlock.id,
+                  inputFields: Object.keys(parsedInput),
+                });
+              } catch (e) {
+                // JSON 不完整，只更新 inputJSON，等待更多 delta
+                updateContentBlock(invocId, targetBlock.id, {
+                  inputJSON: accumulatedJSON,
+                });
+                console.log('[WebSocket] input_json_delta incomplete, waiting for more', {
+                  toolIndex,
+                  partialJSON: partialJSON.slice(0, 50),
+                });
+              }
+            }
+          }
         } else if (chunkType === 'tool_result') {
           // 工具调用结果 - 更新对应的工具块状态
           const toolId = data.payload.toolId as string;
@@ -717,7 +772,9 @@ const ThreadView: React.FC = () => {
         const realMessageId = data.payload.messageId as string;
         const agentId = data.payload.agentId as string;
         const content = data.payload.content as string;
-        const contentBlocks = data.payload.contentBlocks as MessageContentBlock[] | undefined;
+        // 转换 contentBlocks 为 camelCase（后端返回 snake_case）
+        const rawContentBlocks = data.payload.contentBlocks as MessageContentBlock[] | undefined;
+        const contentBlocks = rawContentBlocks ? snakeToCamel(rawContentBlocks) : rawContentBlocks;
         const agentName = data.payload.agentName as string;
         const agentRole = data.payload.agentRole as string;
         const metadataFromPayload = data.payload.metadata as Record<string, unknown> | undefined;

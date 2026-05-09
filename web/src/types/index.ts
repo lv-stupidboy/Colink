@@ -355,7 +355,9 @@ export interface ToolUseBlock extends MessageContentBlockBase {
   type: 'tool_use';
   toolName: string;
   toolId: string;
+  toolIndex?: number;       // 工具在消息中的索引（用于 input_json_delta 定位）
   input?: Record<string, unknown>;
+  inputJSON?: string;       // 累积的 JSON（input_json_delta 使用）
   output?: string;
   duration?: number;      // ms
   status: ContentBlockStatus;
