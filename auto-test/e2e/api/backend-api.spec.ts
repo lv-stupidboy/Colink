@@ -1,4 +1,5 @@
 import { test, expect } from '../fixtures/test-fixtures';
+import { testConfig } from '../fixtures/test-config.ts';
 
 /**
  * BT 系列：后端 API 测试
@@ -7,6 +8,10 @@ import { test, expect } from '../fixtures/test-fixtures';
  * @feature F005 - 线程管理
  * @priority P0
  */
+
+// 基础 URL（从配置文件读取）
+const API_BASE_URL = testConfig.apiBaseUrl;
+const SERVER_BASE_URL = `http://localhost:${testConfig.serverPort}`;
 
 /**
  * BT-01: 健康检查接口
@@ -19,7 +24,7 @@ test.describe('BT-01: 健康检查', () => {
     // @priority P0
     // @id BT-01-01
     // 使用 page 直接访问后端地址（绕过代理）
-    const response = await page.request.get('http://localhost:26305/health');
+    const response = await page.request.get(`${SERVER_BASE_URL}/health`);
     expect(response.ok()).toBeTruthy();
 
     const data = await response.json();
@@ -40,7 +45,7 @@ test.describe('BT-02: 项目列表 API', () => {
     // @feature F005 - 线程管理
     // @priority P0
     // @id BT-02-01
-    const response = await page.request.get('http://localhost:26305/api/v1/projects');
+    const response = await page.request.get(`${API_BASE_URL}/projects`);
 
     // 检查响应状态
     const status = response.status();
@@ -70,7 +75,7 @@ test.describe('BT-03: 创建项目 API', () => {
     // @id BT-03-01
     const testProjectName = `测试项目-${Date.now()}`;
 
-    const response = await page.request.post('http://localhost:26305/api/v1/projects', {
+    const response = await page.request.post(`${API_BASE_URL}/projects`, {
       data: {
         name: testProjectName,
         type: 'service',
@@ -105,7 +110,7 @@ test.describe('BT-04: 线程列表 API', () => {
     // @feature F005 - 线程管理
     // @priority P0
     // @id BT-04-01
-    const response = await page.request.get('http://localhost:26305/api/v1/threads');
+    const response = await page.request.get(`${API_BASE_URL}/threads`);
     const status = response.status();
 
     if (status === 200) {
@@ -128,7 +133,7 @@ test.describe('BT-05: Agent 配置 API', () => {
     // @feature F001 - Agent 对话核心
     // @priority P0
     // @id BT-05-01
-    const response = await page.request.get('http://localhost:26305/api/v1/agents');
+    const response = await page.request.get(`${API_BASE_URL}/agents`);
     const status = response.status();
 
     if (status === 200) {
