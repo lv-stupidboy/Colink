@@ -1395,50 +1395,56 @@ const SkillLibrary: React.FC = () => {
               value={scanSearchText}
               onChange={(e) => setScanSearchText(e.target.value)}
             />
-            <List
-              dataSource={scanResult.skills
+            {/* 排序 + 过滤后的数据源 */}
+            {(() => {
+              const filteredSkills = [...scanResult.skills]
                 .sort((a, b) => a.name.localeCompare(b.name))
                 .filter(skill =>
                   skill.name.includes(scanSearchText) ||
                   (skill.path && skill.path.includes(scanSearchText)) ||
                   (skill.description && skill.description.includes(scanSearchText))
-                )}
-              renderItem={(skill) => {
-                // 使用 name::path 组合作为唯一标识
-                const uniqueKey = `${skill.name}::${skill.path}`;
-                return (
-                  <List.Item key={uniqueKey}>
-                    <Checkbox
-                      checked={selectedRemoteSkills.some(s => `${s.name}::${s.path}` === uniqueKey)}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setSelectedRemoteSkills([...selectedRemoteSkills, skill]);
-                        } else {
-                          setSelectedRemoteSkills(selectedRemoteSkills.filter(s => `${s.name}::${s.path}` !== uniqueKey));
-                        }
-                      }}
-                    >
-                      <div>
-                        <Text strong>{skill.name}</Text>
-                        {/* 添加路径显示 */}
-                        {skill.path && (
-                          <Tag style={{ marginLeft: 8, background: 'var(--ant-color-bg-container)', border: '1px solid var(--ant-color-border)' }}>
-                            {skill.path}
-                          </Tag>
-                        )}
-                        {skill.existsLocally && skill.localSkill && (
-                          <Tag color={getSourceTypeColor(skill.localSkill.sourceType as SkillSourceType)} style={{ marginLeft: 8 }}>
-                            来自: {skill.localSkill.sourceRegistryName || getSourceTypeLabel(skill.localSkill.sourceType as SkillSourceType)}
-                          </Tag>
-                        )}
-                        <br />
-                        <Text type="secondary" style={{ fontSize: 12 }}>{skill.description || '暂无描述'}</Text>
-                      </div>
-                    </Checkbox>
-                  </List.Item>
                 );
-              }}
-            />
+              return (
+                <List
+                  dataSource={filteredSkills}
+                  renderItem={(skill) => {
+                    // 使用 name::path 组合作为唯一标识
+                    const uniqueKey = `${skill.name}::${skill.path}`;
+                    return (
+                      <List.Item key={uniqueKey}>
+                        <Checkbox
+                          checked={selectedRemoteSkills.some(s => `${s.name}::${s.path}` === uniqueKey)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedRemoteSkills([...selectedRemoteSkills, skill]);
+                            } else {
+                              setSelectedRemoteSkills(selectedRemoteSkills.filter(s => `${s.name}::${s.path}` !== uniqueKey));
+                            }
+                          }}
+                        >
+                          <div>
+                            <Text strong>{skill.name}</Text>
+                            {/* 添加路径显示 */}
+                            {skill.path && (
+                              <Tag style={{ marginLeft: 8, background: 'var(--ant-color-bg-container)', border: '1px solid var(--ant-color-border)' }}>
+                                {skill.path}
+                              </Tag>
+                            )}
+                            {skill.existsLocally && skill.localSkill && (
+                              <Tag color={getSourceTypeColor(skill.localSkill.sourceType as SkillSourceType)} style={{ marginLeft: 8 }}>
+                                来自: {skill.localSkill.sourceRegistryName || getSourceTypeLabel(skill.localSkill.sourceType as SkillSourceType)}
+                              </Tag>
+                            )}
+                            <br />
+                            <Text type="secondary" style={{ fontSize: 12 }}>{skill.description || '暂无描述'}</Text>
+                          </div>
+                        </Checkbox>
+                      </List.Item>
+                    );
+                  }}
+                />
+              );
+            })()}
           </>
         )}
       </Modal>
