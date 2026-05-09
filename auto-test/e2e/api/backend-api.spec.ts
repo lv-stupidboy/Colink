@@ -1,4 +1,5 @@
 import { test, expect } from '../fixtures/test-fixtures';
+import { testConfig } from '../fixtures/test-config.ts';
 
 /**
  * BT 系列：后端 API 测试
@@ -7,6 +8,10 @@ import { test, expect } from '../fixtures/test-fixtures';
  * @feature F005 - 线程管理
  * @priority P0
  */
+
+// 基础 URL（从配置文件读取）
+const API_BASE_URL = testConfig.apiBaseUrl;
+const SERVER_BASE_URL = `http://localhost:${testConfig.serverPort}`;
 
 /**
  * BT-01: 健康检查接口
@@ -19,7 +24,7 @@ test.describe('BT-01: 健康检查', () => {
     // @priority P0
     // @id BT-01-01
     // 使用 page 直接访问后端地址（绕过代理）
-    const response = await page.request.get('http://localhost:26305/health');
+    const response = await page.request.get(`${SERVER_BASE_URL}/health`);
     expect(response.ok()).toBeTruthy();
 
     const data = await response.json();
@@ -40,7 +45,7 @@ test.describe('BT-02: 项目列表 API', () => {
     // @feature F005 - 线程管理
     // @priority P0
     // @id BT-02-01
-    const response = await page.request.get('http://localhost:26305/api/v1/projects');
+    const response = await page.request.get(`${API_BASE_URL}/projects`);
 
     // 检查响应状态
     const status = response.status();
@@ -70,7 +75,7 @@ test.describe('BT-03: 创建项目 API', () => {
     // @id BT-03-01
     const testProjectName = `测试项目-${Date.now()}`;
 
-    const response = await page.request.post('http://localhost:26305/api/v1/projects', {
+    const response = await page.request.post(`${API_BASE_URL}/projects`, {
       data: {
         name: testProjectName,
         type: 'service',
@@ -101,17 +106,37 @@ test.describe('BT-03: 创建项目 API', () => {
  * @priority P0
  */
 test.describe('BT-04: 线程列表 API', () => {
-  test('BT-04-01: 应该返回线程列表', async ({ page }) => {
+  test('BT-04-01: 应该返回指定项目的线程列表', async ({ page }) => {
     // @feature F005 - 线程管理
     // @priority P0
     // @id BT-04-01
-    const response = await page.request.get('http://localhost:26305/api/v1/threads');
+    // 后端 API 设计: threads 通过 project ID 获取，不是列出所有 threads
+    // 路由: GET /api/v1/threads/project/:projectId
+
+    // 先获取项目列表
+    const projectsResponse = await page.request.get(`${API_BASE_URL}/projects`);
+    const projectsStatus = projectsResponse.status();
+
+    if (projectsStatus !== 200) {
+      console.log('⚠️ BT-04: 无法获取项目列表，跳过线程列表测试');
+      return;
+    }
+
+    const projects = await projectsResponse.json();
+    if (!Array.isArray(projects) || projects.length === 0) {
+      console.log('⚠️ BT-04: 没有项目，无法测试线程列表 API');
+      return;
+    }
+
+    // 使用第一个项目的 ID 获取线程列表
+    const projectId = projects[0].id;
+    const response = await page.request.get(`${API_BASE_URL}/threads/project/${projectId}`);
     const status = response.status();
 
     if (status === 200) {
       const data = await response.json();
       expect(Array.isArray(data)).toBeTruthy();
-      console.log('✅ BT-04: 线程列表 API 正常，返回', data.length, '个线程');
+      console.log('✅ BT-04: 线程列表 API 正常，项目', projectId, '返回', data.length, '个线程');
     } else {
       console.log('⚠️ BT-04: 线程列表 API 返回状态:', status);
     }
@@ -128,7 +153,7 @@ test.describe('BT-05: Agent 配置 API', () => {
     // @feature F001 - Agent 对话核心
     // @priority P0
     // @id BT-05-01
-    const response = await page.request.get('http://localhost:26305/api/v1/agents');
+    const response = await page.request.get(`${API_BASE_URL}/agents`);
     const status = response.status();
 
     if (status === 200) {
