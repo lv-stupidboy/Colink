@@ -30,7 +30,7 @@ func NewOpenCodeAdapter(baseAgent *model.BaseAgent) agent.AgentAdapter {
 			return []string{"acp"}
 		},
 		BuildEnv: func(req *agent.ExecutionRequest) []string {
-			env := make([]string, 0, 3)
+			env := make([]string, 0, 4)
 
 			// OPENCODE_API_URL 和 OPENCODE_API_KEY 已确认无效，不传递
 			// 使用 OPENCODE_CONFIG_CONTENT 实现实例级配置
@@ -55,11 +55,20 @@ func NewOpenCodeAdapter(baseAgent *model.BaseAgent) agent.AgentAdapter {
 
 			return env
 		},
+		// 如果通过 CONFIG_CONTENT 配置了模型，跳过 session/set_model
+		SkipModelConfig: func(req *agent.ExecutionRequest) bool {
+			return hasConfigContent(baseAgent)
+		},
 	}
 
 	return &OpenCodeAdapter{
 		BaseACPAdapter: acp.NewBaseACPAdapter(config, baseAgent),
 	}
+}
+
+// hasConfigContent 检查是否配置了 CONFIG_CONTENT
+func hasConfigContent(baseAgent *model.BaseAgent) bool {
+	return baseAgent.ApiURL != "" || baseAgent.ApiToken != "" || baseAgent.DefaultModel != ""
 }
 
 // buildOpenCodeConfigContent 构造 OPENCODE_CONFIG_CONTENT JSON 配置

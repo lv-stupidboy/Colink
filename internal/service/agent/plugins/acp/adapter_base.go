@@ -20,11 +20,13 @@ import (
 )
 
 // AcpAdapterConfig holds configuration for ACP adapter.
-// Exported for reuse by other ACP-based plugins (e.g., OpenClaw).
+// Exported for reuse by other ACP-based plugins (e.g., OpenClaw, OpenCode).
 type AcpAdapterConfig struct {
-	CliPath   string
-	BuildArgs func(req *agent.ExecutionRequest) []string
-	BuildEnv  func(req *agent.ExecutionRequest) []string
+	CliPath           string
+	BuildArgs         func(req *agent.ExecutionRequest) []string
+	BuildEnv          func(req *agent.ExecutionRequest) []string
+	SkipModelConfig   func(req *agent.ExecutionRequest) bool // 如果返回 true，跳过默认模型配置
+	LegacyModelConfig bool                                   // 如果 true，使用 session/set_model 而非 configOptions
 }
 
 type acpSession struct {
@@ -651,11 +653,36 @@ func (a *BaseACPAdapter) buildEnv(req *agent.ExecutionRequest) []string {
 }
 
 func (a *BaseACPAdapter) configureSession(transport *acpTransport, session *acpSession, sessionResp *acpNewSessionResult, req *agent.ExecutionRequest) error {
-	// 尝试通过 configOptions 设置模型（如果可用）
-	if req != nil && req.BaseAgent != nil && req.BaseAgent.DefaultModel != "" {
-		if err := a.configureViaConfigOptions(transport, session, sessionResp, req.BaseAgent.DefaultModel); err != nil {
-			LogWarn("ACP: failed to set model via configOptions", zap.Error(err))
+	// 检查是否跳过模型配置
+	if a.Config.SkipModelConfig != nil && a.Config.SkipModelConfig(req) {
+		LogInfo("ACP: skipping model config (plugin requested)")
+		return nil
+	}
+
+	desiredModel := a.baseAgent.DefaultModel
+
+	// 如果插件指定使用 legacy API
+	if a.Config.LegacyModelConfig {
+		return a.configureViaLegacyAPI(transport, session, desiredModel)
+	}
+
+	// 默认：优先使用 configOptions，如果没有则使用 legacy API
+	if len(sessionResp.ConfigOptions) > 0 {
+		return a.configureViaConfigOptions(transport, session, sessionResp, desiredModel)
+	}
+
+	return a.configureViaLegacyAPI(transport, session, desiredModel)
+}
+
+func (a *BaseACPAdapter) configureViaLegacyAPI(transport *acpTransport, session *acpSession, desiredModel string) error {
+	if desiredModel != "" {
+		if _, err := transport.SendRequest("session/set_model", &acpSetModelParams{
+			SessionID: session.id,
+			ModelID:   desiredModel,
+		}); err != nil {
+			return fmt.Errorf("set_model %s: %w", desiredModel, err)
 		}
+		LogInfo("ACP: model set via legacy API", zap.String("model", desiredModel))
 	}
 	return nil
 }
