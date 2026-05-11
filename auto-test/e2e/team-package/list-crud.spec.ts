@@ -17,12 +17,12 @@ test.describe('TP-01: 团队包列表与 CRUD [P0]', () => {
     await page.goto('/team-packages');
     await page.waitForLoadState('networkidle');
 
-    // 验证列表容器存在
-    const listContainer = page.locator('.team-package-list, [class*="package-list"], .ant-list');
+    // 验证列表容器存在（前端使用 .team-packages class 和 Ant Design Card/Table）
+    const listContainer = page.locator('.team-packages, .ant-card, .ant-table');
     await expect(listContainer.first()).toBeVisible();
 
-    // 验证页面标题
-    const pageTitle = page.locator('h1, .page-title').filter({ hasText: /团队包|Team Package/i });
+    // 验证页面标题（前端使用 h2 标签）
+    const pageTitle = page.locator('h1, h2, .page-title').filter({ hasText: /团队包|Team Package/i });
     await expect(pageTitle.first()).toBeVisible();
   });
 
