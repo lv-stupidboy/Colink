@@ -32,8 +32,8 @@ export function useCollapsibleState(options: UseCollapsibleStateOptions = {}): U
   const isExport = typeof window !== 'undefined' &&
     new URLSearchParams(window.location.search).get('export') === 'true';
 
-  // Calculate initial expanded state
-  const shouldExpand = (isExport && expandInExport) || forceExpanded || defaultExpanded;
+  // Calculate initial expanded state (不再自动展开 streaming 状态)
+  const shouldExpand = (isExport && expandInExport) || defaultExpanded;
 
   const [expanded, setExpanded] = useState(shouldExpand);
 

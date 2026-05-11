@@ -367,19 +367,11 @@ const ToolGroupBlock: React.FC<ToolGroupBlockProps> = memo(({ tools, stdoutBlock
   const richPreview = buildRichPreview(richBlocks);
 
   // 第 1 层：整体折叠状态
-  const [blockExpanded, setBlockExpanded] = useState(anyStreaming || defaultExpanded);
+  const [blockExpanded, setBlockExpanded] = useState(defaultExpanded);
   // 第 2 层：tools 区折叠状态
-  const [toolsCollapsed, setToolsCollapsed] = useState(!anyStreaming);
+  const [toolsCollapsed, setToolsCollapsed] = useState(true);
 
   const userInteracted = React.useRef(false);
-
-  // streaming 时自动展开整体和 tools 区
-  useEffect(() => {
-    if (anyStreaming) {
-      if (!blockExpanded) setBlockExpanded(true);
-      if (toolsCollapsed) setToolsCollapsed(false);
-    }
-  }, [anyStreaming]);
 
   // 完成后自动折叠（除非用户操作过）
   const prevStreamingRef = React.useRef(anyStreaming);
