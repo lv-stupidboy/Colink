@@ -19,10 +19,12 @@ import (
 	"go.uber.org/zap"
 )
 
-type acpAdapterConfig struct {
-	cliPath   string
-	buildArgs func(req *agent.ExecutionRequest) []string
-	buildEnv  func(req *agent.ExecutionRequest) []string
+// AcpAdapterConfig holds configuration for ACP adapter.
+// Exported for reuse by other ACP-based plugins (e.g., OpenClaw).
+type AcpAdapterConfig struct {
+	CliPath   string
+	BuildArgs func(req *agent.ExecutionRequest) []string
+	BuildEnv  func(req *agent.ExecutionRequest) []string
 }
 
 type acpSession struct {
@@ -41,16 +43,16 @@ type acpSession struct {
 // BaseACPAdapter implements AgentAdapter using ACP (Agent Client Protocol) over stdio.
 // ACP lifecycle: initialize -> session/new -> session/prompt -> session/update notifications -> response
 type BaseACPAdapter struct {
-	config    acpAdapterConfig
+	Config    AcpAdapterConfig
 	baseAgent *model.BaseAgent
 	sessions  map[string]*acpSession
 	mu        sync.RWMutex
 }
 
 // NewBaseACPAdapter creates a new BaseACPAdapter with the given configuration.
-func NewBaseACPAdapter(config acpAdapterConfig, baseAgent *model.BaseAgent) *BaseACPAdapter {
+func NewBaseACPAdapter(config AcpAdapterConfig, baseAgent *model.BaseAgent) *BaseACPAdapter {
 	return &BaseACPAdapter{
-		config:    config,
+		Config:    config,
 		baseAgent: baseAgent,
 		sessions:  make(map[string]*acpSession),
 	}
@@ -76,8 +78,8 @@ func (a *BaseACPAdapter) Execute(ctx context.Context, req *agent.ExecutionReques
 func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.ExecutionRequest, onChunk func(agent.Chunk)) (*agent.ExecutionResult, error) {
 	cliStartTime := time.Now()
 
-	args := a.config.buildArgs(req)
-	cmd := exec.CommandContext(ctx, a.config.cliPath, args...)
+	args := a.Config.BuildArgs(req)
+	cmd := exec.CommandContext(ctx, a.Config.CliPath, args...)
 	hideCommandLineWindow(cmd) // 隐藏命令行窗口（Windows）
 
 	if req.WorkDir != "" {
@@ -105,7 +107,7 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 	}
 
 	// 打印 PowerShell 可执行的命令（只打印我们设置的环境变量）
-	customEnv := a.config.buildEnv(req)
+	customEnv := a.Config.BuildEnv(req)
 	var psCmd strings.Builder
 	if req.WorkDir != "" {
 		psCmd.WriteString("cd '")
@@ -124,7 +126,7 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 			psCmd.WriteString("'; ")
 		}
 	}
-	psCmd.WriteString(a.config.cliPath)
+	psCmd.WriteString(a.Config.CliPath)
 	for _, arg := range args {
 		psCmd.WriteString(" '")
 		psCmd.WriteString(arg)
@@ -140,6 +142,7 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 		defer wg.Done()
 		scanner := bufio.NewScanner(stderrPipe)
 		for scanner.Scan() {
+			// stderr 内容通常不处理，只消耗
 		}
 	}()
 
@@ -201,8 +204,7 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 
 	LogInfo("ACP: session created",
 		zap.String("sessionId", session.id),
-		zap.String("invocationId", invocationIDStr),
-		zap.Int("configOptions", len(sessionResp.ConfigOptions)))
+		zap.String("invocationId", invocationIDStr))
 
 	if err := a.configureSession(transport, session, &sessionResp, req); err != nil {
 		LogWarn("ACP: session configuration warning", zap.Error(err))
@@ -256,8 +258,8 @@ func (a *BaseACPAdapter) StartSession(ctx context.Context, sessionID string, req
 		return fmt.Errorf("ACP: session already exists: %s", sessionID)
 	}
 
-	args := a.config.buildArgs(req)
-	cmd := exec.CommandContext(ctx, a.config.cliPath, args...)
+	args := a.Config.BuildArgs(req)
+	cmd := exec.CommandContext(ctx, a.Config.CliPath, args...)
 	hideCommandLineWindow(cmd) // 隐藏命令行窗口（Windows）
 
 	if req.WorkDir != "" {
@@ -285,7 +287,7 @@ func (a *BaseACPAdapter) StartSession(ctx context.Context, sessionID string, req
 	}
 
 	// 打印 PowerShell 可执行的命令（只打印我们设置的环境变量）
-	customEnv := a.config.buildEnv(req)
+	customEnv := a.Config.BuildEnv(req)
 	var psCmd strings.Builder
 	if req.WorkDir != "" {
 		psCmd.WriteString("cd '")
@@ -304,7 +306,7 @@ func (a *BaseACPAdapter) StartSession(ctx context.Context, sessionID string, req
 			psCmd.WriteString("'; ")
 		}
 	}
-	psCmd.WriteString(a.config.cliPath)
+	psCmd.WriteString(a.Config.CliPath)
 	for _, arg := range args {
 		psCmd.WriteString(" '")
 		psCmd.WriteString(arg)
@@ -440,8 +442,8 @@ func (a *BaseACPAdapter) CheckHealth(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	args := a.config.buildArgs(&agent.ExecutionRequest{BaseAgent: a.baseAgent})
-	cmd := exec.CommandContext(ctx, a.config.cliPath, args...)
+	args := a.Config.BuildArgs(&agent.ExecutionRequest{BaseAgent: a.baseAgent})
+	cmd := exec.CommandContext(ctx, a.Config.CliPath, args...)
 	hideCommandLineWindow(cmd) // 隐藏命令行窗口（Windows）
 	cmd.Dir = os.TempDir()
 	cmd.Env = a.buildEnv(&agent.ExecutionRequest{BaseAgent: a.baseAgent})
@@ -633,7 +635,7 @@ func (a *BaseACPAdapter) buildEnv(req *agent.ExecutionRequest) []string {
 		}
 	}
 
-	if extraEnv := a.config.buildEnv(req); len(extraEnv) > 0 {
+	if extraEnv := a.Config.BuildEnv(req); len(extraEnv) > 0 {
 		for _, e := range extraEnv {
 			if idx := strings.Index(e, "="); idx > 0 {
 				envMap[e[:idx]] = e[idx+1:]
@@ -649,9 +651,12 @@ func (a *BaseACPAdapter) buildEnv(req *agent.ExecutionRequest) []string {
 }
 
 func (a *BaseACPAdapter) configureSession(transport *acpTransport, session *acpSession, sessionResp *acpNewSessionResult, req *agent.ExecutionRequest) error {
-	// Hermes: config.yaml 已包含模型配置，不需要额外设置
-	// session/new 时 Hermes 会从 config.yaml 读取 model.default
-	LogInfo("ACP: Hermes session configured via config.yaml")
+	// 尝试通过 configOptions 设置模型（如果可用）
+	if req != nil && req.BaseAgent != nil && req.BaseAgent.DefaultModel != "" {
+		if err := a.configureViaConfigOptions(transport, session, sessionResp, req.BaseAgent.DefaultModel); err != nil {
+			LogWarn("ACP: failed to set model via configOptions", zap.Error(err))
+		}
+	}
 	return nil
 }
 
@@ -672,10 +677,12 @@ func (a *BaseACPAdapter) configureViaConfigOptions(transport *acpTransport, sess
 }
 
 func (a *BaseACPAdapter) cleanup(session *acpSession) {
+	// 先关闭 transport（这会关闭 stdin/stdout）
 	if session.transport != nil {
 		session.transport.Close()
 	}
 
+	// 等待进程结束（stdin 关闭后进程应该退出）
 	if session.cmd != nil && session.cmd.Process != nil {
 		done := make(chan error, 1)
 		go func() {
@@ -683,9 +690,18 @@ func (a *BaseACPAdapter) cleanup(session *acpSession) {
 		}()
 		select {
 		case <-done:
-		case <-time.After(5 * time.Second):
-			session.cmd.Process.Kill()
-			LogWarn("ACP: process killed after 5s timeout")
+			// 进程正常退出
+		case <-time.After(3 * time.Second):
+			LogWarn("ACP: process still running, sending interrupt", zap.String("sessionId", session.id))
+			session.cmd.Process.Signal(os.Interrupt)
+			select {
+			case <-done:
+				LogInfo("ACP: process exited after interrupt")
+			case <-time.After(2 * time.Second):
+				session.cmd.Process.Kill()
+				LogWarn("ACP: process killed after timeout")
+				<-done // 等待 Kill 完成
+			}
 		}
 	}
 }

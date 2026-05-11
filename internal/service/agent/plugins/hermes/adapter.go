@@ -26,12 +26,12 @@ func NewHermesAdapter(baseAgent *model.BaseAgent) agent.AgentAdapter {
 		cliPath = "hermes"
 	}
 
-	config := acpAdapterConfig{
-		cliPath: cliPath,
-		buildArgs: func(req *agent.ExecutionRequest) []string {
+	config := AcpAdapterConfig{
+		CliPath: cliPath,
+		BuildArgs: func(req *agent.ExecutionRequest) []string {
 			return []string{"acp"}
 		},
-		buildEnv: func(req *agent.ExecutionRequest) []string {
+		BuildEnv: func(req *agent.ExecutionRequest) []string {
 			// 每次执行前生成/更新 config.yaml
 			// Hermes ACP 不从环境变量读取模型配置，必须通过 config.yaml
 			generateHermesConfig(baseAgent, req)
