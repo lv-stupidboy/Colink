@@ -1,6 +1,6 @@
-// internal/service/agent/plugins/open_code/acp_jsonrpc.go
+// internal/service/agent/plugins/acp/jsonrpc.go
 // ACP JSON-RPC transport
-package open_code
+package acp
 
 import (
 	"bufio"
@@ -10,6 +10,7 @@ import (
 	"io"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 type acpTransport struct {
@@ -137,7 +138,23 @@ func (t *acpTransport) Close() error {
 		closeErr = t.stdin.Close()
 	}
 
-	<-t.done
+	// Wait for readLoop to finish, but with timeout
+	// OpenClaw ACP bridge may not exit after stdin close, so we need timeout
+	select {
+	case <-t.done:
+		// readLoop finished normally
+	case <-time.After(500 * time.Millisecond):
+		// Timeout: force close stdout to break scanner.Scan() block
+		if t.stdout != nil {
+			t.stdout.Close()
+		}
+		// Wait a bit more for readLoop to finish after stdout close
+		select {
+		case <-t.done:
+		case <-time.After(200 * time.Millisecond):
+			// Still not finished, but we've done our best
+		}
+	}
 
 	t.pendingMu.Lock()
 	t.pending = make(map[uint64]chan *jsonrpcResponse)

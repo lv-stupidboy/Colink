@@ -1,6 +1,6 @@
-// internal/service/agent/plugins/hermes/logger.go
+// internal/service/agent/plugins/acp/logger.go
 // Logger helper functions - delegates to agent package
-package hermes
+package acp
 
 import (
 	"github.com/anthropic/isdp/internal/service/agent"

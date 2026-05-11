@@ -1,6 +1,6 @@
-// internal/service/agent/plugins/hermes/acp_event_parser.go
+// internal/service/agent/plugins/acp/event_parser.go
 // ACP event parser
-package hermes
+package acp
 
 import (
 	"encoding/json"

@@ -9,13 +9,14 @@ import (
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/service/agent"
+	"github.com/anthropic/isdp/internal/service/agent/plugins/acp"
 	"go.uber.org/zap"
 )
 
 // HermesAdapter implements AgentAdapter using ACP protocol.
 // Inherits from BaseACPAdapter for ACP protocol handling.
 type HermesAdapter struct {
-	*BaseACPAdapter
+	*acp.BaseACPAdapter
 	baseAgent *model.BaseAgent
 }
 
@@ -26,7 +27,7 @@ func NewHermesAdapter(baseAgent *model.BaseAgent) agent.AgentAdapter {
 		cliPath = "hermes"
 	}
 
-	config := AcpAdapterConfig{
+	config := acp.AcpAdapterConfig{
 		CliPath: cliPath,
 		BuildArgs: func(req *agent.ExecutionRequest) []string {
 			return []string{"acp"}
@@ -39,7 +40,7 @@ func NewHermesAdapter(baseAgent *model.BaseAgent) agent.AgentAdapter {
 		},
 	}
 
-	base := NewBaseACPAdapter(config, baseAgent)
+	base := acp.NewBaseACPAdapter(config, baseAgent)
 
 	return &HermesAdapter{
 		BaseACPAdapter: base,
@@ -85,9 +86,9 @@ func generateHermesConfig(baseAgent *model.BaseAgent, req *agent.ExecutionReques
 
 	// 写入文件
 	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
-		LogError("Failed to generate Hermes config.yaml", zap.Error(err))
+		acp.LogError("Failed to generate Hermes config.yaml", zap.Error(err))
 	} else {
-		LogInfo("Generated/Updated Hermes config.yaml",
+		acp.LogInfo("Generated/Updated Hermes config.yaml",
 			zap.String("path", configPath),
 			zap.String("model", baseAgent.DefaultModel))
 	}
@@ -132,7 +133,7 @@ func buildHermesEnv(baseAgent *model.BaseAgent, req *agent.ExecutionRequest) []s
 		env = append(env, "HERMES_HOME="+req.ConfigDir)
 	}
 
-	LogInfo("Hermes env configured",
+	acp.LogInfo("Hermes env configured",
 		zap.String("model", baseAgent.DefaultModel),
 		zap.String("provider", "custom"),
 		zap.String("baseURL", maskURL(baseAgent.ApiURL)),

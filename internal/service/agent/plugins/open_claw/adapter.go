@@ -9,7 +9,7 @@ import (
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/service/agent"
-	"github.com/anthropic/isdp/internal/service/agent/plugins/hermes"
+	"github.com/anthropic/isdp/internal/service/agent/plugins/acp"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
@@ -18,9 +18,9 @@ import (
 // Unlike Hermes/OpenCode, OpenClaw requires a Gateway daemon running first.
 // The ACP bridge connects to Gateway over WebSocket.
 type OpenClawAdapter struct {
-	*hermes.BaseACPAdapter // Reuse Hermes's ACP implementation
-	baseAgent  *model.BaseAgent
-	gatewayMgr *GatewayManager
+	*acp.BaseACPAdapter // Reuse ACP implementation
+	baseAgent   *model.BaseAgent
+	gatewayMgr  *GatewayManager
 	gatewayPort int
 }
 
@@ -34,7 +34,7 @@ func NewOpenClawAdapter(baseAgent *model.BaseAgent) agent.AgentAdapter {
 	gatewayPort := DefaultGatewayPort
 	gatewayMgr := NewGatewayManager(gatewayPort, "")
 
-	config := hermes.AcpAdapterConfig{
+	config := acp.AcpAdapterConfig{
 		CliPath: cliPath,
 		BuildArgs: func(req *agent.ExecutionRequest) []string {
 			// Build ACP bridge command arguments
@@ -51,10 +51,10 @@ func NewOpenClawAdapter(baseAgent *model.BaseAgent) agent.AgentAdapter {
 			// Add token if available
 			if gatewayToken != "" {
 				args = append(args, "--token", gatewayToken)
-				LogInfo("OpenClaw: using gateway token for ACP bridge",
+				acp.LogInfo("OpenClaw: using gateway token for ACP bridge",
 					zap.String("token", maskToken(gatewayToken)))
 			} else {
-				LogWarn("OpenClaw: no gateway token found, ACP may fail if auth required")
+				acp.LogWarn("OpenClaw: no gateway token found, ACP may fail if auth required")
 			}
 			return args
 		},
@@ -68,7 +68,7 @@ func NewOpenClawAdapter(baseAgent *model.BaseAgent) agent.AgentAdapter {
 		},
 	}
 
-	base := hermes.NewBaseACPAdapter(config, baseAgent)
+	base := acp.NewBaseACPAdapter(config, baseAgent)
 
 	return &OpenClawAdapter{
 		BaseACPAdapter: base,
@@ -103,7 +103,7 @@ func (a *OpenClawAdapter) ExecuteWithStream(ctx context.Context, req *agent.Exec
 		return nil, fmt.Errorf("OpenClaw: gateway not ready: %w", err)
 	}
 
-	LogInfo("OpenClaw: Gateway ready, starting ACP bridge",
+	acp.LogInfo("OpenClaw: Gateway ready, starting ACP bridge",
 		zap.Int("port", a.gatewayPort),
 		zap.String("url", a.gatewayMgr.GetGatewayURL()))
 

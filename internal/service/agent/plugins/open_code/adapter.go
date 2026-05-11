@@ -7,12 +7,13 @@ import (
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/service/agent"
+	"github.com/anthropic/isdp/internal/service/agent/plugins/acp"
 )
 
 // OpenCodeAdapter implements AgentAdapter using ACP protocol.
 // Renamed from OpenCodeACPAdapter (ACP suffix removed).
 type OpenCodeAdapter struct {
-	*BaseACPAdapter
+	*acp.BaseACPAdapter
 }
 
 // NewOpenCodeAdapter creates a new OpenCode adapter.
@@ -23,41 +24,41 @@ func NewOpenCodeAdapter(baseAgent *model.BaseAgent) agent.AgentAdapter {
 		cliPath = "opencode"
 	}
 
-	base := &BaseACPAdapter{
-		config: acpAdapterConfig{
-			cliPath: cliPath,
-			buildArgs: func(req *agent.ExecutionRequest) []string {
-				return []string{"acp"}
-			},
-			buildEnv: func(req *agent.ExecutionRequest) []string {
-				env := make([]string, 0, 3)
-
-				// OPENCODE_API_URL 和 OPENCODE_API_KEY 已确认无效，不传递
-				// 使用 OPENCODE_CONFIG_CONTENT 实现实例级配置
-
-				if baseAgent.GitBashPath != "" {
-					env = append(env, "OPENCODE_GIT_BASH_PATH="+baseAgent.GitBashPath)
-				}
-
-				if req != nil && req.ConfigDir != "" {
-					env = append(env, "OPENCODE_CONFIG_DIR="+req.ConfigDir)
-				}
-
-				// 构造并传递实例级配置
-				configContent := buildOpenCodeConfigContent(baseAgent)
-				if configContent != "" {
-					env = append(env, "OPENCODE_CONFIG_CONTENT="+configContent)
-				}
-
-				return env
-			},
+	config := acp.AcpAdapterConfig{
+		CliPath: cliPath,
+		BuildArgs: func(req *agent.ExecutionRequest) []string {
+			return []string{"acp"}
 		},
-		baseAgent: baseAgent,
-		sessions:  make(map[string]*acpSession),
+		BuildEnv: func(req *agent.ExecutionRequest) []string {
+			env := make([]string, 0, 3)
+
+			// OPENCODE_API_URL 和 OPENCODE_API_KEY 已确认无效，不传递
+			// 使用 OPENCODE_CONFIG_CONTENT 实现实例级配置
+			// OPENCODE_PURE=1 阻止用户级插件加载
+
+			if baseAgent.GitBashPath != "" {
+				env = append(env, "OPENCODE_GIT_BASH_PATH="+baseAgent.GitBashPath)
+			}
+
+			if req != nil && req.ConfigDir != "" {
+				env = append(env, "OPENCODE_CONFIG_DIR="+req.ConfigDir)
+			}
+
+			// 构造并传递实例级配置
+			configContent := buildOpenCodeConfigContent(baseAgent)
+			if configContent != "" {
+				env = append(env, "OPENCODE_CONFIG_CONTENT="+configContent)
+			}
+
+			// 阻止用户级插件加载，确保隔离
+			env = append(env, "OPENCODE_PURE=1")
+
+			return env
+		},
 	}
 
 	return &OpenCodeAdapter{
-		BaseACPAdapter: base,
+		BaseACPAdapter: acp.NewBaseACPAdapter(config, baseAgent),
 	}
 }
 

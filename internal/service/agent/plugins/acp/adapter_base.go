@@ -1,6 +1,6 @@
-// internal/service/agent/plugins/hermes/acp_adapter_base.go
+// internal/service/agent/plugins/acp/adapter_base.go
 // Base ACP Adapter implementation
-package hermes
+package acp
 
 import (
 	"bufio"
