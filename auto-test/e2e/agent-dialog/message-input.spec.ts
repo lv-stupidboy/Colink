@@ -22,8 +22,8 @@ test.describe('AD-01: 消息输入与发送 [P0]', () => {
       await projectLinks.first().click();
       await page.waitForTimeout(2000);
 
-      // 查找输入框
-      const input = page.locator('.ant-input, textarea[placeholder*="输入"]');
+      // 查找输入框（前端使用 message-input-container class）
+      const input = page.locator('.message-input-container textarea, textarea[placeholder*="输入"]');
       await expect(input.first()).toBeVisible();
 
       // 检查输入框可聚焦
@@ -45,7 +45,7 @@ test.describe('AD-01: 消息输入与发送 [P0]', () => {
       await projectLinks.first().click();
       await page.waitForTimeout(2000);
 
-      const input = page.locator('.ant-input, textarea[placeholder*="输入"]');
+      const input = page.locator('.message-input-container textarea, textarea[placeholder*="输入"]');
       if (await input.count() > 0) {
         const testMessage = `测试消息-${Date.now()}`;
         await input.first().fill(testMessage);
@@ -76,7 +76,7 @@ test.describe('AD-01: 消息输入与发送 [P0]', () => {
       await projectLinks.first().click();
       await page.waitForTimeout(2000);
 
-      const input = page.locator('.ant-input, textarea[placeholder*="输入"]');
+      const input = page.locator('.message-input-container textarea, textarea[placeholder*="输入"]');
       if (await input.count() > 0) {
         await input.first().click();
         await input.first().fill('@');
@@ -102,7 +102,7 @@ test.describe('AD-01: 消息输入与发送 [P0]', () => {
       await projectLinks.first().click();
       await page.waitForTimeout(2000);
 
-      const input = page.locator('.ant-input, textarea[placeholder*="输入"]');
+      const input = page.locator('.message-input-container textarea, textarea[placeholder*="输入"]');
       if (await input.count() > 0) {
         await input.first().click();
         await input.first().fill('@');
@@ -129,7 +129,7 @@ test.describe('AD-01: 消息输入与发送 [P0]', () => {
       await projectLinks.first().click();
       await page.waitForTimeout(2000);
 
-      const input = page.locator('.ant-input, textarea[placeholder*="输入"]');
+      const input = page.locator('.message-input-container textarea, textarea[placeholder*="输入"]');
       if (await input.count() > 0) {
         await input.first().click();
         await input.first().fill('@');
@@ -170,7 +170,7 @@ test.describe('AD-01: 消息输入与发送 [P0]', () => {
       await projectLinks.first().click();
       await page.waitForTimeout(2000);
 
-      const input = page.locator('.ant-input, textarea[placeholder*="输入"]');
+      const input = page.locator('.message-input-container textarea, textarea[placeholder*="输入"]');
       if (await input.count() > 0) {
         // 清空输入框
         await input.first().fill('');
@@ -209,7 +209,7 @@ test.describe('AD-01: 消息输入与发送 [P0]', () => {
       await projectLinks.first().click();
       await page.waitForTimeout(2000);
 
-      const input = page.locator('.ant-input, textarea[placeholder*="输入"]');
+      const input = page.locator('.message-input-container textarea, textarea[placeholder*="输入"]');
       if (await input.count() > 0) {
         await input.first().fill('测试消息');
 

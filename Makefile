@@ -12,7 +12,7 @@ genplugins:
 	@go run ./tools/genplugins
 
 build: genplugins
-	go build -ldflags "-X main.Version=$(FULL_VERSION) -X main.GitCommit=$(GIT_COMMIT) -X main.BuildTime=$(BUILD_TIME)" -o bin/isdp-server.exe ./cmd/server
+	go build -ldflags "-X main.Version=$(FULL_VERSION) -X main.GitCommit=$(GIT_COMMIT) -X main.BuildTime=$(BUILD_TIME)" -o bin/isdp-server ./cmd/server
 
 # 同步资源到 installer-tauri
 sync-resources:
