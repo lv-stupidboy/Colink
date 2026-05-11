@@ -369,7 +369,6 @@ export const ToolCallRow: React.FC<ToolCallRowProps> = memo(({
 }) => {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [runningTime, setRunningTime] = useState(duration || 0);
-  const prevStatusRef = useRef(status);
 
   // 实时计算运行时间
   useEffect(() => {
@@ -392,19 +391,6 @@ export const ToolCallRow: React.FC<ToolCallRowProps> = memo(({
   const summary = generateToolSummary(toolName, input);
 
   const hasDetail = (input && Object.keys(input).length > 0) || output;
-
-  // streaming 时自动展开，完成后自动折叠
-  useEffect(() => {
-    // streaming 状态：自动展开
-    if (status === 'streaming' && !expanded) {
-      setExpanded(true);
-    }
-    // 从 streaming 变为非 streaming：自动折叠
-    if (prevStatusRef.current === 'streaming' && status !== 'streaming') {
-      setExpanded(false);
-    }
-    prevStatusRef.current = status;
-  }, [status]);
 
   return (
     <div className="tool-call-row-container">
