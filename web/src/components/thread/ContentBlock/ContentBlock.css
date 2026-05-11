@@ -61,6 +61,7 @@
   white-space: nowrap;
   min-width: 0;
   margin-left: 4px;
+  text-align: left;
 }
 
 .tool-call-input {
