@@ -604,6 +604,23 @@ code {
   box-shadow: 0 0 10px var(--color-primary-opacity-50);
 }
 
+/* 浅色模式下 Input.Search 搜索按钮修复 */
+.ant-input-search .ant-input-group-addon .ant-btn {
+  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);
+  border-color: var(--color-primary);
+  color: #fff;
+}
+
+.ant-input-search .ant-input-group-addon .ant-btn:hover {
+  background: linear-gradient(135deg, var(--color-primary-hover) 0%, var(--color-primary-active) 100%);
+  border-color: var(--color-primary-hover);
+}
+
+.ant-input-search .ant-input-group-addon {
+  background: transparent;
+  border-color: var(--border-color);
+}
+
 /* 深色模式下 Input.Search 搜索按钮修复 */
 [data-theme='dark'] .ant-input-search .ant-input-group-addon .ant-btn {
   background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-hover) 100%);

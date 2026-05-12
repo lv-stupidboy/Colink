@@ -246,7 +246,22 @@ func main() {
 			configService.InvalidateCache(agentRoleID)
 		})
 
-	// 创建 Subagent Service
+		// 创建 AutoGenerator（自动配置生成器）
+		autoGenerator := configgen.NewAutoGenerator(
+			configGenService,
+			agentConfigRepo,
+			baseAgentRepo,
+			&configgen.BindingRepositories{
+				SkillBindingRepo:    agentSkillBindingRepo,
+				CommandBindingRepo:  agentCommandBindingRepo,
+				SubagentBindingRepo: agentSubagentBindingRepo,
+				RuleBindingRepo:     agentRuleBindingRepo,
+				SettingsBindingRepo: agentSettingsBindingRepo,
+			},
+			logger,
+		)
+
+		// 创建 Subagent Service
 	subagentSvc := subagent.NewService(
 		subagentRepo, agentSubagentBindingRepo, subagentSkillBindingRepo,
 		agentConfigRepo, skillRepo,
@@ -558,8 +573,11 @@ func main() {
 	messageHandler := api.NewMessageHandler(messageService)
 	messageHandler.RegisterRoutes(v1)
 
-	agentHandler := api.NewAgentHandler(configService, baseAgentService, orchestrator, threadRepo, debugThreadMgr, workflowRepo, configGenService,
+	agentHandler := api.NewAgentHandler(configService, baseAgentService, orchestrator, threadRepo, debugThreadMgr, workflowRepo, configGenService, autoGenerator,
 		agentSkillBindingRepo, agentSubagentBindingRepo, agentCommandBindingRepo, agentRuleBindingRepo, agentSettingsBindingRepo)
+	// configGenHandler 必须在 agentHandler 前注册，否则 /agents/:id/config/* 路由会被 /agents/:id 捕获
+	configGenHandler := api.NewConfigGenHandler(configGenService, autoGenerator, agentConfigRepo, baseAgentRepo)
+	configGenHandler.RegisterRoutes(v1)
 	agentHandler.RegisterRoutes(v1)
 
 	// 基础Agent Handler
@@ -571,7 +589,7 @@ func main() {
 	workflowHandler.RegisterRoutes(v1)
 
 	// Skill Handler
-	skillHandler := api.NewSkillHandler(skillService, skillScanner, cfg.GetSkillStoragePath(), cfg.Skill.GetUploadMaxSize())
+	skillHandler := api.NewSkillHandler(skillService, skillScanner, cfg.GetSkillStoragePath(), cfg.Skill.GetUploadMaxSize(), autoGenerator)
 	skillHandler.RegisterRoutes(v1)
 
 	// Registry Handler
@@ -583,23 +601,19 @@ func main() {
 	knowledgeHandler.RegisterRoutes(v1)
 
 	// Subagent Handler
-	subagentHandler := api.NewSubagentHandler(subagentSvc, cfg.GetSubagentStoragePath(), cfg.Subagent.GetUploadMaxSize())
+	subagentHandler := api.NewSubagentHandler(subagentSvc, cfg.GetSubagentStoragePath(), cfg.Subagent.GetUploadMaxSize(), autoGenerator, agentConfigRepo)
 	subagentHandler.RegisterRoutes(v1)
 
-	// ConfigGen Handler
-	configGenHandler := api.NewConfigGenHandler(configGenService)
-	configGenHandler.RegisterRoutes(v1)
-
 	// Command Handler
-	commandHandler := api.NewCommandHandler(commandSvc, cfg.GetCommandStoragePath(), cfg.Command.GetUploadMaxSize())
+	commandHandler := api.NewCommandHandler(commandSvc, cfg.GetCommandStoragePath(), cfg.Command.GetUploadMaxSize(), autoGenerator, agentConfigRepo)
 	commandHandler.RegisterRoutes(v1)
 
 	// Rule Handler
-	ruleHandler := api.NewRuleHandler(ruleSvc, cfg.GetRuleStoragePath(), cfg.Rule.GetUploadMaxSize())
+	ruleHandler := api.NewRuleHandler(ruleSvc, cfg.GetRuleStoragePath(), cfg.Rule.GetUploadMaxSize(), autoGenerator, agentConfigRepo)
 	ruleHandler.RegisterRoutes(v1)
 
 	// Settings Handler
-	settingsHandler := api.NewSettingsHandler(settingsSvc, cfg.GetSettingsStoragePath())
+	settingsHandler := api.NewSettingsHandler(settingsSvc, cfg.GetSettingsStoragePath(), autoGenerator)
 	settingsHandler.RegisterRoutes(v1)
 
 	// AssetPackage Handler

@@ -1,9 +1,12 @@
 package api
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/anthropic/isdp/internal/model"
+	"github.com/anthropic/isdp/internal/repo"
+	"github.com/anthropic/isdp/internal/service/configgen"
 	"github.com/anthropic/isdp/internal/service/subagent"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -11,17 +14,21 @@ import (
 
 // SubagentHandler Subagent API处理器
 type SubagentHandler struct {
-	svc         *subagent.Service
-	storagePath string
-	uploadMax   int64
+	svc           *subagent.Service
+	storagePath   string
+	uploadMax     int64
+	autoGenerator *configgen.AutoGenerator // 自动配置生成器
+	agentRepo     *repo.AgentConfigRepository // 用于获取关联角色信息
 }
 
 // NewSubagentHandler 创建SubagentHandler
-func NewSubagentHandler(svc *subagent.Service, storagePath string, uploadMax int64) *SubagentHandler {
+func NewSubagentHandler(svc *subagent.Service, storagePath string, uploadMax int64, autoGenerator *configgen.AutoGenerator, agentRepo *repo.AgentConfigRepository) *SubagentHandler {
 	return &SubagentHandler{
-		svc:         svc,
-		storagePath: storagePath,
-		uploadMax:   uploadMax,
+		svc:           svc,
+		storagePath:   storagePath,
+		uploadMax:     uploadMax,
+		autoGenerator: autoGenerator,
+		agentRepo:     agentRepo,
 	}
 }
 
@@ -119,7 +126,39 @@ func (h *SubagentHandler) Update(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, subagent)
+	// 获取受影响的Agent角色列表
+	var affectedAgents []gin.H
+	var affectedCount int
+	if h.autoGenerator != nil {
+		affectedIDs, err := h.autoGenerator.GetAffectedAgentsBySubagent(c.Request.Context(), id)
+		if err == nil && len(affectedIDs) > 0 {
+			affectedCount = len(affectedIDs)
+			for _, agentID := range affectedIDs {
+				agent, err := h.agentRepo.FindByID(c.Request.Context(), agentID)
+				if err == nil {
+					affectedAgents = append(affectedAgents, gin.H{
+						"id":   agent.ID.String(),
+						"name": agent.Name,
+					})
+				}
+			}
+			// 批量生成配置（后台执行）
+			go func() {
+				ctx := context.Background()
+				h.autoGenerator.GenerateMultiple(ctx, affectedIDs)
+			}()
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"id":              subagent.ID,
+		"name":            subagent.Name,
+		"description":     subagent.Description,
+		"supportedAgents": subagent.SupportedAgents,
+		"updatedAt":       subagent.UpdatedAt,
+		"affectedAgents":  affectedAgents,
+		"affectedCount":   affectedCount,
+	})
 }
 
 // Delete 删除Subagent
@@ -177,6 +216,8 @@ func (h *SubagentHandler) BindSubagents(c *gin.Context) {
 		return
 	}
 
+	// 不在此处自动生成，前端批量操作后统一调用 generateConfig
+
 	c.Status(http.StatusNoContent)
 }
 
@@ -198,6 +239,8 @@ func (h *SubagentHandler) UnbindSubagent(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	// 不在此处自动生成，前端批量操作后统一调用 generateConfig
 
 	c.Status(http.StatusNoContent)
 }
@@ -299,6 +342,7 @@ func (h *SubagentHandler) RegisterRoutes(r *gin.RouterGroup) {
 		subagents.GET("/:id/skills", h.GetSkills)
 		subagents.POST("/:id/skills", h.BindSkills)
 		subagents.DELETE("/:id/skills/:skill_id", h.UnbindSkill)
+		subagents.GET("/:id/agents", h.GetBoundAgents) // 获取绑定的角色列表
 	}
 
 	// Agent-Subagent 绑定路由
@@ -308,4 +352,40 @@ func (h *SubagentHandler) RegisterRoutes(r *gin.RouterGroup) {
 		agents.POST("/:id/subagents", h.BindSubagents)
 		agents.DELETE("/:id/subagents/:subagent_id", h.UnbindSubagent)
 	}
+}
+
+// GetBoundAgents 获取Subagent绑定的所有Agent角色
+func (h *SubagentHandler) GetBoundAgents(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	if h.autoGenerator == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "autoGenerator not initialized"})
+		return
+	}
+
+	affectedIDs, err := h.autoGenerator.GetAffectedAgentsBySubagent(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	agents := make([]gin.H, 0)
+	for _, agentID := range affectedIDs {
+		agent, err := h.agentRepo.FindByID(c.Request.Context(), agentID)
+		if err == nil {
+			agents = append(agents, gin.H{
+				"id":   agent.ID.String(),
+				"name": agent.Name,
+			})
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"agents": agents,
+		"count":  len(agents),
+	})
 }

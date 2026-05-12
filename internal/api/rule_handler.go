@@ -1,11 +1,14 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"path/filepath"
 
 	"github.com/anthropic/isdp/internal/model"
+	"github.com/anthropic/isdp/internal/repo"
+	"github.com/anthropic/isdp/internal/service/configgen"
 	"github.com/anthropic/isdp/internal/service/rule"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -13,17 +16,21 @@ import (
 
 // RuleHandler Rule API处理器
 type RuleHandler struct {
-	svc         *rule.Service
-	storagePath string
-	maxSize     int64
+	svc           *rule.Service
+	storagePath   string
+	maxSize       int64
+	autoGenerator *configgen.AutoGenerator // 自动配置生成器
+	agentRepo     *repo.AgentConfigRepository // 用于获取关联角色信息
 }
 
 // NewRuleHandler 创建RuleHandler
-func NewRuleHandler(svc *rule.Service, storagePath string, maxSize int64) *RuleHandler {
+func NewRuleHandler(svc *rule.Service, storagePath string, maxSize int64, autoGenerator *configgen.AutoGenerator, agentRepo *repo.AgentConfigRepository) *RuleHandler {
 	return &RuleHandler{
-		svc:         svc,
-		storagePath: storagePath,
-		maxSize:     maxSize,
+		svc:           svc,
+		storagePath:   storagePath,
+		maxSize:       maxSize,
+		autoGenerator: autoGenerator,
+		agentRepo:     agentRepo,
 	}
 }
 
@@ -137,7 +144,39 @@ func (h *RuleHandler) Update(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, r)
+	// 获取受影响的Agent角色列表
+	var affectedAgents []gin.H
+	var affectedCount int
+	if h.autoGenerator != nil {
+		affectedIDs, err := h.autoGenerator.GetAffectedAgentsByRule(c.Request.Context(), id)
+		if err == nil && len(affectedIDs) > 0 {
+			affectedCount = len(affectedIDs)
+			for _, agentID := range affectedIDs {
+				agent, err := h.agentRepo.FindByID(c.Request.Context(), agentID)
+				if err == nil {
+					affectedAgents = append(affectedAgents, gin.H{
+						"id":   agent.ID.String(),
+						"name": agent.Name,
+					})
+				}
+			}
+			// 批量生成配置（后台执行）
+			go func() {
+				ctx := context.Background()
+				h.autoGenerator.GenerateMultiple(ctx, affectedIDs)
+			}()
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"id":              r.ID,
+		"name":            r.Name,
+		"description":     r.Description,
+		"supportedAgents": r.SupportedAgents,
+		"updatedAt":       r.UpdatedAt,
+		"affectedAgents":  affectedAgents,
+		"affectedCount":   affectedCount,
+	})
 }
 
 // Delete 删除Rule
@@ -214,6 +253,8 @@ func (h *RuleHandler) BindRules(c *gin.Context) {
 		return
 	}
 
+	// 不在此处自动生成，前端批量操作后统一调用 generateConfig
+
 	c.Status(http.StatusNoContent)
 }
 
@@ -236,6 +277,8 @@ func (h *RuleHandler) UnbindRule(c *gin.Context) {
 		return
 	}
 
+	// 不在此处自动生成，前端批量操作后统一调用 generateConfig
+
 	c.Status(http.StatusNoContent)
 }
 
@@ -249,6 +292,7 @@ func (h *RuleHandler) RegisterRoutes(r *gin.RouterGroup) {
 		rules.GET("/:id", h.Get)
 		rules.PUT("/:id", h.Update)
 		rules.DELETE("/:id", h.Delete)
+		rules.GET("/:id/agents", h.GetBoundAgents) // 获取绑定的角色列表
 	}
 
 	// Agent-Rule 绑定路由
@@ -258,4 +302,40 @@ func (h *RuleHandler) RegisterRoutes(r *gin.RouterGroup) {
 		agents.POST("/:id/rules", h.BindRules)
 		agents.DELETE("/:id/rules/:rule_id", h.UnbindRule)
 	}
+}
+
+// GetBoundAgents 获取Rule绑定的所有Agent角色
+func (h *RuleHandler) GetBoundAgents(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	if h.autoGenerator == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "autoGenerator not initialized"})
+		return
+	}
+
+	affectedIDs, err := h.autoGenerator.GetAffectedAgentsByRule(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	agents := make([]gin.H, 0)
+	for _, agentID := range affectedIDs {
+		agent, err := h.agentRepo.FindByID(c.Request.Context(), agentID)
+		if err == nil {
+			agents = append(agents, gin.H{
+				"id":   agent.ID.String(),
+				"name": agent.Name,
+			})
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"agents": agents,
+		"count":  len(agents),
+	})
 }

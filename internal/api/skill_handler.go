@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/anthropic/isdp/internal/model"
+	"github.com/anthropic/isdp/internal/service/configgen"
 	"github.com/anthropic/isdp/internal/service/skill"
 	pkgexec "github.com/anthropic/isdp/pkg/exec"
 	"github.com/gin-gonic/gin"
@@ -23,19 +24,21 @@ import (
 
 // SkillHandler Skill API处理器
 type SkillHandler struct {
-	skillSvc    *skill.Service
-	scanner     *skill.SkillScanner
-	storagePath string
-	uploadMax   int64
+	skillSvc      *skill.Service
+	scanner       *skill.SkillScanner
+	storagePath   string
+	uploadMax     int64
+	autoGenerator *configgen.AutoGenerator // 自动配置生成器
 }
 
 // NewSkillHandler 创建SkillHandler
-func NewSkillHandler(skillSvc *skill.Service, scanner *skill.SkillScanner, storagePath string, uploadMax int64) *SkillHandler {
+func NewSkillHandler(skillSvc *skill.Service, scanner *skill.SkillScanner, storagePath string, uploadMax int64, autoGenerator *configgen.AutoGenerator) *SkillHandler {
 	return &SkillHandler{
-		skillSvc:    skillSvc,
-		scanner:     scanner,
-		storagePath: storagePath,
-		uploadMax:   uploadMax,
+		skillSvc:      skillSvc,
+		scanner:       scanner,
+		storagePath:   storagePath,
+		uploadMax:     uploadMax,
+		autoGenerator: autoGenerator,
 	}
 }
 
@@ -123,7 +126,47 @@ func (h *SkillHandler) Update(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, skill)
+	// 获取受影响的Agent角色列表
+	var affectedAgents []map[string]string
+	var affectedCount int
+	if h.autoGenerator != nil {
+		affectedIDs, err := h.autoGenerator.GetAffectedAgentsBySkill(c.Request.Context(), id)
+		if err == nil && len(affectedIDs) > 0 {
+			affectedCount = len(affectedIDs)
+			// 获取角色名称列表
+			agents, err := h.skillSvc.GetBoundAgents(c.Request.Context(), id)
+			if err == nil {
+				for _, agent := range agents {
+					affectedAgents = append(affectedAgents, map[string]string{
+						"id":   agent.ID.String(),
+						"name": agent.Name,
+					})
+				}
+			}
+			// 批量生成配置（后台执行）
+			go func() {
+				ctx := context.Background()
+				errors := h.autoGenerator.GenerateMultiple(ctx, affectedIDs)
+				// 只记录错误，不影响响应
+				for _, e := range errors {
+					c.Error(e)
+				}
+			}()
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"id":               skill.ID,
+		"name":             skill.Name,
+		"description":      skill.Description,
+		"tags":             skill.Tags,
+		"sourceType":       skill.SourceType,
+		"supportedAgents":  skill.SupportedAgents,
+		"isPublic":         skill.IsPublic,
+		"updatedAt":        skill.UpdatedAt,
+		"affectedAgents":   affectedAgents,
+		"affectedCount":    affectedCount,
+	})
 }
 
 // Delete 删除Skill
@@ -179,6 +222,8 @@ func (h *SkillHandler) BindSkills(c *gin.Context) {
 		return
 	}
 
+	// 不在此处自动生成，前端批量操作后统一调用 generateConfig
+
 	c.Status(http.StatusNoContent)
 }
 
@@ -200,6 +245,8 @@ func (h *SkillHandler) UnbindSkill(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	// 不在此处自动生成，前端批量操作后统一调用 generateConfig
 
 	c.Status(http.StatusNoContent)
 }

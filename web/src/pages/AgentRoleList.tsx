@@ -57,6 +57,8 @@ const AgentRoleList: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingConfig, setEditingConfig] = useState<AgentConfig | null>(null);
+  const [submitLoading, setSubmitLoading] = useState(false);
+  const [submitLoadingText, setSubmitLoadingText] = useState('');
   const [deleteLoading, setDeleteLoading] = useState<string | null>(null);
   const [generateLoading, setGenerateLoading] = useState<string | null>(null);
   const [previewVisible, setPreviewVisible] = useState(false);
@@ -99,11 +101,8 @@ const AgentRoleList: React.FC = () => {
     setLoading(true);
     try {
       const data = await api.agents.list();
-      console.log('[DEBUG] Agent configs loaded:', data);
-      console.log('[DEBUG] First config sample:', data[0]);
       setConfigs(data);
     } catch (error) {
-      console.error('[DEBUG] Error loading configs:', error);
       message.error('加载Agent角色失败');
     } finally {
       setLoading(false);
@@ -513,6 +512,8 @@ const AgentRoleList: React.FC = () => {
   };
 
   const handleSubmit = async (values: Partial<AgentConfig>) => {
+    setSubmitLoading(true);
+    setSubmitLoadingText(editingConfig ? '正在更新角色配置...' : '正在创建角色配置...');
     try {
       if (editingConfig) {
         // 更新时，只有当 mentionPatterns 有值时才传递
@@ -528,7 +529,15 @@ const AgentRoleList: React.FC = () => {
         await api.rules.bindRulesToAgent(editingConfig.id, selectedRuleIds);
         // 更新配置绑定 - 无论是否为空都调用，以支持清空绑定
         await api.settings.bindToAgent(editingConfig.id, selectedSettingsIds);
+        // 刷新配置（自动检测类型，只调用一次）
+        await api.agents.refreshConfig(editingConfig.id);
+        // 确保 loading 效果至少显示 500ms
+        await new Promise(resolve => setTimeout(resolve, 500));
         message.success('更新成功');
+        setSubmitLoading(false);
+        setSubmitLoadingText('');
+        setModalVisible(false);
+        loadConfigs();
       } else {
         // 新建时，如果没有设置触发模式，则默认生成 @ + 名称
         const createData = { ...values };
@@ -560,11 +569,19 @@ const AgentRoleList: React.FC = () => {
         if (selectedSettingsIds.length > 0) {
           await api.settings.bindToAgent(newAgent.id, selectedSettingsIds);
         }
+        // 刷新配置（自动检测类型，只调用一次）
+        await api.agents.refreshConfig(newAgent.id);
+        // 确保 loading 效果至少显示 500ms
+        await new Promise(resolve => setTimeout(resolve, 500));
         message.success('创建成功');
+        setSubmitLoading(false);
+        setSubmitLoadingText('');
+        setModalVisible(false);
+        loadConfigs();
       }
-      setModalVisible(false);
-      loadConfigs();
     } catch (error) {
+      setSubmitLoading(false);
+      setSubmitLoadingText('');
       message.error('操作失败');
     }
   };
@@ -809,6 +826,35 @@ const AgentRoleList: React.FC = () => {
 
   return (
     <div style={{ padding: 12 }}>
+      {/* 全屏 loading overlay */}
+      {submitLoading && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.6)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 9999,
+        }}>
+          <div style={{
+            backgroundColor: 'var(--bg-container, #fff)',
+            padding: 32,
+            borderRadius: 12,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 16,
+            boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)',
+          }}>
+            <Spin size="large" />
+            <span style={{ fontSize: 16, color: 'var(--text-primary, #333)' }}>{submitLoadingText}</span>
+          </div>
+        </div>
+      )}
       <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <Title level={2} style={{ margin: 0 }}>Agent角色</Title>

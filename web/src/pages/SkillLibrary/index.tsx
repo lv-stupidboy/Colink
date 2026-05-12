@@ -5,13 +5,14 @@ import {
 } from 'antd';
 import {
   PlusOutlined,
-  EyeOutlined,
   EditOutlined,
   DeleteOutlined,
   LinkOutlined,
   CloudUploadOutlined,
   CloudDownloadOutlined,
-  FolderOpenOutlined
+  FolderOpenOutlined,
+  EyeOutlined,
+  TeamOutlined
 } from '@ant-design/icons';
 import JSZip from 'jszip';
 import api from '@/api/client';
@@ -271,6 +272,36 @@ const SkillLibrary: React.FC = () => {
     }
   };
 
+  // 查看引用的角色
+  const handleViewRefs = async (skill: Skill) => {
+    try {
+      const result = await api.skills.getBoundAgents(skill.id);
+      if (result.agents && result.agents.length > 0) {
+        Modal.info({
+          title: '角色引用',
+          width: 500,
+          content: (
+            <div>
+              <p>该 Skill 被以下 <strong>{result.count}</strong> 个角色引用：</p>
+              <ul style={{ marginTop: 8, paddingLeft: 20 }}>
+                {result.agents.map((agent: { id: string; name: string }) => (
+                  <li key={agent.id}>{agent.name}</li>
+                ))}
+              </ul>
+            </div>
+          ),
+        });
+      } else {
+        Modal.info({
+          title: '角色引用',
+          content: <p>该 Skill 暂未被任何角色引用</p>,
+        });
+      }
+    } catch (error) {
+      message.error('查询引用失败');
+    }
+  };
+
   const handleSubmit = async (values: any) => {
     const validation = validateSkillName(values.name);
     if (!validation.valid) {
@@ -314,8 +345,12 @@ const SkillLibrary: React.FC = () => {
         message.success('创建成功');
       } else if (editingSkill?.id) {
         // 编辑现有记录
-        await api.skills.update(editingSkill.id, values);
-        message.success('更新成功');
+        const result = await api.skills.update(editingSkill.id, values);
+        if (result.affectedCount && result.affectedCount > 0) {
+          message.success(`更新成功，正在为 ${result.affectedCount} 个关联角色自动更新配置...`);
+        } else {
+          message.success('更新成功');
+        }
       } else if (sourceType === 'federated' && selectedRegistryId) {
         // 单选联邦导入：下载并创建 skill 文件
         await api.skills.importFederated(selectedRegistryId, values.name);
@@ -1115,6 +1150,9 @@ const SkillLibrary: React.FC = () => {
                   </Tag>
                 }
                 actions={[
+                  <Tooltip key="refs" title="查看引用的角色">
+                    <TeamOutlined style={{ fontSize: 16 }} onClick={() => handleViewRefs(skill)} />
+                  </Tooltip>,
                   <EyeOutlined key="view" style={{ fontSize: 16 }} onClick={() => message.info('详情功能开发中')} />,
                   <EditOutlined key="edit" style={{ fontSize: 16 }} onClick={() => handleEdit(skill)} />,
                   <Popconfirm

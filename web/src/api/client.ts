@@ -12,6 +12,8 @@ import type {
   WorkflowTemplate,
   ListFilesResponse,
   Skill,
+  SkillUpdateResponse,
+  AssetAgentsResponse,
   CreateSkillRequest,
   UpdateSkillRequest,
   SkillListQuery,
@@ -33,16 +35,19 @@ import type {
   KnowledgeQueryResult,
   BuiltInTagCategory,
   Subagent,
+  SubagentUpdateResponse,
   CreateSubagentRequest,
   UpdateSubagentRequest,
   SubagentListQuery,
   SubagentListResponse,
   Command,
+  CommandUpdateResponse,
   CreateCommandRequest,
   UpdateCommandRequest,
   CommandListQuery,
   CommandListResponse,
   Rule,
+  RuleUpdateResponse,
   CreateRuleRequest,
   UpdateRuleRequest,
   RuleListQuery,
@@ -347,6 +352,13 @@ class APIClient {
       baseAgentType: baseAgentType,
       cleanExisting: cleanExisting !== false, // 默认清空
     }),
+    // 刷新配置（自动检测类型，无需传递 baseAgentType）
+    refreshConfig: (id: string): Promise<{
+      message: string;
+      agentId: string;
+      agentName: string;
+      configPath: string;
+    }> => this.request(`/agents/${id}/refresh`, 'POST'),
     getSubagents: (id: string): Promise<{ subagents: Subagent[] }> =>
       this.request(`/agents/${id}/subagents`, 'GET'),
     bindSubagents: (id: string, subagentIds: string[]): Promise<{ message: string }> =>
@@ -489,11 +501,11 @@ class APIClient {
       this.request(`/skills/${id}`, 'GET'),
     create: (data: CreateSkillRequest): Promise<Skill> =>
       this.request('/skills', 'POST', data),
-    update: (id: string, data: UpdateSkillRequest): Promise<Skill> =>
+    update: (id: string, data: UpdateSkillRequest): Promise<SkillUpdateResponse> =>
       this.request(`/skills/${id}`, 'PUT', data),
     delete: (id: string): Promise<void> =>
       this.request(`/skills/${id}`, 'DELETE'),
-    getBoundAgents: (id: string): Promise<SkillAgentsResponse> =>
+    getBoundAgents: (id: string): Promise<AssetAgentsResponse> =>
       this.request(`/skills/${id}/agents`, 'GET'),
     getTags: (): Promise<string[]> =>
       this.request('/skills/tags', 'GET'),
@@ -597,10 +609,13 @@ class APIClient {
       this.request(`/subagents/${id}`, 'GET'),
     create: (data: CreateSubagentRequest): Promise<Subagent> =>
       this.request('/subagents', 'POST', data),
-    update: (id: string, data: UpdateSubagentRequest): Promise<Subagent> =>
+    update: (id: string, data: UpdateSubagentRequest): Promise<SubagentUpdateResponse> =>
       this.request(`/subagents/${id}`, 'PUT', data),
     delete: (id: string): Promise<void> =>
       this.request(`/subagents/${id}`, 'DELETE'),
+    // 获取绑定的角色
+    getBoundAgents: (id: string): Promise<AssetAgentsResponse> =>
+      this.request(`/subagents/${id}/agents`, 'GET'),
     // Subagent-Skill 绑定
     getSkills: (id: string): Promise<{ skills: Skill[]; count: number }> =>
       this.request(`/subagents/${id}/skills`, 'GET'),
@@ -625,10 +640,13 @@ class APIClient {
       this.request(`/commands/${id}`, 'GET'),
     create: (data: CreateCommandRequest): Promise<Command> =>
       this.request('/commands', 'POST', data),
-    update: (id: string, data: UpdateCommandRequest): Promise<Command> =>
+    update: (id: string, data: UpdateCommandRequest): Promise<CommandUpdateResponse> =>
       this.request(`/commands/${id}`, 'PUT', data),
     delete: (id: string): Promise<void> =>
       this.request(`/commands/${id}`, 'DELETE'),
+    // 获取绑定的角色
+    getBoundAgents: (id: string): Promise<AssetAgentsResponse> =>
+      this.request(`/commands/${id}/agents`, 'GET'),
     uploadFile: (formData: FormData): Promise<{ message: string; file_path: string }> => {
       return this.request('/commands/upload', 'POST', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -665,10 +683,13 @@ class APIClient {
       this.request(`/rules/${id}`, 'GET'),
     create: (data: CreateRuleRequest): Promise<Rule> =>
       this.request('/rules', 'POST', data),
-    update: (id: string, data: UpdateRuleRequest): Promise<Rule> =>
+    update: (id: string, data: UpdateRuleRequest): Promise<RuleUpdateResponse> =>
       this.request(`/rules/${id}`, 'PUT', data),
     delete: (id: string): Promise<void> =>
       this.request(`/rules/${id}`, 'DELETE'),
+    // 获取绑定的角色
+    getBoundAgents: (id: string): Promise<AssetAgentsResponse> =>
+      this.request(`/rules/${id}/agents`, 'GET'),
     uploadFile: (formData: FormData): Promise<{ message: string; file_path: string }> => {
       return this.request('/rules/upload', 'POST', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },

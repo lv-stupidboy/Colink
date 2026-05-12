@@ -621,6 +621,18 @@ export interface Skill {
   updatedAt: string;
 }
 
+// Skill 更新响应（包含受影响的角色信息）
+export interface SkillUpdateResponse extends Skill {
+  affectedAgents?: { id: string; name: string }[];
+  affectedCount?: number;
+}
+
+// 资产绑定角色响应
+export interface AssetAgentsResponse {
+  agents: { id: string; name: string }[];
+  count: number;
+}
+
 // 创建Skill请求
 export interface CreateSkillRequest {
   name: string;
@@ -925,6 +937,12 @@ export interface UpdateSubagentRequest {
   supportedAgents?: string[]; // 支持的Agent类型
 }
 
+// Subagent 更新响应（包含受影响的角色信息）
+export interface SubagentUpdateResponse extends Subagent {
+  affectedAgents?: { id: string; name: string }[];
+  affectedCount?: number;
+}
+
 // Subagent列表查询参数
 export interface SubagentListQuery {
   search?: string;
@@ -968,6 +986,12 @@ export interface UpdateCommandRequest {
   supportedAgents?: string[]; // 支持的Agent类型
 }
 
+// Command 更新响应（包含受影响的角色信息）
+export interface CommandUpdateResponse extends Command {
+  affectedAgents?: { id: string; name: string }[];
+  affectedCount?: number;
+}
+
 // Command列表查询参数
 export interface CommandListQuery {
   search?: string;
@@ -1009,6 +1033,12 @@ export interface CreateRuleRequest {
 export interface UpdateRuleRequest {
   description?: string;
   supportedAgents?: string[]; // 支持的Agent类型
+}
+
+// Rule 更新响应（包含受影响的角色信息）
+export interface RuleUpdateResponse extends Rule {
+  affectedAgents?: { id: string; name: string }[];
+  affectedCount?: number;
 }
 
 // Rule列表查询参数

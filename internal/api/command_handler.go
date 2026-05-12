@@ -1,29 +1,36 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"path/filepath"
 
 	"github.com/anthropic/isdp/internal/model"
+	"github.com/anthropic/isdp/internal/repo"
 	"github.com/anthropic/isdp/internal/service/command"
+	"github.com/anthropic/isdp/internal/service/configgen"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
 
 // CommandHandler Command API处理器
 type CommandHandler struct {
-	svc         *command.Service
-	storagePath string
-	maxSize     int64
+	svc           *command.Service
+	storagePath   string
+	maxSize       int64
+	autoGenerator *configgen.AutoGenerator // 自动配置生成器
+	agentRepo     *repo.AgentConfigRepository // 用于获取关联角色信息
 }
 
 // NewCommandHandler 创建CommandHandler
-func NewCommandHandler(svc *command.Service, storagePath string, maxSize int64) *CommandHandler {
+func NewCommandHandler(svc *command.Service, storagePath string, maxSize int64, autoGenerator *configgen.AutoGenerator, agentRepo *repo.AgentConfigRepository) *CommandHandler {
 	return &CommandHandler{
-		svc:         svc,
-		storagePath: storagePath,
-		maxSize:     maxSize,
+		svc:           svc,
+		storagePath:   storagePath,
+		maxSize:       maxSize,
+		autoGenerator: autoGenerator,
+		agentRepo:     agentRepo,
 	}
 }
 
@@ -137,7 +144,40 @@ func (h *CommandHandler) Update(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, cmd)
+	// 获取受影响的Agent角色列表
+	var affectedAgents []gin.H
+	var affectedCount int
+	if h.autoGenerator != nil {
+		affectedIDs, err := h.autoGenerator.GetAffectedAgentsByCommand(c.Request.Context(), id)
+		if err == nil && len(affectedIDs) > 0 {
+			affectedCount = len(affectedIDs)
+			// 获取角色详细信息
+			for _, agentID := range affectedIDs {
+				agent, err := h.agentRepo.FindByID(c.Request.Context(), agentID)
+				if err == nil {
+					affectedAgents = append(affectedAgents, gin.H{
+						"id":   agent.ID.String(),
+						"name": agent.Name,
+					})
+				}
+			}
+			// 批量生成配置（后台执行）
+			go func() {
+				ctx := context.Background()
+				h.autoGenerator.GenerateMultiple(ctx, affectedIDs)
+			}()
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"id":              cmd.ID,
+		"name":            cmd.Name,
+		"description":     cmd.Description,
+		"supportedAgents": cmd.SupportedAgents,
+		"updatedAt":       cmd.UpdatedAt,
+		"affectedAgents":  affectedAgents,
+		"affectedCount":   affectedCount,
+	})
 }
 
 // Delete 删除Command
@@ -278,6 +318,8 @@ func (h *CommandHandler) BindCommands(c *gin.Context) {
 		return
 	}
 
+	// 不在此处自动生成，前端批量操作后统一调用 generateConfig
+
 	c.Status(http.StatusNoContent)
 }
 
@@ -300,6 +342,8 @@ func (h *CommandHandler) UnbindCommand(c *gin.Context) {
 		return
 	}
 
+	// 不在此处自动生成，前端批量操作后统一调用 generateConfig
+
 	c.Status(http.StatusNoContent)
 }
 
@@ -316,6 +360,7 @@ func (h *CommandHandler) RegisterRoutes(r *gin.RouterGroup) {
 		commands.GET("/:id/skills", h.GetSkills)
 		commands.POST("/:id/skills", h.BindSkills)
 		commands.DELETE("/:id/skills/:skill_id", h.UnbindSkill)
+		commands.GET("/:id/agents", h.GetBoundAgents) // 获取绑定的角色列表
 	}
 
 	// Agent-Command 绑定路由
@@ -325,4 +370,41 @@ func (h *CommandHandler) RegisterRoutes(r *gin.RouterGroup) {
 		agents.POST("/:id/commands", h.BindCommands)
 		agents.DELETE("/:id/commands/:command_id", h.UnbindCommand)
 	}
+}
+
+// GetBoundAgents 获取Command绑定的所有Agent角色
+func (h *CommandHandler) GetBoundAgents(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	if h.autoGenerator == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "autoGenerator not initialized"})
+		return
+	}
+
+	affectedIDs, err := h.autoGenerator.GetAffectedAgentsByCommand(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 获取角色详细信息
+	agents := make([]gin.H, 0)
+	for _, agentID := range affectedIDs {
+		agent, err := h.agentRepo.FindByID(c.Request.Context(), agentID)
+		if err == nil {
+			agents = append(agents, gin.H{
+				"id":   agent.ID.String(),
+				"name": agent.Name,
+			})
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"agents": agents,
+		"count":  len(agents),
+	})
 }

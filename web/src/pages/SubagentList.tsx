@@ -8,11 +8,12 @@ import {
   EditOutlined,
   DeleteOutlined,
   EyeOutlined,
-  CloudUploadOutlined
+  CloudUploadOutlined,
+  TeamOutlined
 } from '@ant-design/icons';
 import api from '@/api/client';
 import { getTypeColorByIndex } from '@/config/agentTypeColors';
-import type { Subagent, SubagentListResponse, Skill, BaseAgentTypeInfo } from '@/types';
+import type { Subagent, SubagentListResponse, Skill, BaseAgentTypeInfo, AssetAgentsResponse } from '@/types';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -249,6 +250,36 @@ const SubagentList: React.FC = () => {
     }
   };
 
+  // 查看引用的角色
+  const handleViewRefs = async (subagent: Subagent) => {
+    try {
+      const result: AssetAgentsResponse = await api.subagents.getBoundAgents(subagent.id);
+      if (result.agents && result.agents.length > 0) {
+        Modal.info({
+          title: '角色引用',
+          width: 500,
+          content: (
+            <div>
+              <p>该 Subagent 被以下 <strong>{result.count}</strong> 个角色引用：</p>
+              <ul style={{ marginTop: 8, paddingLeft: 20 }}>
+                {result.agents.map((agent: { id: string; name: string }) => (
+                  <li key={agent.id}>{agent.name}</li>
+                ))}
+              </ul>
+            </div>
+          ),
+        });
+      } else {
+        Modal.info({
+          title: '角色引用',
+          content: <p>该 Subagent 暂未被任何角色引用</p>,
+        });
+      }
+    } catch (error) {
+      message.error('查询引用失败');
+    }
+  };
+
   const handleSubmit = async (values: any) => {
     try {
       if (editingSubagent) {
@@ -427,10 +458,18 @@ const SubagentList: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      width: 220,
+      width: 280,
       fixed: 'right' as const,
       render: (_: any, record: Subagent) => (
         <Space size="small">
+          <Tooltip title="查看引用的角色">
+            <Button
+              type="link"
+              size="small"
+              icon={<TeamOutlined />}
+              onClick={() => handleViewRefs(record)}
+            />
+          </Tooltip>
           <Button
             type="link"
             size="small"

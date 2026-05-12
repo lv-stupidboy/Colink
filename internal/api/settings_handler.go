@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/anthropic/isdp/internal/model"
+	"github.com/anthropic/isdp/internal/service/configgen"
 	"github.com/anthropic/isdp/internal/service/settings"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -17,15 +18,17 @@ import (
 
 // SettingsHandler Settings API处理器
 type SettingsHandler struct {
-	svc         *settings.Service
-	storagePath string
+	svc           *settings.Service
+	storagePath   string
+	autoGenerator *configgen.AutoGenerator // 自动配置生成器
 }
 
 // NewSettingsHandler 创建SettingsHandler
-func NewSettingsHandler(svc *settings.Service, storagePath string) *SettingsHandler {
+func NewSettingsHandler(svc *settings.Service, storagePath string, autoGenerator *configgen.AutoGenerator) *SettingsHandler {
 	return &SettingsHandler{
-		svc:         svc,
-		storagePath: storagePath,
+		svc:           svc,
+		storagePath:   storagePath,
+		autoGenerator: autoGenerator,
 	}
 }
 
@@ -211,6 +214,8 @@ func (h *SettingsHandler) BindToAgent(c *gin.Context) {
 		return
 	}
 
+	// 不在此处自动生成，前端批量操作后统一调用 generateConfig
+
 	c.Status(http.StatusNoContent)
 }
 
@@ -252,6 +257,8 @@ func (h *SettingsHandler) UnbindSettings(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	// 不在此处自动生成，前端批量操作后统一调用 generateConfig
 
 	c.Status(http.StatusNoContent)
 }

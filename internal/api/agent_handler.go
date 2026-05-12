@@ -50,6 +50,7 @@ type AgentHandler struct {
 	debugThreadMgr           *agent.DebugThreadManager // 调试线程管理器
 	workflowRepo             *repo.WorkflowTemplateRepository
 	configGenService         *configgen.Service        // 配置生成服务
+	autoGenerator            *configgen.AutoGenerator  // 自动配置生成器
 	// 绑定关系 repository
 	agentSkillBindingRepo    *repo.AgentSkillBindingRepository
 	agentSubagentBindingRepo *repo.AgentSubagentBindingRepository
@@ -67,6 +68,7 @@ func NewAgentHandler(
 	debugThreadMgr *agent.DebugThreadManager, // 新增
 	workflowRepo *repo.WorkflowTemplateRepository,
 	configGenService *configgen.Service, // 配置生成服务
+	autoGenerator *configgen.AutoGenerator, // 自动配置生成器
 	agentSkillBindingRepo *repo.AgentSkillBindingRepository,
 	agentSubagentBindingRepo *repo.AgentSubagentBindingRepository,
 	agentCommandBindingRepo *repo.AgentCommandBindingRepository,
@@ -81,6 +83,7 @@ func NewAgentHandler(
 		debugThreadMgr:           debugThreadMgr,
 		workflowRepo:             workflowRepo,
 		configGenService:         configGenService,
+		autoGenerator:            autoGenerator,
 		agentSkillBindingRepo:    agentSkillBindingRepo,
 		agentSubagentBindingRepo: agentSubagentBindingRepo,
 		agentCommandBindingRepo:  agentCommandBindingRepo,
@@ -139,6 +142,10 @@ func (h *AgentHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	// 前端会紧接着调用绑定API，由绑定API触发配置生成
+	// 避免重复生成（创建 + 多个绑定 = N次生成）
+
 	c.JSON(http.StatusCreated, config)
 }
 
@@ -161,6 +168,10 @@ func (h *AgentHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	// 不在此处自动生成配置，因为前端会紧接着调用绑定API
+	// 绑定API会触发配置生成，避免重复生成
+
 	c.JSON(http.StatusOK, config)
 }
 
@@ -440,6 +451,13 @@ func (h *AgentHandler) Copy(c *gin.Context) {
 		}
 	}
 
+	// 自动生成配置（复制角色后）
+	if h.autoGenerator != nil {
+		if err := h.autoGenerator.GenerateSync(ctx, newID); err != nil {
+			// 生成失败不影响角色复制，仅记录日志
+		}
+	}
+
 	c.JSON(http.StatusCreated, copy)
 }
 
@@ -689,6 +707,43 @@ func (h *AgentHandler) BatchUpdateBaseAgent(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
+// RefreshConfig 刷新配置（自动检测类型）
+func (h *AgentHandler) RefreshConfig(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	if h.autoGenerator == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "AutoGenerator 未初始化"})
+		return
+	}
+
+	// 获取角色配置以返回详细信息
+	agentRole, err := h.configSvc.GetByID(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取角色配置失败"})
+		return
+	}
+
+	// 执行生成
+	if err := h.autoGenerator.GenerateSync(c.Request.Context(), id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 获取生成后的配置路径
+	agentRole, _ = h.configSvc.GetByID(c.Request.Context(), id)
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":    "配置生成成功",
+		"agentId":    id.String(),
+		"agentName":  agentRole.Name,
+		"configPath": agentRole.ConfigPath,
+	})
+}
+
 // RegisterRoutes 注册路由
 func (h *AgentHandler) RegisterRoutes(r *gin.RouterGroup) {
 	agents := r.Group("/agents")
@@ -707,6 +762,7 @@ func (h *AgentHandler) RegisterRoutes(r *gin.RouterGroup) {
 		agents.POST("/:id/refs", h.CheckReferences)
 		agents.POST("/:id/copy", h.Copy)
 		agents.POST("/:id/debug", h.Debug)
+		agents.POST("/:id/refresh", h.RefreshConfig) // 刷新配置（自动检测类型）
 		agents.GET("/:id", h.Get)
 		agents.PUT("/:id", h.Update)
 		agents.DELETE("/:id", h.Delete)

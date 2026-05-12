@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/anthropic/isdp/internal/repo"
 	"github.com/anthropic/isdp/internal/service/agent"
 	"github.com/anthropic/isdp/internal/service/configgen"
 	"github.com/gin-gonic/gin"
@@ -12,13 +13,19 @@ import (
 
 // ConfigGenHandler 配置生成 API 处理器
 type ConfigGenHandler struct {
-	configGenSvc *configgen.Service
+	configGenSvc  *configgen.Service
+	autoGenerator *configgen.AutoGenerator // 自动配置生成器
+	agentRepo     *repo.AgentConfigRepository
+	baseAgentRepo *repo.BaseAgentRepository
 }
 
 // NewConfigGenHandler 创建处理器
-func NewConfigGenHandler(configGenSvc *configgen.Service) *ConfigGenHandler {
+func NewConfigGenHandler(configGenSvc *configgen.Service, autoGenerator *configgen.AutoGenerator, agentRepo *repo.AgentConfigRepository, baseAgentRepo *repo.BaseAgentRepository) *ConfigGenHandler {
 	return &ConfigGenHandler{
-		configGenSvc: configGenSvc,
+		configGenSvc:  configGenSvc,
+		autoGenerator: autoGenerator,
+		agentRepo:     agentRepo,
+		baseAgentRepo: baseAgentRepo,
 	}
 }
 
@@ -169,6 +176,53 @@ func (h *ConfigGenHandler) PreviewAgentConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
+// RefreshAgentConfig 刷新Agent角色配置（自动检测类型）
+// POST /agents/:id/config/refresh
+// 无需传递 baseAgentType，自动从角色配置中获取
+func (h *ConfigGenHandler) RefreshAgentConfig(c *gin.Context) {
+	agentID := c.Param("id")
+	if agentID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "缺少 Agent ID"})
+		return
+	}
+
+	// 解析 agentID 为 uuid
+	agentUUID, err := uuid.Parse(agentID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的 Agent ID 格式"})
+		return
+	}
+
+	// 使用 AutoGenerator 自动生成（无需指定类型）
+	if h.autoGenerator == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "AutoGenerator 未初始化"})
+		return
+	}
+
+	// 获取角色配置以返回详细信息
+	agentRole, err := h.agentRepo.FindByID(c.Request.Context(), agentUUID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取角色配置失败"})
+		return
+	}
+
+	// 执行生成
+	if err := h.autoGenerator.GenerateSync(c.Request.Context(), agentUUID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 获取生成后的配置路径
+	agentRole, _ = h.agentRepo.FindByID(c.Request.Context(), agentUUID)
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":    "配置生成成功",
+		"agentId":    agentID,
+		"agentName":  agentRole.Name,
+		"configPath": agentRole.ConfigPath,
+	})
+}
+
 // RegisterRoutes 注册路由
 func (h *ConfigGenHandler) RegisterRoutes(r *gin.RouterGroup) {
 	// 项目级配置同步（保留兼容）
@@ -182,5 +236,6 @@ func (h *ConfigGenHandler) RegisterRoutes(r *gin.RouterGroup) {
 	{
 		agents.GET("/:id/config/preview", h.PreviewAgentConfig)
 		agents.POST("/:id/config/generate", h.GenerateAgentConfig)
+		agents.POST("/:id/config/refresh", h.RefreshAgentConfig) // 新增：自动检测类型
 	}
 }
