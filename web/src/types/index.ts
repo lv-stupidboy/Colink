@@ -1452,10 +1452,10 @@ export interface SkippedSkillInfo {
 
 // HelpConfig 帮助入口配置
 export interface HelpConfig {
-  support_group: string;
-  official_website: string;
-  doc_link: string;
-  feedback_enabled: boolean;
+  supportGroup: string;
+  officialWebsite: string;
+  docLink: string;
+  feedbackEnabled: boolean;
 }
 
 // FeedbackRequest 问题反馈请求

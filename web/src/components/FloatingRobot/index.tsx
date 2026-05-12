@@ -120,23 +120,23 @@ const FloatingRobot: React.FC = () => {
 
   // 复制群号
   const handleCopyGroup = useCallback(() => {
-    if (helpConfig?.support_group) {
-      navigator.clipboard.writeText(helpConfig.support_group);
+    if (helpConfig?.supportGroup) {
+      navigator.clipboard.writeText(helpConfig.supportGroup);
       message.success('群号已复制');
     }
   }, [helpConfig]);
 
   // 打开官网
   const handleOpenWebsite = useCallback(() => {
-    if (helpConfig?.official_website) {
-      window.open(helpConfig.official_website, '_blank');
+    if (helpConfig?.officialWebsite) {
+      window.open(helpConfig.officialWebsite, '_blank');
     }
   }, [helpConfig]);
 
   // 打开文档
   const handleOpenDoc = useCallback(() => {
-    if (helpConfig?.doc_link) {
-      window.open(helpConfig.doc_link, '_blank');
+    if (helpConfig?.docLink) {
+      window.open(helpConfig.docLink, '_blank');
     }
   }, [helpConfig]);
 
@@ -212,17 +212,17 @@ const FloatingRobot: React.FC = () => {
         </div>
 
         {/* 信息项 */}
-        {helpConfig?.support_group && (
+        {helpConfig?.supportGroup && (
           <div className="panel-item clickable" onClick={handleCopyGroup}>
             <WechatOutlined className="panel-item-icon" />
             <div className="panel-item-content">
               <span className="panel-item-label">支撑群号</span>
-              <span className="panel-item-value">{helpConfig.support_group}</span>
+              <span className="panel-item-value">{helpConfig.supportGroup}</span>
             </div>
           </div>
         )}
 
-        {helpConfig?.official_website && (
+        {helpConfig?.officialWebsite && (
           <div className="panel-item clickable" onClick={handleOpenWebsite}>
             <GlobalOutlined className="panel-item-icon" />
             <div className="panel-item-content">
@@ -231,7 +231,7 @@ const FloatingRobot: React.FC = () => {
           </div>
         )}
 
-        {helpConfig?.doc_link && (
+        {helpConfig?.docLink && (
           <div className="panel-item clickable" onClick={handleOpenDoc}>
             <BookOutlined className="panel-item-icon" />
             <div className="panel-item-content">
@@ -241,14 +241,14 @@ const FloatingRobot: React.FC = () => {
         )}
 
         {/* 空状态提示 */}
-        {!helpConfig?.support_group && !helpConfig?.official_website && !helpConfig?.doc_link && !helpConfig?.feedback_enabled && (
+        {!helpConfig?.supportGroup && !helpConfig?.officialWebsite && !helpConfig?.docLink && !helpConfig?.feedbackEnabled && (
           <div className="panel-empty">
             <span className="panel-empty-text">暂未配置帮助信息</span>
           </div>
         )}
 
         {/* 反馈表单 */}
-        {helpConfig?.feedback_enabled && (
+        {helpConfig?.feedbackEnabled && (
           <>
             <div className="panel-divider" />
             <div className="feedback-section">
