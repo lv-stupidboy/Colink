@@ -85,6 +85,9 @@ const SettingsManagement: React.FC = () => {
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editingSettings, setEditingSettings] = useState<Settings | null>(null);
   const [editForm] = Form.useForm();
+  const [submitLoading, setSubmitLoading] = useState(false);
+  const [submitLoadingText, setSubmitLoadingText] = useState('');
+  const [affectedAgents, setAffectedAgents] = useState<{ id: string; name: string }[]>([]);
   const [form] = Form.useForm();
   const directoryInputRef = useRef<HTMLInputElement>(null);
   const pendingZipBlobRef = useRef<Blob | null>(null);
@@ -291,21 +294,44 @@ const SettingsManagement: React.FC = () => {
   const handleEditSubmit = async (values: any) => {
     if (!editingSettings) return;
 
+    setSubmitLoading(true);
+    setSubmitLoadingText('正在更新Settings配置...');
+    setAffectedAgents([]);
+
     try {
+      const startTime = Date.now();
       const result: SettingsUpdateResponse = await api.settings.update(editingSettings.id, {
         description: values.description,
         supportedAgents: values.supportedAgents,
       });
 
+      // 设置受影响的角色列表
+      if (result.affectedAgents && result.affectedAgents.length > 0) {
+        setAffectedAgents(result.affectedAgents);
+        setSubmitLoadingText(`正在为 ${result.affectedCount} 个角色刷新配置...`);
+      }
+
+      // 确保 loading 效果至少显示 1500ms
+      const elapsed = Date.now() - startTime;
+      const remainingTime = Math.max(0, 1500 - elapsed);
+      await new Promise(resolve => setTimeout(resolve, remainingTime));
+
+      setSubmitLoading(false);
+      setSubmitLoadingText('');
+      setAffectedAgents([]);
+
       if (result.affectedCount && result.affectedCount > 0) {
         message.success(`更新成功，已自动刷新 ${result.affectedCount} 个角色的配置`);
       } else {
-        message.success('更新成功');
+        message.success('更新成功，暂未被角色引用，无需更新配置');
       }
 
       setEditModalVisible(false);
       loadSettings();
     } catch (error: any) {
+      setSubmitLoading(false);
+      setSubmitLoadingText('');
+      setAffectedAgents([]);
       const errorData = error.response?.data;
       if (errorData?.error) {
         message.error(errorData.error);
@@ -369,28 +395,40 @@ const SettingsManagement: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      width: 180,
+      width: 280,
       render: (_, record) => (
-        <Space>
+        <Space size="small">
           <Tooltip title="查看引用的角色">
-            <TeamOutlined
-              style={{ fontSize: 16, cursor: 'pointer', color: 'var(--ant-color-primary)' }}
+            <Button
+              type="link"
+              size="small"
+              icon={<TeamOutlined />}
               onClick={() => handleViewRefs(record)}
             />
           </Tooltip>
-          <Tooltip title="编辑">
-            <EditOutlined
-              style={{ fontSize: 16, cursor: 'pointer', color: 'var(--ant-color-primary)' }}
-              onClick={() => handleEdit(record)}
-            />
-          </Tooltip>
+          <Button
+            type="link"
+            size="small"
+            icon={<EditOutlined />}
+            onClick={() => handleEdit(record)}
+          >
+            编辑
+          </Button>
           <Popconfirm
             title="确定要删除这个Settings吗？"
+            description="删除后将无法恢复"
             onConfirm={() => handleDelete(record.id)}
             okText="确定"
             cancelText="取消"
           >
-            <DeleteOutlined style={{ fontSize: 16, color: '#ff4d4f', cursor: 'pointer' }} />
+            <Button
+              type="link"
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+            >
+              删除
+            </Button>
           </Popconfirm>
         </Space>
       ),
@@ -399,6 +437,63 @@ const SettingsManagement: React.FC = () => {
 
   return (
     <div style={{ padding: 12 }}>
+      {/* 全屏 loading overlay */}
+      {submitLoading && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.6)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 9999,
+        }}>
+          <div style={{
+            backgroundColor: 'var(--bg-container, #fff)',
+            padding: 32,
+            borderRadius: 12,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 16,
+            boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)',
+            minWidth: 300,
+            maxWidth: 400,
+          }}>
+            <Spin size="large" />
+            <span style={{ fontSize: 16, color: 'var(--text-primary, #333)' }}>{submitLoadingText}</span>
+            {affectedAgents.length > 0 && (
+              <div style={{
+                marginTop: 8,
+                maxHeight: 150,
+                overflow: 'auto',
+                width: '100%',
+              }}>
+                <div style={{
+                  fontSize: 12,
+                  color: 'var(--text-secondary, #666)',
+                  marginBottom: 8,
+                }}>正在更新的角色：</div>
+                {affectedAgents.map(agent => (
+                  <div key={agent.id} style={{
+                    fontSize: 13,
+                    color: 'var(--text-primary, #333)',
+                    padding: '4px 8px',
+                    background: 'var(--bg-secondary, #f5f5f5)',
+                    borderRadius: 4,
+                    marginBottom: 4,
+                  }}>
+                    {agent.name}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
       <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <Title level={2} style={{ margin: 0 }}>Settings 管理</Title>

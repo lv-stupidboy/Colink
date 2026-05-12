@@ -145,6 +145,9 @@ const SkillLibrary: React.FC = () => {
   const [isAfterUpload, setIsAfterUpload] = useState(false);
   const directoryInputRef = useRef<HTMLInputElement>(null);
   const pendingZipBlobRef = useRef<Blob | null>(null); // 待上传的 zip blob
+  const [submitLoading, setSubmitLoading] = useState(false);
+  const [submitLoadingText, setSubmitLoadingText] = useState('');
+  const [affectedAgents, setAffectedAgents] = useState<{ id: string; name: string }[]>([]);
   const renderDirectoryUpload = () => (
     <>
       {/* 隐藏的目录选择 input */}
@@ -345,11 +348,32 @@ const SkillLibrary: React.FC = () => {
         message.success('创建成功');
       } else if (editingSkill?.id) {
         // 编辑现有记录
+        setSubmitLoading(true);
+        setSubmitLoadingText('正在更新Skill配置...');
+        setAffectedAgents([]);
+
+        const startTime = Date.now();
         const result = await api.skills.update(editingSkill.id, values);
+
+        // 设置受影响的角色列表
+        if (result.affectedAgents && result.affectedAgents.length > 0) {
+          setAffectedAgents(result.affectedAgents);
+          setSubmitLoadingText(`正在为 ${result.affectedCount} 个角色刷新配置...`);
+        }
+
+        // 确保 loading 效果至少显示 1500ms
+        const elapsed = Date.now() - startTime;
+        const remainingTime = Math.max(0, 1500 - elapsed);
+        await new Promise(resolve => setTimeout(resolve, remainingTime));
+
+        setSubmitLoading(false);
+        setSubmitLoadingText('');
+        setAffectedAgents([]);
+
         if (result.affectedCount && result.affectedCount > 0) {
-          message.success(`更新成功，正在为 ${result.affectedCount} 个关联角色自动更新配置...`);
+          message.success(`更新成功，已自动刷新 ${result.affectedCount} 个角色的配置`);
         } else {
-          message.success('更新成功');
+          message.success('更新成功，暂未被角色引用，无需更新配置');
         }
       } else if (sourceType === 'federated' && selectedRegistryId) {
         // 单选联邦导入：下载并创建 skill 文件
@@ -376,6 +400,8 @@ const SkillLibrary: React.FC = () => {
       loadSkills();
       loadTags();
     } catch (error: any) {
+      setSubmitLoading(false);
+      setSubmitLoadingText('');
       message.destroy('uploading');
       const errorMsg = error.message || error.response?.data?.error || '操作失败';
       message.error(errorMsg);
@@ -1048,6 +1074,63 @@ const SkillLibrary: React.FC = () => {
 
   return (
     <div style={{ padding: 12 }}>
+      {/* 全屏 loading overlay */}
+      {submitLoading && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.6)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 9999,
+        }}>
+          <div style={{
+            backgroundColor: 'var(--bg-container, #fff)',
+            padding: 32,
+            borderRadius: 12,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 16,
+            boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)',
+            minWidth: 300,
+            maxWidth: 400,
+          }}>
+            <Spin size="large" />
+            <span style={{ fontSize: 16, color: 'var(--text-primary, #333)' }}>{submitLoadingText}</span>
+            {affectedAgents.length > 0 && (
+              <div style={{
+                marginTop: 8,
+                maxHeight: 150,
+                overflow: 'auto',
+                width: '100%',
+              }}>
+                <div style={{
+                  fontSize: 12,
+                  color: 'var(--text-secondary, #666)',
+                  marginBottom: 8,
+                }}>正在更新的角色：</div>
+                {affectedAgents.map(agent => (
+                  <div key={agent.id} style={{
+                    fontSize: 13,
+                    color: 'var(--text-primary, #333)',
+                    padding: '4px 8px',
+                    background: 'var(--bg-secondary, #f5f5f5)',
+                    borderRadius: 4,
+                    marginBottom: 4,
+                  }}>
+                    {agent.name}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
       <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <Title level={2} style={{ margin: 0 }}>Skills管理</Title>

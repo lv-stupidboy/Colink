@@ -200,7 +200,19 @@ func (h *SkillHandler) GetBoundAgents(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, agents)
+	// 转换为简化格式
+	result := make([]gin.H, 0)
+	for _, agent := range agents {
+		result = append(result, gin.H{
+			"id":   agent.ID.String(),
+			"name": agent.Name,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"agents": result,
+		"count":  len(result),
+	})
 }
 
 // BindSkills 绑定Skills到Agent

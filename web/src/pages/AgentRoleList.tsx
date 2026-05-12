@@ -514,6 +514,7 @@ const AgentRoleList: React.FC = () => {
   const handleSubmit = async (values: Partial<AgentConfig>) => {
     setSubmitLoading(true);
     setSubmitLoadingText(editingConfig ? '正在更新角色配置...' : '正在创建角色配置...');
+    const startTime = Date.now();
     try {
       if (editingConfig) {
         // 更新时，只有当 mentionPatterns 有值时才传递
@@ -531,9 +532,11 @@ const AgentRoleList: React.FC = () => {
         await api.settings.bindToAgent(editingConfig.id, selectedSettingsIds);
         // 刷新配置（自动检测类型，只调用一次）
         await api.agents.refreshConfig(editingConfig.id);
-        // 确保 loading 效果至少显示 500ms
-        await new Promise(resolve => setTimeout(resolve, 500));
-        message.success('更新成功');
+        // 确保 loading 效果至少显示 1500ms
+        const elapsed = Date.now() - startTime;
+        const remainingTime = Math.max(0, 1500 - elapsed);
+        await new Promise(resolve => setTimeout(resolve, remainingTime));
+        message.success('更新成功，配置已自动生成');
         setSubmitLoading(false);
         setSubmitLoadingText('');
         setModalVisible(false);
@@ -571,9 +574,11 @@ const AgentRoleList: React.FC = () => {
         }
         // 刷新配置（自动检测类型，只调用一次）
         await api.agents.refreshConfig(newAgent.id);
-        // 确保 loading 效果至少显示 500ms
-        await new Promise(resolve => setTimeout(resolve, 500));
-        message.success('创建成功');
+        // 确保 loading 效果至少显示 1500ms
+        const elapsed = Date.now() - startTime;
+        const remainingTime = Math.max(0, 1500 - elapsed);
+        await new Promise(resolve => setTimeout(resolve, remainingTime));
+        message.success('创建成功，配置已自动生成');
         setSubmitLoading(false);
         setSubmitLoadingText('');
         setModalVisible(false);
