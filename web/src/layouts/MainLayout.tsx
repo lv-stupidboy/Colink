@@ -156,6 +156,23 @@ const MainLayout: React.FC = () => {
           ],
         },
         {
+          key: 'market',
+          icon: <ShopOutlined />,
+          label: '团队市场',
+          children: [
+            {
+              key: '/market/management',
+              icon: <ShopOutlined />,
+              label: '市场管理',
+            },
+            {
+              key: '/market/team-packages',
+              icon: <TeamOutlined />,
+              label: '团队包',
+            },
+          ],
+        },
+        {
           key: 'management-tools',
           icon: <ToolOutlined />,
           label: '管理工具',
@@ -169,23 +186,6 @@ const MainLayout: React.FC = () => {
               key: '/agents/asset-packages',
               icon: <ContainerOutlined />,
               label: '资产包',
-            },
-          ],
-        },
-        {
-          key: 'market',
-          icon: <ShopOutlined />,
-          label: '市场',
-          children: [
-            {
-              key: '/market/management',
-              icon: <ShopOutlined />,
-              label: '市场管理',
-            },
-            {
-              key: '/market/team-packages',
-              icon: <TeamOutlined />,
-              label: '团队包',
             },
           ],
         },
