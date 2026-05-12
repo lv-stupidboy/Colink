@@ -286,24 +286,28 @@ const BaseAgentSettings: React.FC = () => {
           <Form.Item shouldUpdate noStyle>
             {({ getFieldValue }) => {
               const agentType = getFieldValue('type');
-              if (agentType === 'open_code') {
+              // open_code, hermes, open_claw 使用 OpenAI 协议
+              const isOpenAIProtocol = agentType === 'open_code' || agentType === 'hermes' || agentType === 'open_claw';
+
+              if (isOpenAIProtocol) {
+                // Hermes 类型需要额外提示 Windows 环境
+                const hermesExtra = agentType === 'hermes'
+                  ? <Text type="secondary">需要配置 OpenAI 协议兼容的 API 地址。注意：Hermes 在 Windows 下依赖 WSL，建议使用 Linux 环境</Text>
+                  : <Text type="secondary">需要配置 OpenAI 协议兼容的 API 地址</Text>;
+
                 return (
                   <>
                     <Form.Item
                       name="apiUrl"
                       label="API URL"
-                      extra={
-                        <div>
-                          <Text type="secondary">需要配置 OpenAI 协议兼容的 API 地址</Text>
-                        </div>
-                      }
+                      extra={<div>{hermesExtra}</div>}
                     >
                       <Input placeholder="如: https://your-custom-api.com/v1" />
                     </Form.Item>
                     <Form.Item
                       name="apiToken"
                       label="API Token"
-                      extra="OpenCode API 令牌，用于身份认证"
+                      extra="API 令牌，用于身份认证"
                     >
                       <Input.Password placeholder="输入API令牌" />
                     </Form.Item>
