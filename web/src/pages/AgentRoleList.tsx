@@ -743,7 +743,7 @@ const AgentRoleList: React.FC = () => {
       width: 80,
       render: (_: unknown, record: AgentConfig) => (
         record.configGeneratedAt ? (
-          <Tooltip title={`路径: ${record.configPath}\n生成时间: ${new Date(record.configGeneratedAt).toLocaleDateString()}`}>
+          <Tooltip title={`路径: ${record.configPath}\n生成时间: ${new Date(record.configGeneratedAt).toLocaleString('zh-CN')}`}>
             <Tag color="green" style={{ margin: 0 }}>已生成</Tag>
           </Tooltip>
         ) : (
