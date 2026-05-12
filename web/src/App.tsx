@@ -3,6 +3,7 @@ import { ConfigProvider, App as AntApp, theme } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import MainLayout from '@/layouts/MainLayout';
+import FloatingRobot from '@/components/FloatingRobot';
 import ProjectList from '@/pages/ProjectList';
 import ProjectDetail from '@/pages/ProjectDetail';
 import ThreadView from '@/pages/ThreadView';
@@ -124,6 +125,8 @@ const App: React.FC = () => {
   return (
     <ConfigProvider locale={zhCN} theme={antdTheme}>
       <AntApp>
+        {/* 悬浮机器人快捷入口 */}
+        <FloatingRobot />
         <BrowserRouter>
           <Routes>
             <Route path="/" element={<MainLayout />}>

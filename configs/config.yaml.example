@@ -151,3 +151,13 @@ market:
   name: "Colink官方市场"
   url: "https://gitee.com/colink_1/colinkmarketplace.git"  # 官方市场Git仓库URL
   branch: "master"
+# 帮助入口配置
+help:
+  # 支撑群号，如 "12345678"
+  support_group: ""
+  # 官网链接
+  official_website: ""
+  # 指导文档链接
+  doc_link: ""
+  # 问题反馈API地址（可选）
+  feedback_api: ""

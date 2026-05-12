@@ -1,0 +1,271 @@
+/* FloatingRobot.css */
+
+/* 悬浮机器人容器 */
+.floating-robot {
+  position: fixed;
+  z-index: 9998;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  transition: transform 0.3s ease;
+}
+
+/* 右侧位置 */
+.floating-robot.right {
+  right: -40px;
+}
+
+.floating-robot.right:hover,
+.floating-robot.right.expanded {
+  right: -8px;
+}
+
+/* 左侧位置 */
+.floating-robot.left {
+  left: -40px;
+}
+
+.floating-robot.left:hover,
+.floating-robot.left.expanded {
+  left: -8px;
+}
+
+/* 机器人图标按钮 */
+.robot-btn {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-md);
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+.robot-btn:hover {
+  transform: scale(1.1);
+  box-shadow: 0 4px 16px var(--color-primary-opacity-30);
+}
+
+/* 呼吸动画 */
+.robot-btn::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  opacity: 0.3;
+  animation: robot-pulse 2s ease-in-out infinite;
+}
+
+@keyframes robot-pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.3;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 0.1;
+  }
+}
+
+/* 点击涟漪效果 */
+.robot-btn.rippling::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: white;
+  opacity: 0.5;
+  animation: robot-ripple 0.6s ease-out forwards;
+}
+
+@keyframes robot-ripple {
+  from {
+    transform: scale(0.8);
+    opacity: 0.5;
+  }
+  to {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+/* SVG图标样式 */
+.robot-icon {
+  width: 28px;
+  height: 28px;
+}
+
+/* 拖拽时的样式 */
+.floating-robot.dragging {
+  cursor: grabbing;
+  transition: none;
+}
+
+.floating-robot.dragging .robot-btn {
+  transform: scale(1.05);
+  box-shadow: 0 8px 24px var(--color-primary-opacity-40);
+}
+
+/* 展开面板 */
+.robot-panel {
+  position: absolute;
+  width: 280px;
+  background: var(--bg-container);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+  padding: 16px;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(10px);
+  transition: all 0.3s ease;
+}
+
+/* 右侧面板位置 */
+.floating-robot.right .robot-panel {
+  right: 56px;
+  top: 0;
+}
+
+/* 左侧面板位置 */
+.floating-robot.left .robot-panel {
+  left: 56px;
+  top: 0;
+}
+
+.floating-robot.expanded .robot-panel {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+/* 深色模式适配 */
+[data-theme='dark'] .robot-btn {
+  box-shadow: 0 4px 12px rgba(255, 255, 255, 0.1);
+}
+
+[data-theme='dark'] .robot-btn:hover {
+  box-shadow: 0 4px 16px rgba(255, 255, 255, 0.15);
+}
+
+[data-theme='dark'] .robot-panel {
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  border-color: var(--border-color);
+}
+
+/* 面板标题 */
+.panel-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 面板信息项 */
+.panel-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+  transition: background 0.2s ease;
+}
+
+.panel-item:hover {
+  background: var(--color-primary-opacity-10);
+}
+
+.panel-item-icon {
+  font-size: 18px;
+  color: var(--color-primary);
+}
+
+.panel-item-content {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.panel-item-label {
+  font-size: 14px;
+}
+
+.panel-item-value {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* 可点击的链接项 */
+.panel-item.clickable {
+  cursor: pointer;
+}
+
+.panel-item.clickable:hover {
+  background: var(--color-primary-opacity-15);
+}
+
+/* 分隔线 */
+.panel-divider {
+  height: 1px;
+  background: var(--border-color);
+  margin: 12px 0;
+}
+
+/* 反馈表单区域 */
+.feedback-section {
+  margin-top: 8px;
+}
+
+.feedback-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.feedback-type-select {
+  margin-bottom: 8px;
+}
+
+.feedback-textarea {
+  margin-bottom: 8px;
+}
+
+.feedback-submit-btn {
+  width: 100%;
+}
+
+/* 关闭按钮 */
+.panel-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  transition: all 0.2s ease;
+}
+
+.panel-close:hover {
+  background: var(--color-primary-opacity-10);
+  color: var(--color-primary);
+}

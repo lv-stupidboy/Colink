@@ -83,6 +83,8 @@ import type {
   SyncPreviewResult,
   SyncConfirmRequest,
   SyncConfirmResult,
+  HelpConfig,
+  FeedbackRequest,
 } from '@/types';
 import {
   transformProjects,
@@ -875,6 +877,14 @@ class APIClient {
       const response = await this.client.get('/system/version');
       return response.data;
     },
+  };
+
+  // Help API（帮助入口）
+  help = {
+    getConfig: (): Promise<HelpConfig> =>
+      this.request('/help/config', 'GET'),
+    submitFeedback: (data: FeedbackRequest): Promise<{ message: string }> =>
+      this.request('/help/feedback', 'POST', data),
   };
 
   // Governance API（治理规则热更新）

@@ -1449,3 +1449,17 @@ export interface SkippedSkillInfo {
   name: string;
   reason: string;
 }
+
+// HelpConfig 帮助入口配置
+export interface HelpConfig {
+  support_group: string;
+  official_website: string;
+  doc_link: string;
+  feedback_enabled: boolean;
+}
+
+// FeedbackRequest 问题反馈请求
+export interface FeedbackRequest {
+  type: string;
+  description: string;
+}

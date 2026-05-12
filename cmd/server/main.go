@@ -632,6 +632,15 @@ func main() {
 	marketHandler := api.NewMarketHandler(marketSvc, cfg, logger)
 	marketHandler.RegisterRoutes(v1)
 
+	// Help Handler
+	helpHandler := api.NewHelpHandler(
+		cfg.Help.SupportGroup,
+		cfg.Help.OfficialWebsite,
+		cfg.Help.DocLink,
+		cfg.Help.FeedbackAPI,
+	)
+	helpHandler.RegisterRoutes(v1)
+
 	// MCP Callback Handler
 	callbackHandler := api.NewCallbackHandler(invocationRegistry, mcpAuthService, messageService, messageRepo, wsHub, orchestrator, baseAgentRepo, invocationQueue, queueProcessor, mentionParser, humanTaskSvc, agentConfigRepo)
 	callbackHandler.RegisterRoutes(v1)

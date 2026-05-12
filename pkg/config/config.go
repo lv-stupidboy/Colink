@@ -32,6 +32,7 @@ type Config struct {
 	HumanTask      HumanTaskConfig      `mapstructure:"human_task"`
 	TeamPackageSync TeamPackageSyncConfig `mapstructure:"team_package_sync"`
 	Market         MarketDefaultConfig  `mapstructure:"market"`
+	Help           HelpConfig           `mapstructure:"help"`
 }
 
 // DataConfig 数据目录配置
@@ -371,6 +372,14 @@ type MarketDefaultConfig struct {
 	Name   string `mapstructure:"name"`   // 默认市场名称
 	URL    string `mapstructure:"url"`    // 默认市场Git仓库URL
 	Branch string `mapstructure:"branch"` // 默认分支
+}
+
+// HelpConfig 帮助入口配置
+type HelpConfig struct {
+	SupportGroup    string `mapstructure:"support_group"`    // 支撑群号
+	OfficialWebsite string `mapstructure:"official_website"` // 官网链接
+	DocLink         string `mapstructure:"doc_link"`         // 指导文档链接
+	FeedbackAPI     string `mapstructure:"feedback_api"`     // 问题反馈API地址
 }
 
 const (
