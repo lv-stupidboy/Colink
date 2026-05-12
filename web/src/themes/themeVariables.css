@@ -24,6 +24,7 @@
   --bg-base: #f0fdf4;
   --bg-container: #ffffff;
   --bg-elevated: #ffffff;
+  --bg-secondary: #f5f5f5;
   --bg-sidebar: #fafafa;
 
   /* 文本色 */
@@ -220,6 +221,7 @@
   --bg-base: #0f172a;
   --bg-container: #1e293b;
   --bg-elevated: #334155;
+  --bg-secondary: #334155;
   --bg-sidebar: #1e293b;
 
   --text-primary: #e2e8f0;
