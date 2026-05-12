@@ -389,13 +389,13 @@ const CommandList: React.FC = () => {
       title: '兼容 Agent',
       dataIndex: 'supportedAgents',
       key: 'supportedAgents',
-      width: 150,
+      width: 200,
       render: (supportedAgents: string[] | undefined) => {
         if (!supportedAgents || supportedAgents.length === 0) {
           return <Tag color="blue">默认</Tag>;
         }
         return (
-          <Space size="small">
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
             {supportedAgents.map(agent => {
               const typeInfo = agentTypes.find(t => t.type === agent);
               const color = getTypeColorByIndex(agentTypes, agent);
@@ -405,7 +405,7 @@ const CommandList: React.FC = () => {
                 </Tag>
               );
             })}
-          </Space>
+          </div>
         );
       },
     },

@@ -1282,16 +1282,20 @@ const SkillLibrary: React.FC = () => {
                 </div>
 
                 {/* Agent 区域 */}
-                <div style={{ height: 30, marginBottom: 4, overflow: 'hidden' }}>
-                  {skill.supportedAgents && skill.supportedAgents.length > 0 && skill.supportedAgents.map(agent => {
-                    const typeInfo = agentTypes.find(t => t.type === agent);
-                    const color = getTypeColorByIndex(agentTypes, agent);
-                    return (
-                      <Tag key={agent} color={color} style={{ fontSize: 11, margin: '0 4px 0 0' }}>
-                        {typeInfo?.name || agent}
-                      </Tag>
-                    );
-                  })}
+                <div style={{ minHeight: 30, marginBottom: 4, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                  {skill.supportedAgents && skill.supportedAgents.length > 0 ? (
+                    skill.supportedAgents.map(agent => {
+                      const typeInfo = agentTypes.find(t => t.type === agent);
+                      const color = getTypeColorByIndex(agentTypes, agent);
+                      return (
+                        <Tag key={agent} color={color} style={{ fontSize: 11 }}>
+                          {typeInfo?.name || agent}
+                        </Tag>
+                      );
+                    })
+                  ) : (
+                    <Tag color="blue" style={{ fontSize: 11 }}>默认</Tag>
+                  )}
                 </div>
 
                 <div style={{
