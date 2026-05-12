@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Button, Card, Modal, Form, Input, Select, InputNumber, message, Space, Tag, Typography, Tooltip, Collapse, Alert } from 'antd';
+import { Table, Button, Card, Modal, Form, Input, Select, InputNumber, message, Space, Tag, Typography, Tooltip, Collapse } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, ApiOutlined, RobotOutlined, StarOutlined, StarFilled, SettingOutlined } from '@ant-design/icons';
 import api from '@/api/client';
 import type { BaseAgent, BaseAgentType, BaseAgentTypeInfo } from '@/types';
@@ -279,13 +279,9 @@ const BaseAgentSettings: React.FC = () => {
               const agentType = getFieldValue('type');
               if (agentType === 'hermes') {
                 return (
-                  <Alert
-                    message="环境提示"
-                    description="Hermes 在 Windows 下依赖 WSL，建议使用 Linux 环境"
-                    type="warning"
-                    showIcon
-                    style={{ marginBottom: 16 }}
-                  />
+                  <Text type="warning" style={{ display: 'block', marginBottom: 8 }}>
+                    ⚠️ Hermes 在 Windows 下依赖 WSL，建议使用 Linux 环境
+                  </Text>
                 );
               }
               return null;
