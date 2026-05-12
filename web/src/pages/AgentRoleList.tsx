@@ -318,11 +318,11 @@ const AgentRoleList: React.FC = () => {
                 title: '基础Agent',
                 dataIndex: 'baseAgentId',
                 key: 'baseAgentId',
-                width: 100,
+                width: 140,
                 ellipsis: true,
                 render: (baseAgentId: string) => {
                   const agent = baseAgents.find(a => a.id === baseAgentId);
-                  return agent ? agent.name : '默认';
+                  return agent ? `${agent.name} (${agent.defaultModel})` : '默认';
                 },
               },
             ]}
@@ -1023,7 +1023,7 @@ const AgentRoleList: React.FC = () => {
                 const typeInfo = agentTypes.find(t => t.type === agent.type);
                 return (
                   <Select.Option key={agent.id} value={agent.id}>
-                    {agent.name} ({typeInfo?.name || agent.type})
+                    {agent.name} ({typeInfo?.name || agent.type} - {agent.defaultModel})
                   </Select.Option>
                 );
               })}
