@@ -22,8 +22,8 @@
 
 /* 机器人图标按钮 */
 .robot-btn {
-  width: 56px;
-  height: 56px;
+  width: 48px;
+  height: 48px;
   border-radius: 50%;
   background: var(--color-primary);
   color: white;
@@ -118,13 +118,13 @@
 
 /* 右侧面板位置 */
 .floating-robot.right .robot-panel {
-  right: 64px;
+  right: 56px;
   top: 0;
 }
 
 /* 左侧面板位置 */
 .floating-robot.left .robot-panel {
-  left: 64px;
+  left: 56px;
   top: 0;
 }
 
