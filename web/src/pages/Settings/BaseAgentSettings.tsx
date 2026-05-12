@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Button, Card, Modal, Form, Input, Select, InputNumber, message, Space, Tag, Typography, Tooltip, Collapse } from 'antd';
+import { Table, Button, Card, Modal, Form, Input, Select, InputNumber, message, Space, Tag, Typography, Tooltip, Collapse, Alert } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, ApiOutlined, RobotOutlined, StarOutlined, StarFilled, SettingOutlined } from '@ant-design/icons';
 import api from '@/api/client';
 import type { BaseAgent, BaseAgentType, BaseAgentTypeInfo } from '@/types';
@@ -273,13 +273,32 @@ const BaseAgentSettings: React.FC = () => {
             </Select>
           </Form.Item>
 
+          {/* Hermes 类型特殊提示 */}
+          <Form.Item shouldUpdate noStyle>
+            {({ getFieldValue }) => {
+              const agentType = getFieldValue('type');
+              if (agentType === 'hermes') {
+                return (
+                  <Alert
+                    message="环境提示"
+                    description="Hermes 在 Windows 下依赖 WSL，建议使用 Linux 环境"
+                    type="warning"
+                    showIcon
+                    style={{ marginBottom: 16 }}
+                  />
+                );
+              }
+              return null;
+            }}
+          </Form.Item>
+
           <Form.Item
             name="defaultModel"
             label="模型"
             rules={[{ required: true, message: '请输入模型' }]}
             extra="指定Agent使用的模型名称"
           >
-            <Input placeholder="如: claude-sonnet-4-20250514" />
+            <Input placeholder="如: glm-5" />
           </Form.Item>
 
           {/* API 配置区域 */}
@@ -290,17 +309,12 @@ const BaseAgentSettings: React.FC = () => {
               const isOpenAIProtocol = agentType === 'open_code' || agentType === 'hermes' || agentType === 'open_claw';
 
               if (isOpenAIProtocol) {
-                // Hermes 类型需要额外提示 Windows 环境
-                const hermesExtra = agentType === 'hermes'
-                  ? <Text type="secondary">需要配置 OpenAI 协议兼容的 API 地址。注意：Hermes 在 Windows 下依赖 WSL，建议使用 Linux 环境</Text>
-                  : <Text type="secondary">需要配置 OpenAI 协议兼容的 API 地址</Text>;
-
                 return (
                   <>
                     <Form.Item
                       name="apiUrl"
                       label="API URL"
-                      extra={<div>{hermesExtra}</div>}
+                      extra={<Text type="secondary">需要配置 OpenAI 协议兼容的 API 地址</Text>}
                     >
                       <Input placeholder="如: https://your-custom-api.com/v1" />
                     </Form.Item>
