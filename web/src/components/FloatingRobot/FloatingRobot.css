@@ -12,28 +12,18 @@
 
 /* 右侧位置 */
 .floating-robot.right {
-  right: -40px;
-}
-
-.floating-robot.right:hover,
-.floating-robot.right.expanded {
-  right: -8px;
+  right: 16px;
 }
 
 /* 左侧位置 */
 .floating-robot.left {
-  left: -40px;
-}
-
-.floating-robot.left:hover,
-.floating-robot.left.expanded {
-  left: -8px;
+  left: 16px;
 }
 
 /* 机器人图标按钮 */
 .robot-btn {
-  width: 48px;
-  height: 48px;
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
   background: var(--color-primary);
   color: white;
@@ -96,8 +86,8 @@
 
 /* SVG图标样式 */
 .robot-icon {
-  width: 28px;
-  height: 28px;
+  width: 36px;
+  height: 36px;
 }
 
 /* 拖拽时的样式 */
@@ -128,13 +118,13 @@
 
 /* 右侧面板位置 */
 .floating-robot.right .robot-panel {
-  right: 56px;
+  right: 64px;
   top: 0;
 }
 
 /* 左侧面板位置 */
 .floating-robot.left .robot-panel {
-  left: 56px;
+  left: 64px;
   top: 0;
 }
 
