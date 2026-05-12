@@ -168,10 +168,7 @@ const FloatingRobot: React.FC = () => {
     return null;
   }
 
-  // 如果所有配置都为空，不显示
-  if (!helpConfig?.support_group && !helpConfig?.official_website && !helpConfig?.doc_link && !helpConfig?.feedback_enabled) {
-    return null;
-  }
+  // 即使配置为空也显示图标，面板中提示暂未配置
 
   return (
     <div
@@ -240,6 +237,13 @@ const FloatingRobot: React.FC = () => {
             <div className="panel-item-content">
               <span className="panel-item-label">指导文档</span>
             </div>
+          </div>
+        )}
+
+        {/* 空状态提示 */}
+        {!helpConfig?.support_group && !helpConfig?.official_website && !helpConfig?.doc_link && !helpConfig?.feedback_enabled && (
+          <div className="panel-empty">
+            <span className="panel-empty-text">暂未配置帮助信息</span>
           </div>
         )}
 

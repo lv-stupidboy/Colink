@@ -247,6 +247,17 @@
   width: 100%;
 }
 
+/* 空状态提示 */
+.panel-empty {
+  padding: 16px;
+  text-align: center;
+}
+
+.panel-empty-text {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
 /* 关闭按钮 */
 .panel-close {
   position: absolute;
