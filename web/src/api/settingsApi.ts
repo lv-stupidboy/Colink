@@ -4,7 +4,10 @@ import type {
   Settings,
   SettingsListQuery,
   SettingsListResponse,
+  SettingsUpdateResponse,
+  UpdateSettingsRequest,
   AgentSettingsResponse,
+  AssetAgentsResponse,
 } from '@/types';
 
 // Settings API - 使用 api client 的 settings 方法
@@ -25,6 +28,10 @@ export const settingsApi = {
   delete: (id: string): Promise<void> =>
     api.settings.delete(id),
 
+  // 更新Settings
+  update: (id: string, data: UpdateSettingsRequest): Promise<SettingsUpdateResponse> =>
+    api.settings.update(id, data),
+
   // 绑定Settings到Agent角色
   bindToAgent: (agentId: string, settingsIds: string[]): Promise<void> =>
     api.settings.bindToAgent(agentId, settingsIds),
@@ -38,7 +45,7 @@ export const settingsApi = {
     api.settings.getAgentSettings(agentId),
 
   // 获取Settings绑定的Agents
-  getBoundAgents: (id: string): Promise<any[]> =>
+  getBoundAgents: (id: string): Promise<AssetAgentsResponse> =>
     api.settings.getBoundAgents(id),
 
   // 读取Settings目录内容

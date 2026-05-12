@@ -1105,6 +1105,18 @@ export interface SettingsListResponse {
   pageSize: number;
 }
 
+// 更新Settings请求
+export interface UpdateSettingsRequest {
+  description?: string;
+  supportedAgents?: string[]; // 支持的Agent类型
+}
+
+// Settings 更新响应（包含受影响的角色信息）
+export interface SettingsUpdateResponse extends Settings {
+  affectedAgents?: { id: string; name: string }[];
+  affectedCount?: number;
+}
+
 // 绑定Settings请求
 export interface BindSettingsRequest {
   settingsIds: string[];

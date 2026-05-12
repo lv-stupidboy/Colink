@@ -3,6 +3,7 @@ package api
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/anthropic/isdp/internal/model"
+	"github.com/anthropic/isdp/internal/repo"
 	"github.com/anthropic/isdp/internal/service/configgen"
 	"github.com/anthropic/isdp/internal/service/settings"
 	"github.com/gin-gonic/gin"
@@ -21,14 +23,16 @@ type SettingsHandler struct {
 	svc           *settings.Service
 	storagePath   string
 	autoGenerator *configgen.AutoGenerator // 自动配置生成器
+	agentRepo     *repo.AgentConfigRepository // 用于获取关联角色信息
 }
 
 // NewSettingsHandler 创建SettingsHandler
-func NewSettingsHandler(svc *settings.Service, storagePath string, autoGenerator *configgen.AutoGenerator) *SettingsHandler {
+func NewSettingsHandler(svc *settings.Service, storagePath string, autoGenerator *configgen.AutoGenerator, agentRepo *repo.AgentConfigRepository) *SettingsHandler {
 	return &SettingsHandler{
 		svc:           svc,
 		storagePath:   storagePath,
 		autoGenerator: autoGenerator,
+		agentRepo:     agentRepo,
 	}
 }
 
@@ -195,6 +199,61 @@ func (h *SettingsHandler) Delete(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+// Update 更新Settings
+func (h *SettingsHandler) Update(c *gin.Context) {
+	id, err := uuid.Parse(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+
+	var req model.UpdateSettingsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	settingsRecord, err := h.svc.Update(c.Request.Context(), id, &req)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 获取受影响的Agent角色列表
+	var affectedAgents []gin.H
+	var affectedCount int
+	if h.autoGenerator != nil {
+		affectedIDs, err := h.autoGenerator.GetAffectedAgentsBySettings(c.Request.Context(), id)
+		if err == nil && len(affectedIDs) > 0 {
+			affectedCount = len(affectedIDs)
+			for _, agentID := range affectedIDs {
+				agent, err := h.agentRepo.FindByID(c.Request.Context(), agentID)
+				if err == nil {
+					affectedAgents = append(affectedAgents, gin.H{
+						"id":   agent.ID.String(),
+						"name": agent.Name,
+					})
+				}
+			}
+			// 批量生成配置（后台执行）
+			go func() {
+				ctx := context.Background()
+				h.autoGenerator.GenerateMultiple(ctx, affectedIDs)
+			}()
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"id":              settingsRecord.ID,
+		"name":            settingsRecord.Name,
+		"description":     settingsRecord.Description,
+		"supportedAgents": settingsRecord.SupportedAgents,
+		"updatedAt":       settingsRecord.UpdatedAt,
+		"affectedAgents":  affectedAgents,
+		"affectedCount":   affectedCount,
+	})
+}
+
 // BindToAgent 绑定Settings到Agent角色
 func (h *SettingsHandler) BindToAgent(c *gin.Context) {
 	agentRoleID, err := uuid.Parse(c.Param("agentId"))
@@ -277,7 +336,19 @@ func (h *SettingsHandler) GetBoundAgents(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, agents)
+	// 转换为简化格式
+	result := make([]gin.H, 0)
+	for _, agent := range agents {
+		result = append(result, gin.H{
+			"id":   agent.ID.String(),
+			"name": agent.Name,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"agents": result,
+		"count":  len(result),
+	})
 }
 
 // ReadDirectory 读取Settings目录内容
@@ -344,6 +415,7 @@ func (h *SettingsHandler) RegisterRoutes(r *gin.RouterGroup) {
 		settingsGroup.GET("", h.List)
 		settingsGroup.POST("", h.Create)
 		settingsGroup.GET("/:id", h.GetByID)
+		settingsGroup.PUT("/:id", h.Update)
 		settingsGroup.DELETE("/:id", h.Delete)
 		settingsGroup.GET("/:id/agents", h.GetBoundAgents)
 		settingsGroup.GET("/:id/directory", h.ReadDirectory)

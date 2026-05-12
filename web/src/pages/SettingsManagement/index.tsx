@@ -6,15 +6,16 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import {
   PlusOutlined,
-  EyeOutlined,
   DeleteOutlined,
   FolderOpenOutlined,
+  TeamOutlined,
+  EditOutlined,
 } from '@ant-design/icons';
 import JSZip from 'jszip';
 import settingsApi from '@/api/settingsApi';
 import api from '@/api/client';
 import { getTypeColorByIndex } from '@/config/agentTypeColors';
-import type { Settings, BaseAgentTypeInfo } from '@/types';
+import type { Settings, BaseAgentTypeInfo, AssetAgentsResponse, SettingsUpdateResponse } from '@/types';
 
 const { Title, Text } = Typography;
 
@@ -81,6 +82,9 @@ const SettingsManagement: React.FC = () => {
   const [pageSize, setPageSize] = useState(10);
   const [searchText, setSearchText] = useState('');
   const [modalVisible, setModalVisible] = useState(false);
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editingSettings, setEditingSettings] = useState<Settings | null>(null);
+  const [editForm] = Form.useForm();
   const [form] = Form.useForm();
   const directoryInputRef = useRef<HTMLInputElement>(null);
   const pendingZipBlobRef = useRef<Blob | null>(null);
@@ -243,6 +247,74 @@ const SettingsManagement: React.FC = () => {
     }
   };
 
+  // 查看引用的角色
+  const handleViewRefs = async (settings: Settings) => {
+    try {
+      const result: AssetAgentsResponse = await api.settings.getBoundAgents(settings.id);
+      if (result.agents && result.agents.length > 0) {
+        Modal.info({
+          title: '角色引用',
+          width: 500,
+          content: (
+            <div>
+              <p>该 Settings 被以下 <strong>{result.count}</strong> 个角色引用：</p>
+              <ul style={{ marginTop: 8, paddingLeft: 20 }}>
+                {result.agents.map((agent: { id: string; name: string }) => (
+                  <li key={agent.id}>{agent.name}</li>
+                ))}
+              </ul>
+            </div>
+          ),
+        });
+      } else {
+        Modal.info({
+          title: '角色引用',
+          content: <p>该 Settings 暂未被任何角色引用</p>,
+        });
+      }
+    } catch (error) {
+      message.error('查询引用失败');
+    }
+  };
+
+  // 编辑Settings
+  const handleEdit = (record: Settings) => {
+    setEditingSettings(record);
+    editForm.setFieldsValue({
+      description: record.description,
+      supportedAgents: record.supportedAgents || [],
+    });
+    setEditModalVisible(true);
+  };
+
+  // 提交编辑
+  const handleEditSubmit = async (values: any) => {
+    if (!editingSettings) return;
+
+    try {
+      const result: SettingsUpdateResponse = await api.settings.update(editingSettings.id, {
+        description: values.description,
+        supportedAgents: values.supportedAgents,
+      });
+
+      if (result.affectedCount && result.affectedCount > 0) {
+        message.success(`更新成功，已自动刷新 ${result.affectedCount} 个角色的配置`);
+      } else {
+        message.success('更新成功');
+      }
+
+      setEditModalVisible(false);
+      loadSettings();
+    } catch (error: any) {
+      const errorData = error.response?.data;
+      if (errorData?.error) {
+        message.error(errorData.error);
+      } else {
+        message.error('更新失败');
+      }
+    }
+  };
+
   // 表格列定义
   const columns: ColumnsType<Settings> = [
     {
@@ -297,13 +369,19 @@ const SettingsManagement: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      width: 120,
+      width: 180,
       render: (_, record) => (
         <Space>
-          <Tooltip title="查看详情">
-            <EyeOutlined
-              style={{ fontSize: 16, cursor: 'pointer' }}
-              onClick={() => message.info('详情功能开发中')}
+          <Tooltip title="查看引用的角色">
+            <TeamOutlined
+              style={{ fontSize: 16, cursor: 'pointer', color: 'var(--ant-color-primary)' }}
+              onClick={() => handleViewRefs(record)}
+            />
+          </Tooltip>
+          <Tooltip title="编辑">
+            <EditOutlined
+              style={{ fontSize: 16, cursor: 'pointer', color: 'var(--ant-color-primary)' }}
+              onClick={() => handleEdit(record)}
             />
           </Tooltip>
           <Popconfirm
@@ -448,7 +526,41 @@ const SettingsManagement: React.FC = () => {
               mode="multiple"
               placeholder="选择支持的 Agent 类型"
               style={{ width: '100%' }}
-              options={agentTypes.map(t => ({ label: t.name, value: t.type, color: t.color }))}
+              options={agentTypes.map(t => ({ label: t.name, value: t.type }))}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 编辑Settings弹窗 */}
+      <Modal
+        title={`编辑 Settings: ${editingSettings?.name}`}
+        open={editModalVisible}
+        onOk={() => editForm.submit()}
+        onCancel={() => setEditModalVisible(false)}
+        width={600}
+        okText="保存"
+      >
+        <Form
+          form={editForm}
+          layout="vertical"
+          onFinish={handleEditSubmit}
+        >
+          <Form.Item name="description" label="描述">
+            <Input.TextArea rows={3} placeholder="配置描述（可选）" />
+          </Form.Item>
+
+          <Form.Item
+            label="兼容 Agent 类型"
+            name="supportedAgents"
+            extra="选择此 Settings 支持的 Agent 类型"
+            rules={[{ required: true, message: '请至少选择一种 Agent 类型' }]}
+          >
+            <Select
+              mode="multiple"
+              placeholder="选择支持的 Agent 类型"
+              style={{ width: '100%' }}
+              options={agentTypes.map(t => ({ label: t.name, value: t.type }))}
             />
           </Form.Item>
         </Form>

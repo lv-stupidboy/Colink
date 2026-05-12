@@ -57,6 +57,8 @@ import type {
   ExportAssetPackageRequest,
   ImportResult,
   Settings,
+  SettingsUpdateResponse,
+  UpdateSettingsRequest,
   SettingsListQuery,
   SettingsListResponse,
   AgentSettingsResponse,
@@ -838,7 +840,9 @@ class APIClient {
     },
     delete: (id: string): Promise<void> =>
       this.request(`/settings/${id}`, 'DELETE'),
-    getBoundAgents: (id: string): Promise<AgentConfig[]> =>
+    update: (id: string, data: UpdateSettingsRequest): Promise<SettingsUpdateResponse> =>
+      this.request(`/settings/${id}`, 'PUT', data),
+    getBoundAgents: (id: string): Promise<AssetAgentsResponse> =>
       this.request(`/settings/${id}/agents`, 'GET'),
     readDirectory: (id: string, subPath?: string): Promise<any> => {
       const url = subPath

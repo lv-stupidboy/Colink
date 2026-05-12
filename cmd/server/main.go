@@ -613,7 +613,7 @@ func main() {
 	ruleHandler.RegisterRoutes(v1)
 
 	// Settings Handler
-	settingsHandler := api.NewSettingsHandler(settingsSvc, cfg.GetSettingsStoragePath(), autoGenerator)
+	settingsHandler := api.NewSettingsHandler(settingsSvc, cfg.GetSettingsStoragePath(), autoGenerator, agentConfigRepo)
 	settingsHandler.RegisterRoutes(v1)
 
 	// AssetPackage Handler
