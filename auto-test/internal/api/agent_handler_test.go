@@ -51,6 +51,7 @@ func setupTestHandler(t *testing.T) (*gin.Engine, *agent.ConfigService) {
 		nil, // debugThreadMgr
 		workflowRepo,
 		nil, // configGenService
+		nil, // autoGenerator
 		nil, // binding repos - 不需要用于基础测试
 		nil,
 		nil,
