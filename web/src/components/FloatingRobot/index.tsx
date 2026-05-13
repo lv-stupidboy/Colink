@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Select, Input, Button, message } from 'antd';
+import { Select, Input, Button, message, Image } from 'antd';
 import {
   WechatOutlined,
   GlobalOutlined,
@@ -397,21 +397,33 @@ const FloatingRobot: React.FC = () => {
           {feedbackImages.length > 0 && (
             <div className="feedback-images-section">
               <div className="feedback-images-label">
-                图片附件 ({feedbackImages.length}/5)
+                图片附件 ({feedbackImages.length}/5) - 点击查看大图
               </div>
               <div className="feedback-images-preview">
-                {feedbackImages.map(img => (
-                  <div key={img.id} className="feedback-image-item">
-                    <img src={img.dataUrl} alt={img.name} className="feedback-image-thumb" />
-                    <button
-                      className="feedback-image-remove"
-                      onClick={() => handleRemoveImage(img.id)}
-                      title="删除图片"
-                    >
-                      <DeleteOutlined />
-                    </button>
-                  </div>
-                ))}
+                <Image.PreviewGroup>
+                  {feedbackImages.map(img => (
+                    <div key={img.id} className="feedback-image-item">
+                      <Image
+                        src={img.dataUrl}
+                        alt={img.name}
+                        className="feedback-image-thumb"
+                        width={60}
+                        height={60}
+                        style={{ objectFit: 'cover', borderRadius: 8 }}
+                      />
+                      <button
+                        className="feedback-image-remove"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRemoveImage(img.id);
+                        }}
+                        title="删除图片"
+                      >
+                        <DeleteOutlined />
+                      </button>
+                    </div>
+                  ))}
+                </Image.PreviewGroup>
               </div>
             </div>
           )}
