@@ -103,7 +103,6 @@
 /* 拖拽指示器 */
 .drag-indicator {
   position: fixed;
-  top: 50%;
   transform: translateY(-50%);
   display: flex;
   align-items: center;

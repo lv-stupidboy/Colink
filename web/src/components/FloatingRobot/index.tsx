@@ -58,6 +58,8 @@ const FloatingRobot: React.FC = () => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [dragState, setDragState] = useState<DragState | null>(null);
+  const [dragStartPos, setDragStartPos] = useState<{ x: number; y: number } | null>(null);
+  const DRAG_THRESHOLD = 5; // 拖拽阈值，超过此距离才算拖拽
   const [helpConfig, setHelpConfig] = useState<HelpConfig | null>(null);
   const [loading, setLoading] = useState(false);
   const [feedbackType, setFeedbackType] = useState('功能问题');
@@ -146,50 +148,66 @@ const FloatingRobot: React.FC = () => {
   // 拖拽处理
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (isExpanded) return;
-    e.preventDefault();
-    e.stopPropagation();
 
-    const centerX = window.innerWidth / 2;
-    const targetSide = e.clientX < centerX ? 'left' : 'right';
-
-    setIsDragging(true);
-    setDragState({
-      x: e.clientX,
-      y: e.clientY,
-      targetSide,
-    });
+    // 记录起始位置，但不立即开始拖拽
+    setDragStartPos({ x: e.clientX, y: e.clientY });
   }, [isExpanded]);
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
-    if (!isDragging || !dragState) return;
+    // 如果没有起始位置，不处理
+    if (!dragStartPos) return;
 
-    const centerX = window.innerWidth / 2;
-    const targetSide = e.clientX < centerX ? 'left' : 'right';
+    // 计算移动距离
+    const deltaX = e.clientX - dragStartPos.x;
+    const deltaY = e.clientY - dragStartPos.y;
+    const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
 
-    setDragState({
-      x: e.clientX,
-      y: e.clientY,
-      targetSide,
-    });
-  }, [isDragging, dragState]);
+    // 只有超过阈值才触发拖拽
+    if (!isDragging && distance > DRAG_THRESHOLD) {
+      setIsDragging(true);
+      const centerX = window.innerWidth / 2;
+      const targetSide = e.clientX < centerX ? 'left' : 'right';
+      setDragState({
+        x: e.clientX,
+        y: e.clientY,
+        targetSide,
+      });
+    }
+
+    // 如果正在拖拽，更新位置
+    if (isDragging && dragState) {
+      const centerX = window.innerWidth / 2;
+      const targetSide = e.clientX < centerX ? 'left' : 'right';
+      setDragState({
+        x: e.clientX,
+        y: e.clientY,
+        targetSide,
+      });
+    }
+  }, [dragStartPos, isDragging, dragState]);
 
   const handleMouseUp = useCallback(() => {
-    if (!isDragging || !dragState) return;
+    // 如果正在拖拽，完成拖拽
+    if (isDragging && dragState) {
+      const centerX = window.innerWidth / 2;
+      const newSide = dragState.x < centerX ? 'left' : 'right';
+      const newTop = Math.max(50, Math.min(window.innerHeight - 100, dragState.y));
 
-    const centerX = window.innerWidth / 2;
-    const newSide = dragState.x < centerX ? 'left' : 'right';
-    const newTop = Math.max(50, Math.min(window.innerHeight - 100, dragState.y));
+      setPosition({ side: newSide, top: newTop });
+      setIsDragging(false);
+      setDragState(null);
+      setDragStartPos(null);
 
-    setPosition({ side: newSide, top: newTop });
-    setIsDragging(false);
-    setDragState(null);
-
-    localStorage.setItem('floating-robot-position', JSON.stringify({ side: newSide, top: newTop }));
+      localStorage.setItem('floating-robot-position', JSON.stringify({ side: newSide, top: newTop }));
+    } else {
+      // 清除起始位置（没有触发拖拽，是点击）
+      setDragStartPos(null);
+    }
   }, [isDragging, dragState]);
 
   // 全局拖拽事件
   useEffect(() => {
-    if (isDragging) {
+    if (dragStartPos) {
       window.addEventListener('mousemove', handleMouseMove);
       window.addEventListener('mouseup', handleMouseUp);
       return () => {
@@ -197,10 +215,11 @@ const FloatingRobot: React.FC = () => {
         window.removeEventListener('mouseup', handleMouseUp);
       };
     }
-  }, [isDragging, handleMouseMove, handleMouseUp]);
+  }, [dragStartPos, handleMouseMove, handleMouseUp]);
 
   // 点击展开/收起
   const handleClick = useCallback(() => {
+    // 如果正在拖拽，不触发点击
     if (isDragging) return;
     setIsExpanded(!isExpanded);
     setShowFeedbackPanel(false);
@@ -302,17 +321,20 @@ const FloatingRobot: React.FC = () => {
     <>
       {/* 拖拽时的附着位置指示 */}
       {isDragging && dragState && (
-        <div className={`drag-indicator ${dragState.targetSide}`}>
+        <div
+          className={`drag-indicator ${dragState.targetSide}`}
+          style={{ top: dragState.y }}
+        >
           {dragState.targetSide === 'left' ? <LeftOutlined /> : <RightOutlined />}
           <span className="drag-indicator-text">
-            松手后将附着到{dragState.targetSide === 'left' ? '左侧' : '右侧'}
+            放开后将附着到{dragState.targetSide === 'left' ? '左侧' : '右侧'}
           </span>
         </div>
       )}
 
       <div
         ref={containerRef}
-        className={`floating-robot ${isDragging ? 'dragging' : ''} ${isExpanded && !isDragging ? 'expanded' : ''} ${panelUpward && !isDragging ? 'panel-upward' : ''}`}
+        className={`floating-robot ${isDragging ? 'dragging' : position.side} ${isExpanded && !isDragging ? 'expanded' : ''} ${panelUpward && !isDragging ? 'panel-upward' : ''}`}
         style={getDisplayStyle()}
         onMouseDown={handleMouseDown}
         onClick={handleClick}
