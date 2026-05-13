@@ -57,6 +57,7 @@ const FloatingRobot: React.FC = () => {
 
   const [isExpanded, setIsExpanded] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [justDragged, setJustDragged] = useState(false);
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [dragStartPos, setDragStartPos] = useState<{ x: number; y: number } | null>(null);
   const DRAG_THRESHOLD = 5; // 拖拽阈值，超过此距离才算拖拽
@@ -197,8 +198,12 @@ const FloatingRobot: React.FC = () => {
       setIsDragging(false);
       setDragState(null);
       setDragStartPos(null);
+      setJustDragged(true); // 标记刚完成拖拽
 
       localStorage.setItem('floating-robot-position', JSON.stringify({ side: newSide, top: newTop }));
+
+      // 短暂延迟后重置标志，避免触发点击
+      setTimeout(() => setJustDragged(false), 50);
     } else {
       // 清除起始位置（没有触发拖拽，是点击）
       setDragStartPos(null);
@@ -219,11 +224,11 @@ const FloatingRobot: React.FC = () => {
 
   // 点击展开/收起
   const handleClick = useCallback(() => {
-    // 如果正在拖拽，不触发点击
-    if (isDragging) return;
+    // 如果正在拖拽或刚完成拖拽，不触发点击
+    if (isDragging || justDragged) return;
     setIsExpanded(!isExpanded);
     setShowFeedbackPanel(false);
-  }, [isDragging, isExpanded]);
+  }, [isDragging, justDragged, isExpanded]);
 
   // 关闭面板
   const handleClose = useCallback(() => {
