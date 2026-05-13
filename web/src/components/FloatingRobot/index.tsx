@@ -6,6 +6,7 @@ import {
   BookOutlined,
   CloseOutlined,
   SendOutlined,
+  MessageOutlined,
 } from '@ant-design/icons';
 import api from '@/api/client';
 import type { HelpConfig } from '@/types';
@@ -13,10 +14,13 @@ import './FloatingRobot.css';
 
 // 反馈类型选项
 const feedbackTypes = [
-  { label: '功能问题', value: '功能问题' },
-  { label: '体验问题', value: '体验问题' },
-  { label: '建议反馈', value: '建议反馈' },
-  { label: '其他', value: '其他' },
+  { label: '功能问题 - 功能异常或无法使用', value: '功能问题' },
+  { label: '体验问题 - 操作不便或界面问题', value: '体验问题' },
+  { label: '性能问题 - 响应慢或卡顿', value: '性能问题' },
+  { label: '安全问题 - 安全漏洞或风险', value: '安全问题' },
+  { label: '数据问题 - 数据错误或丢失', value: '数据问题' },
+  { label: '建议反馈 - 功能建议或改进想法', value: '建议反馈' },
+  { label: '其他 - 其他类型的问题', value: '其他' },
 ];
 
 interface Position {
@@ -47,6 +51,7 @@ const FloatingRobot: React.FC = () => {
   const [feedbackType, setFeedbackType] = useState('功能问题');
   const [feedbackDesc, setFeedbackDesc] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [showFeedbackPanel, setShowFeedbackPanel] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -111,11 +116,13 @@ const FloatingRobot: React.FC = () => {
   const handleClick = useCallback(() => {
     if (isDragging) return;
     setIsExpanded(!isExpanded);
+    setShowFeedbackPanel(false);
   }, [isDragging, isExpanded]);
 
   // 关闭面板
   const handleClose = useCallback(() => {
     setIsExpanded(false);
+    setShowFeedbackPanel(false);
   }, []);
 
   // 复制群号
@@ -140,6 +147,17 @@ const FloatingRobot: React.FC = () => {
     }
   }, [helpConfig]);
 
+  // 打开反馈面板
+  const handleOpenFeedback = useCallback(() => {
+    setShowFeedbackPanel(true);
+  }, []);
+
+  // 关闭反馈面板
+  const handleCloseFeedback = useCallback(() => {
+    setShowFeedbackPanel(false);
+    setFeedbackDesc('');
+  }, []);
+
   // 提交反馈
   const handleSubmitFeedback = useCallback(async () => {
     if (!feedbackDesc.trim()) {
@@ -155,6 +173,7 @@ const FloatingRobot: React.FC = () => {
       });
       message.success('反馈已提交，感谢您的反馈！');
       setFeedbackDesc('');
+      setShowFeedbackPanel(false);
       setIsExpanded(false);
     } catch (err: any) {
       const errorMsg = err.response?.data?.error || '提交失败';
@@ -163,6 +182,20 @@ const FloatingRobot: React.FC = () => {
       setSubmitting(false);
     }
   }, [feedbackType, feedbackDesc]);
+
+  // 计算反馈面板位置（避免遮挡）
+  const getFeedbackPanelPosition = useCallback(() => {
+    const panelHeight = 320; // 反馈面板预估高度
+    const windowHeight = window.innerHeight;
+    const robotTop = position.top;
+    const robotHeight = 48;
+
+    // 如果机器人位置偏下方，面板显示在上方
+    if (robotTop + robotHeight + panelHeight > windowHeight - 20) {
+      return { top: 'auto', bottom: 0 };
+    }
+    return { top: 0, bottom: 'auto' };
+  }, [position.top]);
 
   if (loading && !helpConfig) {
     return null;
@@ -240,47 +273,78 @@ const FloatingRobot: React.FC = () => {
           </div>
         )}
 
+        {helpConfig?.feedbackEnabled && (
+          <div className="panel-item clickable" onClick={handleOpenFeedback}>
+            <MessageOutlined className="panel-item-icon" />
+            <div className="panel-item-content">
+              <span className="panel-item-label">问题反馈</span>
+            </div>
+          </div>
+        )}
+
         {/* 空状态提示 */}
         {!helpConfig?.supportGroup && !helpConfig?.officialWebsite && !helpConfig?.docLink && !helpConfig?.feedbackEnabled && (
           <div className="panel-empty">
             <span className="panel-empty-text">暂未配置帮助信息</span>
           </div>
         )}
-
-        {/* 反馈表单 */}
-        {helpConfig?.feedbackEnabled && (
-          <>
-            <div className="panel-divider" />
-            <div className="feedback-section">
-              <div className="feedback-title">问题反馈</div>
-              <Select
-                className="feedback-type-select"
-                value={feedbackType}
-                onChange={setFeedbackType}
-                options={feedbackTypes}
-                style={{ width: '100%' }}
-              />
-              <Input.TextArea
-                className="feedback-textarea"
-                placeholder="请描述您遇到的问题..."
-                value={feedbackDesc}
-                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setFeedbackDesc(e.target.value)}
-                rows={3}
-                maxLength={500}
-              />
-              <Button
-                className="feedback-submit-btn"
-                type="primary"
-                icon={<SendOutlined />}
-                onClick={handleSubmitFeedback}
-                loading={submitting}
-              >
-                提交反馈
-              </Button>
-            </div>
-          </>
-        )}
       </div>
+
+      {/* 反馈表单面板 */}
+      {showFeedbackPanel && (
+        <div
+          className={`feedback-panel ${position.side === 'left' ? 'feedback-panel-right' : 'feedback-panel-left'}`}
+          style={getFeedbackPanelPosition()}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* 关闭按钮 */}
+          <button className="panel-close" onClick={handleCloseFeedback}>
+            <CloseOutlined />
+          </button>
+
+          {/* 标题 */}
+          <div className="panel-title">
+            <span>提交反馈</span>
+          </div>
+
+          {/* 反馈类型 */}
+          <div className="feedback-form-section">
+            <div className="feedback-form-label">问题类型</div>
+            <Select
+              className="feedback-type-select"
+              value={feedbackType}
+              onChange={setFeedbackType}
+              options={feedbackTypes}
+              style={{ width: '100%' }}
+            />
+          </div>
+
+          {/* 问题描述 */}
+          <div className="feedback-form-section">
+            <div className="feedback-form-label">问题描述</div>
+            <Input.TextArea
+              className="feedback-textarea"
+              placeholder="请详细描述您遇到的问题或建议..."
+              value={feedbackDesc}
+              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setFeedbackDesc(e.target.value)}
+              rows={5}
+              maxLength={1000}
+              showCount
+            />
+          </div>
+
+          {/* 提交按钮 */}
+          <Button
+            className="feedback-submit-btn"
+            type="primary"
+            icon={<SendOutlined />}
+            onClick={handleSubmitFeedback}
+            loading={submitting}
+          >
+            提交反馈
+          </Button>
+        </div>
+      )}
     </div>
   );
 };

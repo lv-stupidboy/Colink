@@ -134,6 +134,28 @@
   transform: translateY(0);
 }
 
+/* 反馈面板 */
+.feedback-panel {
+  position: absolute;
+  width: 340px;
+  background: var(--bg-container);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+  padding: 16px;
+  z-index: 9999;
+}
+
+/* 反馈面板在机器人右侧时，显示在左侧 */
+.feedback-panel-left {
+  right: 340px;
+}
+
+/* 反馈面板在机器人左侧时，显示在右侧 */
+.feedback-panel-right {
+  left: 340px;
+}
+
 /* 深色模式适配 */
 [data-theme='dark'] .robot-btn {
   box-shadow: 0 4px 12px rgba(255, 255, 255, 0.1);
@@ -143,7 +165,8 @@
   box-shadow: 0 4px 16px rgba(255, 255, 255, 0.15);
 }
 
-[data-theme='dark'] .robot-panel {
+[data-theme='dark'] .robot-panel,
+[data-theme='dark'] .feedback-panel {
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
   border-color: var(--border-color);
 }
@@ -206,35 +229,29 @@
   background: var(--color-primary-opacity-15);
 }
 
-/* 分隔线 */
-.panel-divider {
-  height: 1px;
-  background: var(--border-color);
-  margin: 12px 0;
+/* 反馈表单样式 */
+.feedback-form-section {
+  margin-bottom: 12px;
 }
 
-/* 反馈表单区域 */
-.feedback-section {
-  margin-top: 8px;
-}
-
-.feedback-title {
-  font-size: 14px;
+.feedback-form-label {
+  font-size: 13px;
   font-weight: 500;
-  color: var(--text-primary);
-  margin-bottom: 8px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
 }
 
 .feedback-type-select {
-  margin-bottom: 8px;
+  margin-bottom: 0;
 }
 
 .feedback-textarea {
-  margin-bottom: 8px;
+  margin-bottom: 0;
 }
 
 .feedback-submit-btn {
   width: 100%;
+  margin-top: 4px;
 }
 
 /* 空状态提示 */
