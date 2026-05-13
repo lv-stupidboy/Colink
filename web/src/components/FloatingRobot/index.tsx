@@ -7,6 +7,7 @@ import {
   CloseOutlined,
   SendOutlined,
   MessageOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons';
 import api from '@/api/client';
 import type { HelpConfig } from '@/types';
@@ -24,6 +25,12 @@ const feedbackTypes = [
 interface Position {
   side: 'left' | 'right';
   top: number;
+}
+
+interface FeedbackImage {
+  id: string;
+  dataUrl: string;
+  name: string;
 }
 
 const FloatingRobot: React.FC = () => {
@@ -48,11 +55,13 @@ const FloatingRobot: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [feedbackType, setFeedbackType] = useState('功能问题');
   const [feedbackDesc, setFeedbackDesc] = useState('');
+  const [feedbackImages, setFeedbackImages] = useState<FeedbackImage[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [showFeedbackPanel, setShowFeedbackPanel] = useState(false);
   const [panelUpward, setPanelUpward] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // 加载帮助配置
   useEffect(() => {
@@ -75,7 +84,7 @@ const FloatingRobot: React.FC = () => {
     const windowHeight = window.innerHeight;
     const robotHeight = 48;
     const helpPanelHeight = 220; // 帮助面板预估高度
-    const feedbackPanelHeight = 340; // 反馈面板预估高度
+    const feedbackPanelHeight = 400; // 反馈面板预估高度（包含图片区域）
 
     // 检查帮助面板是否超出屏幕底部
     const helpPanelBottom = position.top + helpPanelHeight;
@@ -86,7 +95,46 @@ const FloatingRobot: React.FC = () => {
     const needFeedbackPanelUpward = feedbackPanelBottom > windowHeight - 20;
 
     setPanelUpward(needHelpPanelUpward || needFeedbackPanelUpward);
-  }, [position.top, showFeedbackPanel]);
+  }, [position.top, showFeedbackPanel, feedbackImages.length]);
+
+  // 处理粘贴图片
+  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData.items;
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+
+      if (item.type.indexOf('image') !== -1) {
+        const file = item.getAsFile();
+        if (file) {
+          // 检查图片数量限制
+          if (feedbackImages.length >= 5) {
+            message.warning('最多支持 5 张图片');
+            return;
+          }
+
+          // 转换为 base64
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const dataUrl = event.target?.result as string;
+            const newImage: FeedbackImage = {
+              id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              dataUrl,
+              name: file.name || `图片-${feedbackImages.length + 1}`,
+            };
+            setFeedbackImages(prev => [...prev, newImage]);
+            message.success('图片已添加');
+          };
+          reader.readAsDataURL(file);
+        }
+      }
+    }
+  }, [feedbackImages.length]);
+
+  // 删除图片
+  const handleRemoveImage = useCallback((imageId: string) => {
+    setFeedbackImages(prev => prev.filter(img => img.id !== imageId));
+  }, []);
 
   // 拖拽处理
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -173,12 +221,13 @@ const FloatingRobot: React.FC = () => {
   const handleCloseFeedback = useCallback(() => {
     setShowFeedbackPanel(false);
     setFeedbackDesc('');
+    setFeedbackImages([]);
   }, []);
 
   // 提交反馈
   const handleSubmitFeedback = useCallback(async () => {
-    if (!feedbackDesc.trim()) {
-      message.warning('请填写问题描述');
+    if (!feedbackDesc.trim() && feedbackImages.length === 0) {
+      message.warning('请填写问题描述或添加图片');
       return;
     }
 
@@ -187,9 +236,14 @@ const FloatingRobot: React.FC = () => {
       await api.help.submitFeedback({
         type: feedbackType,
         description: feedbackDesc,
+        images: feedbackImages.map(img => ({
+          name: img.name,
+          data: img.dataUrl,
+        })),
       });
       message.success('反馈已提交，感谢您的反馈！');
       setFeedbackDesc('');
+      setFeedbackImages([]);
       setShowFeedbackPanel(false);
       setIsExpanded(false);
     } catch (err: any) {
@@ -198,7 +252,7 @@ const FloatingRobot: React.FC = () => {
     } finally {
       setSubmitting(false);
     }
-  }, [feedbackType, feedbackDesc]);
+  }, [feedbackType, feedbackDesc, feedbackImages]);
 
   if (loading && !helpConfig) {
     return null;
@@ -325,17 +379,42 @@ const FloatingRobot: React.FC = () => {
 
           {/* 问题描述 */}
           <div className="feedback-form-section">
-            <div className="feedback-form-label">问题描述</div>
+            <div className="feedback-form-label">问题描述（支持粘贴图片）</div>
             <Input.TextArea
+              ref={textareaRef}
               className="feedback-textarea"
-              placeholder="请详细描述您遇到的问题或建议..."
+              placeholder="请详细描述您遇到的问题或建议，可直接粘贴截图..."
               value={feedbackDesc}
               onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setFeedbackDesc(e.target.value)}
-              rows={5}
+              onPaste={handlePaste}
+              rows={4}
               maxLength={1000}
               showCount
             />
           </div>
+
+          {/* 图片预览区域 */}
+          {feedbackImages.length > 0 && (
+            <div className="feedback-images-section">
+              <div className="feedback-images-label">
+                图片附件 ({feedbackImages.length}/5)
+              </div>
+              <div className="feedback-images-preview">
+                {feedbackImages.map(img => (
+                  <div key={img.id} className="feedback-image-item">
+                    <img src={img.dataUrl} alt={img.name} className="feedback-image-thumb" />
+                    <button
+                      className="feedback-image-remove"
+                      onClick={() => handleRemoveImage(img.id)}
+                      title="删除图片"
+                    >
+                      <DeleteOutlined />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* 提交按钮 */}
           <Button
