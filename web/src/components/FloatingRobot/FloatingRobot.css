@@ -116,16 +116,29 @@
   transition: all 0.3s ease;
 }
 
-/* 右侧面板位置 */
+/* 右侧面板位置（向下展开） */
 .floating-robot.right .robot-panel {
   right: 56px;
   top: 0;
 }
 
-/* 左侧面板位置 */
+/* 左侧面板位置（向下展开） */
 .floating-robot.left .robot-panel {
   left: 56px;
   top: 0;
+}
+
+/* 面板向上展开 */
+.floating-robot.panel-upward.right .robot-panel {
+  top: auto;
+  bottom: 0;
+  transform: translateY(-10px);
+}
+
+.floating-robot.panel-upward.left .robot-panel {
+  top: auto;
+  bottom: 0;
+  transform: translateY(-10px);
 }
 
 .floating-robot.expanded .robot-panel {
@@ -149,11 +162,24 @@
 /* 反馈面板在机器人右侧时，显示在左侧 */
 .feedback-panel-left {
   right: 340px;
+  top: 0;
 }
 
 /* 反馈面板在机器人左侧时，显示在右侧 */
 .feedback-panel-right {
   left: 340px;
+  top: 0;
+}
+
+/* 反馈面板向上展开 */
+.feedback-panel-upward.feedback-panel-left {
+  top: auto;
+  bottom: 0;
+}
+
+.feedback-panel-upward.feedback-panel-right {
+  top: auto;
+  bottom: 0;
 }
 
 /* 深色模式适配 */

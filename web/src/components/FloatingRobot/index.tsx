@@ -52,6 +52,7 @@ const FloatingRobot: React.FC = () => {
   const [feedbackDesc, setFeedbackDesc] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [showFeedbackPanel, setShowFeedbackPanel] = useState(false);
+  const [panelUpward, setPanelUpward] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -70,6 +71,24 @@ const FloatingRobot: React.FC = () => {
     };
     loadConfig();
   }, []);
+
+  // 计算面板是否需要向上展开
+  useEffect(() => {
+    const windowHeight = window.innerHeight;
+    const robotHeight = 48;
+    const helpPanelHeight = 220; // 帮助面板预估高度
+    const feedbackPanelHeight = 340; // 反馈面板预估高度
+
+    // 检查帮助面板是否超出屏幕底部
+    const helpPanelBottom = position.top + helpPanelHeight;
+    const needHelpPanelUpward = helpPanelBottom > windowHeight - 20;
+
+    // 检查反馈面板是否超出屏幕底部
+    const feedbackPanelBottom = position.top + feedbackPanelHeight;
+    const needFeedbackPanelUpward = feedbackPanelBottom > windowHeight - 20;
+
+    setPanelUpward(needHelpPanelUpward || needFeedbackPanelUpward);
+  }, [position.top, showFeedbackPanel]);
 
   // 拖拽处理
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -183,20 +202,6 @@ const FloatingRobot: React.FC = () => {
     }
   }, [feedbackType, feedbackDesc]);
 
-  // 计算反馈面板位置（避免遮挡）
-  const getFeedbackPanelPosition = useCallback(() => {
-    const panelHeight = 320; // 反馈面板预估高度
-    const windowHeight = window.innerHeight;
-    const robotTop = position.top;
-    const robotHeight = 48;
-
-    // 如果机器人位置偏下方，面板显示在上方
-    if (robotTop + robotHeight + panelHeight > windowHeight - 20) {
-      return { top: 'auto', bottom: 0 };
-    }
-    return { top: 0, bottom: 'auto' };
-  }, [position.top]);
-
   if (loading && !helpConfig) {
     return null;
   }
@@ -206,7 +211,7 @@ const FloatingRobot: React.FC = () => {
   return (
     <div
       ref={containerRef}
-      className={`floating-robot ${position.side} ${isExpanded ? 'expanded' : ''} ${isDragging ? 'dragging' : ''}`}
+      className={`floating-robot ${position.side} ${isExpanded ? 'expanded' : ''} ${isDragging ? 'dragging' : ''} ${panelUpward ? 'panel-upward' : ''}`}
       style={{ top: position.top }}
       onMouseDown={handleMouseDown}
       onClick={handleClick}
@@ -293,8 +298,7 @@ const FloatingRobot: React.FC = () => {
       {/* 反馈表单面板 */}
       {showFeedbackPanel && (
         <div
-          className={`feedback-panel ${position.side === 'left' ? 'feedback-panel-right' : 'feedback-panel-left'}`}
-          style={getFeedbackPanelPosition()}
+          className={`feedback-panel ${position.side === 'left' ? 'feedback-panel-right' : 'feedback-panel-left'} ${panelUpward ? 'feedback-panel-upward' : ''}`}
           onClick={(e) => e.stopPropagation()}
         >
           {/* 关闭按钮 */}
@@ -316,6 +320,8 @@ const FloatingRobot: React.FC = () => {
               onChange={setFeedbackType}
               options={feedbackTypes}
               style={{ width: '100%' }}
+              placement={panelUpward ? 'topLeft' : 'bottomLeft'}
+              getPopupContainer={(triggerNode) => triggerNode.parentElement || document.body}
             />
           </div>
 
