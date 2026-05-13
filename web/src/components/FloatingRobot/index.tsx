@@ -17,8 +17,6 @@ const feedbackTypes = [
   { label: '功能问题 - 功能异常或无法使用', value: '功能问题' },
   { label: '体验问题 - 操作不便或界面问题', value: '体验问题' },
   { label: '性能问题 - 响应慢或卡顿', value: '性能问题' },
-  { label: '安全问题 - 安全漏洞或风险', value: '安全问题' },
-  { label: '数据问题 - 数据错误或丢失', value: '数据问题' },
   { label: '建议反馈 - 功能建议或改进想法', value: '建议反馈' },
   { label: '其他 - 其他类型的问题', value: '其他' },
 ];
