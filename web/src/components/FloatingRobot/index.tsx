@@ -8,6 +8,8 @@ import {
   SendOutlined,
   MessageOutlined,
   DeleteOutlined,
+  LeftOutlined,
+  RightOutlined,
 } from '@ant-design/icons';
 import api from '@/api/client';
 import type { HelpConfig } from '@/types';
@@ -25,6 +27,12 @@ const feedbackTypes = [
 interface Position {
   side: 'left' | 'right';
   top: number;
+}
+
+interface DragState {
+  x: number;
+  y: number;
+  targetSide: 'left' | 'right';
 }
 
 interface FeedbackImage {
@@ -49,8 +57,7 @@ const FloatingRobot: React.FC = () => {
 
   const [isExpanded, setIsExpanded] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
-  const [dragStartY, setDragStartY] = useState(0);
-  const [dragStartTop, setDragStartTop] = useState(0);
+  const [dragState, setDragState] = useState<DragState | null>(null);
   const [helpConfig, setHelpConfig] = useState<HelpConfig | null>(null);
   const [loading, setLoading] = useState(false);
   const [feedbackType, setFeedbackType] = useState('功能问题');
@@ -139,31 +146,46 @@ const FloatingRobot: React.FC = () => {
   // 拖拽处理
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (isExpanded) return;
-    setIsDragging(true);
-    setDragStartY(e.clientY);
-    setDragStartTop(position.top);
     e.preventDefault();
-  }, [isExpanded, position.top]);
+    e.stopPropagation();
+
+    const centerX = window.innerWidth / 2;
+    const targetSide = e.clientX < centerX ? 'left' : 'right';
+
+    setIsDragging(true);
+    setDragState({
+      x: e.clientX,
+      y: e.clientY,
+      targetSide,
+    });
+  }, [isExpanded]);
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
-    if (!isDragging) return;
+    if (!isDragging || !dragState) return;
 
-    const deltaY = e.clientY - dragStartY;
-    const newTop = Math.max(50, Math.min(window.innerHeight - 100, dragStartTop + deltaY));
-
-    // 判断左右位置
     const centerX = window.innerWidth / 2;
-    const newSide = e.clientX < centerX ? 'left' : 'right';
+    const targetSide = e.clientX < centerX ? 'left' : 'right';
 
-    setPosition({ side: newSide, top: newTop });
-  }, [isDragging, dragStartY, dragStartTop]);
+    setDragState({
+      x: e.clientX,
+      y: e.clientY,
+      targetSide,
+    });
+  }, [isDragging, dragState]);
 
   const handleMouseUp = useCallback(() => {
-    if (!isDragging) return;
+    if (!isDragging || !dragState) return;
+
+    const centerX = window.innerWidth / 2;
+    const newSide = dragState.x < centerX ? 'left' : 'right';
+    const newTop = Math.max(50, Math.min(window.innerHeight - 100, dragState.y));
+
+    setPosition({ side: newSide, top: newTop });
     setIsDragging(false);
-    // 保存位置
-    localStorage.setItem('floating-robot-position', JSON.stringify(position));
-  }, [isDragging, position]);
+    setDragState(null);
+
+    localStorage.setItem('floating-robot-position', JSON.stringify({ side: newSide, top: newTop }));
+  }, [isDragging, dragState]);
 
   // 全局拖拽事件
   useEffect(() => {
@@ -260,31 +282,58 @@ const FloatingRobot: React.FC = () => {
 
   // 即使配置为空也显示图标，面板中提示暂未配置
 
+  // 计算拖拽时的显示位置
+  const getDisplayStyle = () => {
+    if (isDragging && dragState) {
+      return {
+        left: dragState.x - 24,
+        top: dragState.y - 24,
+        right: 'auto',
+      };
+    }
+    return {
+      top: position.top,
+      left: position.side === 'left' ? 16 : 'auto',
+      right: position.side === 'right' ? 16 : 'auto',
+    };
+  };
+
   return (
-    <div
-      ref={containerRef}
-      className={`floating-robot ${position.side} ${isExpanded ? 'expanded' : ''} ${isDragging ? 'dragging' : ''} ${panelUpward ? 'panel-upward' : ''}`}
-      style={{ top: position.top }}
-      onMouseDown={handleMouseDown}
-      onClick={handleClick}
-    >
-      {/* 机器人按钮 */}
-      <div className={`robot-btn ${isExpanded ? 'rippling' : ''}`}>
-        <svg className="robot-icon" viewBox="0 0 48 48" fill="currentColor">
-          {/* 机器人头部 */}
-          <rect x="10" y="12" width="28" height="24" rx="6" />
-          {/* 眼睛 */}
-          <circle cx="18" cy="22" r="4" fill="white" />
-          <circle cx="30" cy="22" r="4" fill="white" />
-          <circle cx="18" cy="22" r="2" fill="#1e293b" />
-          <circle cx="30" cy="22" r="2" fill="#1e293b" />
-          {/* 天线 */}
-          <line x1="24" y1="4" x2="24" y2="12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-          <circle cx="24" cy="4" r="3" />
-          {/* 嘴巴 */}
-          <rect x="16" y="30" width="16" height="4" rx="2" fill="white" fillOpacity="0.6" />
-          {/* 耳朵 */}
-          <rect x="4" y="18" width="6" height="10" rx="2" />
+    <>
+      {/* 拖拽时的附着位置指示 */}
+      {isDragging && dragState && (
+        <div className={`drag-indicator ${dragState.targetSide}`}>
+          {dragState.targetSide === 'left' ? <LeftOutlined /> : <RightOutlined />}
+          <span className="drag-indicator-text">
+            松手后将附着到{dragState.targetSide === 'left' ? '左侧' : '右侧'}
+          </span>
+        </div>
+      )}
+
+      <div
+        ref={containerRef}
+        className={`floating-robot ${isDragging ? 'dragging' : ''} ${isExpanded && !isDragging ? 'expanded' : ''} ${panelUpward && !isDragging ? 'panel-upward' : ''}`}
+        style={getDisplayStyle()}
+        onMouseDown={handleMouseDown}
+        onClick={handleClick}
+      >
+        {/* 机器人按钮 */}
+        <div className={`robot-btn ${isExpanded && !isDragging ? 'rippling' : ''}`}>
+          <svg className="robot-icon" viewBox="0 0 48 48" fill="currentColor">
+            {/* 机器人头部 */}
+            <rect x="10" y="12" width="28" height="24" rx="6" />
+            {/* 眼睛 */}
+            <circle cx="18" cy="22" r="4" fill="white" />
+            <circle cx="30" cy="22" r="4" fill="white" />
+            <circle cx="18" cy="22" r="2" fill="#1e293b" />
+            <circle cx="30" cy="22" r="2" fill="#1e293b" />
+            {/* 天线 */}
+            <line x1="24" y1="4" x2="24" y2="12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            <circle cx="24" cy="4" r="3" />
+            {/* 嘴巴 */}
+            <rect x="16" y="30" width="16" height="4" rx="2" fill="white" fillOpacity="0.6" />
+            {/* 耳朵 */}
+            <rect x="4" y="18" width="6" height="10" rx="2" />
           <rect x="38" y="18" width="6" height="10" rx="2" />
         </svg>
       </div>
@@ -441,6 +490,7 @@ const FloatingRobot: React.FC = () => {
         </div>
       )}
     </div>
+    </>
   );
 };
 
