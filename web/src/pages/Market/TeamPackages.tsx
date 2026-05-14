@@ -2,12 +2,14 @@ import React, { useState, useEffect } from 'react';
 import {
   Card, Table, Button, Space, Tag, message, Spin, Modal,
   Descriptions, Collapse, Typography, Divider,
-  Alert, Popconfirm  // 用于冲突提示和确认
+  Alert, Popconfirm, Upload  // 用于冲突提示和确认、手动导入上传
 } from 'antd';
+import type { UploadProps } from 'antd';
 import {
   CloudDownloadOutlined, ShopOutlined, CheckSquareOutlined,
   ReloadOutlined,  // 新增：用于刷新按钮
-  WarningOutlined  // 新增：用于冲突提示图标
+  WarningOutlined,  // 新增：用于冲突提示图标
+  CloudUploadOutlined, FileZipOutlined  // 新增：用于手动导入
 } from '@ant-design/icons';
 import api from '@/api/client';
 import type { MarketPackage, PackagePreviewResponse, ImportConfirm, ImportResult, ConfigGenResult } from '@/types';
@@ -53,6 +55,27 @@ const TeamPackages: React.FC = () => {
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [importResultModalVisible, setImportResultModalVisible] = useState(false);
 
+  // 手动导入状态
+  const [manualImportModalVisible, setManualImportModalVisible] = useState(false);
+  const [manualImportFile, setManualImportFile] = useState<File | null>(null);
+  const [manualImportPreview, setManualImportPreview] = useState<TeamPackagePreview | null>(null);
+  const [loadingManualPreview, setLoadingManualPreview] = useState(false);
+  const [importingManual, setImportingManual] = useState(false);
+  const [manualImportResult, setManualImportResult] = useState<ImportResult | null>(null);
+
+  // TeamPackagePreview 类型定义（用于手动导入）
+  interface TeamPackagePreview {
+    workflow: { name: string; exists: boolean };
+    roles: Array<{ name: string; exists: boolean; localId?: string }>;
+    assets: {
+      skills: Array<{ name: string; exists: boolean }>;
+      commands: Array<{ name: string; exists: boolean }>;
+      subagents: Array<{ name: string; exists: boolean }>;
+      rules: Array<{ name: string; exists: boolean }>;
+      settings: Array<{ name: string; exists: boolean }>;
+    };
+  }
+
   useEffect(() => {
     loadPackages();
   }, []);
@@ -90,6 +113,255 @@ const TeamPackages: React.FC = () => {
     await loadPackages(true);
     setRefreshing(false);
   };
+
+  // ========== 手动导入团队包功能 ==========
+  const { Dragger } = Upload;
+
+  // 处理文件上传预览
+  const handleManualUploadPreview = async (file: File) => {
+    setManualImportFile(file);
+    setLoadingManualPreview(true);
+    setManualImportPreview(null);
+    setManualImportResult(null);
+    try {
+      const result = await api.teamPackages.import(file);
+      setManualImportPreview(result);
+    } catch (error: any) {
+      const errorMsg = error.response?.data?.error || error.message || '解析团队包失败';
+      message.error(errorMsg);
+      setManualImportFile(null);
+    } finally {
+      setLoadingManualPreview(false);
+    }
+    return false; // 阻止默认上传行为
+  };
+
+  // 上传配置
+  const manualUploadProps: UploadProps = {
+    accept: '.zip',
+    showUploadList: false,
+    beforeUpload: handleManualUploadPreview,
+    disabled: loadingManualPreview || importingManual,
+    capture: false,
+  };
+
+  // 生成手动导入确认参数
+  const buildManualImportConfirm = (mode: 'overwrite' | 'skip'): ImportConfirm => {
+    if (!manualImportPreview) return { mode, workflowAction: mode, roleActions: [], assetActions: [] };
+
+    const roleActions = manualImportPreview.roles.map(r => ({ name: r.name, action: mode }));
+    const assetActions: Array<{ assetType: string; name: string; action: 'overwrite' | 'skip' }> = [];
+
+    // 收集所有资产
+    Object.entries(manualImportPreview.assets).forEach(([assetType, items]) => {
+      items.forEach(item => {
+        assetActions.push({ assetType, name: item.name, action: mode });
+      });
+    });
+
+    return {
+      mode,
+      workflowAction: manualImportPreview.workflow.exists ? mode : 'overwrite',
+      roleActions,
+      assetActions,
+    };
+  };
+
+  // 执行确认手动导入
+  const handleManualImportConfirm = async (mode: 'overwrite' | 'skip') => {
+    if (!manualImportFile || !manualImportPreview) return;
+
+    setImportingManual(true);
+    try {
+      const confirm = buildManualImportConfirm(mode);
+      const result = await api.teamPackages.importConfirm(manualImportFile, confirm);
+      setManualImportResult(result);
+
+      // 统计导入结果
+      const countByType = (type: string) =>
+        result.details?.filter((d: any) => d.assetType === type && d.status === 'success').length || 0;
+      const skillsCount = countByType('skill');
+      const commandsCount = countByType('command');
+      const subagentsCount = countByType('subagent');
+      const rulesCount = countByType('rule');
+      const settingsCount = countByType('settings');
+      const rolesCount = countByType('role');
+      const workflowName = result.details?.find((d: any) => d.assetType === 'workflow')?.name || '';
+
+      // 统计配置生成结果
+      const configGenCount = result.configGenResults?.length || 0;
+      const configGenSuccess = result.configGenResults?.filter((c: any) => c.status === 'success').length || 0;
+
+      let successMsg = `导入成功：团队 ${workflowName}，角色 ${rolesCount} 个，Skills ${skillsCount}、Commands ${commandsCount}、Subagents ${subagentsCount}、Rules ${rulesCount}、Settings ${settingsCount}`;
+      if (configGenCount > 0) {
+        successMsg += `，自动更新 ${configGenSuccess}/${configGenCount} 个角色配置`;
+      }
+      message.success(successMsg);
+    } catch (error: any) {
+      const errorMsg = error.response?.data?.error || error.message || '导入失败';
+      message.error(errorMsg);
+    } finally {
+      setImportingManual(false);
+    }
+  };
+
+  // 计算手动导入冲突数量
+  const getManualConflictCount = () => {
+    if (!manualImportPreview) return 0;
+    let count = 0;
+    if (manualImportPreview.workflow.exists) count++;
+    count += manualImportPreview.roles.filter(r => r.exists).length;
+    count += manualImportPreview.assets.skills.filter(s => s.exists).length;
+    count += manualImportPreview.assets.commands.filter(c => c.exists).length;
+    count += manualImportPreview.assets.subagents.filter(s => s.exists).length;
+    count += manualImportPreview.assets.rules.filter(r => r.exists).length;
+    count += manualImportPreview.assets.settings.filter(s => s.exists).length;
+    return count;
+  };
+
+  // 清除手动导入预览
+  const handleClearManualPreview = () => {
+    setManualImportFile(null);
+    setManualImportPreview(null);
+    setManualImportResult(null);
+  };
+
+  // 关闭手动导入弹窗
+  const handleCloseManualImportModal = () => {
+    setManualImportModalVisible(false);
+    handleClearManualPreview();
+  };
+
+  // 渲染手动导入预览表格
+  const renderManualPreviewTable = () => {
+    if (!manualImportPreview) return null;
+
+    const dataSource: any[] = [];
+
+    // 工作流
+    dataSource.push({
+      key: 'workflow',
+      type: 'Team',
+      name: manualImportPreview.workflow.name,
+      exists: manualImportPreview.workflow.exists,
+      action: manualImportPreview.workflow.exists ? '待处理' : '新增',
+    });
+
+    // 角色
+    manualImportPreview.roles.forEach((role, idx) => {
+      dataSource.push({
+        key: `role-${idx}`,
+        type: 'Role',
+        name: role.name,
+        exists: role.exists,
+        action: role.exists ? '待处理' : '新增',
+      });
+    });
+
+    // 技能
+    manualImportPreview.assets.skills.forEach((skill, idx) => {
+      dataSource.push({
+        key: `skill-${idx}`,
+        type: 'Skill',
+        name: skill.name,
+        exists: skill.exists,
+        action: skill.exists ? '待处理' : '新增',
+      });
+    });
+
+    // 命令
+    manualImportPreview.assets.commands.forEach((cmd, idx) => {
+      dataSource.push({
+        key: `command-${idx}`,
+        type: 'Command',
+        name: cmd.name,
+        exists: cmd.exists,
+        action: cmd.exists ? '待处理' : '新增',
+      });
+    });
+
+    // 子代理
+    manualImportPreview.assets.subagents.forEach((sub, idx) => {
+      dataSource.push({
+        key: `subagent-${idx}`,
+        type: 'Subagent',
+        name: sub.name,
+        exists: sub.exists,
+        action: sub.exists ? '待处理' : '新增',
+      });
+    });
+
+    // 规则
+    manualImportPreview.assets.rules.forEach((rule, idx) => {
+      dataSource.push({
+        key: `rule-${idx}`,
+        type: 'Rule',
+        name: rule.name,
+        exists: rule.exists,
+        action: rule.exists ? '待处理' : '新增',
+      });
+    });
+
+    // 配置
+    manualImportPreview.assets.settings.forEach((setting, idx) => {
+      dataSource.push({
+        key: `setting-${idx}`,
+        type: 'Settings',
+        name: setting.name,
+        exists: setting.exists,
+        action: setting.exists ? '待处理' : '新增',
+      });
+    });
+
+    const columns = [
+      {
+        title: '类型',
+        dataIndex: 'type',
+        key: 'type',
+        width: 100,
+        render: (type: string) => <Tag color={typeColors[type.toLowerCase()] || 'default'}>{type}</Tag>,
+      },
+      {
+        title: '名称',
+        dataIndex: 'name',
+        key: 'name',
+      },
+      {
+        title: '状态',
+        dataIndex: 'exists',
+        key: 'exists',
+        width: 100,
+        render: (exists: boolean) => (
+          <Tag color={exists ? 'warning' : 'success'}>
+            {exists ? '已存在' : '新增'}
+          </Tag>
+        ),
+      },
+      {
+        title: '操作',
+        dataIndex: 'action',
+        key: 'action',
+        width: 100,
+        render: (action: string) => (
+          <Text type={action === '待处理' ? 'warning' : 'secondary'}>
+            {action}
+          </Text>
+        ),
+      },
+    ];
+
+    return (
+      <Table
+        dataSource={dataSource}
+        columns={columns}
+        pagination={false}
+        size="small"
+        scroll={{ y: 300 }}
+      />
+    );
+  };
+
+  // ========== 手动导入团队包功能结束 ==========
 
   // 构建 ImportConfirm 参数的公共函数
   const buildImportConfirm = (preview: PackagePreviewResponse | null | undefined, mode: 'overwrite' | 'skip'): ImportConfirm => {
@@ -620,6 +892,12 @@ const TeamPackages: React.FC = () => {
         extra={
           <Space>
             <Button
+              icon={<CloudUploadOutlined />}
+              onClick={() => setManualImportModalVisible(true)}
+            >
+              手动导入
+            </Button>
+            <Button
               icon={<ReloadOutlined />}
               loading={refreshing}
               onClick={handleRefresh}
@@ -974,6 +1252,162 @@ const TeamPackages: React.FC = () => {
             )}
           </div>
         )}
+      </Modal>
+
+      {/* 手动导入团队包弹窗 */}
+      <Modal
+        title="手动导入团队包"
+        open={manualImportModalVisible}
+        onCancel={handleCloseManualImportModal}
+        footer={null}
+        width={600}
+        destroyOnClose
+      >
+        <Spin spinning={loadingManualPreview || importingManual}>
+          {!manualImportPreview && !manualImportResult ? (
+            <Dragger {...manualUploadProps}>
+              <p className="ant-upload-drag-icon">
+                <FileZipOutlined style={{ fontSize: 48, color: '#1890ff' }} />
+              </p>
+              <p className="ant-upload-text">点击或拖拽文件到此区域上传</p>
+              <p className="ant-upload-hint">支持 .zip 格式的团队包文件</p>
+            </Dragger>
+          ) : manualImportResult ? (
+            <div>
+              <Alert
+                type={manualImportResult.failed > 0 ? 'warning' : 'success'}
+                message={`导入完成：成功 ${manualImportResult.success}，跳过 ${manualImportResult.skipped}，失败 ${manualImportResult.failed}`}
+                showIcon
+                style={{ marginBottom: 16 }}
+              />
+              {manualImportResult.details && manualImportResult.details.length > 0 && (
+                <Table
+                  dataSource={manualImportResult.details}
+                  rowKey={(item: any, index: number) => `${item.assetType}-${item.name}-${index}`}
+                  pagination={false}
+                  size="small"
+                  scroll={{ y: 300 }}
+                  columns={[
+                    {
+                      title: '类型',
+                      dataIndex: 'assetType',
+                      key: 'assetType',
+                      width: 100,
+                      render: (type: string) => (
+                        <Tag color={typeColors[type] || 'default'}>{type}</Tag>
+                      ),
+                    },
+                    { title: '名称', dataIndex: 'name', key: 'name' },
+                    {
+                      title: '状态',
+                      dataIndex: 'status',
+                      key: 'status',
+                      width: 80,
+                      render: (status: string) => (
+                        <Tag color={status === 'success' ? 'success' : status === 'skipped' ? 'warning' : 'error'}>
+                          {status}
+                        </Tag>
+                      ),
+                    },
+                    { title: '信息', dataIndex: 'message', key: 'message', ellipsis: true },
+                  ]}
+                />
+              )}
+              {/* 配置生成结果 */}
+              {manualImportResult.configGenResults && manualImportResult.configGenResults.length > 0 && (
+                <div style={{ marginTop: 16 }}>
+                  <Alert
+                    type="info"
+                    message={`自动更新了 ${manualImportResult.configGenResults.length} 个角色的配置`}
+                    showIcon
+                    style={{ marginBottom: 8 }}
+                  />
+                  <Table
+                    dataSource={manualImportResult.configGenResults}
+                    rowKey={(item: ConfigGenResult) => item.agentId}
+                    pagination={false}
+                    size="small"
+                    scroll={{ y: 200 }}
+                    columns={[
+                      { title: '角色名称', dataIndex: 'agentName', key: 'agentName' },
+                      {
+                        title: '状态',
+                        dataIndex: 'status',
+                        key: 'status',
+                        width: 80,
+                        render: (status: string) => (
+                          <Tag color={status === 'success' ? 'success' : 'error'}>
+                            {status === 'success' ? '成功' : '失败'}
+                          </Tag>
+                        ),
+                      },
+                      { title: '信息', dataIndex: 'message', key: 'message', ellipsis: true },
+                    ]}
+                  />
+                </div>
+              )}
+              <div style={{ marginTop: 16, textAlign: 'right' }}>
+                <Button onClick={handleCloseManualImportModal}>关闭</Button>
+              </div>
+            </div>
+          ) : (
+            <div>
+              {/* 冲突提示 */}
+              {getManualConflictCount() > 0 && (
+                <Alert
+                  type="warning"
+                  icon={<WarningOutlined />}
+                  message={`检测到 ${getManualConflictCount()} 个冲突项，请选择处理方式`}
+                  showIcon
+                  style={{ marginBottom: 16 }}
+                />
+              )}
+
+              {/* 预览表格 */}
+              {renderManualPreviewTable()}
+
+              {/* 操作按钮 */}
+              <div style={{ marginTop: 16, textAlign: 'right' }}>
+                <Space>
+                  {getManualConflictCount() === 0 ? (
+                    <Button
+                      type="primary"
+                      icon={<CloudUploadOutlined />}
+                      loading={importingManual}
+                      onClick={() => handleManualImportConfirm('overwrite')}
+                    >
+                      确认导入
+                    </Button>
+                  ) : (
+                    <>
+                      <Popconfirm
+                        title="确定要覆盖所有冲突项吗？"
+                        onConfirm={() => handleManualImportConfirm('overwrite')}
+                        okText="确定"
+                        cancelText="取消"
+                      >
+                        <Button
+                          type="primary"
+                          icon={<CloudUploadOutlined />}
+                          loading={importingManual}
+                        >
+                          全部覆盖
+                        </Button>
+                      </Popconfirm>
+                      <Button
+                        icon={<CloudUploadOutlined />}
+                        loading={importingManual}
+                        onClick={() => handleManualImportConfirm('skip')}
+                      >
+                        全部跳过
+                      </Button>
+                    </>
+                  )}
+                </Space>
+              </div>
+            </div>
+          )}
+        </Spin>
       </Modal>
     </div>
   );

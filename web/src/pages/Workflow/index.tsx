@@ -138,6 +138,29 @@ const WorkflowPage: React.FC = () => {
     }
   };
 
+  // 导出团队包
+  const handleExportTeam = async (teamId: string) => {
+    try {
+      const blob = await api.teamPackages.export(teamId);
+      const team = teams.find(t => t.id === teamId);
+      const fileName = `${team?.name || 'team-package'}.zip`;
+
+      // 创建下载链接
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      message.success('导出成功');
+    } catch (error: any) {
+      message.error(error?.response?.data?.error || '导出失败');
+    }
+  };
+
   // 更新团队名称/描述
   const handleUpdateTeamName = async (teamId: string, name: string, description?: string) => {
     try {
@@ -340,6 +363,7 @@ const WorkflowPage: React.FC = () => {
               onOpenTriggerModal={(agent, index) => handleOpenTriggerModal(team.id, agent, index)}
               onSaveAgentOrder={(agentIds) => handleUpdateAgentOrder(team.id, agentIds)}
               onOpenGraphEditor={() => navigate(`/workflow/team/${team.id}/graph`)}
+              onExport={() => handleExportTeam(team.id)}
             />
           ))
         )}

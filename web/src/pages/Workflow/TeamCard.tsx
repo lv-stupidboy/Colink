@@ -15,6 +15,7 @@ import {
   EditOutlined,
   AppstoreOutlined,
   ShareAltOutlined,
+  CloudDownloadOutlined,
 } from '@ant-design/icons';
 import AgentTypeIcon from '@/components/AgentTypeIcon';
 import type { AgentConfig, Transition } from '@/types';
@@ -71,6 +72,7 @@ interface TeamCardProps {
   onOpenTriggerModal: (agent: TeamAgent, index: number) => void;
   onSaveAgentOrder: (agentIds: string[]) => Promise<void>;
   onOpenGraphEditor?: () => void;
+  onExport?: () => void;
 }
 
 // 团队名称行内编辑组件
@@ -135,9 +137,22 @@ const TeamCard: React.FC<TeamCardProps> = ({
   onOpenTriggerModal,
   onSaveAgentOrder,
   onOpenGraphEditor,
+  onExport,
 }) => {
   // 视图模式切换
   const [viewMode, setViewMode] = useState<ViewMode>('card');
+  const [exporting, setExporting] = useState(false);
+
+  // 导出团队包
+  const handleExport = async () => {
+    if (!onExport) return;
+    setExporting(true);
+    try {
+      onExport();
+    } finally {
+      setExporting(false);
+    }
+  };
 
   // 拖拽排序
   const { dragState, isSaving, handleDragStart, handleDragOver, handleDragEnd } = useAgentDragSort(
@@ -190,6 +205,18 @@ const TeamCard: React.FC<TeamCardProps> = ({
               size="small"
               onClick={onOpenGraphEditor}
               title="打开关系图编辑器"
+            />
+          )}
+
+          {/* 导出按钮 */}
+          {onExport && (
+            <Button
+              type="text"
+              icon={<CloudDownloadOutlined />}
+              size="small"
+              onClick={handleExport}
+              loading={exporting}
+              title="导出团队包"
             />
           )}
 

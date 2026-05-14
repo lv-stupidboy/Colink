@@ -16,7 +16,6 @@ import BaseAgentSettings from '@/pages/Settings/BaseAgentSettings';
 import MarketLayout from '@/pages/Market/Layout';
 import MarketManagement from '@/pages/Market/MarketManagement';
 import TeamPackages from '@/pages/Market/TeamPackages';
-import TeamPackageManagement from '@/pages/TeamPackage';
 import WorkflowPage from '@/pages/Workflow';
 import TeamGraphEditor from '@/pages/Workflow/TeamGraphEditor';
 import SkillLibrary from '@/pages/SkillLibrary';
@@ -173,13 +172,6 @@ const App: React.FC = () => {
                 <Route path="management" element={<MarketManagement />} />
                 <Route path="team-packages" element={<TeamPackages />} />
               </Route>
-
-              {/* 管理工具路由 - 作为 Agent团队的二级菜单 */}
-              <Route path="agents/team-packages" element={<TeamPackageManagement />} />
-
-              {/* 旧路由重定向 */}
-              <Route path="management-tools/team-package" element={<Navigate to="/agents/team-packages" replace />} />
-              <Route path="team-packages" element={<Navigate to="/agents/team-packages" replace />} />
 
               {/* 设置页面 - 二级菜单 */}
               <Route path="settings" element={<SettingsLayout />}>

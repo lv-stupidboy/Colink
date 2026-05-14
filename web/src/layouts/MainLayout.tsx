@@ -14,8 +14,6 @@ import {
   ApiOutlined,
   SafetyCertificateOutlined,
   ControlOutlined,
-  ContainerOutlined,
-  ToolOutlined,
   TeamOutlined,
   FileTextOutlined,
   ShopOutlined,
@@ -165,18 +163,6 @@ const MainLayout: React.FC = () => {
             },
             {
               key: '/market/team-packages',
-              icon: <TeamOutlined />,
-              label: '团队包',
-            },
-          ],
-        },
-        {
-          key: 'management-tools',
-          icon: <ToolOutlined />,
-          label: '管理工具',
-          children: [
-            {
-              key: '/agents/team-packages',
               icon: <TeamOutlined />,
               label: '团队包',
             },
