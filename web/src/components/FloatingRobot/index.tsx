@@ -110,34 +110,43 @@ const FloatingRobot: React.FC = () => {
   // 处理粘贴图片
   const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const items = e.clipboardData.items;
+    const imageItems: DataTransferItem[] = [];
 
+    // 先收集所有图片项
     for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-
-      if (item.type.indexOf('image') !== -1) {
-        const file = item.getAsFile();
-        if (file) {
-          // 检查图片数量限制
-          if (feedbackImages.length >= 5) {
-            message.warning('最多支持 5 张图片');
-            return;
-          }
-
-          // 转换为 base64
-          const reader = new FileReader();
-          reader.onload = (event) => {
-            const dataUrl = event.target?.result as string;
-            const newImage: FeedbackImage = {
-              id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-              dataUrl,
-              name: file.name || `图片-${feedbackImages.length + 1}`,
-            };
-            setFeedbackImages(prev => [...prev, newImage]);
-            message.success('图片已添加');
-          };
-          reader.readAsDataURL(file);
-        }
+      if (items[i].type.indexOf('image') !== -1) {
+        imageItems.push(items[i]);
       }
+    }
+
+    // 检查总数量限制
+    const currentCount = feedbackImages.length;
+    const availableSlots = 5 - currentCount;
+    if (imageItems.length > availableSlots) {
+      message.warning(`最多支持 5 张图片，当前还可添加 ${availableSlots} 张`);
+      return;
+    }
+
+    // 处理每张图片，使用索引保证命名唯一
+    imageItems.forEach((item, index) => {
+      const file = item.getAsFile();
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const dataUrl = event.target?.result as string;
+          const newImage: FeedbackImage = {
+            id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}-${index}`,
+            dataUrl,
+            name: file.name || `图片-${currentCount + index + 1}`,
+          };
+          setFeedbackImages(prev => [...prev, newImage]);
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+
+    if (imageItems.length > 0) {
+      message.success(`已添加 ${imageItems.length} 张图片`);
     }
   }, [feedbackImages.length]);
 
