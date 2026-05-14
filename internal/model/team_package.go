@@ -1,6 +1,68 @@
 // 文件路径: isdp/internal/model/team_package.go
 package model
 
+// AssetPackageSkillItem 技能项
+type AssetPackageSkillItem struct {
+	Name            string          `json:"name"`
+	Description     string          `json:"description,omitempty"`
+	Tags            []string        `json:"tags,omitempty"`
+	SupportedAgents []string        `json:"supportedAgents,omitempty"`
+	IsPublic        bool            `json:"isPublic"`
+	SourceType      SkillSourceType `json:"sourceType"`
+}
+
+// AssetPackageCommandItem 命令项
+type AssetPackageCommandItem struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	BoundSkills []string `json:"boundSkills,omitempty"`
+}
+
+// AssetPackageSubagentItem 子代理项
+type AssetPackageSubagentItem struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	BoundSkills []string `json:"boundSkills,omitempty"`
+}
+
+// AssetPackageRuleItem 规则项
+type AssetPackageRuleItem struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
+// AssetPackageSettingsItem 配置项
+type AssetPackageSettingsItem struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
+// ImportResult 导入结果
+type ImportResult struct {
+	Success          int              `json:"success"`
+	Skipped          int              `json:"skipped"`
+	Failed           int              `json:"failed"`
+	Details          []ImportDetail   `json:"details"`
+	ConfigGenResults []ConfigGenResult `json:"configGenResults,omitempty"` // 配置生成结果
+}
+
+// ImportDetail 导入详情
+type ImportDetail struct {
+	AssetType string `json:"assetType"`
+	Name      string `json:"name"`
+	ID        string `json:"id,omitempty"`  // 成功导入时的ID
+	Status    string `json:"status"`        // success, skipped, failed
+	Message   string `json:"message,omitempty"`
+}
+
+// ConfigGenResult 配置生成结果
+type ConfigGenResult struct {
+	AgentID   string `json:"agentId"`
+	AgentName string `json:"agentName"`
+	Status    string `json:"status"` // success, failed, skipped
+	Message   string `json:"message,omitempty"`
+}
+
 // TeamPackageManifest 团队包 manifest.json 结构
 type TeamPackageManifest struct {
 	ExportedAt string              `json:"exportedAt"`

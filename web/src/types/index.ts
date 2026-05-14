@@ -1128,68 +1128,6 @@ export interface AgentSettingsResponse {
   count: number;
 }
 
-// ========== Asset Package 相关类型 ==========
-
-// AssetPackageManifest 资产包 manifest（简化版，无版本概念）
-export interface AssetPackageManifest {
-  exportedAt: string;
-  assets: AssetPackageAssetsList;
-}
-
-// AssetPackageAssetsList 资产列表
-export interface AssetPackageAssetsList {
-  skills?: AssetPackageSkillItem[];
-  commands?: AssetPackageCommandItem[];
-  subagents?: AssetPackageSubagentItem[];
-  rules?: AssetPackageRuleItem[];
-  settings?: AssetPackageSettingsItem[];
-}
-
-// AssetPackageSkillItem 技能项
-export interface AssetPackageSkillItem {
-  name: string;
-  description?: string;
-  tags?: string[];
-  supportedAgents?: string[];
-  isPublic: boolean;
-}
-
-// AssetPackageCommandItem 命令项
-export interface AssetPackageCommandItem {
-  name: string;
-  description?: string;
-  boundSkills?: string[];
-}
-
-// AssetPackageSubagentItem 子代理项
-export interface AssetPackageSubagentItem {
-  name: string;
-  description?: string;
-  boundSkills?: string[];
-}
-
-// AssetPackageRuleItem 规则项
-export interface AssetPackageRuleItem {
-  name: string;
-  description?: string;
-}
-
-// AssetPackageSettingsItem 配置项
-export interface AssetPackageSettingsItem {
-  name: string;
-  description?: string;
-}
-
-// ExportAssetPackageRequest 导出资产包请求（简化版，无版本概念）
-export interface ExportAssetPackageRequest {
-  name: string;
-  skillIds?: string[];
-  commandIds?: string[];
-  subagentIds?: string[];
-  ruleIds?: string[];
-  settingsIds?: string[];
-}
-
 // ImportResult 导入结果（简化版）
 export interface ImportResult {
   success: number;

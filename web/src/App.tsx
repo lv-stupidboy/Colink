@@ -26,7 +26,6 @@ import SubagentList from '@/pages/SubagentList';
 import CommandList from '@/pages/CommandList';
 import RuleList from '@/pages/RuleList';
 import SettingsManagement from '@/pages/SettingsManagement';
-import AssetPackageManagement from '@/pages/AssetPackage';
 import PlaceholderPage from '@/pages/PlaceholderPage';
 import Tasks from '@/pages/Tasks';
 import { useThemeStore } from '@/store/themeStore';
@@ -177,13 +176,10 @@ const App: React.FC = () => {
 
               {/* 管理工具路由 - 作为 Agent团队的二级菜单 */}
               <Route path="agents/team-packages" element={<TeamPackageManagement />} />
-              <Route path="agents/asset-packages" element={<AssetPackageManagement />} />
 
               {/* 旧路由重定向 */}
               <Route path="management-tools/team-package" element={<Navigate to="/agents/team-packages" replace />} />
-              <Route path="management-tools/asset-package" element={<Navigate to="/agents/asset-packages" replace />} />
               <Route path="team-packages" element={<Navigate to="/agents/team-packages" replace />} />
-              <Route path="asset-packages" element={<Navigate to="/agents/asset-packages" replace />} />
 
               {/* 设置页面 - 二级菜单 */}
               <Route path="settings" element={<SettingsLayout />}>

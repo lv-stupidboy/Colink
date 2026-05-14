@@ -56,7 +56,7 @@ const MainLayout: React.FC = () => {
                          path.includes('/threads/') ||
                          (path.startsWith('/agents/') && !path.includes('/commands') && !path.includes('/subagents') &&
                           !path.includes('/skills') && !path.includes('/rules') && !path.includes('/settings') &&
-                          !path.includes('/plugins') && !path.includes('/team-packages') && !path.includes('/asset-packages') &&
+                          !path.includes('/plugins') && !path.includes('/team-packages') &&
                           !path.includes('/roles') && !path.includes('/knowledge'));
 
     setCollapsed(isThreadPage);
@@ -77,8 +77,6 @@ const MainLayout: React.FC = () => {
           path.startsWith('/agents/settings') ||
           path.startsWith('/agents/plugins')) {
         setOpenKeys(['agents', 'assets']);
-      } else if (path.startsWith('/agents/asset-packages')) {
-        setOpenKeys(['agents', 'management-tools']);
       } else {
         setOpenKeys(['agents']);
       }
@@ -182,11 +180,6 @@ const MainLayout: React.FC = () => {
               icon: <TeamOutlined />,
               label: '团队包',
             },
-            {
-              key: '/agents/asset-packages',
-              icon: <ContainerOutlined />,
-              label: '资产包',
-            },
           ],
         },
       ],
@@ -248,7 +241,6 @@ const MainLayout: React.FC = () => {
     if (path.startsWith('/market')) return '/market/management'; // /market 重定向到 /market/management
     // Agent 团队子菜单路由
     if (path.startsWith('/agents/team-packages')) return '/agents/team-packages';
-    if (path.startsWith('/agents/asset-packages')) return '/agents/asset-packages';
     if (path.startsWith('/agents/roles')) return '/agents/roles';
     if (path.startsWith('/agents/commands')) return '/agents/commands';
     if (path.startsWith('/agents/subagents')) return '/agents/subagents';

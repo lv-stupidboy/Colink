@@ -17,7 +17,6 @@ import (
 	"github.com/anthropic/isdp/internal/reporter"
 	"github.com/anthropic/isdp/internal/service/a2a"
 	"github.com/anthropic/isdp/internal/service/agent"
-	"github.com/anthropic/isdp/internal/service/assetpackage"
 	"github.com/anthropic/isdp/internal/service/command"
 	"github.com/anthropic/isdp/internal/service/configgen"
 	"github.com/anthropic/isdp/internal/service/humantask"
@@ -190,7 +189,7 @@ func main() {
 	agentCommandBindingRepo := repo.NewAgentCommandBindingRepository(db, dbType)
 	agentRuleBindingRepo := repo.NewAgentRuleBindingRepository(db, dbType)
 	subagentSkillBindingRepo := repo.NewSubagentSkillBindingRepository(db, dbType)
-	// Settings 和 AssetPackage 相关 Repositories
+	// Settings 相关 Repositories
 	settingsRepo := repo.NewSettingsRepository(db, dbType)
 	agentSettingsBindingRepo := repo.NewAgentSettingsBindingRepository(db, dbType)
 	// 后台执行支持：内容块持久化
@@ -291,17 +290,6 @@ func main() {
 		logger,
 	)
 
-	// 创建 AssetPackage Service
-	assetPackageSvc := assetpackage.NewService(
-		skillRepo, commandRepo, subagentRepo, ruleRepo, settingsRepo,
-		settingsSvc,
-		commandSkillBindingRepo, subagentSkillBindingRepo,
-		cfg.GetSkillStoragePath(), cfg.GetSubagentStoragePath(),
-		cfg.GetCommandStoragePath(), cfg.GetRuleStoragePath(),
-		cfg.GetSettingsStoragePath(),
-		logger,
-	)
-
 	// 创建 TeamPackage Service
 	teamPackageSvc := teampackage.NewService(
 		workflowRepo, agentConfigRepo,
@@ -317,10 +305,6 @@ func main() {
 
 	// 设置自动配置生成器（用于导入角色后自动生成配置）
 	teamPackageSvc.SetAutoGenerator(autoGenerator)
-
-	// 设置 AssetPackage 的自动配置生成器和 agentRepo
-	assetPackageSvc.SetAutoGenerator(autoGenerator)
-	assetPackageSvc.SetAgentRepo(agentConfigRepo)
 
 	// 创建 HumanTask Service
 	humanTaskSvc := humantask.NewService(humanTaskRepo, threadRepo, projectRepo, wsHub)
@@ -622,10 +606,6 @@ func main() {
 	// Settings Handler
 	settingsHandler := api.NewSettingsHandler(settingsSvc, cfg.GetSettingsStoragePath(), autoGenerator, agentConfigRepo)
 	settingsHandler.RegisterRoutes(v1)
-
-	// AssetPackage Handler
-	assetPackageHandler := api.NewAssetPackageHandler(assetPackageSvc)
-	assetPackageHandler.RegisterRoutes(v1)
 
 	// TeamPackage Handler
 	teamPackageHandler := api.NewTeamPackageHandler(teamPackageSvc)

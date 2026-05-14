@@ -54,7 +54,6 @@ import type {
   RuleListResponse,
   CommandSkillsResponse,
   AgentRulesResponse,
-  ExportAssetPackageRequest,
   ImportResult,
   Settings,
   SettingsUpdateResponse,
@@ -706,36 +705,6 @@ class APIClient {
       this.request(`/agents/${agentId}/rules`, 'POST', { ruleIds: ruleIds }),
     unbindRuleFromAgent: (agentId: string, ruleId: string): Promise<{ message: string }> =>
       this.request(`/agents/${agentId}/rules/${ruleId}`, 'DELETE'),
-  };
-
-  // Asset Package API (只保留导入和导出)
-  assetPackages = {
-    import: async (file: File): Promise<any> => {
-      const formData = new FormData();
-      formData.append('file', file);
-      const response = await this.client.post('/asset-packages/import', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 300000, // 5分钟超时
-      });
-      return response.data;
-    },
-    importConfirm: async (file: File, confirm: any): Promise<ImportResult> => {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('confirm', new Blob([JSON.stringify(confirm)], { type: 'application/json' }));
-      const response = await this.client.post('/asset-packages/import/confirm', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        timeout: 300000, // 5分钟超时，导入操作耗时较长
-      });
-      return response.data;
-    },
-    export: async (data: ExportAssetPackageRequest): Promise<Blob> => {
-      const response = await this.client.post('/asset-packages/export', data, {
-        responseType: 'blob',
-        timeout: 300000, // 5分钟超时，导出操作耗时较长
-      });
-      return response.data;
-    },
   };
 
   // Team Package API
