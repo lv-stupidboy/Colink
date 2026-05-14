@@ -93,7 +93,6 @@ const MessageContentRenderer: React.FC<MessageContentRendererProps> = memo(({
               <ToolGroupBlock
                 key={`tool-group-${index}`}
                 tools={block.tools as ToolUseBlock[]}
-                stdoutBlocks={block.stdoutBlocks as TextBlockType[]}
                 richBlocks={block.richBlocks as RichBlock[]}
                 defaultExpanded={defaultExpanded}
               />
@@ -173,14 +172,13 @@ function extractRichBlocks(block: MessageContentBlock | { type: 'tool_use_group'
 /**
  * 聚合内容块
  * - 连续的 thinking 块合并（取最后一个，内容已由 Store 累积）
- * - 连续的 tool_use 块聚合为一个组
- * - 紧跟 tool_use 的 text 块收集为 stdoutBlocks
+ * - 连续的 tool_use 块聚合为一个组（不含 stdout）
+ * - text 块始终独立渲染，不聚合到 tool_use_group
  * - rich 块保持独立
  */
-function aggregateBlocks(blocks: MessageContentBlock[]): Array<MessageContentBlock | { type: 'tool_use_group'; tools: ToolUseBlock[]; stdoutBlocks?: TextBlockType[]; richBlocks?: RichBlock[] }> {
-  const result: Array<MessageContentBlock | { type: 'tool_use_group'; tools: ToolUseBlock[]; stdoutBlocks?: TextBlockType[]; richBlocks?: RichBlock[] }> = [];
+function aggregateBlocks(blocks: MessageContentBlock[]): Array<MessageContentBlock | { type: 'tool_use_group'; tools: ToolUseBlock[]; richBlocks?: RichBlock[] }> {
+  const result: Array<MessageContentBlock | { type: 'tool_use_group'; tools: ToolUseBlock[]; richBlocks?: RichBlock[] }> = [];
   let currentToolGroup: ToolUseBlock[] = [];
-  let currentStdoutBlocks: TextBlockType[] = [];
   let currentRichBlocks: RichBlock[] = [];
 
   for (const block of blocks) {
@@ -188,13 +186,18 @@ function aggregateBlocks(blocks: MessageContentBlock[]): Array<MessageContentBlo
       // 累积 tool_use 块
       currentToolGroup.push(block as ToolUseBlock);
     } else if (block.type === 'text') {
-      // 如果当前有工具组，text 块作为 stdout 累积
+      // text 块始终独立输出，不再聚合到 tool_use_group
+      // 先输出累积的 tool_use 组
       if (currentToolGroup.length > 0) {
-        currentStdoutBlocks.push(block as TextBlockType);
-      } else {
-        // 独立的 text 块直接输出
-        result.push(block);
+        result.push({
+          type: 'tool_use_group',
+          tools: currentToolGroup,
+          richBlocks: currentRichBlocks.length > 0 ? currentRichBlocks : undefined,
+        });
+        currentToolGroup = [];
+        currentRichBlocks = [];
       }
+      result.push(block);
     } else if (block.type === 'rich') {
       // 累积 rich 块
       currentRichBlocks.push(block as RichBlock);
@@ -204,11 +207,9 @@ function aggregateBlocks(blocks: MessageContentBlock[]): Array<MessageContentBlo
         result.push({
           type: 'tool_use_group',
           tools: currentToolGroup,
-          stdoutBlocks: currentStdoutBlocks.length > 0 ? currentStdoutBlocks : undefined,
           richBlocks: currentRichBlocks.length > 0 ? currentRichBlocks : undefined,
         });
         currentToolGroup = [];
-        currentStdoutBlocks = [];
         currentRichBlocks = [];
       }
       // 输出累积的 rich 块
@@ -227,7 +228,6 @@ function aggregateBlocks(blocks: MessageContentBlock[]): Array<MessageContentBlo
     result.push({
       type: 'tool_use_group',
       tools: currentToolGroup,
-      stdoutBlocks: currentStdoutBlocks.length > 0 ? currentStdoutBlocks : undefined,
       richBlocks: currentRichBlocks.length > 0 ? currentRichBlocks : undefined,
     });
   }
@@ -294,35 +294,13 @@ function WrenchIcon({ color }: { color?: string }) {
  * 工具组块组件
  * 三层折叠设计：
  * - 第 1 层：CLI Output Block 整体
- * - 第 2 层：tools 区（可独立折叠） + stdout 区（始终可见）
+ * - 第 2 层：tools 区（可独立折叠）
  * - 第 3 层：单个工具（点击展开看细节）
  */
 interface ToolGroupBlockProps {
   tools: ToolUseBlock[];
-  stdoutBlocks?: TextBlockType[];
   richBlocks?: RichBlock[];
   defaultExpanded?: boolean;
-}
-
-/** stdout 预览构建（从 text 块提取前 48 字符） */
-function buildStdoutPreview(stdoutBlocks?: TextBlockType[], maxChars = 48): string {
-  if (!stdoutBlocks || stdoutBlocks.length === 0) return '';
-
-  let preview = '';
-  for (const block of stdoutBlocks) {
-    const content = block.content || '';
-    for (const char of content) {
-      if (/\s/.test(char)) {
-        preview = preview && !preview.endsWith(' ') ? `${preview} ` : preview;
-      } else {
-        preview = `${preview}${char}`;
-      }
-      if (preview.length > maxChars) {
-        return `${preview.slice(0, maxChars)}…`;
-      }
-    }
-  }
-  return preview.trimEnd();
 }
 
 /** rich 块预览构建（从 richBlocks 提取摘要） */
@@ -349,7 +327,7 @@ function buildRichPreview(richBlocks?: RichBlock[], maxChars = 48): string {
   return '';
 }
 
-const ToolGroupBlock: React.FC<ToolGroupBlockProps> = memo(({ tools, stdoutBlocks, richBlocks, defaultExpanded = false }) => {
+const ToolGroupBlock: React.FC<ToolGroupBlockProps> = memo(({ tools, richBlocks, defaultExpanded = false }) => {
   if (tools.length === 0) return null;
 
   // 单个工具：直接用单行显示
@@ -362,8 +340,7 @@ const ToolGroupBlock: React.FC<ToolGroupBlockProps> = memo(({ tools, stdoutBlock
   const anyFailed = tools.some(t => t.status === 'failed');
   const totalDuration = tools.reduce((sum, t) => sum + (t.duration || 0), 0);
 
-  // stdout 和 rich 预览
-  const stdoutPreview = buildStdoutPreview(stdoutBlocks);
+  // rich 预览
   const richPreview = buildRichPreview(richBlocks);
 
   // 第 1 层：整体折叠状态
@@ -400,8 +377,7 @@ const ToolGroupBlock: React.FC<ToolGroupBlockProps> = memo(({ tools, stdoutBlock
   const accentColor = '#7C3AED';
 
   // 摘要行预览（折叠时显示）
-  const previewText = stdoutPreview || richPreview;
-  const previewDisplay = previewText && !blockExpanded ? ` · ${previewText}` : '';
+  const previewDisplay = richPreview && !blockExpanded ? ` · ${richPreview}` : '';
 
   return (
     <div className="tool-block-wrapper" style={{ marginTop: 8 }}>
@@ -428,7 +404,7 @@ const ToolGroupBlock: React.FC<ToolGroupBlockProps> = memo(({ tools, stdoutBlock
         )}
       </button>
 
-      {/* 第 2 层 Body - tools 区 + stdout 区 */}
+      {/* 第 2 层 Body - tools 区 */}
       {blockExpanded && (
         <div className="tool-block-body" id="cli-output-body">
           {/* Tools 区折叠按钮 */}
@@ -459,26 +435,11 @@ const ToolGroupBlock: React.FC<ToolGroupBlockProps> = memo(({ tools, stdoutBlock
                   status={tool.status}
                   duration={tool.duration}
                   startedAt={tool.startedAt}
-                  defaultExpanded={tool.status === 'streaming'}
+                  defaultExpanded={false}
                   accentColor={accentColor}
                 />
               ))}
             </div>
-          )}
-
-          {/* stdout 区（展开后始终可见） */}
-          {stdoutBlocks && stdoutBlocks.length > 0 && (
-            <>
-              <div className="cli-output-stdout-divider">─── stdout ───</div>
-              <div className="cli-output-stdout">
-                {stdoutBlocks.map((block, i) => (
-                  <React.Fragment key={i}>
-                    {block.content}
-                    {i < stdoutBlocks.length - 1 && '\n'}
-                  </React.Fragment>
-                ))}
-              </div>
-            </>
           )}
 
           {/* rich 块渲染 */}
