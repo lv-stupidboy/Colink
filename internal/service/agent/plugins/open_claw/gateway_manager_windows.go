@@ -7,6 +7,8 @@ package open_claw
 import (
 	"os/exec"
 	"syscall"
+
+	"golang.org/x/sys/windows"
 )
 
 // hideCommandLineWindow hides the command line window on Windows.
@@ -15,5 +17,5 @@ func hideCommandLineWindow(cmd *exec.Cmd) {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
 	cmd.SysProcAttr.HideWindow = true
-	cmd.SysProcAttr.CreationFlags = syscall.CREATE_NO_WINDOW
+	cmd.SysProcAttr.CreationFlags = windows.CREATE_NO_WINDOW
 }
