@@ -467,6 +467,13 @@ func (s *Service) ImportConfirm(ctx context.Context, zipData []byte, confirm *mo
 		Details: make([]model.ImportDetail, 0),
 	}
 
+	// 追踪成功导入的资产 ID（用于触发配置生成）
+	importedSkillIDs := make([]uuid.UUID, 0)
+	importedCommandIDs := make([]uuid.UUID, 0)
+	importedSubagentIDs := make([]uuid.UUID, 0)
+	importedRuleIDs := make([]uuid.UUID, 0)
+	importedSettingsIDs := make([]uuid.UUID, 0)
+
 	// 导入 Skills
 	skillNameToID := make(map[string]uuid.UUID)
 	for _, skillItem := range manifest.Assets.Skills {
@@ -492,6 +499,7 @@ func (s *Service) ImportConfirm(ctx context.Context, zipData []byte, confirm *mo
 		case "success":
 			result.Success++
 			skillNameToID[skillItem.Name] = id
+			importedSkillIDs = append(importedSkillIDs, id)
 		case "skipped":
 			result.Skipped++
 			existing, _ := s.skillRepo.FindByName(ctx, skillItem.Name)
@@ -524,6 +532,7 @@ func (s *Service) ImportConfirm(ctx context.Context, zipData []byte, confirm *mo
 			result.Success++
 			// 绑定 Skills
 			s.bindSkillsToCommand(ctx, id, commandItem.BoundSkills, skillNameToID)
+			importedCommandIDs = append(importedCommandIDs, id)
 		case "skipped":
 			result.Skipped++
 		case "failed":
@@ -552,6 +561,7 @@ func (s *Service) ImportConfirm(ctx context.Context, zipData []byte, confirm *mo
 			result.Success++
 			// 绑定 Skills
 			s.bindSkillsToSubagent(ctx, id, subagentItem.BoundSkills, skillNameToID)
+			importedSubagentIDs = append(importedSubagentIDs, id)
 		case "skipped":
 			result.Skipped++
 		case "failed":
@@ -580,6 +590,7 @@ func (s *Service) ImportConfirm(ctx context.Context, zipData []byte, confirm *mo
 			result.Success++
 			if id != uuid.Nil {
 				skillNameToID[ruleItem.Name] = id
+				importedRuleIDs = append(importedRuleIDs, id)
 			}
 		case "skipped":
 			result.Skipped++
@@ -609,6 +620,7 @@ func (s *Service) ImportConfirm(ctx context.Context, zipData []byte, confirm *mo
 			result.Success++
 			if id != uuid.Nil {
 				skillNameToID[settingsItem.Name] = id
+				importedSettingsIDs = append(importedSettingsIDs, id)
 			}
 		case "skipped":
 			result.Skipped++
@@ -621,6 +633,113 @@ func (s *Service) ImportConfirm(ctx context.Context, zipData []byte, confirm *mo
 		zap.Int("success", result.Success),
 		zap.Int("skipped", result.Skipped),
 		zap.Int("failed", result.Failed))
+
+	// 自动更新被引用角色的配置
+	if s.autoGenerator != nil {
+		// 收集所有受影响的 Agent IDs
+		affectedAgentIDs := make(map[uuid.UUID]bool)
+
+		// 从 Skills 获取受影响的 Agent
+		for _, skillID := range importedSkillIDs {
+			agentIDs, err := s.autoGenerator.GetAffectedAgentsBySkill(ctx, skillID)
+			if err != nil {
+				s.logger.Warn("获取受 Skill 影响的 Agent 失败", zap.Error(err))
+				continue
+			}
+			for _, id := range agentIDs {
+				affectedAgentIDs[id] = true
+			}
+		}
+
+		// 从 Commands 获取受影响的 Agent
+		for _, commandID := range importedCommandIDs {
+			agentIDs, err := s.autoGenerator.GetAffectedAgentsByCommand(ctx, commandID)
+			if err != nil {
+				s.logger.Warn("获取受 Command 影响的 Agent 失败", zap.Error(err))
+				continue
+			}
+			for _, id := range agentIDs {
+				affectedAgentIDs[id] = true
+			}
+		}
+
+		// 从 Subagents 获取受影响的 Agent
+		for _, subagentID := range importedSubagentIDs {
+			agentIDs, err := s.autoGenerator.GetAffectedAgentsBySubagent(ctx, subagentID)
+			if err != nil {
+				s.logger.Warn("获取受 Subagent 影响的 Agent 失败", zap.Error(err))
+				continue
+			}
+			for _, id := range agentIDs {
+				affectedAgentIDs[id] = true
+			}
+		}
+
+		// 从 Rules 获取受影响的 Agent
+		for _, ruleID := range importedRuleIDs {
+			agentIDs, err := s.autoGenerator.GetAffectedAgentsByRule(ctx, ruleID)
+			if err != nil {
+				s.logger.Warn("获取受 Rule 影响的 Agent 失败", zap.Error(err))
+				continue
+			}
+			for _, id := range agentIDs {
+				affectedAgentIDs[id] = true
+			}
+		}
+
+		// 从 Settings 获取受影响的 Agent
+		for _, settingsID := range importedSettingsIDs {
+			agentIDs, err := s.autoGenerator.GetAffectedAgentsBySettings(ctx, settingsID)
+			if err != nil {
+				s.logger.Warn("获取受 Settings 影响的 Agent 失败", zap.Error(err))
+				continue
+			}
+			for _, id := range agentIDs {
+				affectedAgentIDs[id] = true
+			}
+		}
+
+		// 如果有受影响的 Agent，批量生成配置
+		if len(affectedAgentIDs) > 0 {
+			agentIDList := make([]uuid.UUID, 0, len(affectedAgentIDs))
+			for id := range affectedAgentIDs {
+				agentIDList = append(agentIDList, id)
+			}
+
+			// 获取 Agent 名称（用于结果展示）
+			agentNames := make(map[uuid.UUID]string)
+			if s.agentRepo != nil {
+				for _, id := range agentIDList {
+					agent, err := s.agentRepo.FindByID(ctx, id)
+					if err == nil && agent != nil {
+						agentNames[id] = agent.Name
+					} else {
+						agentNames[id] = id.String()
+					}
+				}
+			}
+
+			// 批量生成配置
+			errors := s.autoGenerator.GenerateMultiple(ctx, agentIDList)
+			for i, id := range agentIDList {
+				genResult := model.ConfigGenResult{
+					AgentID:   id.String(),
+					AgentName: agentNames[id],
+				}
+				if i < len(errors) && errors[i] != nil {
+					genResult.Status = "failed"
+					genResult.Message = errors[i].Error()
+				} else {
+					genResult.Status = "success"
+					genResult.Message = "配置生成成功"
+				}
+				result.ConfigGenResults = append(result.ConfigGenResults, genResult)
+			}
+
+			s.logger.Info("资产导入后自动生成配置完成",
+				zap.Int("affectedAgents", len(affectedAgentIDs)))
+		}
+	}
 
 	return result, nil
 }
