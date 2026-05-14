@@ -16,9 +16,15 @@ import (
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
+	"github.com/anthropic/isdp/internal/service/configgen"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
+
+// ConfigGenerator 配置生成器接口（简化依赖）
+type ConfigGenerator interface {
+	GenerateSync(ctx context.Context, agentRoleID uuid.UUID) error
+}
 
 // Service 团队包业务服务
 type Service struct {
@@ -42,6 +48,8 @@ type Service struct {
 	ruleStoragePath         string
 	settingsStoragePath     string
 	logger                  *zap.Logger
+	// 自动配置生成器（可选，用于导入角色后自动生成配置）
+	autoGenerator           ConfigGenerator
 }
 
 // NewService 创建 TeamPackage Service
@@ -90,6 +98,15 @@ func NewService(
 		logger:                  logger,
 	}
 }
+
+// SetAutoGenerator 设置自动配置生成器
+// 导入角色后会调用此生成器自动生成配置
+func (s *Service) SetAutoGenerator(generator ConfigGenerator) {
+	s.autoGenerator = generator
+}
+
+// 确保 configgen.AutoGenerator 实现 ConfigGenerator 接口
+var _ ConfigGenerator = (*configgen.AutoGenerator)(nil)
 
 // Export 导出团队包
 func (s *Service) Export(ctx context.Context, workflowID string) ([]byte, string, error) {
@@ -970,7 +987,28 @@ func (s *Service) ImportConfirm(ctx context.Context, zipData []byte, confirm *mo
 				s.logger.Warn("绑定配置失败", zap.Error(err))
 			}
 		}
-	}
+
+			// 绑定完成后自动生成配置
+			if s.autoGenerator != nil {
+				genResult := model.ConfigGenResult{
+					AgentID:   roleID.String(),
+					AgentName: roleItem.Name,
+				}
+				if err := s.autoGenerator.GenerateSync(ctx, roleID); err != nil {
+					genResult.Status = "failed"
+					genResult.Message = err.Error()
+					s.logger.Warn("自动生成角色配置失败",
+						zap.String("roleID", roleID.String()),
+						zap.Error(err))
+				} else {
+					genResult.Status = "success"
+					genResult.Message = "配置生成成功"
+					s.logger.Info("自动生成角色配置成功",
+						zap.String("roleID", roleID.String()))
+				}
+				result.ConfigGenResults = append(result.ConfigGenResults, genResult)
+			}
+		}
 
 	// 导入工作流
 	if confirm.WorkflowAction != "skip" {

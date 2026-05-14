@@ -10,13 +10,24 @@ import {
   WarningOutlined  // 新增：用于冲突提示图标
 } from '@ant-design/icons';
 import api from '@/api/client';
-import type { MarketPackage, PackagePreviewResponse, ImportConfirm } from '@/types';
+import type { MarketPackage, PackagePreviewResponse, ImportConfirm, ImportResult, ConfigGenResult } from '@/types';
 import { getCachedPackages, setCachedPackages, clearCache } from '@/utils/teamPackageCache';
 
 const { Title, Text } = Typography;
 
 // 跳过规则说明文本（统一常量）
 const SKIP_RULE_DESCRIPTION = "跳过规则：按资产粒度处理。选择「全部跳过」将保留已存在的 Workflow、Roles 和 Assets，仅导入新增项。";
+
+// 资产类型标签颜色
+const typeColors: Record<string, string> = {
+  workflow: 'magenta',
+  role: 'geekblue',
+  skill: 'blue',
+  command: 'green',
+  subagent: 'purple',
+  rule: 'orange',
+  settings: 'cyan',
+};
 
 const TeamPackages: React.FC = () => {
   const [packages, setPackages] = useState<MarketPackage[]>([]);
@@ -38,6 +49,9 @@ const TeamPackages: React.FC = () => {
   const [batchConflictTotal, setBatchConflictTotal] = useState(0);
   // 批量导入确认按钮loading状态
   const [confirmingBatch, setConfirmingBatch] = useState(false);
+  // 导入结果状态
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const [importResultModalVisible, setImportResultModalVisible] = useState(false);
 
   useEffect(() => {
     loadPackages();
@@ -134,8 +148,24 @@ const TeamPackages: React.FC = () => {
     try {
       const confirm = buildImportConfirm(previewData, mode);
 
-      await api.teamPackages.syncPackage(pkg.name, confirm, pkg.marketId);
-      message.success(`团队包 ${pkg.name} 导入成功`);
+      const result = await api.teamPackages.syncPackage(pkg.name, confirm, pkg.marketId);
+      setImportResult(result);
+      setImportResultModalVisible(true);
+
+      // 统计导入结果
+      const rolesCount = result.details?.filter((d: any) => d.assetType === 'role' && d.status === 'success').length || 0;
+      const configGenCount = result.configGenResults?.length || 0;
+      const configGenSuccess = result.configGenResults?.filter((c: any) => c.status === 'success').length || 0;
+
+      let successMsg = `团队包 ${pkg.name} 导入成功`;
+      if (rolesCount > 0) {
+        successMsg += `，导入 ${rolesCount} 个角色`;
+      }
+      if (configGenCount > 0) {
+        successMsg += `，自动更新 ${configGenSuccess}/${configGenCount} 个角色配置`;
+      }
+      message.success(successMsg);
+
       loadPackages(true);  // 强制刷新以更新最近导入时间
       setPreviewModalVisible(false);
     } catch (error: any) {
@@ -859,6 +889,92 @@ const TeamPackages: React.FC = () => {
       </Modal>
 
       {renderPreviewModal()}
+
+      {/* 导入结果弹窗 */}
+      <Modal
+        title="导入结果"
+        open={importResultModalVisible}
+        onCancel={() => setImportResultModalVisible(false)}
+        footer={<Button onClick={() => setImportResultModalVisible(false)}>关闭</Button>}
+        width={700}
+      >
+        {importResult && (
+          <div>
+            <Alert
+              type={importResult.failed > 0 ? 'warning' : 'success'}
+              message={`导入完成：成功 ${importResult.success}，跳过 ${importResult.skipped}，失败 ${importResult.failed}`}
+              showIcon
+              style={{ marginBottom: 16 }}
+            />
+            {importResult.details && importResult.details.length > 0 && (
+              <Table
+                dataSource={importResult.details}
+                rowKey={(item: any, index: number) => `${item.assetType}-${item.name}-${index}`}
+                pagination={false}
+                size="small"
+                scroll={{ y: 300 }}
+                columns={[
+                  {
+                    title: '类型',
+                    dataIndex: 'assetType',
+                    key: 'assetType',
+                    width: 100,
+                    render: (type: string) => (
+                      <Tag color={typeColors[type] || 'default'}>{type}</Tag>
+                    ),
+                  },
+                  { title: '名称', dataIndex: 'name', key: 'name' },
+                  {
+                    title: '状态',
+                    dataIndex: 'status',
+                    key: 'status',
+                    width: 80,
+                    render: (status: string) => (
+                      <Tag color={status === 'success' ? 'success' : status === 'skipped' ? 'warning' : 'error'}>
+                        {status}
+                      </Tag>
+                    ),
+                  },
+                  { title: '信息', dataIndex: 'message', key: 'message', ellipsis: true },
+                ]}
+              />
+            )}
+            {/* 配置生成结果 */}
+            {importResult.configGenResults && importResult.configGenResults.length > 0 && (
+              <div style={{ marginTop: 16 }}>
+                <Alert
+                  type="info"
+                  message={`自动更新了 ${importResult.configGenResults.length} 个角色的配置`}
+                  showIcon
+                  style={{ marginBottom: 8 }}
+                />
+                <Table
+                  dataSource={importResult.configGenResults}
+                  rowKey={(item: ConfigGenResult) => item.agentId}
+                  pagination={false}
+                  size="small"
+                  scroll={{ y: 200 }}
+                  columns={[
+                    { title: '角色名称', dataIndex: 'agentName', key: 'agentName' },
+                    {
+                      title: '状态',
+                      dataIndex: 'status',
+                      key: 'status',
+                      width: 80,
+                      render: (status: string) => (
+                        <Tag color={status === 'success' ? 'success' : 'error'}>
+                          {status === 'success' ? '成功' : '失败'}
+                        </Tag>
+                      ),
+                    },
+                    { title: '信息', dataIndex: 'message', key: 'message', ellipsis: true },
+                  ]}
+                />
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 };

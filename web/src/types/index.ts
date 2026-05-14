@@ -1196,13 +1196,23 @@ export interface ImportResult {
   skipped: number;
   failed: number;
   details?: ImportDetail[];
+  configGenResults?: ConfigGenResult[]; // 配置生成结果
 }
 
 // ImportDetail 导入详情（简化版，无版本）
 export interface ImportDetail {
   assetType: string;
   name: string;
+  id?: string; // 成功导入时的ID
   status: string; // success, skipped, failed
+  message?: string;
+}
+
+// ConfigGenResult 配置生成结果
+export interface ConfigGenResult {
+  agentId: string;
+  agentName: string;
+  status: string; // success, failed, skipped
   message?: string;
 }
 

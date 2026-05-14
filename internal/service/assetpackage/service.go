@@ -16,27 +16,42 @@ import (
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
+	"github.com/anthropic/isdp/internal/service/configgen"
 	"github.com/anthropic/isdp/internal/service/settings"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
+
+// ConfigGenerator 配置生成器接口（简化依赖）
+type ConfigGenerator interface {
+	GenerateSync(ctx context.Context, agentRoleID uuid.UUID) error
+	GenerateMultiple(ctx context.Context, agentIDs []uuid.UUID) []error
+	GetAffectedAgentsBySkill(ctx context.Context, skillID uuid.UUID) ([]uuid.UUID, error)
+	GetAffectedAgentsByCommand(ctx context.Context, commandID uuid.UUID) ([]uuid.UUID, error)
+	GetAffectedAgentsBySubagent(ctx context.Context, subagentID uuid.UUID) ([]uuid.UUID, error)
+	GetAffectedAgentsByRule(ctx context.Context, ruleID uuid.UUID) ([]uuid.UUID, error)
+	GetAffectedAgentsBySettings(ctx context.Context, settingsID uuid.UUID) ([]uuid.UUID, error)
+}
 
 // Service 资产包业务服务
 type Service struct {
 	skillRepo            *repo.SkillRepository
 	commandRepo          *repo.CommandRepository
 	subagentRepo         *repo.SubagentRepository
-	ruleRepo            *repo.RuleRepository
-	settingsRepo        *repo.SettingsRepository
-	settingsService     *settings.Service
-	commandSkillBinding *repo.CommandSkillBindingRepository
+	ruleRepo             *repo.RuleRepository
+	settingsRepo         *repo.SettingsRepository
+	agentRepo            *repo.AgentConfigRepository // 新增：用于获取角色名称
+	settingsService      *settings.Service
+	commandSkillBinding  *repo.CommandSkillBindingRepository
 	subagentSkillBinding *repo.SubagentSkillBindingRepository
-	skillStoragePath    string
-	subagentStoragePath string
-	commandStoragePath  string
-	ruleStoragePath     string
-	settingsStoragePath string
-	logger              *zap.Logger
+	skillStoragePath     string
+	subagentStoragePath  string
+	commandStoragePath   string
+	ruleStoragePath      string
+	settingsStoragePath  string
+	logger               *zap.Logger
+	// 自动配置生成器（可选，用于导入资产后自动更新被引用角色的配置）
+	autoGenerator        ConfigGenerator
 }
 
 // NewService 创建 AssetPackage Service
@@ -73,6 +88,20 @@ func NewService(
 		logger:               logger,
 	}
 }
+
+// SetAutoGenerator 设置自动配置生成器
+// 导入资产后会调用此生成器自动更新被引用角色的配置
+func (s *Service) SetAutoGenerator(generator ConfigGenerator) {
+	s.autoGenerator = generator
+}
+
+// SetAgentRepo 设置 AgentRepo（用于获取角色名称）
+func (s *Service) SetAgentRepo(agentRepo *repo.AgentConfigRepository) {
+	s.agentRepo = agentRepo
+}
+
+// 确保 configgen.AutoGenerator 实现 ConfigGenerator 接口
+var _ ConfigGenerator = (*configgen.AutoGenerator)(nil)
 
 // Export 导出资产包
 func (s *Service) Export(ctx context.Context, req *model.ExportAssetPackageRequest) ([]byte, string, error) {

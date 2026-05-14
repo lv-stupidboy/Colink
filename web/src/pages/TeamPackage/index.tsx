@@ -11,6 +11,7 @@ import {
 } from '@ant-design/icons';
 import type { UploadProps } from 'antd';
 import api from '@/api/client';
+import type { ImportResult, ConfigGenResult } from '@/types';
 
 const { Title, Text } = Typography;
 const { Dragger } = Upload;
@@ -58,6 +59,7 @@ const TeamPackageManagement: React.FC = () => {
   const [preview, setPreview] = useState<TeamPackagePreview | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
 
   // 导出状态
   const [exporting, setExporting] = useState(false);
@@ -135,6 +137,8 @@ const TeamPackageManagement: React.FC = () => {
     try {
       const confirm = buildImportConfirm(mode);
       const result = await api.teamPackages.importConfirm(importFile, confirm);
+      setImportResult(result);
+
       // 从 details 中统计各类型的成功数量
       const countByType = (type: string) =>
         result.details?.filter((d: any) => d.assetType === type && d.status === 'success').length || 0;
@@ -145,8 +149,18 @@ const TeamPackageManagement: React.FC = () => {
       const settingsCount = countByType('settings');
       const rolesCount = countByType('role');
       const workflowName = result.details?.find((d: any) => d.assetType === 'workflow')?.name || '';
-      message.success(`导入成功：团队 ${workflowName}，角色 ${rolesCount} 个，Skills ${skillsCount}、Commands ${commandsCount}、Subagents ${subagentsCount}、Rules ${rulesCount}、Settings ${settingsCount}`);
-      // 清理状态
+
+      // 统计配置生成结果
+      const configGenCount = result.configGenResults?.length || 0;
+      const configGenSuccess = result.configGenResults?.filter((c: any) => c.status === 'success').length || 0;
+
+      let successMsg = `导入成功：团队 ${workflowName}，角色 ${rolesCount} 个，Skills ${skillsCount}、Commands ${commandsCount}、Subagents ${subagentsCount}、Rules ${rulesCount}、Settings ${settingsCount}`;
+      if (configGenCount > 0) {
+        successMsg += `，自动更新 ${configGenSuccess}/${configGenCount} 个角色配置`;
+      }
+      message.success(successMsg);
+
+      // 清理文件和预览状态（保留 importResult 显示结果）
       setImportFile(null);
       setPreview(null);
       // 刷新工作流列表
@@ -195,6 +209,7 @@ const TeamPackageManagement: React.FC = () => {
   const handleClearPreview = () => {
     setImportFile(null);
     setPreview(null);
+    setImportResult(null);
   };
 
   // 渲染预览表格
@@ -353,13 +368,13 @@ const TeamPackageManagement: React.FC = () => {
         <Card
           title="导入团队包"
           style={{ flex: 1, minHeight: 400 }}
-          extra={preview && (
+          extra={(preview || importResult) && (
             <Button size="small" onClick={handleClearPreview}>
               清除
             </Button>
           )}
         >
-          {!preview ? (
+          {!preview && !importResult ? (
             <Spin spinning={loadingPreview}>
               <Dragger {...uploadProps}>
                 <p className="ant-upload-drag-icon">
@@ -369,6 +384,81 @@ const TeamPackageManagement: React.FC = () => {
                 <p className="ant-upload-hint">支持 .zip 格式的团队包文件</p>
               </Dragger>
             </Spin>
+          ) : importResult ? (
+            <div>
+              <Alert
+                type={importResult.failed > 0 ? 'warning' : 'success'}
+                message={`导入完成：成功 ${importResult.success}，跳过 ${importResult.skipped}，失败 ${importResult.failed}`}
+                showIcon
+                style={{ marginBottom: 16 }}
+              />
+              {importResult.details && importResult.details.length > 0 && (
+                <Table
+                  dataSource={importResult.details}
+                  rowKey={(item: any, index: number) => `${item.assetType}-${item.name}-${index}`}
+                  pagination={false}
+                  size="small"
+                  scroll={{ y: 300 }}
+                  columns={[
+                    {
+                      title: '类型',
+                      dataIndex: 'assetType',
+                      key: 'assetType',
+                      width: 100,
+                      render: (type: string) => (
+                        <Tag color={typeColors[type] || 'default'}>{type}</Tag>
+                      ),
+                    },
+                    { title: '名称', dataIndex: 'name', key: 'name' },
+                    {
+                      title: '状态',
+                      dataIndex: 'status',
+                      key: 'status',
+                      width: 80,
+                      render: (status: string) => (
+                        <Tag color={status === 'success' ? 'success' : status === 'skipped' ? 'warning' : 'error'}>
+                          {status}
+                        </Tag>
+                      ),
+                    },
+                    { title: '信息', dataIndex: 'message', key: 'message', ellipsis: true },
+                  ]}
+                />
+              )}
+              {/* 配置生成结果 */}
+              {importResult.configGenResults && importResult.configGenResults.length > 0 && (
+                <div style={{ marginTop: 16 }}>
+                  <Alert
+                    type="info"
+                    message={`自动更新了 ${importResult.configGenResults.length} 个角色的配置`}
+                    showIcon
+                    style={{ marginBottom: 8 }}
+                  />
+                  <Table
+                    dataSource={importResult.configGenResults}
+                    rowKey={(item: ConfigGenResult) => item.agentId}
+                    pagination={false}
+                    size="small"
+                    scroll={{ y: 200 }}
+                    columns={[
+                      { title: '角色名称', dataIndex: 'agentName', key: 'agentName' },
+                      {
+                        title: '状态',
+                        dataIndex: 'status',
+                        key: 'status',
+                        width: 80,
+                        render: (status: string) => (
+                          <Tag color={status === 'success' ? 'success' : 'error'}>
+                            {status === 'success' ? '成功' : '失败'}
+                          </Tag>
+                        ),
+                      },
+                      { title: '信息', dataIndex: 'message', key: 'message', ellipsis: true },
+                    ]}
+                  />
+                </div>
+              )}
+            </div>
           ) : (
             <div>
               {/* 冲突提示 */}

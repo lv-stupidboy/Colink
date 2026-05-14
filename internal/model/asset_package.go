@@ -63,10 +63,11 @@ type ExportAssetPackageRequest struct {
 
 // ImportResult 导入结果
 type ImportResult struct {
-	Success int            `json:"success"`
-	Skipped int            `json:"skipped"`
-	Failed  int            `json:"failed"`
-	Details []ImportDetail `json:"details"`
+	Success          int                `json:"success"`
+	Skipped          int                `json:"skipped"`
+	Failed           int                `json:"failed"`
+	Details          []ImportDetail     `json:"details"`
+	ConfigGenResults []ConfigGenResult  `json:"configGenResults,omitempty"` // 配置生成结果
 }
 
 // ImportDetail 导入详情
@@ -75,6 +76,14 @@ type ImportDetail struct {
 	Name      string `json:"name"`
 	ID        string `json:"id,omitempty"`  // 成功导入时的ID
 	Status    string `json:"status"` // success, skipped, failed
+	Message   string `json:"message,omitempty"`
+}
+
+// ConfigGenResult 配置生成结果
+type ConfigGenResult struct {
+	AgentID   string `json:"agentId"`
+	AgentName string `json:"agentName"`
+	Status    string `json:"status"` // success, failed, skipped
 	Message   string `json:"message,omitempty"`
 }
 

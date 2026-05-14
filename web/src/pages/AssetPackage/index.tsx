@@ -179,7 +179,17 @@ const AssetPackageManagement: React.FC = () => {
       const subagentsCount = countByType('subagent');
       const rulesCount = countByType('rule');
       const settingsCount = countByType('settings');
-      message.success(`导入成功：Skills ${skillsCount}、Commands ${commandsCount}、Subagents ${subagentsCount}、Rules ${rulesCount}、Settings ${settingsCount}`);
+
+      // 统计配置生成结果
+      const configGenCount = result.configGenResults?.length || 0;
+      const configGenSuccess = result.configGenResults?.filter((c: any) => c.status === 'success').length || 0;
+
+      let successMsg = `导入成功：Skills ${skillsCount}、Commands ${commandsCount}、Subagents ${subagentsCount}、Rules ${rulesCount}、Settings ${settingsCount}`;
+      if (configGenCount > 0) {
+        successMsg += `，自动更新 ${configGenSuccess}/${configGenCount} 个角色配置`;
+      }
+      message.success(successMsg);
+
       // 清理状态
       setImportFile(null);
       setPreview(null);
@@ -497,6 +507,39 @@ const AssetPackageManagement: React.FC = () => {
                     { title: '信息', dataIndex: 'message', key: 'message', ellipsis: true },
                   ]}
                 />
+              )}
+              {/* 配置生成结果 */}
+              {importResult.configGenResults && importResult.configGenResults.length > 0 && (
+                <div style={{ marginTop: 16 }}>
+                  <Alert
+                    type="info"
+                    message={`自动更新了 ${importResult.configGenResults.length} 个角色的配置`}
+                    showIcon
+                    style={{ marginBottom: 8 }}
+                  />
+                  <Table
+                    dataSource={importResult.configGenResults}
+                    rowKey={(item) => item.agentId}
+                    pagination={false}
+                    size="small"
+                    scroll={{ y: 200 }}
+                    columns={[
+                      { title: '角色名称', dataIndex: 'agentName', key: 'agentName' },
+                      {
+                        title: '状态',
+                        dataIndex: 'status',
+                        key: 'status',
+                        width: 80,
+                        render: (status: string) => (
+                          <Tag color={status === 'success' ? 'success' : 'error'}>
+                            {status === 'success' ? '成功' : '失败'}
+                          </Tag>
+                        ),
+                      },
+                      { title: '信息', dataIndex: 'message', key: 'message', ellipsis: true },
+                    ]}
+                  />
+                </div>
               )}
             </div>
           ) : (

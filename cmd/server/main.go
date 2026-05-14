@@ -315,6 +315,13 @@ func main() {
 		logger,
 	)
 
+	// 设置自动配置生成器（用于导入角色后自动生成配置）
+	teamPackageSvc.SetAutoGenerator(autoGenerator)
+
+	// 设置 AssetPackage 的自动配置生成器和 agentRepo
+	assetPackageSvc.SetAutoGenerator(autoGenerator)
+	assetPackageSvc.SetAgentRepo(agentConfigRepo)
+
 	// 创建 HumanTask Service
 	humanTaskSvc := humantask.NewService(humanTaskRepo, threadRepo, projectRepo, wsHub)
 
