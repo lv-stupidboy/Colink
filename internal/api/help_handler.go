@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
-	"os/user"
+	"os"
 	"sync"
 
 	"github.com/gin-gonic/gin"
@@ -67,11 +67,12 @@ func (h *HelpHandler) SubmitFeedback(c *gin.Context) {
 		return
 	}
 
-	// 获取当前用户名
+	// 获取当前用户名（与 Reporter 保持一致）
 	username := "unknown"
-	currentUser, err := user.Current()
-	if err == nil && currentUser != nil {
-		username = currentUser.Username
+	if u := os.Getenv("USER"); u != "" {
+		username = u
+	} else if u := os.Getenv("USERNAME"); u != "" {
+		username = u
 	}
 
 	// 发送到配置的反馈API
