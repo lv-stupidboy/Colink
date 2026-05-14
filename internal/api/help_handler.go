@@ -40,17 +40,11 @@ func (h *HelpHandler) GetConfig(c *gin.Context) {
 	})
 }
 
-// FeedbackImage 反馈图片
-type FeedbackImage struct {
-	Name string `json:"name"` // 图片名称
-	Data string `json:"data"` // 图片数据(base64)
-}
-
 // FeedbackRequest 问题反馈请求
 type FeedbackRequest struct {
-	Type        string          `json:"type" binding:"required"`        // 问题类型
-	Description string          `json:"description"`                    // 问题描述（可选，如果有图片）
-	Images      []FeedbackImage `json:"images"`                         // 图片列表
+	Type        string   `json:"type" binding:"required"` // 问题类型
+	Description string   `json:"description"`            // 问题描述（可选，如果有图片）
+	Images      []string `json:"images"`                 // 图片列表(base64数组)
 }
 
 // SubmitFeedback 提交问题反馈

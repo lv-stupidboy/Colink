@@ -1410,11 +1410,5 @@ export interface HelpConfig {
 export interface FeedbackRequest {
   type: string;
   description: string;
-  images?: FeedbackImage[];
-}
-
-// FeedbackImage 反馈图片
-export interface FeedbackImage {
-  name: string;
-  data: string;
+  images?: string[]; // base64数组
 }

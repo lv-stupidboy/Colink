@@ -38,7 +38,6 @@ interface DragState {
 interface FeedbackImage {
   id: string;
   dataUrl: string;
-  name: string;
 }
 
 const FloatingRobot: React.FC = () => {
@@ -127,7 +126,7 @@ const FloatingRobot: React.FC = () => {
       return;
     }
 
-    // 处理每张图片，使用索引保证命名唯一
+    // 处理每张图片
     imageItems.forEach((item, index) => {
       const file = item.getAsFile();
       if (file) {
@@ -137,7 +136,6 @@ const FloatingRobot: React.FC = () => {
           const newImage: FeedbackImage = {
             id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}-${index}`,
             dataUrl,
-            name: file.name || `图片-${currentCount + index + 1}`,
           };
           setFeedbackImages(prev => [...prev, newImage]);
         };
@@ -291,10 +289,7 @@ const FloatingRobot: React.FC = () => {
       await api.help.submitFeedback({
         type: feedbackType,
         description: feedbackDesc,
-        images: feedbackImages.map(img => ({
-          name: img.name,
-          data: img.dataUrl,
-        })),
+        images: feedbackImages.map(img => img.dataUrl),
       });
       message.success('反馈已提交，感谢您的反馈！');
       setFeedbackDesc('');
@@ -490,7 +485,7 @@ const FloatingRobot: React.FC = () => {
                     <div key={img.id} className="feedback-image-item">
                       <Image
                         src={img.dataUrl}
-                        alt={img.name}
+                        alt="反馈图片"
                         className="feedback-image-thumb"
                         width={60}
                         height={60}
