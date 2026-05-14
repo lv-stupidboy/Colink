@@ -153,24 +153,48 @@ func parseACPToolCallUpdate(raw json.RawMessage) ([]agent.Chunk, error) {
 	}
 
 	status := strings.ToLower(update.Status)
-	isError := false
-	switch status {
-	case "completed":
-		isError = false
-	case "failed":
-		isError = true
-	default:
-		LogDebug("ACP: skip tool_call_update with unsupported status",
+
+	// in_progress 状态：发送 tool_use chunk 更新 input（初始 tool_call 可能没有 input）
+	if status == "in_progress" || status == "pending" {
+		var toolInput map[string]interface{}
+		if m, ok := update.RawInput.(map[string]interface{}); ok {
+			toolInput = m
+		}
+
+		// 如果有 rawInput，发送更新
+		if len(toolInput) > 0 {
+			LogInfo("ACP: tool_call_update with input",
+				zap.String("toolCallId", update.ToolCallID),
+				zap.String("status", update.Status),
+				zap.Any("rawInput", toolInput))
+
+			return []agent.Chunk{{
+				Type:      agent.ChunkTypeToolUse,
+				ToolName:  update.Title,
+				ToolID:    update.ToolCallID,
+				ToolInput: toolInput,
+			}}, nil
+		}
+
+		LogDebug("ACP: skip tool_call_update without input",
 			zap.String("status", update.Status),
-			zap.String("toolCallId", update.ToolCallID),
-		)
+			zap.String("toolCallId", update.ToolCallID))
 		return nil, nil
 	}
 
-	content := ""
-	if len(update.Content) > 0 {
-		content = update.Content[0].Text
-	}
+	// completed/failed 状态：发送 tool_result
+	isError := status == "failed"
+
+	// 解析 content，处理嵌套结构
+	// OpenCode 格式: [{"type":"content","content":{"type":"text","text":"..."}}]
+	// 标准格式: [{"type":"text","text":"..."}]
+	content := extractToolCallContent(update.Content)
+
+	LogInfo("ACP: tool_call_update completed/failed",
+		zap.String("toolCallId", update.ToolCallID),
+		zap.String("status", update.Status),
+		zap.Bool("isError", isError),
+		zap.Int("contentLen", len(content)))
 
 	return []agent.Chunk{{
 		Type:    agent.ChunkTypeToolResult,
@@ -178,6 +202,33 @@ func parseACPToolCallUpdate(raw json.RawMessage) ([]agent.Chunk, error) {
 		ToolID:  update.ToolCallID,
 		IsError: isError,
 	}}, nil
+}
+
+// extractToolCallContent 从 content 数组中提取文本内容
+// 支持标准格式和 OpenCode 嵌套格式
+func extractToolCallContent(blocks []acpContentBlock) string {
+	for _, block := range blocks {
+		// 标准格式：直接有 Text 字段
+		if block.Text != "" {
+			return block.Text
+		}
+
+		// OpenCode 嵌套格式: {"type":"content","content":{"type":"text","text":"..."}}
+		if block.Type == "content" && len(block.Content) > 0 {
+			var nested acpContentBlock
+			if err := json.Unmarshal(block.Content, &nested); err == nil && nested.Text != "" {
+				return nested.Text
+			}
+			// 尝试直接解析为 map
+			var nestedMap map[string]interface{}
+			if err := json.Unmarshal(block.Content, &nestedMap); err == nil {
+				if text, ok := nestedMap["text"].(string); ok && text != "" {
+					return text
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func parseACPUsageUpdate(raw json.RawMessage) ([]agent.Chunk, error) {

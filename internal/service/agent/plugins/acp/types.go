@@ -128,10 +128,11 @@ type acpPromptParams struct {
 }
 
 type acpContentBlock struct {
-	Type     string `json:"type"` // ACP: "text", "resource", "image"
-	Text     string `json:"text,omitempty"`
-	MimeType string `json:"mimeType,omitempty"`
-	Data     string `json:"data,omitempty"`
+	Type     string          `json:"type"` // ACP: "text", "resource", "image", "content" (OpenCode nested)
+	Text     string          `json:"text,omitempty"`
+	MimeType string          `json:"mimeType,omitempty"`
+	Data     string          `json:"data,omitempty"`
+	Content  json.RawMessage `json:"content,omitempty"` // OpenCode nested content: {"type":"text","text":"..."}
 }
 
 type acpPromptResult struct {
@@ -171,6 +172,9 @@ type acpToolCallUpdate struct {
 	SessionUpdate string            `json:"sessionUpdate"`
 	ToolCallID    string            `json:"toolCallId"`
 	Status        string            `json:"status"`
+	Title         string            `json:"title,omitempty"`
+	Kind          string            `json:"kind,omitempty"`
+	RawInput      interface{}       `json:"rawInput,omitempty"`
 	Content       []acpContentBlock `json:"content,omitempty"`
 }
 

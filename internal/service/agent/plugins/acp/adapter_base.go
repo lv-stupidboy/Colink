@@ -581,9 +581,42 @@ func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, 
 		onChunk(chunk)
 
 	case "session/tool_call_update":
-		// 可能的工具状态更新通知
-		LogInfo("ACP: received tool_call_update notification", zap.String("params", string(params)))
-		// TODO: 如果需要，解析并处理
+		// OpenCode 通过单独的 session/tool_call_update 通知发送工具更新
+		if onChunk == nil {
+			return
+		}
+		LogInfo("ACP: received session/tool_call_update notification", zap.String("params", string(params)))
+
+		// 尝试解析通知参数
+		var updateParams struct {
+			SessionID string          `json:"sessionId"`
+			Update    json.RawMessage `json:"update"`
+		}
+		if err := json.Unmarshal(params, &updateParams); err != nil {
+			// 可能直接是 tool_call_update 结构（不带 sessionId）
+			LogWarn("ACP: failed to parse session/tool_call_update params, trying direct parse", zap.Error(err))
+			chunks, err := parseACPToolCallUpdate(params)
+			if err != nil {
+				LogError("ACP: failed to parse tool_call_update directly", zap.Error(err))
+				return
+			}
+			for _, chunk := range chunks {
+				onChunk(chunk)
+			}
+			return
+		}
+
+		// 有 update 字段的情况
+		if len(updateParams.Update) > 0 {
+			chunks, err := parseACPToolCallUpdate(updateParams.Update)
+			if err != nil {
+				LogError("ACP: failed to parse tool_call_update from update field", zap.Error(err))
+				return
+			}
+			for _, chunk := range chunks {
+				onChunk(chunk)
+			}
+		}
 
 	default:
 		LogInfo("ACP: unknown notification method",
