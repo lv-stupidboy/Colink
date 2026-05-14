@@ -6,6 +6,7 @@ import {
   Popconfirm,
   Popover,
   Input,
+  Space,
 } from 'antd';
 import {
   PlusOutlined,
@@ -241,14 +242,15 @@ const TeamCard: React.FC<TeamCardProps> = ({
                         className="workflow-add-agent-item"
                         onClick={() => onAddAgent(agent.id)}
                       >
-                        <AgentTypeIcon
-                          requiresHuman={agent.requiresHuman}
-                          isSystem={agent.isSystem}
-                          size={16}
-                          style={{ marginRight: 8 }}
-                        />
-                        <span>{agent.name}</span>
-                        </div>
+                        <Space>
+                          <AgentTypeIcon
+                            requiresHuman={agent.requiresHuman}
+                            isSystem={agent.isSystem}
+                            size={16}
+                          />
+                          <span>{agent.name}</span>
+                        </Space>
+                      </div>
                     ))}
                   </div>
                 </div>
