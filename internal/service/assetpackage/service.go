@@ -482,6 +482,8 @@ func (s *Service) ImportConfirm(ctx context.Context, zipData []byte, confirm *mo
 			existing, _ := s.skillRepo.FindByName(ctx, skillItem.Name)
 			if existing != nil {
 				skillNameToID[skillItem.Name] = existing.ID
+				// 跳过的已有资产也需要追踪，因为可能被角色引用
+				importedSkillIDs = append(importedSkillIDs, existing.ID)
 			}
 			result.Skipped++
 			result.Details = append(result.Details, model.ImportDetail{
@@ -505,6 +507,7 @@ func (s *Service) ImportConfirm(ctx context.Context, zipData []byte, confirm *mo
 			existing, _ := s.skillRepo.FindByName(ctx, skillItem.Name)
 			if existing != nil {
 				skillNameToID[skillItem.Name] = existing.ID
+				importedSkillIDs = append(importedSkillIDs, existing.ID)
 			}
 		case "failed":
 			result.Failed++
@@ -515,6 +518,11 @@ func (s *Service) ImportConfirm(ctx context.Context, zipData []byte, confirm *mo
 	for _, commandItem := range manifest.Assets.Commands {
 		action := getAssetAction(confirm.AssetActions, "command", commandItem.Name)
 		if action == "skip" {
+			existing, _ := s.commandRepo.FindByName(ctx, commandItem.Name)
+			if existing != nil {
+				// 跳过的已有资产也需要追踪，因为可能被角色引用
+				importedCommandIDs = append(importedCommandIDs, existing.ID)
+			}
 			result.Skipped++
 			result.Details = append(result.Details, model.ImportDetail{
 				AssetType: "command",
@@ -535,6 +543,10 @@ func (s *Service) ImportConfirm(ctx context.Context, zipData []byte, confirm *mo
 			importedCommandIDs = append(importedCommandIDs, id)
 		case "skipped":
 			result.Skipped++
+			existing, _ := s.commandRepo.FindByName(ctx, commandItem.Name)
+			if existing != nil {
+				importedCommandIDs = append(importedCommandIDs, existing.ID)
+			}
 		case "failed":
 			result.Failed++
 		}
@@ -544,6 +556,10 @@ func (s *Service) ImportConfirm(ctx context.Context, zipData []byte, confirm *mo
 	for _, subagentItem := range manifest.Assets.Subagents {
 		action := getAssetAction(confirm.AssetActions, "subagent", subagentItem.Name)
 		if action == "skip" {
+			existing, _ := s.subagentRepo.FindByName(ctx, subagentItem.Name)
+			if existing != nil {
+				importedSubagentIDs = append(importedSubagentIDs, existing.ID)
+			}
 			result.Skipped++
 			result.Details = append(result.Details, model.ImportDetail{
 				AssetType: "subagent",
@@ -564,6 +580,10 @@ func (s *Service) ImportConfirm(ctx context.Context, zipData []byte, confirm *mo
 			importedSubagentIDs = append(importedSubagentIDs, id)
 		case "skipped":
 			result.Skipped++
+			existing, _ := s.subagentRepo.FindByName(ctx, subagentItem.Name)
+			if existing != nil {
+				importedSubagentIDs = append(importedSubagentIDs, existing.ID)
+			}
 		case "failed":
 			result.Failed++
 		}
@@ -573,6 +593,10 @@ func (s *Service) ImportConfirm(ctx context.Context, zipData []byte, confirm *mo
 	for _, ruleItem := range manifest.Assets.Rules {
 		action := getAssetAction(confirm.AssetActions, "rule", ruleItem.Name)
 		if action == "skip" {
+			existing, _ := s.ruleRepo.FindByName(ctx, ruleItem.Name)
+			if existing != nil {
+				importedRuleIDs = append(importedRuleIDs, existing.ID)
+			}
 			result.Skipped++
 			result.Details = append(result.Details, model.ImportDetail{
 				AssetType: "rule",
@@ -594,6 +618,10 @@ func (s *Service) ImportConfirm(ctx context.Context, zipData []byte, confirm *mo
 			}
 		case "skipped":
 			result.Skipped++
+			existing, _ := s.ruleRepo.FindByName(ctx, ruleItem.Name)
+			if existing != nil {
+				importedRuleIDs = append(importedRuleIDs, existing.ID)
+			}
 		case "failed":
 			result.Failed++
 		}
@@ -603,6 +631,10 @@ func (s *Service) ImportConfirm(ctx context.Context, zipData []byte, confirm *mo
 	for _, settingsItem := range manifest.Assets.Settings {
 		action := getAssetAction(confirm.AssetActions, "settings", settingsItem.Name)
 		if action == "skip" {
+			existing, _ := s.settingsRepo.FindByName(ctx, settingsItem.Name)
+			if existing != nil {
+				importedSettingsIDs = append(importedSettingsIDs, existing.ID)
+			}
 			result.Skipped++
 			result.Details = append(result.Details, model.ImportDetail{
 				AssetType: "settings",
@@ -624,6 +656,10 @@ func (s *Service) ImportConfirm(ctx context.Context, zipData []byte, confirm *mo
 			}
 		case "skipped":
 			result.Skipped++
+			existing, _ := s.settingsRepo.FindByName(ctx, settingsItem.Name)
+			if existing != nil {
+				importedSettingsIDs = append(importedSettingsIDs, existing.ID)
+			}
 		case "failed":
 			result.Failed++
 		}
