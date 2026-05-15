@@ -292,7 +292,7 @@ func main() {
 
 	// 创建 TeamPackage Service
 	teamPackageSvc := teampackage.NewService(
-		workflowRepo, agentConfigRepo,
+		workflowRepo, agentConfigRepo, baseAgentRepo,
 		skillRepo, commandRepo, subagentRepo, ruleRepo, settingsRepo,
 		agentSkillBindingRepo, agentCommandBindingRepo, agentSubagentBindingRepo,
 		agentRuleBindingRepo, agentSettingsBindingRepo,

@@ -30,6 +30,7 @@ type ConfigGenerator interface {
 type Service struct {
 	workflowRepo            *repo.WorkflowTemplateRepository
 	agentRepo               *repo.AgentConfigRepository
+	baseAgentRepo           *repo.BaseAgentRepository // 基础Agent Repository
 	skillRepo               *repo.SkillRepository
 	commandRepo             *repo.CommandRepository
 	subagentRepo            *repo.SubagentRepository
@@ -56,6 +57,7 @@ type Service struct {
 func NewService(
 	workflowRepo *repo.WorkflowTemplateRepository,
 	agentRepo *repo.AgentConfigRepository,
+	baseAgentRepo *repo.BaseAgentRepository,
 	skillRepo *repo.SkillRepository,
 	commandRepo *repo.CommandRepository,
 	subagentRepo *repo.SubagentRepository,
@@ -78,6 +80,7 @@ func NewService(
 	return &Service{
 		workflowRepo:            workflowRepo,
 		agentRepo:               agentRepo,
+		baseAgentRepo:           baseAgentRepo,
 		skillRepo:               skillRepo,
 		commandRepo:             commandRepo,
 		subagentRepo:            subagentRepo,
@@ -254,7 +257,7 @@ func (s *Service) Export(ctx context.Context, workflowID string) ([]byte, string
 		}
 
 		// 添加角色到 manifest
-		manifest.Roles = append(manifest.Roles, model.TeamPackageRole{
+		roleData := model.TeamPackageRole{
 			ID:              agent.ID.String(),
 			Name:            agent.Name,
 			Role:            string(agent.Role),
@@ -265,7 +268,9 @@ func (s *Service) Export(ctx context.Context, workflowID string) ([]byte, string
 			RequiresHuman:   agent.RequiresHuman,
 			MentionPatterns: agent.MentionPatterns,
 			Bindings:        bindings,
-		})
+		}
+		// 不导出 BaseAgentID 和 BaseAgentName（用户确认不导出，避免跨客户端 UUID 不匹配问题）
+		manifest.Roles = append(manifest.Roles, roleData)
 	}
 
 	// 收集所有资产文件
@@ -1347,6 +1352,7 @@ func (s *Service) importSettings(ctx context.Context, tempDir string, item model
 		originalIDStr := role.ID
 		originalID, err := uuid.Parse(originalIDStr)
 		var roleID uuid.UUID
+		var existing *model.AgentRoleConfig // 用于记录已存在的角色（覆盖时保留 BaseAgentID）
 
 		if err != nil {
 			// 原始ID不是有效UUID，生成新的UUID
@@ -1361,7 +1367,8 @@ func (s *Service) importSettings(ctx context.Context, tempDir string, item model
 
 		// 如果原始ID是有效UUID，按ID检查角色是否已存在
 		if err == nil {
-			existing, existErr := s.agentRepo.FindByID(ctx, originalID)
+			var existErr error
+			existing, existErr = s.agentRepo.FindByID(ctx, originalID)
 			if existErr == nil && existing != nil {
 				if !overwrite {
 					detail.Status = "skipped"
@@ -1381,11 +1388,39 @@ func (s *Service) importSettings(ctx context.Context, tempDir string, item model
 		}
 
 		// 创建角色
+		// BaseAgentID 处理策略：
+		// - 覆盖已存在角色：始终保留本地原有的 BaseAgentID（包括空值）
+		// - 新建角色：使用系统默认基础 Agent，如果没有默认则保持为空
+		var baseAgentID uuid.UUID
+		if existing != nil {
+			// 覆盖模式：始终保留原有的 BaseAgentID（包括空值）
+			baseAgentID = existing.BaseAgentID
+			s.logger.Info("覆盖角色，保留原有 BaseAgentID",
+				zap.String("roleID", roleID.String()),
+				zap.Bool("baseAgentIDEmpty", baseAgentID == uuid.Nil))
+		} else if s.baseAgentRepo != nil {
+			// 新建角色：尝试获取系统默认基础Agent
+			defaultAgent, defaultErr := s.baseAgentRepo.FindDefault(ctx)
+			if defaultErr == nil && defaultAgent != nil {
+				baseAgentID = defaultAgent.ID
+				s.logger.Info("新建角色，使用系统默认 BaseAgent",
+					zap.String("roleID", roleID.String()),
+					zap.String("baseAgentID", baseAgentID.String()),
+					zap.String("baseAgentName", defaultAgent.Name))
+			} else {
+				// 没有默认基础 Agent，保持为空
+				baseAgentID = uuid.Nil
+				s.logger.Info("新建角色，无默认 BaseAgent，保持为空",
+					zap.String("roleID", roleID.String()))
+			}
+		}
+
 		now := time.Now()
 		agentConfig := &model.AgentRoleConfig{
 			ID:              roleID,
 			Name:            role.Name,
 			Role:            model.AgentRole(role.Role),
+			BaseAgentID:     baseAgentID,
 			Description:     role.Description,
 			SystemPrompt:    role.SystemPrompt,
 			MaxTokens:       role.MaxTokens,

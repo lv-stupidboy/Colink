@@ -89,6 +89,8 @@ type TeamPackageRole struct {
 	ID              string              `json:"id"`
 	Name            string              `json:"name"`
 	Role            string              `json:"role"`
+	BaseAgentID     string              `json:"baseAgentId,omitempty"`  // 基础Agent ID（可选，导出时记录）
+	BaseAgentName   string              `json:"baseAgentName,omitempty"` // 基础Agent 名称（可选，用于显示）
 	Description     string              `json:"description"`
 	SystemPrompt    string              `json:"systemPrompt"`
 	MaxTokens       int                 `json:"maxTokens"`
