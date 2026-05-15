@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>联邦源同步/导入冲突弹窗问题分析</title>
+  <style>
+    :root {
+      --bg-container: #ffffff;
+      --bg-layout: #f5f5f5;
+      --text-primary: #333333;
+      --text-secondary: #666666;
+      --border-color: #d9d9d9;
+      --color-primary: #1890ff;
+      --color-success: #52c41a;
+      --color-warning: #faad14;
+      --color-error: #ff4d4f;
+    }
+    [data-theme='dark'] {
+      --bg-container: #1f1f1f;
+      --bg-layout: #141414;
+      --text-primary: #ffffff;
+      --text-secondary: #a0a0a0;
+      --border-color: #434343;
+      --color-primary: #177ddc;
+      --color-success: #49aa19;
+      --color-warning: #d89614;
+      --color-error: #a61d24;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: var(--bg-layout);
+      color: var(--text-primary);
+      padding: 20px;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+    .page-title {
+      font-size: 24px;
+      font-weight: 600;
+      margin-bottom: 20px;
+      text-align: center;
+    }
+    .problem-section {
+      margin-bottom: 40px;
+      background: var(--bg-container);
+      border-radius: 8px;
+      padding: 20px;
+      border: 1px solid var(--border-color);
+    }
+    .problem-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--color-error);
+      margin-bottom: 15px;
+    }
+    .comparison-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+    .panel {
+      background: var(--bg-layout);
+      border-radius: 6px;
+      padding: 15px;
+      border: 1px solid var(--border-color);
+    }
+    .panel-title {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .panel-title.error {
+      color: var(--color-error);
+    }
+    .panel-title.success {
+      color: var(--color-success);
+    }
+    .mock-ui {
+      background: var(--bg-container);
+      border-radius: 4px;
+      padding: 10px;
+      border: 1px solid var(--border-color);
+    }
+    .mock-modal-header {
+      background: var(--bg-layout);
+      padding: 12px;
+      border-bottom: 1px solid var(--border-color);
+      font-weight: 600;
+      font-size: 16px;
+      margin: -10px -10px 10px -10px;
+      border-radius: 4px 4px 0 0;
+    }
+    .mock-list-item {
+      display: flex;
+      align-items: center;
+      padding: 10px;
+      border-bottom: 1px solid var(--border-color);
+      gap: 10px;
+    }
+    .mock-checkbox {
+      width: 16px;
+      height: 16px;
+      border-radius: 2px;
+      border: 2px solid var(--color-primary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .mock-checkbox.checked {
+      background: var(--color-primary);
+    }
+    .mock-checkbox.checked::after {
+      content: '✓';
+      color: white;
+      font-size: 12px;
+    }
+    .mock-skill-info {
+      flex: 1;
+    }
+    .mock-skill-name {
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .mock-skill-path {
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+    .mock-tag {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      margin-left: 8px;
+    }
+    .mock-tag.source-federated {
+      background: #722ed1;
+      color: white;
+    }
+    .mock-tag.source-personal {
+      background: var(--color-primary);
+      color: white;
+    }
+    .mock-tag.conflict {
+      background: var(--color-warning);
+      color: white;
+    }
+    .code-block {
+      background: #1f1f1f;
+      color: #e6e6e6;
+      padding: 12px;
+      border-radius: 4px;
+      font-family: 'Fira Code', 'Consolas', monospace;
+      font-size: 13px;
+      overflow-x: auto;
+      margin-top: 15px;
+    }
+    .code-highlight {
+      color: var(--color-error);
+      background: rgba(255, 77, 79, 0.1);
+      padding: 0 2px;
+      border-radius: 2px;
+    }
+    .code-fix {
+      color: var(--color-success);
+      background: rgba(82, 194, 26, 0.1);
+      padding: 0 2px;
+      border-radius: 2px;
+    }
+    .root-cause {
+      background: rgba(255, 77, 79, 0.1);
+      padding: 10px 15px;
+      border-radius: 4px;
+      margin-top: 15px;
+      border-left: 3px solid var(--color-error);
+    }
+    .fix-solution {
+      background: rgba(82, 194, 26, 0.1);
+      padding: 10px 15px;
+      border-radius: 4px;
+      margin-top: 15px;
+      border-left: 3px solid var(--color-success);
+    }
+    .affected-files {
+      margin-top: 10px;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+    .affected-files code {
+      background: var(--bg-layout);
+      padding: 2px 6px;
+      border-radius: 2px;
+    }
+    .summary-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+    }
+    .summary-table th, .summary-table td {
+      padding: 10px;
+      border: 1px solid var(--border-color);
+      text-align: left;
+    }
+    .summary-table th {
+      background: var(--bg-layout);
+      font-weight: 600;
+    }
+    .arrow-indicator {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 10px;
+      color: var(--color-primary);
+      font-size: 20px;
+    }
+    .radio-group {
+      display: flex;
+      gap: 10px;
+    }
+    .radio-item {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .mock-radio {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      border: 2px solid var(--color-primary);
+    }
+    .mock-radio.selected {
+      border-width: 6px;
+    }
+  </style>
+</head>
+<body data-theme="light">
+  <h1 class="page-title">联邦源同步/导入冲突弹窗问题分析报告</h1>
+
+  <!-- 问题1：同名选中同步问题 -->
+  <section class="problem-section">
+    <h2 class="problem-title">问题1：同名不同路径 Skill 选中同步问题</h2>
+    <p style="color: var(--text-secondary); margin-bottom: 15px;">
+      当有多个同名不同路径的 Skill 时，点击选中其中一个，其他同名的 Skill 会被同时选中/取消选中。
+    </p>
+
+    <div class="comparison-grid">
+      <!-- 问题演示 -->
+      <div class="panel">
+        <div class="panel-title error">
+          <span>❌</span> 当前问题状态
+        </div>
+        <div class="mock-ui">
+          <div class="mock-modal-header">同步冲突处理</div>
+          <div class="mock-list-item">
+            <div class="mock-checkbox checked"></div>
+            <div class="mock-skill-info">
+              <div class="mock-skill-name">brainstorm <span class="mock-tag source-federated">来自: term</span></div>
+              <div class="mock-skill-path">路径: skills/brainstorm/SKILL.md</div>
+              <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">远程描述: 需求探索技能...</div>
+            </div>
+            <span style="color: var(--color-success); font-size: 12px;">将更新</span>
+          </div>
+          <div class="mock-list-item" style="background: rgba(255, 77, 79, 0.1);">
+            <div class="mock-checkbox checked"></div>
+            <div class="mock-skill-info">
+              <div class="mock-skill-name">brainstorm <span class="mock-tag conflict">冲突</span></div>
+              <div class="mock-skill-path">路径: .claude/skills/brainstorm/SKILL.md</div>
+              <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">远程描述: 创意头脑风暴...</div>
+            </div>
+            <span style="color: var(--color-success); font-size: 12px;">⚠️ 被同步选中！</span>
+          </div>
+        </div>
+
+        <div class="root-cause">
+          <strong>根本原因：</strong>
+          <ul style="margin: 8px 0; padding-left: 20px;">
+            <li><code>rowKey="name"</code> - React 使用 name 作为行唯一标识</li>
+            <li><code>conflictChoices[skill.name]</code> - 状态 key 使用 name 而非唯一标识</li>
+            <li>同名不同路径的 Skill 共享同一个选择状态</li>
+          </ul>
+        </div>
+
+        <div class="code-block">
+// RegistryManagement/index.tsx:505-547
+&lt;List
+  dataSource={syncPreview.conflictSkills}
+  renderItem={(skill) => {
+    <span class="code-highlight">const isChecked = conflictChoices[skill.name] === 'update';</span>
+    return (
+      &lt;List.Item&gt;
+        &lt;Checkbox
+          checked={isChecked}
+          onChange={(e) => {
+            setConflictChoices(prev => ({
+              ...prev,
+              <span class="code-highlight">[skill.name]: e.target.checked ? 'update' : 'skip',</span>
+            }));
+          }}
+        &gt;
+...
+        </div>
+      </div>
+
+      <!-- 修复方案 -->
+      <div class="panel">
+        <div class="panel-title success">
+          <span>✅</span> 修复后状态
+        </div>
+        <div class="mock-ui">
+          <div class="mock-modal-header">同步冲突处理</div>
+          <div class="mock-list-item">
+            <div class="mock-checkbox checked"></div>
+            <div class="mock-skill-info">
+              <div class="mock-skill-name">brainstorm <span class="mock-tag source-federated">来自: term</span></div>
+              <div class="mock-skill-path">路径: skills/brainstorm/SKILL.md</div>
+              <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">远程描述: 需求探索技能...</div>
+            </div>
+            <span style="color: var(--color-success); font-size: 12px;">将更新</span>
+          </div>
+          <div class="mock-list-item">
+            <div class="mock-checkbox"></div>
+            <div class="mock-skill-info">
+              <div class="mock-skill-name">brainstorm <span class="mock-tag conflict">冲突</span></div>
+              <div class="mock-skill-path">路径: .claude/skills/brainstorm/SKILL.md</div>
+              <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">远程描述: 创意头脑风暴...</div>
+            </div>
+            <span style="color: var(--text-secondary); font-size: 12px;">将跳过</span>
+          </div>
+        </div>
+
+        <div class="fix-solution">
+          <strong>修复方案：</strong>
+          <ul style="margin: 8px 0; padding-left: 20px;">
+            <li>使用 <code>skill.path</code> 或 <code>skill.name + skill.path</code> 作为唯一标识</li>
+            <li>修改 <code>rowKey</code> 为唯一标识组合</li>
+            <li>修改状态 key 为唯一标识</li>
+          </ul>
+        </div>
+
+        <div class="code-block">
+// 修复后的代码
+&lt;List
+  dataSource={syncPreview.conflictSkills}
+  <span class="code-fix">rowKey={(skill) => `${skill.name}::${skill.path}`}</span>
+  renderItem={(skill) => {
+    <span class="code-fix">const uniqueKey = `${skill.name}::${skill.path}`;</span>
+    const isChecked = conflictChoices[<span class="code-fix">uniqueKey</span>] === 'update';
+    return (
+      &lt;List.Item&gt;
+        &lt;Checkbox
+          checked={isChecked}
+          onChange={(e) => {
+            setConflictChoices(prev => ({
+              ...prev,
+              <span class="code-fix">[uniqueKey]: e.target.checked ? 'update' : 'skip',</span>
+            }));
+          }}
+        &gt;
+...
+        </div>
+      </div>
+    </div>
+
+    <div class="affected-files">
+      <strong>受影响文件：</strong>
+      <code>web/src/pages/RegistryManagement/index.tsx</code> (行 505-547)
+      <code>web/src/pages/SkillLibrary/index.tsx</code> (行 1377-1383, 1502-1507, 1516)
+    </div>
+  </section>
+
+  <!-- 问题2：新建 Skill 联邦源导入不显示路径 -->
+  <section class="problem-section">
+    <h2 class="problem-title">问题2：新建 Skill 联邦源导入不显示目录路径</h2>
+    <p style="color: var(--text-secondary); margin-bottom: 15px;">
+      点击新建 Skill 选择联邦源导入时，扫描弹窗只显示 Skill 名称，不显示目录路径，用户无法区分同名不同路径的 Skill。
+    </p>
+
+    <div class="comparison-grid">
+      <!-- 问题演示 -->
+      <div class="panel">
+        <div class="panel-title error">
+          <span>❌</span> 当前问题状态 - 无路径显示
+        </div>
+        <div class="mock-ui">
+          <div class="mock-modal-header">从联邦源导入 Skill</div>
+          <div style="padding: 10px; background: var(--bg-layout); margin-bottom: 10px;">
+            <strong>联邦源：</strong>term<br>
+            <span style="color: var(--text-secondary);">https://gitee.com/colink_1/teams.git</span>
+          </div>
+          <div class="mock-list-item">
+            <div class="mock-checkbox checked"></div>
+            <div class="mock-skill-info">
+              <div class="mock-skill-name">brainstorm</div>
+              <div style="font-size: 12px; color: var(--text-secondary);">需求探索技能，帮助用户理解需求...</div>
+              <div style="color: var(--color-error); font-size: 11px; margin-top: 4px;">❌ 无法区分这是哪个路径的 brainstorm</div>
+            </div>
+          </div>
+          <div class="mock-list-item">
+            <div class="mock-checkbox checked"></div>
+            <div class="mock-skill-info">
+              <div class="mock-skill-name">brainstorm</div>
+              <div style="font-size: 12px; color: var(--text-secondary);">创意头脑风暴，探索多种可能...</div>
+              <div style="color: var(--color-error); font-size: 11px; margin-top: 4px;">❌ 与上面同名，用户无法区分</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="root-cause">
+          <strong>根本原因：</strong>
+          <ul style="margin: 8px 0; padding-left: 20px;">
+            <li>扫描弹窗只渲染 <code>skill.name</code> 和 <code>skill.description</code></li>
+            <li>没有渲染 <code>skill.path</code> 字段</li>
+          </ul>
+        </div>
+
+        <div class="code-block">
+// SkillLibrary/index.tsx:1372-1399
+&lt;List
+  dataSource={scanResult.skills}
+  renderItem={(skill) => (
+    &lt;List.Item&gt;
+      &lt;Checkbox ...&gt;
+        &lt;div&gt;
+          &lt;Text strong&gt;{skill.name}&lt;/Text&gt;
+          {skill.existsLocally && ...}
+          &lt;br /&gt;
+          <span class="code-highlight">// 缺少 skill.path 显示</span>
+          &lt;Text type="secondary"&gt;{skill.description || '暂无描述'}&lt;/Text&gt;
+        &lt;/div&gt;
+      &lt;/Checkbox&gt;
+    &lt;/List.Item&gt;
+  )}
+/&gt;
+        </div>
+      </div>
+
+      <!-- 修复方案 -->
+      <div class="panel">
+        <div class="panel-title success">
+          <span>✅</span> 修复后状态 - 显示路径
+        </div>
+        <div class="mock-ui">
+          <div class="mock-modal-header">从联邦源导入 Skill</div>
+          <div style="padding: 10px; background: var(--bg-layout); margin-bottom: 10px;">
+            <strong>联邦源：</strong>term<br>
+            <span style="color: var(--text-secondary);">https://gitee.com/colink_1/teams.git</span>
+          </div>
+          <div class="mock-list-item">
+            <div class="mock-checkbox checked"></div>
+            <div class="mock-skill-info">
+              <div class="mock-skill-name">brainstorm <span class="mock-tag source-personal">skills/brainstorm</span></div>
+              <div class="mock-skill-path">路径: skills/brainstorm/SKILL.md</div>
+              <div style="font-size: 12px; color: var(--text-secondary);">需求探索技能，帮助用户理解需求...</div>
+            </div>
+          </div>
+          <div class="mock-list-item">
+            <div class="mock-checkbox"></div>
+            <div class="mock-skill-info">
+              <div class="mock-skill-name">brainstorm <span class="mock-tag source-personal">.claude/skills/brainstorm</span></div>
+              <div class="mock-skill-path">路径: .claude/skills/brainstorm/SKILL.md</div>
+              <div style="font-size: 12px; color: var(--text-secondary);">创意头脑风暴，探索多种可能...</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="fix-solution">
+          <strong>修复方案：</strong>
+          <ul style="margin: 8px 0; padding-left: 20px;">
+            <li>在扫描弹窗中添加 <code>skill.path</code> 显示</li>
+            <li>使用 Tag 或次要文本样式显示路径</li>
+          </ul>
+        </div>
+
+        <div class="code-block">
+// 修复后的代码
+&lt;List
+  dataSource={scanResult.skills}
+  renderItem={(skill) => (
+    &lt;List.Item&gt;
+      &lt;Checkbox ...&gt;
+        &lt;div&gt;
+          &lt;Text strong&gt;{skill.name}&lt;/Text&gt;
+          <span class="code-fix">{skill.path && (
+            &lt;Tag style={{ marginLeft: 8 }}&gt;{skill.path}&lt;/Tag&gt;
+          )}</span>
+          {skill.existsLocally && ...}
+          &lt;br /&gt;
+          &lt;Text type="secondary"&gt;{skill.description || '暂无描述'}&lt;/Text&gt;
+        &lt;/div&gt;
+      &lt;/Checkbox&gt;
+    &lt;/List.Item&gt;
+  )}
+/&gt;
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 问题3：排序和搜索缺失 -->
+  <section class="problem-section">
+    <h2 class="problem-title">问题3：弹窗列表无排序和搜索功能</h2>
+    <p style="color: var(--text-secondary); margin-bottom: 15px;">
+      同步和导入的冲突弹窗直接使用数据源，未做排序处理，且无搜索框组件，用户难以查找特定 Skill。
+    </p>
+
+    <div class="comparison-grid">
+      <!-- 问题演示 -->
+      <div class="panel">
+        <div class="panel-title error">
+          <span>❌</span> 当前问题状态 - 无搜索/排序
+        </div>
+        <div class="mock-ui">
+          <div class="mock-modal-header">导入冲突处理</div>
+          <div style="padding: 10px; color: var(--text-secondary); font-size: 12px;">
+            ❌ 无搜索框，无法快速定位 Skill<br>
+            ❌ 无排序，列表按原始顺序显示<br>
+            当有大量冲突项时，用户体验差
+          </div>
+          <div class="mock-list-item">
+            <div class="mock-skill-info">
+              <div class="mock-skill-name">write-plan</div>
+            </div>
+            <div class="radio-group">
+              <div class="radio-item"><div class="mock-radio"></div>新建</div>
+              <div class="radio-item"><div class="mock-radio selected"></div>更新</div>
+            </div>
+          </div>
+          <div class="mock-list-item">
+            <div class="mock-skill-info">
+              <div class="mock-skill-name">brainstorm</div>
+            </div>
+            <div class="radio-group">
+              <div class="radio-item"><div class="mock-radio selected"></div>新建</div>
+              <div class="radio-item"><div class="mock-radio"></div>更新</div>
+            </div>
+          </div>
+          <div class="mock-list-item">
+            <div class="mock-skill-info">
+              <div class="mock-skill-name">autoplan</div>
+            </div>
+            <div class="radio-group">
+              <div class="radio-item"><div class="mock-radio"></div>新建</div>
+              <div class="radio-item"><div class="mock-radio selected"></div>更新</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="root-cause">
+          <strong>根本原因：</strong>
+          <ul style="margin: 8px 0; padding-left: 20px;">
+            <li>直接使用 <code>dataSource={conflictItems}</code>，无排序处理</li>
+            <li>弹窗 UI 未包含搜索输入框组件</li>
+          </ul>
+        </div>
+
+        <div class="code-block">
+// SkillLibrary/index.tsx:1435-1519
+&lt;Table
+  dataSource={<span class="code-highlight">conflictItems</span>}  // 直接使用，无排序
+  columns={...}
+  <span class="code-highlight">rowKey="name"</span>  // 问题1的根本原因
+  pagination={false}
+/&gt;
+
+// RegistryManagement/index.tsx:504-548
+&lt;List
+  dataSource={<span class="code-highlight">syncPreview.conflictSkills</span>}  // 直接使用，无排序
+  renderItem={...}
+/&gt;
+        </div>
+      </div>
+
+      <!-- 修复方案 -->
+      <div class="panel">
+        <div class="panel-title success">
+          <span>✅</span> 修复后状态 - 添加搜索和排序
+        </div>
+        <div class="mock-ui">
+          <div class="mock-modal-header">导入冲突处理</div>
+          <div style="padding: 10px; background: var(--bg-layout); margin-bottom: 10px;">
+            <input type="text" placeholder="搜索 Skill 名称/路径" style="width: 100%; padding: 6px 10px; border-radius: 4px; border: 1px solid var(--border-color);">
+          </div>
+          <div style="padding: 5px 10px; font-size: 12px; color: var(--text-secondary);">
+            按名称排序 ↑ ↓ | 共 3 项
+          </div>
+          <div class="mock-list-item">
+            <div class="mock-skill-info">
+              <div class="mock-skill-name">autoplan</div>
+            </div>
+            <div class="radio-group">
+              <div class="radio-item"><div class="mock-radio"></div>新建</div>
+              <div class="radio-item"><div class="mock-radio selected"></div>更新</div>
+            </div>
+          </div>
+          <div class="mock-list-item">
+            <div class="mock-skill-info">
+              <div class="mock-skill-name">brainstorm</div>
+            </div>
+            <div class="radio-group">
+              <div class="radio-item"><div class="mock-radio selected"></div>新建</div>
+              <div class="radio-item"><div class="mock-radio"></div>更新</div>
+            </div>
+          </div>
+          <div class="mock-list-item">
+            <div class="mock-skill-info">
+              <div class="mock-skill-name">write-plan</div>
+            </div>
+            <div class="radio-group">
+              <div class="radio-item"><div class="mock-radio"></div>新建</div>
+              <div class="radio-item"><div class="mock-radio selected"></div>更新</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="fix-solution">
+          <strong>修复方案：</strong>
+          <ul style="margin: 8px 0; padding-left: 20px;">
+            <li>添加 <code>Input.Search</code> 组件用于搜索过滤</li>
+            <li>使用 <code>dataSource.sort()</code> 或 Ant Design Table 的排序功能</li>
+            <li>添加搜索状态 <code>searchText</code> 和过滤逻辑</li>
+          </ul>
+        </div>
+
+        <div class="code-block">
+// 修复后的代码
+const [searchText, setSearchText] = useState('');
+
+// 排序 + 过滤后的数据源
+const filteredItems = conflictItems
+  .sort((a, b) => a.name.localeCompare(b.name))
+  .filter(item =>
+    item.name.includes(searchText) ||
+    item.path?.includes(searchText)
+  );
+
+&lt;div style={{ marginBottom: 12 }}&gt;
+  &lt;Input.Search
+    placeholder="搜索 Skill 名称/路径"
+    onChange={(e) => setSearchText(e.target.value)}
+  /&gt;
+&lt;/div&gt;
+
+&lt;Table
+  dataSource={<span class="code-fix">filteredItems</span>}
+  columns={...}
+  rowKey={(item) => `${item.name}::${item.path}`}
+/&gt;
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 问题汇总表 -->
+  <section class="problem-section">
+    <h2 style="font-size: 18px; font-weight: 600; margin-bottom: 15px;">问题汇总与修复优先级</h2>
+    <table class="summary-table">
+      <thead>
+        <tr>
+          <th>问题</th>
+          <th>根本原因</th>
+          <th>修复方案</th>
+          <th>受影响文件</th>
+          <th>优先级</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>同名 Skill 选中同步</td>
+          <td>rowKey="name" + 状态 key 使用 name</td>
+          <td>使用 name+path 组合作为唯一标识</td>
+          <td><code>RegistryManagement/index.tsx</code><br><code>SkillLibrary/index.tsx</code></td>
+          <td style="color: var(--color-error);">P0 - 阻塞功能</td>
+        </tr>
+        <tr>
+          <td>扫描弹窗不显示路径</td>
+          <td>UI 只渲染 name 和 description</td>
+          <td>添加 path 字段显示</td>
+          <td><code>SkillLibrary/index.tsx</code></td>
+          <td style="color: var(--color-warning);">P1 - 重要功能</td>
+        </tr>
+        <tr>
+          <td>无搜索和排序</td>
+          <td>直接使用 dataSource 无处理</td>
+          <td>添加搜索框 + 排序逻辑</td>
+          <td><code>RegistryManagement/index.tsx</code><br><code>SkillLibrary/index.tsx</code></td>
+          <td style="color: var(--color-primary);">P2 - 体验优化</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+</body>
+</html>

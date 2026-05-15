@@ -1413,6 +1413,11 @@ func (s *Service) importSettings(ctx context.Context, tempDir string, item model
 				s.logger.Info("新建角色，无默认 BaseAgent，保持为空",
 					zap.String("roleID", roleID.String()))
 			}
+		} else {
+			// baseAgentRepo 为空，无法获取默认基础 Agent，保持为空
+			baseAgentID = uuid.Nil
+			s.logger.Warn("新建角色，baseAgentRepo 为 nil，无法获取默认 BaseAgent",
+				zap.String("roleID", roleID.String()))
 		}
 
 		now := time.Now()
