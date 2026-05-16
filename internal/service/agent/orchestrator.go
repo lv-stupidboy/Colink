@@ -549,6 +549,14 @@ func (o *Orchestrator) executeDebugAgent(
 
 // ContinueDebugAgent 继续调试会话
 func (o *Orchestrator) ContinueDebugAgent(ctx context.Context, threadID uuid.UUID, message string) error {
+	// DEBUG: 记录 message 详细信息，用于定位多行文本截断问题
+	messageLines := strings.Split(message, "\n")
+	logInfo("ContinueDebugAgent: message 详情",
+		zap.Int("messageLen", len(message)),
+		zap.Int("messageLineCount", len(messageLines)),
+		zap.String("messageFirstLine", messageLines[0]),
+		zap.String("messageLastLine", messageLines[len(messageLines)-1]))
+
 	if o.debugThreadMgr == nil {
 		return fmt.Errorf("debug thread manager not initialized")
 	}

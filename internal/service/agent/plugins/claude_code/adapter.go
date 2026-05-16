@@ -506,6 +506,14 @@ func (a *ClaudeAdapter) GetSessionStatus(sessionID string) agent.SessionStatus {
 
 // buildPromptFromRequest 从ExecutionRequest构建提示词
 func (a *ClaudeAdapter) buildPromptFromRequest(req *agent.ExecutionRequest) string {
+	// DEBUG: 记录 Input 详细信息，用于定位多行文本截断问题
+	inputLines := strings.Split(req.Input, "\n")
+	logInfo("buildPromptFromRequest: Input 详情",
+		zap.Int("inputLen", len(req.Input)),
+		zap.Int("inputLineCount", len(inputLines)),
+		zap.String("inputFirstLine", inputLines[0]),
+		zap.String("inputLastLine", inputLines[len(inputLines)-1]))
+
 	var sb strings.Builder
 
 	if req.Context != nil {

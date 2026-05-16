@@ -48,10 +48,13 @@ export const InputArea: React.FC<InputAreaProps> = memo(({
     setMentionListVisible(false);
 
     // 检查是否是 @mention 命令
-    const mentionMatch = content.match(/^@(\S+)\s*(.*)/);
+    // 使用 [^\n]* 替代 \S+ 来匹配 agent 名称，使用 .* 配合 s 标志来匹配多行内容
+    // 或者使用更简单的方式：直接提取 agent 名称，剩余部分作为 input
+    const mentionMatch = content.match(/^@(\S+)\s*/);
     if (mentionMatch) {
       const agentName = mentionMatch[1].toLowerCase();
-      const input = mentionMatch[2] || content;
+      // 剥离 @mention 部分，剩余内容作为 input（支持多行）
+      const input = content.slice(mentionMatch[0].length) || content;
 
       if (selectedAgentId) {
         onSend(content, true);

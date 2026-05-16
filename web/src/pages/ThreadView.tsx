@@ -1533,10 +1533,12 @@ const ThreadView: React.FC = () => {
     }
 
     // 团队模式 - 检查是否是 @mention 命令
-    const mentionMatch = content.match(/^@(\S+)\s*(.*)/);
+    // 修复：使用 slice 剥离 @mention 部分，支持多行文本（正则 .* 不匹配换行符）
+    const mentionMatch = content.match(/^@(\S+)\s*/);
     if (mentionMatch) {
       const agentName = mentionMatch[1].toLowerCase();
-      const input = mentionMatch[2] || content;
+      // 剥离 @mention 部分，剩余内容作为 input（支持多行）
+      const input = content.slice(mentionMatch[0].length) || content;
 
       const agentByName = agentOptions.find(opt =>
         opt.name.toLowerCase() === agentName ||
