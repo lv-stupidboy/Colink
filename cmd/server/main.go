@@ -25,6 +25,7 @@ import (
 	"github.com/anthropic/isdp/internal/service/market"
 	"github.com/anthropic/isdp/internal/service/mention"
 	"github.com/anthropic/isdp/internal/service/merge"
+	"github.com/anthropic/isdp/internal/service/memory"
 	"github.com/anthropic/isdp/internal/service/message"
 	"github.com/anthropic/isdp/internal/service/project"
 	"github.com/anthropic/isdp/internal/service/rule"
@@ -398,6 +399,43 @@ func main() {
 	// 在Orchestrator中设置调试管理器
 	orchestrator.SetDebugThreadManager(debugThreadMgr)
 
+	// 初始化记忆管理器（US-004 集成）
+	memoryManager := memory.NewMemoryManager(db)
+	orchestrator.SetMemoryManager(memoryManager)
+	logger.Info("MemoryManager initialized and injected into Orchestrator")
+
+	// 设置 API URL（用于 MCP server 回调）
+	apiURL := fmt.Sprintf("http://localhost:%d", cfg.Server.Port)
+	orchestrator.SetAPIURL(apiURL)
+	logger.Info("API URL set for MCP callbacks", zap.String("apiURL", apiURL))
+
+	// 设置 MCP server 路径（用于 Agent 记忆工具调用）
+	// 开发模式：bin/mcp-server.exe（相对于项目根目录）
+	// 安装模式：packages/runtime/tools/mcp-server.exe（相对于安装目录）
+	mcpServerPath := ""
+	if os.Getenv("ISDP_MCP_SERVER_PATH") == "" {
+		workDir, err := os.Getwd()
+		if err == nil {
+			// 优先检查安装模式路径
+			installedPath := filepath.Join(workDir, "packages", "runtime", "tools", "mcp-server.exe")
+			if _, err := os.Stat(installedPath); err == nil {
+				mcpServerPath = installedPath
+			} else {
+				// 回退到开发模式路径
+				devPath := filepath.Join(workDir, "bin", "mcp-server.exe")
+				if _, err := os.Stat(devPath); err == nil {
+					mcpServerPath = devPath
+				}
+			}
+		}
+		if mcpServerPath != "" {
+			os.Setenv("ISDP_MCP_SERVER_PATH", mcpServerPath)
+			logger.Info("MCP server path set", zap.String("path", mcpServerPath))
+		} else {
+			logger.Warn("MCP server not found, agents may fail to use memory tools")
+		}
+	}
+
 	// 启动恢复：检测并标记孤儿 invocation（后台执行支持）
 	startupReconciler := agent.NewStartupReconciler(invocationRepo, contentBlockRepo)
 	startupReconciler.Reconcile(context.Background())
@@ -619,7 +657,7 @@ func main() {
 	marketHandler := api.NewMarketHandler(marketSvc, cfg, logger)
 	marketHandler.RegisterRoutes(v1)
 
-	// Help Handler
+// Help Handler
 	helpHandler := api.NewHelpHandler(
 		cfg.Help.SupportGroup,
 		cfg.Help.OfficialWebsite,
@@ -628,9 +666,9 @@ func main() {
 	)
 	helpHandler.RegisterRoutes(v1)
 
-	// MCP Callback Handler
-	callbackHandler := api.NewCallbackHandler(invocationRegistry, mcpAuthService, messageService, messageRepo, wsHub, orchestrator, baseAgentRepo, invocationQueue, queueProcessor, mentionParser, humanTaskSvc, agentConfigRepo)
-	callbackHandler.RegisterRoutes(v1)
+	// MCP Callback Handler - 注册在 /api 下（不含 /v1），与 MCP client URL 一致
+	callbackHandler := api.NewCallbackHandler(invocationRegistry, mcpAuthService, messageService, messageRepo, wsHub, orchestrator, baseAgentRepo, invocationQueue, queueProcessor, mentionParser, humanTaskSvc, agentConfigRepo, memoryManager, invocationRepo)
+	callbackHandler.RegisterRoutes(router.Group("/api"))
 
 	// WebSocket
 	wsHandler := ws.NewHandler(wsHub, orchestrator, orchestrator)

@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +18,7 @@ import (
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
 	"github.com/anthropic/isdp/internal/service/humantask"
+	"github.com/anthropic/isdp/internal/service/memory"
 	"github.com/anthropic/isdp/internal/service/mention"
 	"github.com/anthropic/isdp/internal/ws"
 	"github.com/google/uuid"
@@ -136,6 +139,12 @@ type ExecutionService struct {
 	humanTaskSvc      *humantask.Service
 	humanTaskEnabled  bool // 待办任务开关，控制自动创建和关闭
 
+	// 记忆管理器（US-004 集成）
+	memoryManager     *memory.MemoryManager
+
+	// API URL（用于 MCP server 回调）
+	apiURL            string
+
 	// 后台执行支持：内容块持久化
 	contentBlockRepo    *repo.ContentBlockRepository
 	contentBlockBuffer  []model.InvocationContentBlock // 缓冲区
@@ -184,6 +193,7 @@ func NewExecutionService(
 	contentBlockRepo *repo.ContentBlockRepository,
 	humanTaskSvc *humantask.Service,
 	humanTaskEnabled bool,
+	memoryManager *memory.MemoryManager,
 ) *ExecutionService {
 	es := &ExecutionService{
 		invocationRepo:     invocationRepo,
@@ -201,6 +211,7 @@ func NewExecutionService(
 		mentionParser:      mentionParser,
 		humanTaskSvc:       humanTaskSvc,
 		humanTaskEnabled:   humanTaskEnabled,
+		memoryManager:      memoryManager,
 		contentBlockRepo:   contentBlockRepo,
 		contentBlockBuffer: make([]model.InvocationContentBlock, 0, 20),
 		lastFlush:          time.Now(),
@@ -223,6 +234,17 @@ func (es *ExecutionService) AddChunkListener(listener ChunkListener) {
 	es.chunkListenersMu.Lock()
 	defer es.chunkListenersMu.Unlock()
 	es.chunkListeners = append(es.chunkListeners, listener)
+}
+
+// SetMemoryManager 设置记忆管理器（用于依赖注入）
+// 在 cmd/server/main.go 中调用此方法完成注入
+func (es *ExecutionService) SetMemoryManager(mm *memory.MemoryManager) {
+	es.memoryManager = mm
+}
+
+// SetAPIURL 设置 API URL（用于 MCP server 回调）
+func (es *ExecutionService) SetAPIURL(url string) {
+	es.apiURL = url
 }
 
 // NotifyChunkListeners 通知所有外部 chunk 监听器
@@ -312,6 +334,25 @@ func (es *ExecutionService) markInvocationFailed(invocationID uuid.UUID, reason 
 	es.broadcastStatus(invocation.ThreadID, invocation.ID, "failed", invocation.Role, "", invocation.AgentConfigID.String(), "")
 }
 
+// SyncMemoryTurn 对话后同步记忆（US-004 集成）
+// 参考 hermes-agent MemoryManager.SyncTurn：goroutine + 30s timeout
+func (es *ExecutionService) SyncMemoryTurn(ctx context.Context, threadID uuid.UUID, userContent, assistantContent string) {
+	if es.memoryManager == nil {
+		return
+	}
+
+	// 异步执行，带超时保护（已在 MemoryManager 内部实现）
+	es.memoryManager.SyncTurn(ctx, userContent, assistantContent)
+}
+
+// OnThreadEndMemory 线程结束时清理记忆（US-004 集成）
+func (es *ExecutionService) OnThreadEndMemory(ctx context.Context, threadID uuid.UUID) error {
+	if es.memoryManager == nil {
+		return nil
+	}
+	return es.memoryManager.OnThreadEnd(ctx, threadID.String())
+}
+
 // SpawnAgent 启动Agent（统一执行入口）
 func (es *ExecutionService) SpawnAgent(ctx context.Context, req *SpawnRequest) (*model.AgentInvocation, error) {
 	spawnStart := time.Now()
@@ -339,6 +380,14 @@ func (es *ExecutionService) SpawnAgent(ctx context.Context, req *SpawnRequest) (
 	// 创建调用记录
 	invocationCreateStart := time.Now()
 	now := time.Now()
+
+	// 生成 callbackToken（用于 MCP server 回调）
+	tokenBytes := make([]byte, 32)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		return nil, fmt.Errorf("failed to generate callback token: %w", err)
+	}
+	callbackToken := hex.EncodeToString(tokenBytes)
+
 	invocation := &model.AgentInvocation{
 		ID:            uuid.New(),
 		ThreadID:      req.ThreadID,
@@ -349,6 +398,7 @@ func (es *ExecutionService) SpawnAgent(ctx context.Context, req *SpawnRequest) (
 		Input:         req.Input,
 		CreatedAt:     now,
 		StartedAt:     &now, // 设置开始时间，用于历史显示耗时
+		CallbackToken: callbackToken, // MCP 回调认证 Token
 	}
 
 	if err := es.invocationRepo.Create(ctx, invocation); err != nil {
@@ -514,6 +564,8 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 		SessionID:       sessionID,
 		SessionStrategy: req.SessionStrategy,
 		InvocationID:    invocation.ID, // 用于 AskUserQuestion 答案发送
+		CallbackToken:   invocation.CallbackToken, // 用于 MCP server 回调
+		APIURL:          es.apiURL, // 用于 MCP server 回调
 	}
 	logInfo("[PERF] buildExecutionRequest", zap.Duration("duration", time.Since(execReqBuildStart)), zap.String("sessionID", sessionID), zap.String("sessionStrategy", string(req.SessionStrategy)))
 
@@ -1429,6 +1481,38 @@ func (es *ExecutionService) buildContextLayers(ctx context.Context, threadID uui
 	// Layer 3: 环境信息（使用缓存的 Thread）
 	layers.Layer3 = es.getEnvironmentInfo(tc.Thread)
 
+	// US-004 集成：记忆预取（参考 hermes-agent prefetch_all）
+	// 分层设计：只预取 team + project 级记忆
+	if es.memoryManager != nil {
+		threadIDStr := threadID.String()
+		agentIDStr := config.ID.String()
+
+		// Team 级记忆绑定 WorkflowTemplate.ID
+		teamIDStr := ""
+		if tc.WorkflowTemplate != nil {
+			teamIDStr = tc.WorkflowTemplate.ID.String()
+		}
+
+		// Project 级记忆绑定 Project.ID
+		projectIDStr := ""
+		if tc.Project != nil {
+			projectIDStr = tc.Project.ID.String()
+		}
+
+		// 预取记忆（参数：threadID, agentID, teamID, projectID）
+		memoryRaw := es.memoryManager.PrefetchMultiScope(ctx, threadIDStr, agentIDStr, teamIDStr, projectIDStr)
+		if memoryRaw != "" {
+			// 包装为 fenced block（参考 hermes-agent build_memory_context_block）
+			layers.MemoryContext = es.memoryManager.BuildMemoryContextBlock(memoryRaw)
+			logInfo("Memory prefetch completed",
+				zap.String("threadID", threadIDStr),
+				zap.String("agentID", agentIDStr),
+				zap.String("teamID", teamIDStr),
+				zap.String("projectID", projectIDStr),
+				zap.Int("memoryLength", len(layers.MemoryContext)))
+		}
+	}
+
 	return layers, nil
 }
 
@@ -1508,66 +1592,6 @@ func (es *ExecutionService) buildDynamicSystemPromptFromContext(tc *ThreadContex
 	}
 
 	sb.WriteString("\n---\n\n")
-
-	return sb.String()
-}
-
-// buildDynamicSystemPrompt 构建动态系统提示，注入工作流协作关系
-// 注意：此方法会进行数据库查询，建议使用 buildDynamicSystemPromptFromContext
-func (es *ExecutionService) buildDynamicSystemPrompt(ctx context.Context, threadID uuid.UUID, config *model.AgentRoleConfig) string {
-	var sb strings.Builder
-
-	// 原始系统提示
-	sb.WriteString(config.SystemPrompt)
-
-	// 获取当前 Agent 的转换规则
-	transitions := es.getTransitionsForAgent(ctx, threadID, config.ID)
-
-	// DEBUG: 打印 transitions 数量
-	fmt.Printf("[DEBUG] buildDynamicSystemPrompt: agent=%s, transitions=%d\n", config.Name, len(transitions))
-
-	// 获取工作流中的所有 Agent，用于生成 trigger_hint
-	allowedAgents := es.getAllowedAgentsFromWorkflow(ctx, threadID)
-	agentMap := make(map[string]*model.AgentRoleConfig)
-	for _, agent := range allowedAgents {
-		agentMap[agent.ID.String()] = agent
-	}
-
-	// 注入协作提示（使用 trigger_hint 或智能生成）
-	if len(transitions) > 0 {
-		sb.WriteString("\n\n## 下游协作方（需要时 @ 触发）\n")
-		sb.WriteString("**重要格式规则**：@mention 必须单独成行，不能嵌入句子中。\n")
-		sb.WriteString("正确示例：\n```\n@后端开发工程师 请实现用户登录 API\n```\n")
-		sb.WriteString("错误示例：\n```\n确认后我将 @后端开发工程师 进行实现  ← 无效，不会触发\n```\n\n")
-		sb.WriteString("可用的下游协作方：\n")
-		for _, t := range transitions {
-			toAgent := agentMap[t.ToAgentID]
-			var hint string
-
-			// 优先使用用户填写的 trigger_hint
-			if t.TriggerHint != "" {
-				hint = t.TriggerHint
-			} else if toAgent != nil {
-				// 智能生成
-				hint = generateTriggerHint(toAgent)
-			} else {
-				hint = fmt.Sprintf("@%s", t.ToAgentID[:8])
-			}
-
-			fmt.Printf("[DEBUG] buildDynamicSystemPrompt: 注入 hint=%s\n", hint)
-			sb.WriteString(fmt.Sprintf("- %s\n", hint))
-		}
-	}
-
-	// 注入出口检查提示
-	sb.WriteString("\n\n## 发送消息前的出口检查\n")
-	sb.WriteString("回复前问\"到我这里结束了吗？\"\n")
-	sb.WriteString("- 如果不是，想想谁需要接下来处理 → @ 对方\n")
-	sb.WriteString("- @ 前三问自检（短路规则）：\n")
-	sb.WriteString("  1. 需要对方采取行动？= 是 → 直接 @（跳过后续问题）\n")
-	sb.WriteString("  2. 对方需要知道这个信息？\n")
-	sb.WriteString("  3. 会影响对方的工作？\n")
-	sb.WriteString("  - 三个都否 → 不 @\n")
 
 	return sb.String()
 }
@@ -3844,13 +3868,24 @@ func (es *ExecutionService) formatFullPrompt(layers *ContextLayers, input string
 
 	// 用户输入部分：区分 A2A 输入和普通输入
 	// A2A 输入包含 "## 协作规则" 或 "Direct message from" 特征
+	// US-004 集成：记忆注入到用户消息后（参考 hermes-agent）
 	if strings.Contains(input, "## 协作规则") || strings.Contains(input, "Direct message from") {
 		sb.WriteString("<a2a_input>\n")
 		sb.WriteString(input)
+		// 注入记忆上下文（如果有）
+		if layers != nil && layers.MemoryContext != "" {
+			sb.WriteString("\n\n")
+			sb.WriteString(layers.MemoryContext)
+		}
 		sb.WriteString("\n</a2a_input>\n")
 	} else {
 		sb.WriteString("<user>\n")
 		sb.WriteString(input)
+		// 注入记忆上下文（如果有）
+		if layers != nil && layers.MemoryContext != "" {
+			sb.WriteString("\n\n")
+			sb.WriteString(layers.MemoryContext)
+		}
 		sb.WriteString("\n</user>\n")
 	}
 

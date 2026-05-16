@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -186,7 +187,7 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 
 	sessionNewResult, err := transport.SendRequest("session/new", &acpNewSessionParams{
 		CWD:        req.WorkDir,
-		MCPServers: []interface{}{},
+		MCPServers: a.buildMCPServers(req),
 	})
 	if err != nil {
 		a.cleanup(session)
@@ -352,7 +353,7 @@ func (a *BaseACPAdapter) StartSession(ctx context.Context, sessionID string, req
 
 	sessionNewResult, err := transport.SendRequest("session/new", &acpNewSessionParams{
 		CWD:        req.WorkDir,
-		MCPServers: []interface{}{},
+		MCPServers: a.buildMCPServers(req),
 	})
 	if err != nil {
 		transport.Close()
@@ -683,6 +684,47 @@ func (a *BaseACPAdapter) buildEnv(req *agent.ExecutionRequest) []string {
 		env = append(env, fmt.Sprintf("%s=%s", k, v))
 	}
 	return env
+}
+
+// buildMCPServers 构建 MCP server 配置数组
+// 用于在 session/new 时注入 memory MCP server
+func (a *BaseACPAdapter) buildMCPServers(req *agent.ExecutionRequest) []interface{} {
+	if req.CallbackToken == "" || req.APIURL == "" || req.InvocationID == uuid.Nil {
+		return []interface{}{}
+	}
+
+	// 获取 MCP server 可执行文件路径
+	// 服务启动时已设置 ISDP_MCP_SERVER_PATH 环境变量（支持开发模式和安装模式）
+	mcpServerPath := os.Getenv("ISDP_MCP_SERVER_PATH")
+	if mcpServerPath == "" {
+		// 回退：如果环境变量未设置，尝试开发模式路径
+		workDir, err := os.Getwd()
+		if err == nil {
+			mcpServerPath = filepath.Join(workDir, "bin", "mcp-server.exe")
+		}
+	}
+
+	if mcpServerPath == "" {
+		logInfo("ACP: WARNING - MCP server path not configured")
+		return []interface{}{}
+	}
+
+	logInfo("ACP: MCP server path", zap.String("path", mcpServerPath))
+
+	// 构建 memory MCP server 配置
+	mcpServer := map[string]interface{}{
+		"name":    "isdp-memory",
+		"type":    "stdio",
+		"command": mcpServerPath,
+		"args":    []string{},
+		"env": map[string]string{
+			"ISDP_API_URL":        req.APIURL,
+			"ISDP_INVOCATION_ID":  req.InvocationID.String(),
+			"ISDP_CALLBACK_TOKEN": req.CallbackToken,
+		},
+	}
+
+	return []interface{}{mcpServer}
 }
 
 func (a *BaseACPAdapter) configureSession(transport *acpTransport, session *acpSession, sessionResp *acpNewSessionResult, req *agent.ExecutionRequest) error {

@@ -33,6 +33,9 @@ extraResources:
   # 迁移工具
   - from: "../bin/migrate.exe"
     to: "../packages/runtime/tools/migrate.exe"
+  # MCP Server（用于 Agent 记忆工具调用）
+  - from: "../bin/mcp-server.exe"
+    to: "../packages/runtime/tools/mcp-server.exe"
   # SQL 变更脚本
   - from: "../sql-change"
     to: "../packages/runtime/data/sql-change"

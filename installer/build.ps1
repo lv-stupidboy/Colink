@@ -128,6 +128,7 @@ $backendJob = Start-Job -ScriptBlock {
         Write-Host "  windows-amd64 copy skipped (file locked)" -ForegroundColor Yellow
     }
     go build -o "bin\migrate.exe" "./cmd/migrate"
+    go build -o "bin\mcp-server.exe" "./cmd/mcp-server"
 } -ArgumentList $projectRoot, $FULL_VERSION
 
 # Frontend build in main process (avoid job environment issues)

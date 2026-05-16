@@ -198,6 +198,7 @@ if ($backendNeedsBuild -or $devBuild) {
         go build -ldflags "-X main.Version=$FULL_VERSION" -o "bin\colink-server.exe" "./cmd/server"
         Copy-Item "bin\colink-server.exe" "bin\windows-amd64\colink-server.exe" -Force
         go build -o "bin\migrate.exe" "./cmd/migrate"
+        go build -o "bin\mcp-server.exe" "./cmd/mcp-server"
     } -ArgumentList $projectRoot, $FULL_VERSION
 
     Write-Host "  Backend building in background..." -ForegroundColor Gray
@@ -246,6 +247,7 @@ $desktopBinDir = "$projectRoot\apps\desktop\resources\bin"
 New-Item -ItemType Directory -Path $desktopBinDir -Force | Out-Null
 Copy-Item "$projectRoot\bin\colink-server.exe" "$desktopBinDir\colink-server.exe" -Force
 Copy-Item "$projectRoot\bin\migrate.exe" "$installerDir\packages\runtime\tools\migrate.exe" -Force
+Copy-Item "$projectRoot\bin\mcp-server.exe" "$installerDir\packages\runtime\tools\mcp-server.exe" -Force
 
 # Copy runtime packages
 Write-Host "[3.3/8] Copying runtime packages..." -ForegroundColor Cyan

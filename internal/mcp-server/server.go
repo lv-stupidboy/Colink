@@ -59,7 +59,18 @@ func NewServer(apiURL, invocationID, callbackToken string) *Server {
 		tools:         make(map[string]Tool),
 	}
 
-	// 注册工具
+	// 注册工具 - 分层设计：team_memory + project_memory（替代原 memory 工具）
+	s.registerTool(&tools.TeamMemoryTool{
+		APIURL:        apiURL,
+		InvocationID:  invocationID,
+		CallbackToken: callbackToken,
+	})
+	s.registerTool(&tools.ProjectMemoryTool{
+		APIURL:        apiURL,
+		InvocationID:  invocationID,
+		CallbackToken: callbackToken,
+	})
+	// 保留其他工具
 	s.registerTool(&tools.PostMessageTool{
 		APIURL:        apiURL,
 		InvocationID:  invocationID,

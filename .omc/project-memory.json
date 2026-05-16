@@ -348,6 +348,12 @@
       "type": "file"
     },
     {
+      "path": "cmd\\server\\main.go",
+      "accessCount": 2,
+      "lastAccessed": 1778919417338,
+      "type": "file"
+    },
+    {
       "path": "web\\tests\\USAGE.md",
       "accessCount": 1,
       "lastAccessed": 1776848189311,

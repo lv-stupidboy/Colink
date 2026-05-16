@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -125,6 +126,13 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execut
 		logDebug("Claude: using model from baseAgent", zap.String("model", a.baseAgent.DefaultModel))
 	} else {
 		logInfo("Claude: WARNING - no model specified", zap.Bool("hasBaseAgent", a.baseAgent != nil), zap.String("defaultModel", a.baseAgent.DefaultModel))
+	}
+
+	// MCP 配置注入：如果提供了 CallbackToken, APIURL, InvocationID，注入 memory MCP server
+	mcpConfig := a.buildMCPConfig(req)
+	if mcpConfig != "" {
+		args = append(args, "--mcp-config", mcpConfig)
+		logInfo("Claude: Injected MCP config", zap.String("mcpConfig", mcpConfig[:min(200, len(mcpConfig))]))
 	}
 
 	logDebug("Claude: Starting execution", zap.String("workDir", req.WorkDir), zap.String("configDir", req.ConfigDir))
@@ -552,6 +560,77 @@ func (a *ClaudeAdapter) buildPromptFromRequest(req *agent.ExecutionRequest) stri
 	sb.WriteString("\n</user>\n")
 
 	return sb.String()
+}
+
+// buildMCPConfig 构建 MCP 配置 JSON 字符串
+// 用于注入 memory MCP server
+func (a *ClaudeAdapter) buildMCPConfig(req *agent.ExecutionRequest) string {
+	// 直接打印到 stdout 确认函数被调用
+	fmt.Printf("[DEBUG] buildMCPConfig called: token=%s, apiURL=%s, invocationID=%s\n",
+		req.CallbackToken[:min(16, len(req.CallbackToken))], req.APIURL, req.InvocationID.String())
+
+	// 安全获取 token 前缀用于日志
+	tokenPreview := ""
+	if len(req.CallbackToken) > 16 {
+		tokenPreview = req.CallbackToken[:16] + "..."
+	} else if req.CallbackToken != "" {
+		tokenPreview = req.CallbackToken
+	}
+
+	logInfo("Claude: buildMCPConfig called",
+		zap.String("callbackToken", tokenPreview),
+		zap.String("apiURL", req.APIURL),
+		zap.String("invocationID", req.InvocationID.String()))
+
+	if req.CallbackToken == "" || req.APIURL == "" || req.InvocationID == uuid.Nil {
+		logInfo("Claude: buildMCPConfig - skipping, missing required fields",
+			zap.Bool("hasCallbackToken", req.CallbackToken != ""),
+			zap.Bool("hasAPIURL", req.APIURL != ""),
+			zap.Bool("hasInvocationID", req.InvocationID != uuid.Nil))
+		return ""
+	}
+
+	// 获取 MCP server 可执行文件路径
+	// 服务启动时已设置 ISDP_MCP_SERVER_PATH 环境变量（支持开发模式和安装模式）
+	mcpServerPath := os.Getenv("ISDP_MCP_SERVER_PATH")
+	if mcpServerPath == "" {
+		// 回退：如果环境变量未设置，尝试开发模式路径
+		workDir, err := os.Getwd()
+		if err == nil {
+			mcpServerPath = filepath.Join(workDir, "bin", "mcp-server.exe")
+		}
+	}
+
+	if mcpServerPath == "" {
+		logInfo("Claude: WARNING - MCP server path not configured")
+		return ""
+	}
+
+	logInfo("Claude: MCP server path", zap.String("path", mcpServerPath))
+
+	// Claude Code CLI 使用 mcpServers 格式的 JSON 配置
+	// 参考: https://docs.anthropic.com/en/docs/claude-code/mcp
+	mcpConfig := map[string]interface{}{
+		"mcpServers": map[string]interface{}{
+			"isdp-memory": map[string]interface{}{
+				"type":    "stdio",
+				"command": mcpServerPath,
+				"args":    []string{},
+				"env": map[string]string{
+					"ISDP_API_URL":        req.APIURL,
+					"ISDP_INVOCATION_ID":  req.InvocationID.String(),
+					"ISDP_CALLBACK_TOKEN": req.CallbackToken,
+				},
+			},
+		},
+	}
+
+	jsonBytes, err := json.Marshal(mcpConfig)
+	if err != nil {
+		logInfo("Claude: WARNING - Failed to marshal MCP config", zap.Error(err))
+		return ""
+	}
+	return string(jsonBytes)
 }
 
 // buildEnv 构建环境变量
