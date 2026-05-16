@@ -705,11 +705,11 @@ func (a *BaseACPAdapter) buildMCPServers(req *agent.ExecutionRequest) []interfac
 	}
 
 	if mcpServerPath == "" {
-		logInfo("ACP: WARNING - MCP server path not configured")
+		LogInfo("ACP: WARNING - MCP server path not configured")
 		return []interface{}{}
 	}
 
-	logInfo("ACP: MCP server path", zap.String("path", mcpServerPath))
+	LogInfo("ACP: MCP server path", zap.String("path", mcpServerPath))
 
 	// 构建 memory MCP server 配置
 	mcpServer := map[string]interface{}{

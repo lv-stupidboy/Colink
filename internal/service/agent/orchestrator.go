@@ -13,6 +13,7 @@ import (
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
 	"github.com/anthropic/isdp/internal/service/humantask"
+	"github.com/anthropic/isdp/internal/service/memory"
 	"github.com/anthropic/isdp/internal/service/mention"
 	"github.com/anthropic/isdp/internal/ws"
 	"github.com/google/uuid"
@@ -124,6 +125,7 @@ func NewOrchestrator(
 	contentBlockRepo *repo.ContentBlockRepository,
 	humanTaskSvc *humantask.Service,
 	humanTaskEnabled bool,
+	memoryManager *memory.MemoryManager,
 ) *Orchestrator {
 	o := &Orchestrator{
 		invocationRepo:   invocationRepo,
@@ -161,6 +163,7 @@ func NewOrchestrator(
 		contentBlockRepo,
 		humanTaskSvc,
 		humanTaskEnabled,
+		memoryManager,
 	)
 
 	return o
@@ -335,10 +338,11 @@ type SpawnRequest struct {
 
 // ContextLayers 上下文层
 type ContextLayers struct {
-	Layer0 string // 系统提示
-	Layer1 string // Thread历史
-	Layer2 string // 工作产物
-	Layer3 string // 环境信息
+	Layer0        string // 系统提示
+	Layer1        string // Thread历史
+	Layer2        string // 工作产物
+	Layer3        string // 环境信息
+	MemoryContext string // US-004: 记忆上下文（团队+项目级记忆）
 }
 
 var (
@@ -361,6 +365,11 @@ func (o *Orchestrator) SetDebugThreadManager(mgr *DebugThreadManager) {
 // GetExecutionService 获取执行服务实例（供外部注册 ChunkListener）
 func (o *Orchestrator) GetExecutionService() *ExecutionService {
 	return o.executionService
+}
+
+// SetExecutionServiceAPIURL 设置 API URL（用于 MCP server 回调）
+func (o *Orchestrator) SetExecutionServiceAPIURL(url string) {
+	o.executionService.SetAPIURL(url)
 }
 
 // SpawnDebugAgent 调试模式启动Agent

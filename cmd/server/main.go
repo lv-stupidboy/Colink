@@ -388,26 +388,24 @@ func main() {
 	var defaultAdapter agent.AgentAdapter = nil
 	_ = agent.NewContextBuilder(threadRepo, messageRepo, artifactRepo) // TODO: wire into orchestrator
 	tracker := agent.NewInvocationTracker(invocationRepo)
+	// 初始化记忆管理器（US-004 集成）
+	memoryManager := memory.NewMemoryManager(db)
+	// 设置 API URL（用于 MCP server 回调）
+	apiURL := fmt.Sprintf("http://localhost:%d", cfg.Server.Port)
 	orchestrator := agent.NewOrchestrator(
 		invocationRepo, threadRepo, messageRepo,
 		configService, baseAgentService, baseAgentRepo, tracker, workflowEngine, workflowRepo, projectRepo, wsHub, defaultAdapter, mentionParser,
 		contentBlockRepo,
 		humanTaskSvc,
 		cfg.HumanTask.Enabled,
+		memoryManager,
 	)
 
 	// 在Orchestrator中设置调试管理器
 	orchestrator.SetDebugThreadManager(debugThreadMgr)
-
-	// 初始化记忆管理器（US-004 集成）
-	memoryManager := memory.NewMemoryManager(db)
-	orchestrator.SetMemoryManager(memoryManager)
-	logger.Info("MemoryManager initialized and injected into Orchestrator")
-
-	// 设置 API URL（用于 MCP server 回调）
-	apiURL := fmt.Sprintf("http://localhost:%d", cfg.Server.Port)
-	orchestrator.SetAPIURL(apiURL)
-	logger.Info("API URL set for MCP callbacks", zap.String("apiURL", apiURL))
+	// 设置 API URL 到 executionService（用于 MCP server 回调）
+	orchestrator.SetExecutionServiceAPIURL(apiURL)
+	logger.Info("MemoryManager initialized and injected into Orchestrator", zap.String("apiURL", apiURL))
 
 	// 设置 MCP server 路径（用于 Agent 记忆工具调用）
 	// 开发模式：bin/mcp-server.exe（相对于项目根目录）
@@ -667,7 +665,7 @@ func main() {
 	helpHandler.RegisterRoutes(v1)
 
 	// MCP Callback Handler - 注册在 /api 下（不含 /v1），与 MCP client URL 一致
-	callbackHandler := api.NewCallbackHandler(invocationRegistry, mcpAuthService, messageService, messageRepo, wsHub, orchestrator, baseAgentRepo, invocationQueue, queueProcessor, mentionParser, humanTaskSvc, agentConfigRepo, memoryManager, invocationRepo)
+	callbackHandler := api.NewCallbackHandler(invocationRegistry, mcpAuthService, messageService, messageRepo, wsHub, orchestrator, baseAgentRepo, invocationQueue, queueProcessor, mentionParser, humanTaskSvc, agentConfigRepo)
 	callbackHandler.RegisterRoutes(router.Group("/api"))
 
 	// WebSocket
