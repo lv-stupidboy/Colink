@@ -883,13 +883,16 @@ func (s *Service) ImportConfirm(ctx context.Context, zipData []byte, confirm *mo
 	for _, roleItem := range manifest.Roles {
 		action := getRoleAction(confirm.RoleActions, roleItem.Name)
 		if action == "skip" {
-			// 尝试解析原始ID，如果无效则跳过
-			originalID, err := uuid.Parse(roleItem.ID)
-			if err == nil {
-				existing, _ := s.agentRepo.FindByID(ctx, originalID)
-				if existing != nil {
-					roleNameToID[roleItem.Name] = existing.ID
-					originalRoleIDToNewID[roleItem.ID] = existing.ID
+			// 按名称查找已存在的角色
+			agents, _ := s.agentRepo.List(ctx)
+			for _, agent := range agents {
+				if agent.Name == roleItem.Name {
+					roleNameToID[roleItem.Name] = agent.ID
+					// 也更新 originalRoleIDToNewID 映射（如果有有效原始ID）
+					if _, err := uuid.Parse(roleItem.ID); err == nil {
+						originalRoleIDToNewID[roleItem.ID] = agent.ID
+					}
+					break
 				}
 			}
 			result.Skipped++
@@ -1048,6 +1051,8 @@ func (s *Service) ImportConfirm(ctx context.Context, zipData []byte, confirm *mo
 // ========== 导入辅助方法 ==========
 
 // importSkill 导入单个 Skill
+// 覆盖模式下保留现有 ID，只更新内容和属性，避免断开其他团队的绑定关系
+// 使用备份恢复机制确保原子性：失败时恢复原状态
 func (s *Service) importSkill(ctx context.Context, tempDir string, item model.AssetPackageSkillItem, overwrite bool) (uuid.UUID, model.ImportDetail) {
 	detail := model.ImportDetail{
 		AssetType: "skill",
@@ -1060,19 +1065,69 @@ func (s *Service) importSkill(ctx context.Context, tempDir string, item model.As
 		if !overwrite {
 			detail.Status = "skipped"
 			detail.Message = "已存在相同名称的 Skill"
-			return uuid.Nil, detail
+			return existing.ID, detail
 		}
-		// 覆盖模式：先删除旧记录和文件
-		oldDir := filepath.Join(s.skillStoragePath, existing.Name)
-		if err := s.skillRepo.Delete(ctx, existing.ID); err != nil {
+		// 覆盖模式：保留现有 ID，只更新内容和属性
+		// 这样不会断开其他团队对该 skill 的绑定关系
+
+		targetDir := filepath.Join(s.skillStoragePath, existing.ID.String())
+		srcDir := filepath.Join(tempDir, "assets", "skills", item.Name)
+
+		// 创建备份目录（确保原子性）
+		backupDir := filepath.Join(s.skillStoragePath, existing.ID.String()+"_backup")
+		if err := copyDir(targetDir, backupDir); err != nil && !os.IsNotExist(err) {
 			detail.Status = "failed"
-			detail.Message = fmt.Sprintf("删除旧 Skill 记录失败: %v", err)
+			detail.Message = fmt.Sprintf("创建备份目录失败: %v", err)
 			return uuid.Nil, detail
 		}
-		os.RemoveAll(oldDir) // 删除旧文件目录
+
+		// 清空目标目录并复制新内容
+		if err := os.RemoveAll(targetDir); err != nil && !os.IsNotExist(err) {
+			os.RemoveAll(backupDir) // 清理备份
+			detail.Status = "failed"
+			detail.Message = fmt.Sprintf("清空旧 Skill 目录失败: %v", err)
+			return uuid.Nil, detail
+		}
+
+		if err := copyDir(srcDir, targetDir); err != nil {
+			// 失败时恢复备份
+			if restoreErr := copyDir(backupDir, targetDir); restoreErr != nil {
+				s.logger.Error("恢复备份失败", zap.Error(restoreErr), zap.String("backupDir", backupDir))
+			}
+			os.RemoveAll(backupDir)
+			detail.Status = "failed"
+			detail.Message = fmt.Sprintf("复制 Skill 目录失败: %v", err)
+			return uuid.Nil, detail
+		}
+
+		// 更新 Skill 属性（保留原 ID）
+		existing.Description = item.Description
+		existing.Tags = item.Tags
+		existing.SupportedAgents = item.SupportedAgents
+		existing.IsPublic = item.IsPublic
+		existing.SourceType = item.SourceType
+
+		if err := s.skillRepo.Update(ctx, existing); err != nil {
+			// 数据库更新失败时恢复备份
+			if restoreErr := copyDir(backupDir, targetDir); restoreErr != nil {
+				s.logger.Error("恢复备份失败", zap.Error(restoreErr), zap.String("backupDir", backupDir))
+			}
+			os.RemoveAll(backupDir)
+			detail.Status = "failed"
+			detail.Message = fmt.Sprintf("更新 Skill 记录失败: %v", err)
+			return uuid.Nil, detail
+		}
+
+		// 成功后删除备份
+		os.RemoveAll(backupDir)
+
+		detail.Status = "success"
+		detail.ID = existing.ID.String()
+		detail.Message = "已覆盖更新现有 Skill（保留原 ID）"
+		return existing.ID, detail
 	}
 
-	// 创建 Skill 对象（先创建以获取 ID）
+	// 创建新 Skill（不存在同名 Skill）
 	now := time.Now()
 	skill := &model.Skill{
 		ID:              uuid.New(),
@@ -1110,6 +1165,7 @@ func (s *Service) importSkill(ctx context.Context, tempDir string, item model.As
 }
 
 // importCommand 导入单个 Command
+// 覆盖模式下保留现有 ID，只更新内容（文件）和属性，避免断开 AgentCommandBinding
 func (s *Service) importCommand(ctx context.Context, tempDir string, item model.AssetPackageCommandItem, overwrite bool) (uuid.UUID, model.ImportDetail) {
 	detail := model.ImportDetail{
 		AssetType: "command",
@@ -1122,19 +1178,57 @@ func (s *Service) importCommand(ctx context.Context, tempDir string, item model.
 		if !overwrite {
 			detail.Status = "skipped"
 			detail.Message = "已存在相同名称的 Command"
-			return uuid.Nil, detail
+			return existing.ID, detail
 		}
-		// 覆盖模式：先删除旧记录和文件
-		oldFile := filepath.Join(s.commandStoragePath, existing.Name+".md")
-		if err := s.commandRepo.Delete(ctx, existing.ID); err != nil {
+		// 覆盖模式：保留现有 ID，只更新文件内容和属性
+
+		srcFile := filepath.Join(tempDir, "assets", "commands", item.Name+".md")
+		targetFile := filepath.Join(s.commandStoragePath, item.Name+".md")
+
+		// 创建备份（确保原子性）
+		backupFile := filepath.Join(s.commandStoragePath, item.Name+".md_backup")
+		if err := copyFile(targetFile, backupFile); err != nil && !os.IsNotExist(err) {
 			detail.Status = "failed"
-			detail.Message = fmt.Sprintf("删除旧 Command 记录失败: %v", err)
+			detail.Message = fmt.Sprintf("创建备份文件失败: %v", err)
 			return uuid.Nil, detail
 		}
-		os.Remove(oldFile) // 删除旧文件
+
+		// 复制新文件内容
+		if err := copyFile(srcFile, targetFile); err != nil {
+			// 失败时恢复备份
+			if restoreErr := copyFile(backupFile, targetFile); restoreErr != nil {
+				s.logger.Error("恢复备份失败", zap.Error(restoreErr), zap.String("backupFile", backupFile))
+			}
+			os.Remove(backupFile)
+			detail.Status = "failed"
+			detail.Message = fmt.Sprintf("复制 Command 文件失败: %v", err)
+			return uuid.Nil, detail
+		}
+
+		// 更新属性（保留原 ID）
+		existing.Description = item.Description
+
+		if err := s.commandRepo.Update(ctx, existing); err != nil {
+			// 数据库更新失败时恢复备份
+			if restoreErr := copyFile(backupFile, targetFile); restoreErr != nil {
+				s.logger.Error("恢复备份失败", zap.Error(restoreErr), zap.String("backupFile", backupFile))
+			}
+			os.Remove(backupFile)
+			detail.Status = "failed"
+			detail.Message = fmt.Sprintf("更新 Command 记录失败: %v", err)
+			return uuid.Nil, detail
+		}
+
+		// 成功后删除备份
+		os.Remove(backupFile)
+
+		detail.Status = "success"
+		detail.ID = existing.ID.String()
+		detail.Message = "已覆盖更新现有 Command（保留原 ID）"
+		return existing.ID, detail
 	}
 
-	// 复制文件
+	// 创建新 Command（不存在同名 Command）
 	srcFile := filepath.Join(tempDir, "assets", "commands", item.Name+".md")
 	targetFile := filepath.Join(s.commandStoragePath, item.Name+".md")
 	if err := copyFile(srcFile, targetFile); err != nil {
@@ -1143,7 +1237,6 @@ func (s *Service) importCommand(ctx context.Context, tempDir string, item model.
 		return uuid.Nil, detail
 	}
 
-	// 创建记录
 	now := time.Now()
 	command := &model.Command{
 		ID:          uuid.New(),
@@ -1166,6 +1259,7 @@ func (s *Service) importCommand(ctx context.Context, tempDir string, item model.
 }
 
 // importSubagent 导入单个 Subagent
+// 覆盖模式下保留现有 ID，只更新内容（文件）和属性，避免断开 AgentSubagentBinding
 func (s *Service) importSubagent(ctx context.Context, tempDir string, item model.AssetPackageSubagentItem, overwrite bool) (uuid.UUID, model.ImportDetail) {
 	detail := model.ImportDetail{
 		AssetType: "subagent",
@@ -1178,19 +1272,57 @@ func (s *Service) importSubagent(ctx context.Context, tempDir string, item model
 		if !overwrite {
 			detail.Status = "skipped"
 			detail.Message = "已存在相同名称的 Subagent"
-			return uuid.Nil, detail
+			return existing.ID, detail
 		}
-		// 覆盖模式：先删除旧记录和文件
-		oldFile := filepath.Join(s.subagentStoragePath, existing.Name+".md")
-		if err := s.subagentRepo.Delete(ctx, existing.ID); err != nil {
+		// 覆盖模式：保留现有 ID，只更新文件内容和属性
+
+		srcFile := filepath.Join(tempDir, "assets", "subagents", item.Name+".md")
+		targetFile := filepath.Join(s.subagentStoragePath, item.Name+".md")
+
+		// 创建备份（确保原子性）
+		backupFile := filepath.Join(s.subagentStoragePath, item.Name+".md_backup")
+		if err := copyFile(targetFile, backupFile); err != nil && !os.IsNotExist(err) {
 			detail.Status = "failed"
-			detail.Message = fmt.Sprintf("删除旧 Subagent 记录失败: %v", err)
+			detail.Message = fmt.Sprintf("创建备份文件失败: %v", err)
 			return uuid.Nil, detail
 		}
-		os.Remove(oldFile) // 删除旧文件
+
+		// 复制新文件内容
+		if err := copyFile(srcFile, targetFile); err != nil {
+			// 失败时恢复备份
+			if restoreErr := copyFile(backupFile, targetFile); restoreErr != nil {
+				s.logger.Error("恢复备份失败", zap.Error(restoreErr), zap.String("backupFile", backupFile))
+			}
+			os.Remove(backupFile)
+			detail.Status = "failed"
+			detail.Message = fmt.Sprintf("复制 Subagent 文件失败: %v", err)
+			return uuid.Nil, detail
+		}
+
+		// 更新属性（保留原 ID）
+		existing.Description = item.Description
+
+		if err := s.subagentRepo.Update(ctx, existing); err != nil {
+			// 数据库更新失败时恢复备份
+			if restoreErr := copyFile(backupFile, targetFile); restoreErr != nil {
+				s.logger.Error("恢复备份失败", zap.Error(restoreErr), zap.String("backupFile", backupFile))
+			}
+			os.Remove(backupFile)
+			detail.Status = "failed"
+			detail.Message = fmt.Sprintf("更新 Subagent 记录失败: %v", err)
+			return uuid.Nil, detail
+		}
+
+		// 成功后删除备份
+		os.Remove(backupFile)
+
+		detail.Status = "success"
+		detail.ID = existing.ID.String()
+		detail.Message = "已覆盖更新现有 Subagent（保留原 ID）"
+		return existing.ID, detail
 	}
 
-	// 复制文件
+	// 创建新 Subagent（不存在同名 Subagent）
 	srcFile := filepath.Join(tempDir, "assets", "subagents", item.Name+".md")
 	targetFile := filepath.Join(s.subagentStoragePath, item.Name+".md")
 	if err := copyFile(srcFile, targetFile); err != nil {
@@ -1199,7 +1331,6 @@ func (s *Service) importSubagent(ctx context.Context, tempDir string, item model
 		return uuid.Nil, detail
 	}
 
-	// 创建记录
 	now := time.Now()
 	subagent := &model.Subagent{
 		ID:          uuid.New(),
@@ -1222,6 +1353,7 @@ func (s *Service) importSubagent(ctx context.Context, tempDir string, item model
 }
 
 // importRule 导入单个 Rule
+// 覆盖模式下保留现有 ID，只更新内容（文件）和属性，避免断开 AgentRuleBinding
 func (s *Service) importRule(ctx context.Context, tempDir string, item model.AssetPackageRuleItem, overwrite bool) (uuid.UUID, model.ImportDetail) {
 	detail := model.ImportDetail{
 		AssetType: "rule",
@@ -1234,19 +1366,57 @@ func (s *Service) importRule(ctx context.Context, tempDir string, item model.Ass
 		if !overwrite {
 			detail.Status = "skipped"
 			detail.Message = "已存在相同名称的 Rule"
-			return uuid.Nil, detail
+			return existing.ID, detail
 		}
-		// 覆盖模式：先删除旧记录和文件
-		oldFile := filepath.Join(s.ruleStoragePath, existing.Name+".md")
-		if err := s.ruleRepo.Delete(ctx, existing.ID); err != nil {
+		// 覆盖模式：保留现有 ID，只更新文件内容和属性
+
+		srcFile := filepath.Join(tempDir, "assets", "rules", item.Name+".md")
+		targetFile := filepath.Join(s.ruleStoragePath, item.Name+".md")
+
+		// 创建备份（确保原子性）
+		backupFile := filepath.Join(s.ruleStoragePath, item.Name+".md_backup")
+		if err := copyFile(targetFile, backupFile); err != nil && !os.IsNotExist(err) {
 			detail.Status = "failed"
-			detail.Message = fmt.Sprintf("删除旧 Rule 记录失败: %v", err)
+			detail.Message = fmt.Sprintf("创建备份文件失败: %v", err)
 			return uuid.Nil, detail
 		}
-		os.Remove(oldFile) // 删除旧文件
+
+		// 复制新文件内容
+		if err := copyFile(srcFile, targetFile); err != nil {
+			// 失败时恢复备份
+			if restoreErr := copyFile(backupFile, targetFile); restoreErr != nil {
+				s.logger.Error("恢复备份失败", zap.Error(restoreErr), zap.String("backupFile", backupFile))
+			}
+			os.Remove(backupFile)
+			detail.Status = "failed"
+			detail.Message = fmt.Sprintf("复制 Rule 文件失败: %v", err)
+			return uuid.Nil, detail
+		}
+
+		// 更新属性（保留原 ID）
+		existing.Description = item.Description
+
+		if err := s.ruleRepo.Update(ctx, existing); err != nil {
+			// 数据库更新失败时恢复备份
+			if restoreErr := copyFile(backupFile, targetFile); restoreErr != nil {
+				s.logger.Error("恢复备份失败", zap.Error(restoreErr), zap.String("backupFile", backupFile))
+			}
+			os.Remove(backupFile)
+			detail.Status = "failed"
+			detail.Message = fmt.Sprintf("更新 Rule 记录失败: %v", err)
+			return uuid.Nil, detail
+		}
+
+		// 成功后删除备份
+		os.Remove(backupFile)
+
+		detail.Status = "success"
+		detail.ID = existing.ID.String()
+		detail.Message = "已覆盖更新现有 Rule（保留原 ID）"
+		return existing.ID, detail
 	}
 
-	// 复制文件
+	// 创建新 Rule（不存在同名 Rule）
 	srcFile := filepath.Join(tempDir, "assets", "rules", item.Name+".md")
 	targetFile := filepath.Join(s.ruleStoragePath, item.Name+".md")
 	if err := copyFile(srcFile, targetFile); err != nil {
@@ -1255,7 +1425,6 @@ func (s *Service) importRule(ctx context.Context, tempDir string, item model.Ass
 		return uuid.Nil, detail
 	}
 
-	// 创建记录
 	now := time.Now()
 	rule := &model.Rule{
 		ID:          uuid.New(),
@@ -1278,6 +1447,7 @@ func (s *Service) importRule(ctx context.Context, tempDir string, item model.Ass
 }
 
 // importSettings 导入单个 Settings
+// 覆盖模式下保留现有 ID，只更新目录内容和属性，避免断开 AgentSettingsBinding
 func (s *Service) importSettings(ctx context.Context, tempDir string, item model.AssetPackageSettingsItem, overwrite bool) (uuid.UUID, model.ImportDetail) {
 	detail := model.ImportDetail{
 		AssetType: "settings",
@@ -1290,24 +1460,73 @@ func (s *Service) importSettings(ctx context.Context, tempDir string, item model
 		if !overwrite {
 			detail.Status = "skipped"
 			detail.Message = "已存在相同名称的 Settings"
-			return uuid.Nil, detail
+			return existing.ID, detail
 		}
-		// 覆盖模式：先删除旧记录和目录
+		// 覆盖模式：保留现有 ID，只更新目录内容和属性
+
+		srcDir := filepath.Join(tempDir, "assets", "settings", item.Name)
+		targetDir := filepath.Join(s.settingsStoragePath, item.Name)
+
+		// 创建备份（确保原子性）
+		backupDir := filepath.Join(s.settingsStoragePath, item.Name+"_backup")
 		if existing.DirectoryPath != "" {
-			os.RemoveAll(existing.DirectoryPath)
+			if err := copyDir(existing.DirectoryPath, backupDir); err != nil && !os.IsNotExist(err) {
+				detail.Status = "failed"
+				detail.Message = fmt.Sprintf("创建备份目录失败: %v", err)
+				return uuid.Nil, detail
+			}
 		}
-		if err := s.settingsRepo.Delete(ctx, existing.ID); err != nil {
+
+		// 清空目标目录并复制新内容
+		if existing.DirectoryPath != "" {
+			if err := os.RemoveAll(existing.DirectoryPath); err != nil && !os.IsNotExist(err) {
+				os.RemoveAll(backupDir) // 清理备份
+				detail.Status = "failed"
+				detail.Message = fmt.Sprintf("清空旧 Settings 目录失败: %v", err)
+				return uuid.Nil, detail
+			}
+		}
+
+		if err := copyDir(srcDir, targetDir); err != nil {
+			// 失败时恢复备份
+			if restoreErr := copyDir(backupDir, targetDir); restoreErr != nil {
+				s.logger.Error("恢复备份失败", zap.Error(restoreErr), zap.String("backupDir", backupDir))
+			}
+			os.RemoveAll(backupDir)
 			detail.Status = "failed"
-			detail.Message = fmt.Sprintf("删除旧 Settings 记录失败: %v", err)
+			detail.Message = fmt.Sprintf("复制 Settings 目录失败: %v", err)
 			return uuid.Nil, detail
 		}
+
+		// 更新属性（保留原 ID）
+		existing.Description = item.Description
+		existing.DirectoryPath = targetDir
+
+		if err := s.settingsRepo.Update(ctx, existing); err != nil {
+			// 数据库更新失败时恢复备份
+			if restoreErr := copyDir(backupDir, existing.DirectoryPath); restoreErr != nil {
+				s.logger.Error("恢复备份失败", zap.Error(restoreErr), zap.String("backupDir", backupDir))
+			}
+			os.RemoveAll(backupDir)
+			detail.Status = "failed"
+			detail.Message = fmt.Sprintf("更新 Settings 记录失败: %v", err)
+			return uuid.Nil, detail
+		}
+
+		// 成功后删除备份
+		os.RemoveAll(backupDir)
+
+		detail.Status = "success"
+		detail.ID = existing.ID.String()
+		detail.Message = "已覆盖更新现有 Settings（保留原 ID）"
+		return existing.ID, detail
 	} else if err != nil && !strings.Contains(err.Error(), "not found") {
 		detail.Status = "failed"
 		detail.Message = fmt.Sprintf("检查配置名称失败: %v", err)
 		return uuid.Nil, detail
 	}
 
-	// 复制目录
+	// 创建新 Settings（不存在同名 Settings）
 	srcDir := filepath.Join(tempDir, "assets", "settings", item.Name)
 	targetDir := filepath.Join(s.settingsStoragePath, item.Name)
 	if err := copyDir(srcDir, targetDir); err != nil {
@@ -1316,7 +1535,6 @@ func (s *Service) importSettings(ctx context.Context, tempDir string, item model
 		return uuid.Nil, detail
 	}
 
-	// 创建记录
 	now := time.Now()
 	settingsRecord := &model.Settings{
 		ID:            uuid.New(),
