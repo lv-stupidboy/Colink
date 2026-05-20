@@ -2390,10 +2390,10 @@ func (es *ExecutionService) CancelAgent(ctx context.Context, invocationID uuid.U
 		invocation.Status == model.InvocationStatusFailed ||
 		invocation.Status == model.InvocationStatusCancelled ||
 		invocation.Status == model.InvocationStatusInterrupted {
-		logInfo("CancelAgent: invocation already finished",
+		logInfo("CancelAgent: invocation already in final state",
 			zap.String("invocationID", invocationID.String()),
 			zap.String("status", string(invocation.Status)))
-		return nil // 已经完成，无需取消
+		return nil // 已经是终态，无需取消
 	}
 
 	// 1. 先更新数据库状态为 cancelled（必须在 kill 进程之前）
@@ -2427,11 +2427,14 @@ func (es *ExecutionService) CancelAgent(ctx context.Context, invocationID uuid.U
 				zap.Bool("cmdIsNil", cmd == nil))
 		}
 		if cmd != nil {
-			logInfo("CancelAgent: calling killChild",
+			logInfo("CancelAgent: killing process",
+				zap.String("invocationID", invocationID.String()),
 				zap.Int("pid", cmd.Process.Pid))
 			killChild(cmd, &agent.cmdMu)
 		} else {
-			logWarn("CancelAgent: cmd is nil, cannot kill process")
+			logInfo("CancelAgent: no running process, DB status updated successfully",
+				zap.String("invocationID", invocationID.String()),
+				zap.String("status", string(invocation.Status)))
 		}
 
 		// 4. 取消 Go goroutine
@@ -3312,19 +3315,27 @@ func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, thread
 	// 获取项目路径和工作流模板（提前获取，用于限定 @mention 解析范围）
 	var projectPath string
 	var workflowTemplateID *uuid.UUID
-	if es.projectRepo != nil {
+
+	// ✅ 优先使用 Thread（当前任务）的工作流模板
+	if thread.WorkflowTemplateID != nil {
+		workflowTemplateID = thread.WorkflowTemplateID
+		logInfo("SpawnAgentForUserMessage: 使用 Thread 工作流模板",
+			zap.String("threadID", threadID.String()),
+			zap.String("templateID", thread.WorkflowTemplateID.String()))
+	}
+
+	// ✅ Thread 没有的话，兜底用 Project 的
+	if workflowTemplateID == nil && es.projectRepo != nil {
 		project, err := es.projectRepo.GetByThreadID(ctx, threadID)
 		if err == nil && project != nil {
 			projectPath = project.LocalPath
-			// 优先使用 Project 的工作流模板
 			if project.WorkflowTemplateID != nil {
 				workflowTemplateID = project.WorkflowTemplateID
+				logInfo("SpawnAgentForUserMessage: Thread 无模板，回退到 Project 工作流模板",
+					zap.String("threadID", threadID.String()),
+					zap.String("templateID", project.WorkflowTemplateID.String()))
 			}
 		}
-	}
-	// 如果 Project 没有工作流模板，使用 Thread 的
-	if workflowTemplateID == nil && thread.WorkflowTemplateID != nil {
-		workflowTemplateID = thread.WorkflowTemplateID
 	}
 
 	// 获取 workflow 范围内的 agents，用于限定 @mention 解析
