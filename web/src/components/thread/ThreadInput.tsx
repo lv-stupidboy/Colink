@@ -113,7 +113,7 @@ export const ThreadInput: React.FC<ThreadInputProps> = memo(({
     }
   }, [highlightedIndex, mentionListVisible]);
 
-  // 自动填入 @mention（阻塞确认后触发）
+  // 自动填入 @mention（阻塞确认后触发）- 智能前置逻辑
   useEffect(() => {
     if (prefilledMention && inputRef.current) {
       // 检查是否在 agentOptions 中
@@ -121,22 +121,42 @@ export const ThreadInput: React.FC<ThreadInputProps> = memo(({
         opt => opt.name === prefilledMention || opt.label.includes(prefilledMention)
       );
 
-      if (agentExists) {
-        // 自动填入 @mention
-        setInputValue(`@${prefilledMention} `);
-        inputRef.current.focus();
-        setShowPrefillHint(true);
+      if (!agentExists) return;
 
-        // 3秒后隐藏提示
-        setTimeout(() => setShowPrefillHint(false), 3000);
+      const currentText = inputValue;
 
-        // 通知父组件预填入已使用
-        if (onPrefillConsumed) {
-          onPrefillConsumed();
-        }
+      // 判断是否以 @ 开头（已有 @mention 时不添加）
+      if (currentText.startsWith('@')) {
+        // 通知父组件预填入已使用（跳过添加）
+        onPrefillConsumed?.();
+        return;
       }
+
+      // 记录当前光标位置
+      const cursorPos = inputRef.current.selectionStart || 0;
+
+      // 构建新内容：前置 @mention
+      const mention = `@${prefilledMention} `;
+      const newText = mention + currentText;
+
+      // 更新输入框
+      setInputValue(newText);
+      inputRef.current.focus();
+
+      // 恢复光标相对偏移：原位置 + mention 长度
+      const newCursorPos = cursorPos + mention.length;
+      setTimeout(() => {
+        inputRef.current?.setSelectionRange(newCursorPos, newCursorPos);
+      }, 0);
+
+      // 显示提示
+      setShowPrefillHint(true);
+      setTimeout(() => setShowPrefillHint(false), 3000);
+
+      // 通知父组件预填入已使用
+      onPrefillConsumed?.();
     }
-  }, [prefilledMention, agentOptions, onPrefillConsumed]);
+  }, [prefilledMention, agentOptions, inputValue, onPrefillConsumed]);
 
   // 追加 @mention（点击 Agent 头像/名称触发）
   useEffect(() => {
