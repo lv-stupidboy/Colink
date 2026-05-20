@@ -8,11 +8,12 @@ import (
 
 func init() {
 	agent.RegisterPlugin(agent.PluginMeta{
-		Type:        Type,
-		Name:        "Hermes",
-		Description: "Hermes Agent via ACP - 自进化AI代理",
-		Factory:     NewHermesAdapter,
-		ConfigDir:   ".hermes",
-		DefaultPath: "hermes",
+		Type:                  Type,
+		Name:                  "Hermes",
+		Description:           "Hermes Agent via ACP - 自进化AI代理",
+		Factory:               NewHermesAdapter,
+		ConfigDir:             ".hermes",
+		DefaultPath:           "hermes",
+		ConfigGeneratorFactory: NewHermesConfigGenerator,
 	})
 }
