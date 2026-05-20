@@ -1169,6 +1169,7 @@ func isResumeFallbackError(err error) bool {
 		"invalid session",
 		"no such session",
 		"session corrupt",
+		"no conversation found", // Claude CLI 的会话未找到错误
 	}
 	for _, pattern := range fallbackPatterns {
 		if strings.Contains(errStr, pattern) {
@@ -1364,12 +1365,12 @@ func (es *ExecutionService) loadThreadContext(ctx context.Context, threadID uuid
 	}
 	tc.Project = project
 
-	// 3. 确定工作流模板ID
+	// 3. 确定工作流模板ID（优先级：Thread > Project）
 	var workflowTemplateID *uuid.UUID
-	if project != nil && project.WorkflowTemplateID != nil {
-		workflowTemplateID = project.WorkflowTemplateID
-	} else if thread.WorkflowTemplateID != nil {
-		workflowTemplateID = thread.WorkflowTemplateID
+	if thread.WorkflowTemplateID != nil {
+		workflowTemplateID = thread.WorkflowTemplateID   // 优先使用 Thread 的团队
+	} else if project != nil && project.WorkflowTemplateID != nil {
+		workflowTemplateID = project.WorkflowTemplateID  // Thread 没有才使用 Project 的
 	}
 
 	// 4. 获取工作流模板和 Agent 列表
