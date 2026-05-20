@@ -185,9 +185,16 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 	LogInfo("[PERF] ACP initialize handshake", zap.Duration("duration", time.Since(cliStartTime)),
 		zap.Int("protocolVersion", initResp.ProtocolVersion))
 
+	// 根据服务器实际支持的协议版本决定是否传递 MCP Servers
+	// ACP v1 不支持 mcpServers 字段，只有 v2025+ 支持
+	mcpServers := []interface{}{}
+	if initResp.ProtocolVersion >= 2025 {
+		mcpServers = a.buildMCPServers(req)
+	}
+
 	sessionNewResult, err := transport.SendRequest("session/new", &acpNewSessionParams{
 		CWD:        req.WorkDir,
-		MCPServers: a.buildMCPServers(req),
+		MCPServers: mcpServers,
 	})
 	if err != nil {
 		a.cleanup(session)
@@ -231,7 +238,8 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 
 	LogInfo("[PERF] ACP total execution",
 		zap.Duration("duration", time.Since(cliStartTime)),
-		zap.String("stopReason", promptResp.StopReason))
+		zap.String("stopReason", promptResp.StopReason),
+		zap.String("promptResultRaw", string(promptResult)))
 
 	// 执行完成后，从 sessions map 中移除（如果有）
 	if invocationIDStr != "" {
@@ -351,9 +359,14 @@ func (a *BaseACPAdapter) StartSession(ctx context.Context, sessionID string, req
 		return fmt.Errorf("ACP: initialize handshake failed: %w", err)
 	}
 
+	// 根据服务器实际支持的协议版本决定是否传递 MCP Servers
+	// ACP v1 不支持 mcpServers 字段，只有 v2025+ 支持
+	// 由于 StartSession 不解析 init 响应，默认不传递 mcpServers（保守策略）
+	mcpServers := []interface{}{}
+
 	sessionNewResult, err := transport.SendRequest("session/new", &acpNewSessionParams{
 		CWD:        req.WorkDir,
-		MCPServers: a.buildMCPServers(req),
+		MCPServers: mcpServers,
 	})
 	if err != nil {
 		transport.Close()
