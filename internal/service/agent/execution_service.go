@@ -7,12 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os/exec"
 	"regexp"
-	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/anthropic/isdp/internal/model"
@@ -30,40 +27,7 @@ const (
 	agentExecutionTimeout = 10 * time.Minute
 	// 工具执行心跳间隔（30秒更新一次 LastActiveAt）
 	toolHeartbeatInterval = 30 * time.Second
-	// 进程终止优雅期限（3秒后 SIGKILL）
-	killGracePeriod = 3 * time.Second
 )
-
-func killChild(cmd *exec.Cmd, cmdMu *sync.Mutex) {
-	cmdMu.Lock()
-	defer cmdMu.Unlock()
-
-	if cmd == nil || cmd.Process == nil {
-		return
-	}
-
-	logInfo("killChild: terminating process", zap.Int("pid", cmd.Process.Pid))
-
-	// Windows 不支持 SIGTERM，直接用 Kill
-	if runtime.GOOS == "windows" {
-		cmd.Process.Kill()
-		return
-	}
-
-	// Unix: 先 SIGTERM
-	cmd.Process.Signal(syscall.SIGTERM)
-
-	// 3秒后升级到 SIGKILL
-	go func(pid int, cmd *exec.Cmd, cmdMu *sync.Mutex) {
-		time.Sleep(killGracePeriod)
-		cmdMu.Lock()
-		defer cmdMu.Unlock()
-		if cmd.Process != nil && cmd.Process.Pid == pid {
-			logInfo("killChild: escalating to SIGKILL", zap.Int("pid", pid))
-			cmd.Process.Kill()
-		}
-	}(cmd.Process.Pid, cmd, cmdMu)
-}
 
 // AgentInfo 触发者信息（A2A 优化）
 type AgentInfo struct {
