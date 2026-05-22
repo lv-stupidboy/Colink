@@ -1,6 +1,7 @@
 // isdp/web/src/hooks/useWebSocket.ts
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { WSMessage } from '@/types';
+import { useChunkBatcher, Chunk } from './useChunkBatcher';
 
 interface UseWebSocketOptions {
   onMessage?: (data: WSMessage) => void;
@@ -18,7 +19,6 @@ export function useWebSocket(
   const [connected, setConnected] = useState(false);
   const { onMessage, onConnect, onDisconnect, reconnectInterval = 3000 } = options;
 
-  // 使用 ref 存储 onMessage，避免依赖变化导致重连
   const onMessageRef = useRef(onMessage);
   const onConnectRef = useRef(onConnect);
   const onDisconnectRef = useRef(onDisconnect);
@@ -29,11 +29,21 @@ export function useWebSocket(
     onDisconnectRef.current = onDisconnect;
   }, [onMessage, onConnect, onDisconnect]);
 
+  const handleChunksFlush = useCallback((chunks: Chunk[]) => {
+    chunks.forEach((chunk) => {
+      onMessageRef.current?.(chunk as unknown as WSMessage);
+    });
+  }, []);
+
+  const { enqueue, flushImmediately } = useChunkBatcher({
+    onFlush: handleChunksFlush,
+  });
+
   useEffect(() => {
     if (!threadId) {
-      // threadId 为空时断开连接
       if (wsRef.current) {
         console.log('[WebSocket] Disconnecting due to null threadId');
+        flushImmediately();
         if (reconnectTimeoutRef.current) {
           clearTimeout(reconnectTimeoutRef.current);
         }
@@ -55,7 +65,6 @@ export function useWebSocket(
       setConnected(true);
       onConnectRef.current?.();
 
-      // 请求恢复未完成的 invocation 内容（后台执行支持）
       if (threadId) {
         send({
           type: 'recover_invocation_state',
@@ -67,8 +76,18 @@ export function useWebSocket(
     ws.onmessage = (event) => {
       try {
         const data: WSMessage = JSON.parse(event.data);
-        console.log('[WebSocket] Received message:', data.type);
-        onMessageRef.current?.(data);
+
+        if (data.type === 'agent_output_chunk') {
+          const blockType = data.payload?.type as string || 'text';
+          enqueue({
+            type: 'agent_output_chunk',
+            payload: data.payload || {},
+            chunkType: blockType as any,
+          });
+        } else {
+          flushImmediately();
+          onMessageRef.current?.(data);
+        }
       } catch (e) {
         console.error('[WebSocket] Failed to parse message:', e);
       }
@@ -78,12 +97,11 @@ export function useWebSocket(
       console.log('[WebSocket] Disconnected, threadId:', threadId);
       setConnected(false);
       onDisconnectRef.current?.();
-      // 只有当 threadId 仍然存在时才重连
+      flushImmediately();
       if (wsRef.current === ws) {
         reconnectTimeoutRef.current = setTimeout(() => {
           if (wsRef.current === ws && threadId) {
             console.log('[WebSocket] Attempting reconnect...');
-            // 重新连接需要通过触发 effect 重新执行
           }
         }, reconnectInterval);
       }
@@ -93,15 +111,39 @@ export function useWebSocket(
       console.error('[WebSocket] Error:', error);
     };
 
+    // ✅ 页面可见性变化时处理重连
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        if (threadId) {
+          // 检查连接状态
+          if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+            console.log('[WebSocket] Page visible, reconnecting...');
+            // 清理旧连接
+            if (wsRef.current) {
+              wsRef.current.close();
+            }
+            // 创建新连接（通过触发 effect 重新执行）
+            setConnected(false);
+          } else {
+            console.log('[WebSocket] Connection alive, no action needed');
+          }
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
       console.log('[WebSocket] Cleaning up connection');
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      flushImmediately();
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
       }
       ws.close();
       wsRef.current = null;
     };
-  }, [threadId, reconnectInterval]);
+  }, [threadId, reconnectInterval, enqueue, flushImmediately]);
 
   const send = useCallback((data: object) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {

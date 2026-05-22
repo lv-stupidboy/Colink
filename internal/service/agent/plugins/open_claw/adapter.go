@@ -31,8 +31,9 @@ func NewOpenClawAdapter(baseAgent *model.BaseAgent) agent.AgentAdapter {
 		cliPath = "openclaw"
 	}
 
+	// 使用全局 GatewayManager 单例，确保所有适配器共享同一个 Gateway
+	gatewayMgr := GetGlobalGatewayManager()
 	gatewayPort := DefaultGatewayPort
-	gatewayMgr := NewGatewayManager(gatewayPort, "")
 
 	config := acp.AcpAdapterConfig{
 		CliPath: cliPath,
@@ -98,8 +99,8 @@ func (a *OpenClawAdapter) ExecuteWithStream(ctx context.Context, req *agent.Exec
 		return nil, fmt.Errorf("OpenClaw: failed to start gateway: %w", err)
 	}
 
-	// 2. Wait for Gateway ready (max 5 seconds)
-	if err := a.gatewayMgr.WaitForReady(ctx, 5*time.Second); err != nil {
+	// 2. Wait for Gateway ready (使用默认超时 10 秒)
+	if err := a.gatewayMgr.WaitForReady(ctx, DefaultGatewayTimeout); err != nil {
 		return nil, fmt.Errorf("OpenClaw: gateway not ready: %w", err)
 	}
 
@@ -127,8 +128,8 @@ func (a *OpenClawAdapter) StartSession(ctx context.Context, sessionID string, re
 		return fmt.Errorf("OpenClaw: failed to start gateway: %w", err)
 	}
 
-	// 2. Wait for Gateway ready
-	if err := a.gatewayMgr.WaitForReady(ctx, 5*time.Second); err != nil {
+	// 2. Wait for Gateway ready (使用默认超时 10 秒)
+	if err := a.gatewayMgr.WaitForReady(ctx, DefaultGatewayTimeout); err != nil {
 		return fmt.Errorf("OpenClaw: gateway not ready: %w", err)
 	}
 
@@ -146,9 +147,9 @@ func (a *OpenClawAdapter) CheckHealth(ctx context.Context) error {
 		return fmt.Errorf("OpenClaw: gateway health check failed: %w", err)
 	}
 
-	// Wait for Gateway ready
-	if err := a.gatewayMgr.WaitForReady(ctx, 10*time.Second); err != nil {
-		return fmt.Errorf("OpenClaw: gateway not ready after 10s: %w", err)
+	// Wait for Gateway ready (健康检查使用更长超时 15 秒)
+	if err := a.gatewayMgr.WaitForReady(ctx, 15*time.Second); err != nil {
+		return fmt.Errorf("OpenClaw: gateway not ready after 15s: %w", err)
 	}
 
 	// Check ACP bridge health via BaseACPAdapter
