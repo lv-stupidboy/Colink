@@ -26,7 +26,10 @@ func main() {
 			}
 			// 只获取直接子目录（不包含路径分隔符）且不是 all
 			if !strings.Contains(relPath, string(filepath.Separator)) && relPath != "all" {
-				dirs = append(dirs, relPath)
+				// 检查该目录是否包含 RegisterPlugin 调用（真正的插件）
+				if hasRegisterPlugin(path) {
+					dirs = append(dirs, relPath)
+				}
 			}
 		}
 		return nil
@@ -54,4 +57,23 @@ import (
 	}
 
 	fmt.Printf("Generated %s with %d plugins\n", allPath, len(dirs))
+}
+
+// hasRegisterPlugin 检查目录下是否有 .go 文件包含 RegisterPlugin 调用
+func hasRegisterPlugin(dirPath string) bool {
+	files, err := filepath.Glob(filepath.Join(dirPath, "*.go"))
+	if err != nil {
+		return false
+	}
+
+	for _, file := range files {
+		content, err := os.ReadFile(file)
+		if err != nil {
+			continue
+		}
+		if strings.Contains(string(content), "RegisterPlugin") {
+			return true
+		}
+	}
+	return false
 }
