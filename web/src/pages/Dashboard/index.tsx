@@ -421,10 +421,10 @@ const Dashboard: React.FC = () => {
   }, [loadActiveThreads]);
 
   // 处理快速开始
-  const handleQuickStart = async (projectId: string, _workflowId: string, taskName: string) => {
+  const handleQuickStart = async (projectId: string, workflowId: string, taskName: string) => {
     setQuickStartLoading(true);
     try {
-      const thread = await api.threads.create(projectId, taskName);
+      const thread = await api.threads.create(projectId, taskName, workflowId);
       navigate(`/projects/${projectId}/threads/${thread.id}`);
     } catch (error) {
       console.error('Failed to create thread:', error);
