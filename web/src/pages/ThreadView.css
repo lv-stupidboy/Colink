@@ -165,6 +165,37 @@
   position: relative; /* 为指示器提供定位基准 */
 }
 
+/* 自定义滚动条 */
+.thread-messages::-webkit-scrollbar {
+  width: 6px;
+}
+
+.thread-messages::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.thread-messages::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 3px;
+}
+
+.thread-messages::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+
+/* 深色模式滚动条 */
+[data-theme='dark'] .thread-messages::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+[data-theme='dark'] .thread-messages::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 3px;
+}
+
+[data-theme='dark'] .thread-messages::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
 
 /* 空状态 */
 .thread-messages .ant-empty {
@@ -693,38 +724,6 @@
 }
 
 /* ========== 消息滚动指示器样式 ========== */
-
-/* 自定义滚动条 */
-.thread-messages::-webkit-scrollbar {
-  width: 6px;
-}
-
-.thread-messages::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.thread-messages::-webkit-scrollbar-thumb {
-  background: var(--border-color);
-  border-radius: 3px;
-}
-
-.thread-messages::-webkit-scrollbar-thumb:hover {
-  background: var(--text-secondary);
-}
-
-/* 深色模式滚动条 */
-[data-theme='dark'] .thread-messages::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-[data-theme='dark'] .thread-messages::-webkit-scrollbar-thumb {
-  background: var(--border-color);
-  border-radius: 3px;
-}
-
-[data-theme='dark'] .thread-messages::-webkit-scrollbar-thumb:hover {
-  background: var(--text-secondary);
-}
 
 /* 消息滚动指示器容器 */
 .message-scroll-indicators {

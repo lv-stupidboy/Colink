@@ -3,12 +3,10 @@
 package open_claw
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,9 +19,6 @@ import (
 // DefaultGatewayPort is the default WebSocket port for OpenClaw Gateway.
 const DefaultGatewayPort = 18789
 
-// DefaultGatewayTimeout is the default timeout for Gateway readiness check.
-const DefaultGatewayTimeout = 10 * time.Second
-
 // GatewayManager manages the OpenClaw Gateway daemon lifecycle.
 // It ensures Gateway is running before ACP bridge connects.
 type GatewayManager struct {
@@ -32,21 +27,6 @@ type GatewayManager struct {
 	configPath string
 	cmd        *exec.Cmd
 	mu         sync.Mutex
-}
-
-// 全局 GatewayManager 单例
-var (
-	globalGatewayMgr *GatewayManager
-	gatewayMgrOnce   sync.Once
-)
-
-// GetGlobalGatewayManager returns the global GatewayManager instance.
-// Uses singleton pattern to ensure all adapters share the same Gateway.
-func GetGlobalGatewayManager() *GatewayManager {
-	gatewayMgrOnce.Do(func() {
-		globalGatewayMgr = NewGatewayManager(DefaultGatewayPort, "")
-	})
-	return globalGatewayMgr
 }
 
 // NewGatewayManager creates a new GatewayManager.
@@ -84,22 +64,9 @@ func (g *GatewayManager) StartGateway(ctx context.Context) error {
 	// Set environment variables
 	cmd.Env = g.buildGatewayEnv()
 
-	// 收集 stderr 用于错误诊断
-	stderrPipe, err := cmd.StderrPipe()
-	if err != nil {
-		LogWarn("OpenClaw: failed to create stderr pipe", zap.Error(err))
-	} else {
-		go func() {
-			scanner := bufio.NewScanner(stderrPipe)
-			for scanner.Scan() {
-				line := scanner.Text()
-				// 只记录有意义的内容，过滤掉噪音
-				if len(line) > 0 && line != "." {
-					LogDebug("Gateway stderr", zap.String("line", line))
-				}
-			}
-		}()
-	}
+	// Gateway runs in background, we don't need to capture output
+	cmd.Stdout = nil
+	cmd.Stderr = nil
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("OpenClaw: failed to start gateway: %w", err)
@@ -115,99 +82,37 @@ func (g *GatewayManager) StartGateway(ctx context.Context) error {
 	return nil
 }
 
-// WaitForReady waits for Gateway to be ready (listening on port + health check).
+// WaitForReady waits for Gateway to be ready (listening on port).
 // Returns error if Gateway is not ready within the timeout.
 func (g *GatewayManager) WaitForReady(ctx context.Context, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
+ deadline := time.Now().Add(timeout)
 
-	attempts := 0
-	for {
-		attempts++
-		if time.Now().After(deadline) {
-			LogError("OpenClaw: gateway not ready after timeout",
-				zap.Duration("timeout", timeout),
-				zap.Int("attempts", attempts),
-				zap.Bool("portListening", g.isGatewayListening()),
-				zap.Bool("healthOk", g.checkGatewayHealth()))
-			return fmt.Errorf("gateway not ready after %v (attempts: %d)", timeout, attempts)
-		}
+ for {
+	 if time.Now().After(deadline) {
+		 return fmt.Errorf("OpenClaw: gateway not ready after %v", timeout)
+	 }
 
-		// 1. 检查端口监听
-		if !g.isGatewayListening() {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(100 * time.Millisecond):
-			}
-			continue
-		}
+	 if g.isGatewayRunning() {
+		 return nil
+	 }
 
-		// 2. 检查 HTTP health endpoint
-		if g.checkGatewayHealth() {
-			LogInfo("OpenClaw: Gateway ready",
-				zap.Int("port", g.port),
-				zap.Int("attempts", attempts),
-				zap.Duration("elapsed", time.Since(deadline.Add(-timeout))))
-			return nil
-		}
-
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(100 * time.Millisecond):
-		}
-	}
+	 // Wait a bit before checking again
+	 select {
+	 case <-ctx.Done():
+		 return ctx.Err()
+	 case <-time.After(100 * time.Millisecond):
+	 }
+ }
 }
 
-// isGatewayListening checks if Gateway is listening on the port.
-func (g *GatewayManager) isGatewayListening() bool {
+// isGatewayRunning checks if Gateway is listening on the port.
+func (g *GatewayManager) isGatewayRunning() bool {
 	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", g.port), 1*time.Second)
 	if err != nil {
-		return false
+	 return false
 	}
 	conn.Close()
 	return true
-}
-
-// isGatewayRunning checks if Gateway is listening on the port (legacy method).
-func (g *GatewayManager) isGatewayRunning() bool {
-	return g.isGatewayListening()
-}
-
-// checkGatewayHealth checks Gateway health via HTTP endpoint.
-// Returns true if health check passes or if no health endpoint exists (fallback to port check).
-func (g *GatewayManager) checkGatewayHealth() bool {
-	// 尝试 HTTP health check
-	client := http.Client{Timeout: 500 * time.Millisecond}
-
-	// 尝试常见的 health endpoint
-	healthURLs := []string{
-		fmt.Sprintf("http://127.0.0.1:%d/health", g.port),
-		fmt.Sprintf("http://127.0.0.1:%d/status", g.port),
-		fmt.Sprintf("http://127.0.0.1:%d/", g.port),
-	}
-
-	for _, url := range healthURLs {
-		resp, err := client.Get(url)
-		if err == nil {
-			resp.Body.Close()
-			// 200 OK 或其他成功状态码表示 Gateway 已准备好
-			if resp.StatusCode >= 200 && resp.StatusCode < 500 {
-				LogDebug("OpenClaw: Gateway health check passed",
-					zap.String("url", url),
-					zap.Int("statusCode", resp.StatusCode))
-				return true
-			}
-		}
-	}
-
-	// 如果 HTTP health check 失败，但端口正在监听，也认为准备就绪
-	if g.isGatewayListening() {
-		LogDebug("OpenClaw: Gateway listening but no health endpoint, assuming ready")
-		return true
-	}
-
-	return false
 }
 
 // StopGateway stops the Gateway daemon if started by this manager.
@@ -228,15 +133,15 @@ func (g *GatewayManager) StopGateway() error {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- g.cmd.Wait()
+	 done <- g.cmd.Wait()
 	}()
 
 	select {
 	case <-done:
-		LogInfo("OpenClaw: Gateway stopped", zap.Int("port", g.port))
+	 LogInfo("OpenClaw: Gateway stopped", zap.Int("port", g.port))
 	case <-time.After(5 * time.Second):
-		g.cmd.Process.Kill()
-		LogWarn("OpenClaw: Gateway killed after timeout")
+	 g.cmd.Process.Kill()
+	 LogWarn("OpenClaw: Gateway killed after timeout")
 	}
 
 	g.cmd = nil
@@ -300,19 +205,19 @@ func maskToken(token string) string {
 func (g *GatewayManager) buildGatewayEnv() []string {
 	env := os.Environ()
 
-	// OpenClaw state directory
-	if g.stateDir != "" {
-		env = append(env, "OPENCLAW_STATE_DIR="+g.stateDir)
-	}
+ // OpenClaw state directory
+ if g.stateDir != "" {
+	 env = append(env, "OPENCLAW_STATE_DIR="+g.stateDir)
+ }
 
-	// Config file path
-	if g.configPath != "" {
-		env = append(env, "OPENCLAW_CONFIG_PATH="+g.configPath)
-	}
+ // Config file path
+ if g.configPath != "" {
+	 env = append(env, "OPENCLAW_CONFIG_PATH="+g.configPath)
+ }
 
-	// Suppress banner for cleaner ACP output
-	env = append(env, "OPENCLAW_HIDE_BANNER=1")
-	env = append(env, "OPENCLAW_SUPPRESS_NOTES=1")
+ // Suppress banner for cleaner ACP output
+ env = append(env, "OPENCLAW_HIDE_BANNER=1")
+ env = append(env, "OPENCLAW_SUPPRESS_NOTES=1")
 
-	return env
+ return env
 }

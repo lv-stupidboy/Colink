@@ -1,6 +1,6 @@
 // isdp/web/src/components/thread/StreamingMessage.tsx
 import React, { memo, useRef } from 'react';
-import { useStreamingStore } from '@/store/streaming';
+import { useAppStore } from '@/store';
 import { ChatMessage } from './ChatMessage';
 import type { AgentConfig, ToolEvent, MessageContentBlock } from '@/types';
 import type { ProgressInfo } from './ChatMessage';
@@ -16,7 +16,7 @@ interface StreamingMessageProps {
 /**
  * 流式消息组件 - 隔离高频更新
  *
- * 直接订阅独立的 StreamingStore，不会触发主 store 订阅者的重渲染
+ * 直接订阅 store 的流式状态，不会触发父组件重渲染
  * 使用 selector 订阅，只有流式状态变化时才更新
  */
 export const StreamingMessage: React.FC<StreamingMessageProps> = memo(({
@@ -26,17 +26,17 @@ export const StreamingMessage: React.FC<StreamingMessageProps> = memo(({
   onStop,
   onQuestionSubmit,
 }) => {
-  // 从独立 StreamingStore 订阅状态（性能优化关键）
-  const isStreaming = useStreamingStore((s) => s.isStreaming);
-  const streamingContentBlocks = useStreamingStore((s) => s.streamingContentBlocks);
-  const streamingAgentId = useStreamingStore((s) => s.streamingAgentId);
-  const streamingAgentName = useStreamingStore((s) => s.streamingAgentName);
-  const streamingInvocationId = useStreamingStore((s) => s.streamingInvocationId);
+  // 订阅流式状态
+  const isStreaming = useAppStore((s) => s.isStreaming);
+  const streamingContentBlocks = useAppStore((s) => s.streamingContentBlocks);
+  const streamingAgentId = useAppStore((s) => s.streamingAgentId);
+  const streamingAgentName = useAppStore((s) => s.streamingAgentName);
+  const streamingInvocationId = useAppStore((s) => s.streamingInvocationId);
 
   // 进度状态
-  const progressStatus = useStreamingStore((s) => s.progressStatus);
-  const progressToolName = useStreamingStore((s) => s.progressToolName);
-  const progressToolInput = useStreamingStore((s) => s.progressToolInput);
+  const progressStatus = useAppStore((s) => s.progressStatus);
+  const progressToolName = useAppStore((s) => s.progressToolName);
+  const progressToolInput = useAppStore((s) => s.progressToolInput);
 
   // 自动滚动 ref
   const containerRef = useRef<HTMLDivElement>(null);

@@ -88,138 +88,161 @@ export const ChatMessageList = forwardRef<HTMLDivElement, ChatMessageListProps>(
       onAgentClick,
     } = props;
 
+    // Use passed ref or create internal one
     const internalRef = useRef<HTMLDivElement>(null);
     const listRef = (ref as RefObject<HTMLDivElement>) || internalRef;
 
-    const [isNearBottom, setIsNearBottom] = useState(true);
-    const bottomAnchorRef = useRef<HTMLDivElement>(null);
-    const streamingContentBlocks = useAppStore((s) => s.streamingContentBlocks);
+  // 用户是否接近底部（用于控制自动滚动）
+  const [isNearBottom, setIsNearBottom] = useState(true);
+  const bottomAnchorRef = useRef<HTMLDivElement>(null);
 
-    // 滚动到底部
-    const scrollToBottom = useCallback(() => {
-      if (bottomAnchorRef.current && messages.length > 0) {
-        bottomAnchorRef.current.scrollIntoView({ behavior: 'instant', block: 'end' });
-      }
-    }, [messages.length]);
+  // 订阅流式内容块变化（用于滚动控制）
+  const streamingContentBlocks = useAppStore((s) => s.streamingContentBlocks);
 
-    // 条件自动滚动：只有接近底部时才滚动
-    useEffect(() => {
-      if (autoScroll && isNearBottom) {
-        scrollToBottom();
-      }
-    }, [messages.length, autoScroll, isNearBottom, scrollToBottom]);
+  // 向上滚动加载历史的逻辑
+  const [isLoadingFromTop, setIsLoadingFromTop] = useState(false);
+  const prevScrollHeightRef = useRef(0);
 
-    // 流式内容变化时的滚动
-    useEffect(() => {
-      if (!autoScroll || streamingContentBlocks.length === 0 || !isNearBottom) return;
-      scrollToBottom();
-    }, [streamingContentBlocks, autoScroll, isNearBottom, scrollToBottom]);
+  // 检测滚动位置：用于加载历史和控制自动滚动
+  const handleScroll = useCallback(() => {
+    if (!listRef.current) return;
 
-    // 监听滚动位置，判断是否接近底部
-    const handleScroll = useCallback(() => {
-      if (!listRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = listRef.current;
 
-      const { scrollTop, scrollHeight, clientHeight } = listRef.current;
-      const nearBottom = scrollHeight - scrollTop - clientHeight < 50;
-      setIsNearBottom(nearBottom);
+    // 检测是否接近底部（距离底部小于 50px）
+    const nearBottom = scrollHeight - scrollTop - clientHeight < 50;
+    setIsNearBottom(nearBottom);
 
-      // 向上滚动加载更多历史（距离顶部小于 100px 时触发）
-      if (onLoadMore && !loadingMore && hasMoreHistory && scrollTop < 100) {
-        onLoadMore();
-      }
-    }, [listRef, onLoadMore, loadingMore, hasMoreHistory]);
-
-    // 空状态
-    if (messages.length === 0) {
-      return (
-        <div
-          className="chat-message-list-empty"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            height: '100%',
-            color: '#8c8c8c',
-            fontSize: '14px',
-          }}
-        >
-          {loading ? '加载中...' : '暂无消息'}
-        </div>
-      );
+    // 加载历史逻辑
+    if (onLoadMore && !loadingMore && hasMoreHistory && scrollTop < 100) {
+      // 记录当前滚动高度，用于加载后恢复位置
+      prevScrollHeightRef.current = scrollHeight;
+      setIsLoadingFromTop(true);
+      onLoadMore();
     }
+  }, [listRef, onLoadMore, loadingMore, hasMoreHistory]);
 
+  // 加载完成后恢复滚动位置（避免跳动）
+  useEffect(() => {
+    if (!isLoadingFromTop || loadingMore) return;
+
+    // 当 loadingMore 变为 false 时，表示加载完成
+    if (!loadingMore && listRef.current) {
+      const newScrollHeight = listRef.current.scrollHeight;
+      const addedHeight = newScrollHeight - prevScrollHeightRef.current;
+      // 保持滚动位置，使新加载的内容出现在上方
+      listRef.current.scrollTop = addedHeight;
+      setIsLoadingFromTop(false);
+    }
+  }, [loadingMore, isLoadingFromTop, listRef]);
+
+  // 条件自动滚动：只有接近底部时才滚动
+  // 监听已完成消息数量变化
+  useEffect(() => {
+    if (autoScroll && isNearBottom && bottomAnchorRef.current) {
+      bottomAnchorRef.current.scrollIntoView({ behavior: 'instant', block: 'end' });
+    }
+  }, [messages.length, autoScroll, isNearBottom]);
+
+  // 流式内容变化时的滚动：只在用户接近底部时才滚动
+  // 依赖 streamingContentBlocks（内容变化就触发），但用 isNearBottom 判断是否滚动
+  useEffect(() => {
+    if (!autoScroll || streamingContentBlocks.length === 0 || !isNearBottom || !bottomAnchorRef.current) return;
+    bottomAnchorRef.current.scrollIntoView({ behavior: 'instant', block: 'end' });
+  }, [streamingContentBlocks, autoScroll, isNearBottom]);
+
+  // 空状态
+  if (messages.length === 0) {
     return (
       <div
-        ref={listRef}
-        className="chat-message-list"
+        className="chat-message-list-empty"
         style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
           height: '100%',
-          overflowY: 'auto',
-          padding: '16px',
+          color: '#8c8c8c',
+          fontSize: '14px',
         }}
-        onScroll={handleScroll}
       >
-        {/* 加载更多历史指示器 */}
-        {hasMoreHistory && (
-          <div
-            style={{
-              textAlign: 'center',
-              padding: '8px 0',
-              color: 'var(--text-secondary)',
-              fontSize: '13px',
-            }}
-          >
-            {loadingMore ? (
-              <span>正在加载历史消息...</span>
-            ) : (
-              <span style={{ opacity: 0.6 }}>↑ 向上滚动加载更多</span>
-            )}
-          </div>
-        )}
-
-        {/* 已完成的消息列表 */}
-        {messages.map((message) => {
-          const agentConfig = getAgentConfig(
-            message.agentId,
-            message.agentName,
-            agentConfigs
-          );
-
-          const invocationId = message.id.startsWith('agent-')
-            ? message.id.replace('agent-', '')
-            : message.id;
-          const messageToolEvents = toolEvents[invocationId] || [];
-
-          return (
-            <ChatMessage
-              key={message.id}
-              message={message as any}
-              agentConfig={agentConfig}
-              agentConfigs={agentConfigs}
-              agentTypes={agentTypes}
-              projectPath={projectPath}
-              toolEvents={messageToolEvents}
-              onRetry={onRetryAgent ? () => onRetryAgent(message) : undefined}
-              onOpenCodePanel={onOpenCodePanel}
-              onQuestionSubmit={onQuestionSubmit}
-              onAgentClick={onAgentClick}
-            />
-          );
-        })}
-
-        {/* 流式消息 - 始终独立渲染，不在消息列表中 */}
-        <StreamingMessage
-          agentConfigs={agentConfigs}
-          projectPath={projectPath}
-          toolEvents={toolEvents}
-          onStop={onStopAgent}
-          onQuestionSubmit={onQuestionSubmit}
-        />
-
-        {/* 底部锚点，用于滚动定位 */}
-        <div ref={bottomAnchorRef} style={{ height: '1px' }} />
+        {loading ? '加载中...' : '暂无消息'}
       </div>
     );
-  });
+  }
+
+  return (
+    <div
+      ref={listRef}
+      className="chat-message-list"
+      style={{
+        height: '100%',
+        overflowY: 'auto',
+        padding: '16px',
+      }}
+      onScroll={handleScroll}
+    >
+      {/* 加载更多历史指示器 */}
+      {hasMoreHistory && (
+        <div
+          style={{
+            textAlign: 'center',
+            padding: '8px 0',
+            color: 'var(--text-secondary)',
+            fontSize: '13px',
+          }}
+        >
+          {loadingMore ? (
+            <span>正在加载历史消息...</span>
+          ) : (
+            <span style={{ opacity: 0.6 }}>↑ 向上滚动加载更多</span>
+          )}
+        </div>
+      )}
+
+      {/* 已完成的消息 - 不会因流式消息更新而重渲染 */}
+      {messages.map((message) => {
+        const agentConfig = getAgentConfig(
+          message.agentId,
+          message.agentName,
+          agentConfigs
+        );
+
+        // 获取该消息对应的工具事件
+        const invocationId = message.id.startsWith('agent-')
+          ? message.id.replace('agent-', '')
+          : message.id;
+        const messageToolEvents = toolEvents[invocationId] || [];
+
+        return (
+          <ChatMessage
+            key={message.id}
+            message={message as any}
+            agentConfig={agentConfig}
+            agentConfigs={agentConfigs}
+            agentTypes={agentTypes}
+            projectPath={projectPath}
+            toolEvents={messageToolEvents}
+            onRetry={onRetryAgent ? () => onRetryAgent(message) : undefined}
+            onOpenCodePanel={onOpenCodePanel}
+            onQuestionSubmit={onQuestionSubmit}
+            onAgentClick={onAgentClick}
+          />
+        );
+      })}
+
+      {/* 流式消息 - 隔离组件，高频更新不影响已完成消息 */}
+      <StreamingMessage
+        agentConfigs={agentConfigs}
+        projectPath={projectPath}
+        toolEvents={toolEvents}
+        onStop={onStopAgent}
+        onQuestionSubmit={onQuestionSubmit}
+      />
+
+      {/* 底部锚点 - 用于 IntersectionObserver */}
+      <div ref={bottomAnchorRef} style={{ height: '1px' }} />
+    </div>
+  );
+});
 
 ChatMessageList.displayName = 'ChatMessageList';

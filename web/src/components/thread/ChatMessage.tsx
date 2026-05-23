@@ -521,31 +521,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
       </div>
     </div>
   );
-},
-/**
- * 自定义 memo 比较函数
- * 只比较真正影响渲染的关键属性，避免不必要的重渲染
- */
-(prevProps, nextProps) => {
-  // 消息 ID 不同必须重渲染
-  if (prevProps.message.id !== nextProps.message.id) return false;
-
-  // 内容变化（文本或 contentBlocks 长度）
-  if (prevProps.message.content !== nextProps.message.content) return false;
-  if ((prevProps.message.contentBlocks?.length || 0) !== (nextProps.message.contentBlocks?.length || 0)) return false;
-
-  // 流式状态变化
-  if (prevProps.isStreaming !== nextProps.isStreaming) return false;
-
-  // 进度状态变化
-  if (prevProps.progress?.status !== nextProps.progress?.status) return false;
-  if (prevProps.progress?.toolName !== nextProps.progress?.toolName) return false;
-
-  // Agent 配置变化
-  if (prevProps.agentConfig?.id !== nextProps.agentConfig?.id) return false;
-
-  // ✅ 其他属性（如 callback 函数）不比较，假设它们是稳定的或不影响渲染
-  return true;
 });
 
 ChatMessage.displayName = 'ChatMessage';

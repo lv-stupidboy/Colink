@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
-import { useStreamingStore } from './streaming';
 import type { Thread, Message, AgentInvocation, AgentConfig, Phase, AgentRole, Project, WorkflowTemplate, SandboxServer, MessageContentBlock } from '@/types';
 import type { TokenUsage, TaskProgress } from '@/types/status';
 import type { BlockingItem } from '@/types/blocking';
@@ -483,11 +482,6 @@ export const useAppStore = create<AppState & AppActions>()(
     },
 
     updateAgentStatus: (invocationId, status, agentName?: string, input?: string) => {
-      // 同步到 StreamingStore
-      if (status === 'completed' || status === 'failed' || status === 'cancelled' || status === 'interrupted') {
-        useStreamingStore.getState().stopStreaming();
-      }
-
       set((state) => {
         if (status === 'completed' || status === 'failed' || status === 'cancelled' || status === 'interrupted') {
           // 找到完成的 agent 并移到历史列表
@@ -570,8 +564,6 @@ export const useAppStore = create<AppState & AppActions>()(
         if (status === 'started' || status === 'running') {
           const exists = state.activeAgents.some((a) => a.id === invocationId);
           if (!exists) {
-            // 同步到 StreamingStore
-            useStreamingStore.getState().startStreaming(invocationId, '', agentName || '');
             return {
               activeAgents: [
                 ...state.activeAgents,
@@ -579,10 +571,11 @@ export const useAppStore = create<AppState & AppActions>()(
                   id: invocationId,
                   status: 'running',
                   agentName: agentName,
-                  input: input,
+                  input: input, // 保存输入内容
                   startedAt: new Date().toISOString(),
                 } as AgentInvocation,
               ],
+              // 设置流式状态（用于终态时正确匹配 invocationId）
               isStreaming: true,
               streamingInvocationId: invocationId,
               streamingAgentName: agentName || null,
@@ -594,15 +587,14 @@ export const useAppStore = create<AppState & AppActions>()(
     },
 
     recoverInvocationState: (invocationId, contentBlocks, status, agentId?: string, agentName?: string) => {
-      // 同步到 StreamingStore
-      useStreamingStore.getState().recoverInvocationState(invocationId, contentBlocks, status, agentId, agentName);
-
       set((state) => {
         if (status === 'running') {
+          // 去重：合并现有块和恢复块，按 id 去重
           const existingIds = new Set(state.streamingContentBlocks.map((b) => b.id));
           const newBlocks = contentBlocks.filter((b) => !existingIds.has(b.id));
           const mergedBlocks = [...state.streamingContentBlocks, ...newBlocks];
 
+          // 确保该 invocation 在 activeAgents 中
           const exists = state.activeAgents.some((a) => a.id === invocationId);
           const newActiveAgents = exists
             ? state.activeAgents
@@ -849,18 +841,18 @@ export const useAppStore = create<AppState & AppActions>()(
     },
 
     updateStreamingMessage: (invocationId, chunk, agentId, agentName) => {
-      // 同步到 StreamingStore
-      useStreamingStore.getState().updateStreamingMessage(invocationId, chunk, agentId, agentName);
-
       set((state) => {
+        // 只处理当前 invocation
         if (state.streamingInvocationId && state.streamingInvocationId !== invocationId) {
           return {};
         }
 
+        // 智能累积：查找最后一个 text 块，如果存在且状态正常则追加
         const blocks = state.streamingContentBlocks;
         const lastBlock = blocks.length > 0 ? blocks[blocks.length - 1] : null;
 
         if (lastBlock && lastBlock.type === 'text') {
+          // 追加到最后一个 text 块
           const updatedBlocks = [...blocks];
           updatedBlocks[updatedBlocks.length - 1] = {
             ...lastBlock,
@@ -875,6 +867,7 @@ export const useAppStore = create<AppState & AppActions>()(
           };
         }
 
+        // 没有可追加的 text 块，创建新的
         return {
           isStreaming: true,
           streamingAgentId: agentId,
@@ -891,24 +884,25 @@ export const useAppStore = create<AppState & AppActions>()(
     },
 
     finalizeStreamingMessage: (invocationId) => {
-      // 同步到 StreamingStore
-      const contentBlocks = useStreamingStore.getState().finalizeStreamingMessage(invocationId);
-
       set((state) => {
+        // 如果不是当前 invocation，直接返回
         if (state.streamingInvocationId !== invocationId) {
           return {};
         }
 
-        const blocks = contentBlocks || state.streamingContentBlocks;
-        const textBlocks = blocks.filter(b => b.type === 'text');
+        // 从 contentBlocks 提取文本内容
+        const textBlocks = state.streamingContentBlocks.filter(b => b.type === 'text');
         const content = textBlocks.map(b => b.type === 'text' ? b.content : '').join('');
 
-        const submittedQuestionBlockIds = blocks
+        // 只将已提交或失败的 question blocks 的 ID 加入 submittedQuestionBlockIds
+        // waiting_user_input 状态的 question blocks 应保留在历史消息中渲染（等待用户响应）
+        const submittedQuestionBlockIds = state.streamingContentBlocks
           .filter(b => b.type === 'question' && (b.status === 'success' || b.status === 'failed'))
           .map(b => b.id);
         const newSubmittedIds = new Set(state.submittedQuestionBlockIds);
         submittedQuestionBlockIds.forEach(id => newSubmittedIds.add(id));
 
+        // 去重检查：如果消息已存在，只清理流式缓存
         const messageId = `agent-${invocationId}`;
         const exists = state.messages.some(m => m.id === messageId);
         if (exists) {
@@ -925,19 +919,20 @@ export const useAppStore = create<AppState & AppActions>()(
           };
         }
 
+        // 创建最终消息
         const finalMessage: Message = {
           id: messageId,
           threadId: state.currentThread?.id || '',
           role: 'agent',
           agentId: state.streamingAgentId || '',
-          agentName: state.streamingAgentName || undefined,
+          agentName: state.streamingAgentName || undefined,  // 设置直接属性
           content,
           messageType: 'text',
           metadata: {
             agentName: state.streamingAgentName,
           },
           createdAt: new Date().toISOString(),
-          contentBlocks: blocks.length > 0 ? blocks : undefined,
+          contentBlocks: state.streamingContentBlocks.length > 0 ? state.streamingContentBlocks : undefined,
         };
 
         return {
@@ -955,10 +950,7 @@ export const useAppStore = create<AppState & AppActions>()(
       });
     },
 
-    updateProgress: (invocationId, status, toolName, toolInput) => {
-      // 同步到 StreamingStore
-      useStreamingStore.getState().updateProgress(invocationId, status, toolName, toolInput);
-
+    updateProgress: (_invocationId, status, toolName, toolInput) => {
       set({
         progressStatus: status as 'thinking' | 'tool_use' | 'generating' | 'idle',
         progressToolName: toolName || null,
@@ -998,28 +990,32 @@ export const useAppStore = create<AppState & AppActions>()(
 
     // 追加内容块（思考/工具调用/文本，按顺序，thinking 智能累积）
     appendContentBlock: (invocationId, block) => {
-      // 同步到 StreamingStore
-      useStreamingStore.getState().appendContentBlock(invocationId, block);
-
       set((state) => {
+        // 问题块类型不受 invocationId 限制（允许跨 invocation 添加）
+        // 因为问题块需要等待用户输入，可能跨多个 invocation 存在
         const isQuestionBlock = block.type === 'question';
 
+        // 非 question 类型：只处理当前 invocation 的内容块
         if (!isQuestionBlock && state.streamingInvocationId && state.streamingInvocationId !== invocationId) {
           return {};
         }
 
         const blocks = state.streamingContentBlocks;
 
+        // thinking 块智能累积：查找同 ID 的现有 thinking 块，追加内容
+        // 注意：不再依赖 status === 'streaming' 判断，因为可能在 done=true 后仍有内容
         if (block.type === 'thinking') {
           const existingThinkingIndex = blocks.findIndex(
             (b) => b.id === block.id && b.type === 'thinking'
           );
           if (existingThinkingIndex >= 0) {
+            // 已存在同 ID 的 thinking 块，累积内容
             const existingBlock = blocks[existingThinkingIndex] as typeof block;
             const updatedBlocks = [...blocks];
             updatedBlocks[existingThinkingIndex] = {
               ...existingBlock,
               content: existingBlock.content + block.content,
+              // 如果新块状态是 success，更新状态
               status: block.status === 'success' ? 'success' : existingBlock.status,
             } as MessageContentBlock;
             return {
@@ -1030,9 +1026,13 @@ export const useAppStore = create<AppState & AppActions>()(
           }
         }
 
+        // 去重检查：如果已存在相同 id 的块，更新而非追加（用于 tool_result 和 question 等）
         const existingIndex = blocks.findIndex((b) => b.id === block.id);
         if (existingIndex >= 0) {
+          // 已存在，更新该块（合并属性）
           const existingBlock = blocks[existingIndex];
+          // 保护终止状态：如果现有块已是 success/failed，不应被 streaming 覆盖
+          // 这防止 tool_use 更新在 tool_result 之后到达时重置状态
           const existingStatus = (existingBlock as any).status;
           const newStatus = (block as any).status;
           const shouldPreserveStatus = existingStatus === 'success' || existingStatus === 'failed';
@@ -1051,6 +1051,7 @@ export const useAppStore = create<AppState & AppActions>()(
           };
         }
 
+        // 默认：追加新块
         return {
           isStreaming: true,
           streamingInvocationId: invocationId,
@@ -1061,10 +1062,9 @@ export const useAppStore = create<AppState & AppActions>()(
 
     // 更新内容块（如工具调用状态变化）
     updateContentBlock: (invocationId, blockId, update) => {
-      // 同步到 StreamingStore
-      useStreamingStore.getState().updateContentBlock(invocationId, blockId, update);
-
       set((state) => {
+        // 问题块类型的更新不受 invocationId 限制（允许跨 invocation 更新）
+        // 因为问题块可能来自不同的 invocation，用户可能在多个问题之间来回操作
         const targetBlock = state.streamingContentBlocks.find(b => b.id === blockId);
         const isQuestionBlock = targetBlock && targetBlock.type === 'question';
 

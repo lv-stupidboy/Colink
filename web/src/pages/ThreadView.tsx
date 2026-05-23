@@ -35,8 +35,6 @@ import {
 } from '@ant-design/icons';
 import { useAppStore } from '@/store';
 import { useDebugThreadStore } from '@/store/debugThread';
-import { LoadingBar } from '@/components/LoadingBar';
-import { ThreadSkeleton } from '@/components/ThreadSkeleton';
 import type { Message, Artifact, ReviewIssue, MergeCheckResult, AgentConfig, ToolEvent, MessageContentBlock } from '@/types';
 import type { FileChange } from '@/types/content';
 import { ArtifactTypeLabels } from '@/types';
@@ -1559,14 +1557,12 @@ const ThreadView: React.FC = () => {
     }
   }, [isDebugMode, agentOptions, sendMessage, spawnAgent, handleDebugSend]);
 
-  // ✅ 分级加载状态
-  // 1. 有数据时：只显示顶部 LoadingBar，不阻塞 UI
-  if (messages.length > 0 && loading) {
-    // 继续正常渲染，只在 return 中添加 LoadingBar
-  }
-  // 2. 无数据首次加载：显示骨架屏
-  else if (loading) {
-    return <ThreadSkeleton />;
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+        <Spin size="large" />
+      </div>
+    );
   }
 
   const isRunning = isDebugMode ? debugStatus === 'running' : activeAgents.length > 0;
@@ -1586,9 +1582,6 @@ const ThreadView: React.FC = () => {
 
   return (
     <div className="thread-view-wrapper">
-      {/* ✅ 顶部轻量加载条 - 有数据时只显示这个，不阻塞 UI */}
-      <LoadingBar visible={loading} />
-
       {/* 左侧文件树侧边栏 */}
       {fileSidebarVisible && (isDebugMode || projectId) && (
         <div className="file-sidebar">
