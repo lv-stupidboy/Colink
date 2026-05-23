@@ -1866,13 +1866,13 @@
   /* 确保 Input 可交互 */
 }
 
-.sidebar-search .ant-input-affix-wrapper {
+/* 修复：.sidebar-search 和 .ant-input-affix-wrapper 是同一元素 */
+.sidebar-search.ant-input-affix-wrapper {
   font-size: 12px;
   background: var(--bg-container, #fff);
-  /* 确保输入框可接收点击和键盘事件 */
 }
 
-.sidebar-search input.ant-input {
+.sidebar-search.ant-input-affix-wrapper input.ant-input {
   font-size: 12px !important;
   background: transparent !important;
 }

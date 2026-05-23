@@ -38,22 +38,45 @@ related: []
 
 - 无外部依赖
 
-## Root Cause Analysis（初步诊断）
+## Root Cause Analysis（诊断结果）
 
-经代码审查发现：
-1. **代码逻辑正常**：`onChange={(e) => setSearchQuery(e.target.value)}` 正确绑定
-2. **CSS样式无阻止**：未发现 `pointer-events: none` 等阻止交互的规则
-3. **组件结构正常**：Input 在正确的位置，无遮挡
+经代码审查和CSS分析，发现根本原因：
 
-**疑似原因**：
-- 可能是 Ant Design Modal 的遮罩层或事件处理问题
-- 可能是 Input 组件在某些场景下的渲染问题
-- 需要实际运行验证具体表现
+**CSS选择器错误**：Ant Design Input 组件的 `className` 属性会直接添加到 `.ant-input-affix-wrapper` 元素上，而不是嵌套结构。
+
+错误的选择器：
+```css
+.sidebar-search .ant-input-affix-wrapper  /* 嵌套选择器，不会匹配 */
+```
+
+正确的选择器：
+```css
+.sidebar-search.ant-input-affix-wrapper  /* 同元素多类选择器 */
+```
+
+**DOM结构**：
+```html
+<span class="ant-input-affix-wrapper sidebar-search">
+  <span class="ant-input-prefix">🔍</span>
+  <input class="ant-input" />
+</span>
+```
+
+`.sidebar-search` 和 `.ant-input-affix-wrapper` 是同一元素的class组合，不是父子嵌套关系。
 
 ## Open Questions
 
-- [ ] 搜索框"不可用"的具体表现是什么？（无法输入？输入后无过滤？其他？）
-- [ ] 是所有情况都不可用，还是特定场景下？
+- ✅ ~~搜索框"不可用"的具体表现是什么？~~ → 已诊断：CSS选择器错误导致样式未应用
+- ✅ ~~是所有情况都不可用，还是特定场景下？~~ → 全场景，因为CSS选择器根本不匹配
+
+## Fix Applied
+
+**修改文件**：`isdp/web/src/components/thread/StatusPanel/StatusPanel.css`
+
+**修改内容**：
+- 将嵌套选择器 `.sidebar-search .ant-input-affix-wrapper` 改为同元素选择器 `.sidebar-search.ant-input-affix-wrapper`
+- 添加 `pointer-events: auto` 确保交互
+- 删除无效的嵌套结构注释
 
 ## Investigation Plan
 
@@ -64,7 +87,8 @@ related: []
 
 ## Timeline
 
-- Phase 1: 问题诊断 + 修复（预计 0.5 天）
+- Phase 1: 问题诊断 + CSS修复（✅ 2026-05-23 完成）
+- Phase 2: 用户验证（待进行）
 
 ## Links
 

@@ -4,7 +4,7 @@
 
 | ID | 名称 | 状态 | Owner | 来源 | 链接 |
 |----|------|------|-------|------|------|
-| F001 | 调用日志Modal搜索框修复 | in_progress | Colink架构&开发工程师 | internal | [spec](features/F001-invocation-log-search-fix.md) |
+| F001 | 调用日志Modal搜索框修复 | in_review | Colink架构&开发工程师 | internal | [spec](features/F001-invocation-log-search-fix.md) |
 
 ---
 
