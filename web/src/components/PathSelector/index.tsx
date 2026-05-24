@@ -10,6 +10,7 @@ import {
   Spin,
   Typography,
   Empty,
+  message,
 } from 'antd';
 import {
   FolderOutlined,
@@ -26,6 +27,10 @@ interface PathSelectorProps {
   onSelect: (path: string) => void;
   onCancel: () => void;
   title?: string;
+  placeholder?: string;
+  initialPath?: string;
+  browseApi?: (path?: string) => Promise<BrowseResult>;
+  createFolderApi?: (parentPath: string, name: string) => Promise<unknown>;
 }
 
 interface FileEntry {
@@ -48,6 +53,10 @@ const PathSelector: React.FC<PathSelectorProps> = ({
   onSelect,
   onCancel,
   title = '选择项目路径',
+  placeholder = '输入或选择项目路径...',
+  initialPath = '',
+  browseApi = api.files.browse,
+  createFolderApi = api.files.createFolder,
 }) => {
   const [currentPath, setCurrentPath] = useState('');
   const [browseResult, setBrowseResult] = useState<BrowseResult | null>(null);
@@ -60,15 +69,15 @@ const PathSelector: React.FC<PathSelectorProps> = ({
   // 初始化加载驱动器列表（Windows）
   useEffect(() => {
     if (visible) {
-      browsePath('');
+      browsePath(initialPath);
     }
-  }, [visible]);
+  }, [visible, initialPath]);
 
   // 浏览路径
   const browsePath = async (path: string) => {
     setLoading(true);
     try {
-      const result = await api.files.browse(path);
+      const result = await browseApi(path);
       setBrowseResult(result);
       setCurrentPath(result.currentPath);
       setManualPath(result.currentPath);
@@ -83,6 +92,13 @@ const PathSelector: React.FC<PathSelectorProps> = ({
   const handleEnterDir = (entry: FileEntry) => {
     if (entry.isDir) {
       browsePath(entry.path);
+    }
+  };
+
+  const handleManualBrowse = (value: string) => {
+    const path = value.trim();
+    if (path) {
+      browsePath(path);
     }
   };
 
@@ -112,13 +128,13 @@ const PathSelector: React.FC<PathSelectorProps> = ({
 
     setCreatingFolder(true);
     try {
-      await api.files.createFolder(currentPath, newFolderName.trim());
+      await createFolderApi(currentPath, newFolderName.trim());
       setNewFolderModalVisible(false);
       setNewFolderName('');
       // 刷新当前目录
       browsePath(currentPath);
     } catch (error: any) {
-      console.error('Failed to create folder:', error);
+      message.error(error?.message || '创建文件夹失败');
     } finally {
       setCreatingFolder(false);
     }
@@ -135,10 +151,17 @@ const PathSelector: React.FC<PathSelectorProps> = ({
       cancelText="取消"
     >
       {/* 手动输入路径 */}
-      <Input
-        placeholder="输入或选择项目路径..."
+      <Input.Search
+        placeholder={placeholder}
         value={manualPath}
+        enterButton="打开"
         onChange={(e) => setManualPath(e.target.value)}
+        onSearch={handleManualBrowse}
+        onBlur={(e) => {
+          if (e.target.value !== currentPath) {
+            handleManualBrowse(e.target.value);
+          }
+        }}
         style={{ marginBottom: 16 }}
       />
 

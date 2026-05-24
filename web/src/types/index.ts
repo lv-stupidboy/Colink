@@ -1,3 +1,11 @@
+export type DeploymentType = 'windows' | 'linux' | 'docker';
+
+export interface RuntimeConfig {
+  deploymentType: DeploymentType;
+  workspacePath: string;
+  defaultPath: string;
+}
+
 // Agent角色（human 已废弃，仅保留用于兼容）
 /** @deprecated 'human' 类型已废弃 */
 export type AgentRole = 'agent' | 'human';

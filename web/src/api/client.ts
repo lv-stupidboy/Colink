@@ -84,6 +84,7 @@ import type {
   SyncConfirmResult,
   HelpConfig,
   FeedbackRequest,
+  RuntimeConfig,
 } from '@/types';
 import {
   transformProjects,
@@ -100,7 +101,10 @@ import {
   transformArtifact,
   transformWorkflowTemplates,
   transformWorkflowTemplate,
+  transformRepo,
+  transformRepos,
 } from './transform';
+import { LocalRepo, RemoteBranch, BrowsePathResponse, CloneRepoRequest } from '../types/localRepo';
 
 class APIClient {
   private client: AxiosInstance;
@@ -174,6 +178,8 @@ class APIClient {
           result = Array.isArray(result) ? transformArtifacts(result) : transformArtifact(result);
         } else if (url.includes('/workflows')) {
           result = Array.isArray(result) ? transformWorkflowTemplates(result) : transformWorkflowTemplate(result);
+        } else if (url.includes('/repos')) {
+          result = Array.isArray(result) ? transformRepos(result) : transformRepo(result);
         } else {
           // 通用转换
           const snakeToCamel = (obj: any): any => {
@@ -210,6 +216,10 @@ class APIClient {
       throw { code: 'UNKNOWN', message: apiError?.error || '操作失败' };
     }
   }
+
+  runtime = {
+    config: (): Promise<RuntimeConfig> => this.request('/runtime/config', 'GET'),
+  };
 
   // 项目 API
   projects = {
@@ -271,6 +281,47 @@ class APIClient {
       const url = `/files/content?basePath=${encodeURIComponent(basePath)}&path=${encodeURIComponent(path)}`;
       return this.request(url, 'GET');
     },
+  };
+
+  // 代码仓 API
+  repos = {
+    list: (): Promise<LocalRepo[]> => this.request('/repos', 'GET'),
+    get: (id: string): Promise<LocalRepo> => this.request(`/repos/${id}`, 'GET'),
+    delete: (id: string): Promise<void> => this.request(`/repos/${id}`, 'DELETE'),
+
+    upload: async (file: File, targetPath: string, name?: string): Promise<LocalRepo> => {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('targetPath', targetPath);
+      if (name) {
+        formData.append('name', name);
+      }
+      const response = await this.client.post('/repos/upload', formData, {
+        headers: { 'Content-Type': undefined },
+      });
+      const result = response.data;
+      return Array.isArray(result) ? transformRepos(result) : transformRepo(result);
+    },
+
+    clone: (req: CloneRepoRequest): Promise<LocalRepo> =>
+      this.request('/repos/clone', 'POST', req),
+
+    remoteBranches: (gitUrl: string): Promise<RemoteBranch[]> =>
+      this.request('/repos/remote-branches', 'POST', { gitUrl }),
+
+    sync: (id: string): Promise<LocalRepo> =>
+      this.request(`/repos/${id}/sync`, 'POST'),
+
+    gitConfig: (id: string, gitUrl: string, branch: string): Promise<LocalRepo> =>
+      this.request(`/repos/${id}/git-config`, 'PUT', { gitUrl, branch }),
+
+    browse: (path?: string): Promise<BrowsePathResponse> => {
+      const url = path ? `/repos/browse?path=${encodeURIComponent(path)}` : '/repos/browse';
+      return this.request(url, 'GET');
+    },
+
+    createFolder: (parentPath: string, name: string): Promise<{ success: boolean }> =>
+      this.request('/repos/folder', 'POST', { path: parentPath, name }),
   };
 
   // Thread API

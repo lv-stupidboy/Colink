@@ -3,7 +3,7 @@ import { Table, Button, Card, Space, Modal, Form, Input, Select, message, Typogr
 import { PlusOutlined, FolderOutlined, FolderOpenOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '@/api/client';
-import type { Project, WorkflowTemplate } from '@/types';
+import type { Project, RuntimeConfig, WorkflowTemplate } from '@/types';
 import PathSelector from '@/components/PathSelector';
 
 const { Title, Text } = Typography;
@@ -12,6 +12,7 @@ const ProjectList: React.FC = () => {
   const navigate = useNavigate();
   const [projects, setProjects] = useState<Project[]>([]);
   const [workflowTemplates, setWorkflowTemplates] = useState<WorkflowTemplate[]>([]);
+  const [runtimeConfig, setRuntimeConfig] = useState<RuntimeConfig | null>(null);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [pathSelectorVisible, setPathSelectorVisible] = useState(false);
@@ -20,6 +21,7 @@ const ProjectList: React.FC = () => {
   useEffect(() => {
     loadProjects();
     loadWorkflowTemplates();
+    loadRuntimeConfig();
   }, []);
 
   const loadProjects = async () => {
@@ -42,6 +44,19 @@ const ProjectList: React.FC = () => {
     } catch (error) {
       console.error('加载Agent团队失败', error);
     }
+  };
+
+  const loadRuntimeConfig = async () => {
+    try {
+      setRuntimeConfig(await api.runtime.config());
+    } catch (error) {
+      console.error('加载运行配置失败', error);
+    }
+  };
+
+  const handleOpenCreate = () => {
+    form.setFieldsValue({ localPath: runtimeConfig?.defaultPath || runtimeConfig?.workspacePath || '' });
+    setModalVisible(true);
   };
 
   const handleCreate = async (values: Partial<Project>) => {
@@ -161,7 +176,7 @@ const ProjectList: React.FC = () => {
           <Title level={2} style={{ margin: 0 }}>项目管理</Title>
           <Text type="secondary">管理开发项目，配置团队和 Agent</Text>
         </div>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => setModalVisible(true)}>
+        <Button type="primary" icon={<PlusOutlined />} onClick={handleOpenCreate}>
           新建项目
         </Button>
       </div>
@@ -204,6 +219,11 @@ const ProjectList: React.FC = () => {
               }
             />
           </Form.Item>
+          {runtimeConfig?.workspacePath && (
+            <Text type="secondary" style={{ display: 'block', marginTop: -12, marginBottom: 16 }}>
+              项目路径必须位于 workspace 内：{runtimeConfig.workspacePath}
+            </Text>
+          )}
           <Form.Item name="workflowTemplateId" label="绑定团队" rules={[{ required: true, message: '请选择团队' }]}>
             <Select placeholder="选择Agent团队" loading={workflowTemplates.length === 0}>
               {workflowTemplates.map(t => (
@@ -219,6 +239,7 @@ const ProjectList: React.FC = () => {
       {/* 路径选择器 */}
       <PathSelector
         visible={pathSelectorVisible}
+        initialPath={form.getFieldValue('localPath') || runtimeConfig?.defaultPath || runtimeConfig?.workspacePath || ''}
         onSelect={handlePathSelect}
         onCancel={() => setPathSelectorVisible(false)}
         title="选择项目保存路径"

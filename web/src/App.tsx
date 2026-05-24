@@ -27,6 +27,7 @@ import RuleList from '@/pages/RuleList';
 import SettingsManagement from '@/pages/SettingsManagement';
 import PlaceholderPage from '@/pages/PlaceholderPage';
 import Tasks from '@/pages/Tasks';
+import RepoManagement from '@/pages/RepoManagement';
 import { useThemeStore } from '@/store/themeStore';
 import '@/themes/themeVariables.css';
 
@@ -136,6 +137,7 @@ const App: React.FC = () => {
               <Route path="projects" element={<ProjectList />} />
               <Route path="projects/:projectId" element={<ProjectDetail />} />
               <Route path="projects/:projectId/threads/:threadId" element={<ThreadView />} />
+              <Route path="/repos" element={<RepoManagement />} />
 
               {/* 兼容旧路由，重定向到新路由 */}
               <Route path="threads/:threadId" element={<ThreadView />} />

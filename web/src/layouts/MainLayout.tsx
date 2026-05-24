@@ -17,6 +17,7 @@ import {
   TeamOutlined,
   FileTextOutlined,
   ShopOutlined,
+  FolderOutlined,
 } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import ThemeSwitcher from '@/components/ThemeSwitcher';
@@ -63,7 +64,9 @@ const MainLayout: React.FC = () => {
   // 根据路径初始化展开的子菜单
   useEffect(() => {
     const path = location.pathname;
-    if (path.startsWith('/settings') || path.startsWith('/registries')) {
+    if (path.startsWith('/repos') || path === '/projects') {
+      setOpenKeys(['projects']);
+    } else if (path.startsWith('/settings') || path.startsWith('/registries')) {
       setOpenKeys(['settings']);
     } else if (path.startsWith('/market')) {
       // 市场路径 - 需要展开 agents 和 market 两级
@@ -95,9 +98,13 @@ const MainLayout: React.FC = () => {
       label: '首页',
     },
     {
-      key: '/projects',
+      key: 'projects',
       icon: <ProjectOutlined />,
       label: '项目空间',
+      children: [
+        { key: '/projects', icon: <ProjectOutlined />, label: '项目管理' },
+        { key: '/repos', icon: <FolderOutlined />, label: '代码仓管理' },
+      ],
     },
     {
       key: 'agents',
@@ -216,6 +223,7 @@ const MainLayout: React.FC = () => {
   const getSelectedKey = () => {
     const path = location.pathname;
     if (path.startsWith('/tasks')) return '/tasks';
+    if (path.startsWith('/repos')) return '/repos';
     if (path.startsWith('/projects')) return '/projects';
     if (path.startsWith('/threads')) return '/projects';
     if (path.startsWith('/registries')) return '/registries';

@@ -21,6 +21,16 @@ func NewProjectHandler(service *project.Service) *ProjectHandler {
 	return &ProjectHandler{service: service}
 }
 
+func isProjectValidationError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errMsg := err.Error()
+	return strings.Contains(errMsg, "不能为空") ||
+		strings.Contains(errMsg, "路径必须位于工作空间内") ||
+		strings.Contains(errMsg, "无效的路径")
+}
+
 // List 列出项目
 func (h *ProjectHandler) List(c *gin.Context) {
 	projects, err := h.service.List(c.Request.Context())
@@ -57,6 +67,10 @@ func (h *ProjectHandler) Create(c *gin.Context) {
 
 	project, err := h.service.Create(c.Request.Context(), &req)
 	if err != nil {
+		if isProjectValidationError(err) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -79,6 +93,10 @@ func (h *ProjectHandler) Update(c *gin.Context) {
 
 	project, err := h.service.Update(c.Request.Context(), id, &req)
 	if err != nil {
+		if isProjectValidationError(err) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -111,6 +129,10 @@ func (h *ProjectHandler) ListFiles(c *gin.Context) {
 	subPath := c.Query("path")
 	result, err := h.service.ListFiles(c.Request.Context(), id, subPath)
 	if err != nil {
+		if isProjectValidationError(err) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -128,6 +150,10 @@ func (h *ProjectHandler) ListFilesByPath(c *gin.Context) {
 	subPath := c.Query("path")
 	result, err := h.service.ListFilesByPath(c.Request.Context(), basePath, subPath)
 	if err != nil {
+		if isProjectValidationError(err) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -215,18 +241,18 @@ func (h *ProjectHandler) GetFileImage(c *gin.Context) {
 		return
 	}
 
-	// 拼接完整路径
-	fullPath := filepath.Join(basePath, filePath)
-
-	// 安全检查：防止路径穿越
-	basePathClean := filepath.Clean(basePath)
-	if !strings.HasPrefix(fullPath, basePathClean) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid path"})
+	content, err := h.service.GetFileContent(c.Request.Context(), basePath, filePath)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if content.IsBinary {
+		fullPath := filepath.Join(filepath.Clean(basePath), filepath.Clean(filePath))
+		c.File(fullPath)
 		return
 	}
 
-	// 直接返回文件
-	c.File(fullPath)
+	c.JSON(http.StatusBadRequest, gin.H{"error": "path is not an image"})
 }
 
 // RegisterRoutes 注册路由

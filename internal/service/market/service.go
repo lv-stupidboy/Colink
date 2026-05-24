@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
@@ -22,6 +23,23 @@ type Service struct {
 	tempBase    string
 	logger      *zap.Logger
 	cache       *MarketCache // 新增：缓存模块
+}
+
+func cleanDisplayName(name string) string {
+	cleaned := strings.TrimSpace(strings.Map(func(r rune) rune {
+		switch r {
+		case 0xfeff, 0x200b, 0x200c, 0x200d, 0x2060, unicode.ReplacementChar:
+			return -1
+		}
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, name))
+	if strings.HasPrefix(cleaned, "Colink") && strings.ContainsAny(cleaned, "ٷӳ") {
+		return "Colink官方市场"
+	}
+	return cleaned
 }
 
 // NewService 创建市场服务
@@ -43,7 +61,14 @@ func NewService(
 
 // ListMarkets 列出所有市场
 func (s *Service) ListMarkets(ctx context.Context) ([]model.Market, error) {
-	return s.marketRepo.List(ctx)
+	markets, err := s.marketRepo.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range markets {
+		markets[i].Name = cleanDisplayName(markets[i].Name)
+	}
+	return markets, nil
 }
 
 // AddMarket 添加市场
@@ -53,7 +78,7 @@ func (s *Service) AddMarket(ctx context.Context, req AddMarketRequest) (*model.M
 	}
 
 	market := &model.Market{
-		Name:          req.Name,
+		Name:          cleanDisplayName(req.Name),
 		URL:           req.URL,
 		Branch:        req.Branch,
 		Enabled:       true,
@@ -79,7 +104,7 @@ func (s *Service) UpdateMarket(ctx context.Context, id uuid.UUID, req UpdateMark
 	}
 
 	if req.Name != nil && *req.Name != "" {
-		market.Name = *req.Name
+		market.Name = cleanDisplayName(*req.Name)
 	}
 	if req.URL != nil && *req.URL != "" {
 		market.URL = *req.URL
@@ -194,6 +219,7 @@ func (s *Service) GetTeamPackages(ctx context.Context, forceRefresh bool) ([]mod
 	hasErrors := false
 
 	for _, market := range markets {
+		market.Name = cleanDisplayName(market.Name)
 		if !market.Enabled {
 			continue
 		}
@@ -220,7 +246,7 @@ func (s *Service) GetTeamPackages(ctx context.Context, forceRefresh bool) ([]mod
 				Version:     plugin.Version,
 				Description: plugin.Description,
 				MarketID:    market.ID.String(),
-				MarketName:  market.Name,
+				MarketName:  cleanDisplayName(market.Name),
 				Repository:  plugin.Repository,
 				Source:      plugin.Source,
 			}

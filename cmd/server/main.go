@@ -22,6 +22,7 @@ import (
 	"github.com/anthropic/isdp/internal/service/humantask"
 	"github.com/anthropic/isdp/internal/service/im"
 	"github.com/anthropic/isdp/internal/service/knowledge"
+	"github.com/anthropic/isdp/internal/service/local_repo"
 	"github.com/anthropic/isdp/internal/service/market"
 	"github.com/anthropic/isdp/internal/service/mention"
 	"github.com/anthropic/isdp/internal/service/merge"
@@ -37,6 +38,7 @@ import (
 	"github.com/anthropic/isdp/internal/service/teampackagesync"
 	"github.com/anthropic/isdp/internal/service/thread"
 	"github.com/anthropic/isdp/internal/service/workflow"
+	"github.com/anthropic/isdp/internal/service/workspace"
 	"github.com/anthropic/isdp/internal/ws"
 	"github.com/anthropic/isdp/pkg/config"
 	"github.com/gin-gonic/gin"
@@ -197,9 +199,17 @@ func main() {
 	contentBlockRepo := repo.NewContentBlockRepository(db, dbType)
 	// HumanTask Repository
 	humanTaskRepo := repo.NewHumanTaskRepository(db, dbType)
+	// LocalRepo Repository
+	localRepoRepo := repo.NewLocalRepoRepository(db, dbType)
+
+	workspaceGuard, err := workspace.NewGuard(cfg.Deployment.WorkspacePath)
+	if err != nil {
+		logger.Fatal("Failed to initialize workspace guard", zap.Error(err))
+	}
 
 	// 初始化Services
-	projectService := project.NewService(projectRepo, workflowRepo)
+	projectService := project.NewService(projectRepo, workflowRepo, workspaceGuard)
+	localRepoService := local_repo.NewService(localRepoRepo, workspaceGuard)
 	threadService := thread.NewService(threadRepo, projectRepo, workflowRepo)
 	messageService := message.NewService(messageRepo, wsHub)
 	configService := agent.NewConfigService(agentConfigRepo, baseAgentRepo)
@@ -577,6 +587,9 @@ func main() {
 	projectHandler := api.NewProjectHandler(projectService)
 	projectHandler.RegisterRoutes(v1)
 
+	localRepoHandler := api.NewLocalRepoHandler(localRepoService)
+	localRepoHandler.RegisterRoutes(v1)
+
 	// Dashboard Handler（首页统计）
 	dashboardHandler := api.NewDashboardHandler(db)
 	dashboardHandler.RegisterRoutes(v1)
@@ -663,6 +676,9 @@ func main() {
 		cfg.Help.FeedbackAPI,
 	)
 	helpHandler.RegisterRoutes(v1)
+
+	runtimeConfigHandler := api.NewRuntimeConfigHandler(cfg)
+	runtimeConfigHandler.RegisterRoutes(v1)
 
 	// MCP Callback Handler - 注册在 /api 下（不含 /v1），与 MCP client URL 一致
 	callbackHandler := api.NewCallbackHandler(invocationRegistry, mcpAuthService, messageService, messageRepo, wsHub, orchestrator, baseAgentRepo, invocationQueue, queueProcessor, mentionParser, humanTaskSvc, agentConfigRepo)

@@ -31,8 +31,28 @@ type Config struct {
 	MessageReporter MessageReporterConfig `mapstructure:"message_reporter"`
 	HumanTask      HumanTaskConfig      `mapstructure:"human_task"`
 	TeamPackageSync TeamPackageSyncConfig `mapstructure:"team_package_sync"`
-	Market         MarketDefaultConfig  `mapstructure:"market"`
-	Help           HelpConfig           `mapstructure:"help"`
+	Deployment      DeploymentConfig      `mapstructure:"deployment"`
+	Market          MarketDefaultConfig   `mapstructure:"market"`
+	Help            HelpConfig            `mapstructure:"help"`
+}
+
+type DeploymentType string
+
+const (
+	DeploymentTypeWindows DeploymentType = "windows"
+	DeploymentTypeLinux   DeploymentType = "linux"
+	DeploymentTypeDocker  DeploymentType = "docker"
+)
+
+type DeploymentConfig struct {
+	Type          DeploymentType `mapstructure:"type"`
+	WorkspacePath string         `mapstructure:"workspace_path"`
+}
+
+func (c *DeploymentConfig) ApplyDefaults() {
+	if c.Type == "" {
+		c.Type = DeploymentTypeWindows
+	}
 }
 
 // DataConfig 数据目录配置
@@ -568,6 +588,7 @@ func Load(configPath string) (*Config, error) {
 
 	// 应用团队包同步默认值
 	cfg.TeamPackageSync.ApplyDefaults()
+	cfg.Deployment.ApplyDefaults()
 
 	// 验证必须的路径配置
 	if err := validateConfig(&cfg); err != nil {
@@ -600,6 +621,10 @@ func validateConfig(cfg *Config) error {
 		if cfg.Database.MySQL.Username == "" {
 			return fmt.Errorf("配置错误: database.mysql.username 未设置")
 		}
+	}
+
+	if cfg.Deployment.Type != DeploymentTypeWindows && cfg.Deployment.Type != DeploymentTypeLinux && cfg.Deployment.Type != DeploymentTypeDocker {
+		return fmt.Errorf("配置错误: deployment.type 必须是 windows、linux 或 docker")
 	}
 
 	// Agent资产目录必须配置

@@ -2,6 +2,14 @@ server:
   port: 26305
   mode: release
 
+# 部署配置
+# type 支持: windows | linux | docker
+# workspace_path 为空表示不限制项目和代码仓路径
+# 设置后，项目路径、本地仓上传/拉取路径仅允许在该目录下
+deployment:
+  type: windows
+  workspace_path: ""
+
 # 前端开发服务器配置
 web:
   # 前端开发服务器端口

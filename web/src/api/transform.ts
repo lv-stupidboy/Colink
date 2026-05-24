@@ -203,3 +203,14 @@ export function transformWorkflowTemplates(data: any[]): any[] {
   }
   return data.map(transformWorkflowTemplate);
 }
+
+export function transformRepo(data: any): any {
+  return snakeToCamel(data);
+}
+
+export function transformRepos(data: any[]): any[] {
+  if (!data || !Array.isArray(data)) {
+    return [];
+  }
+  return data.map(transformRepo);
+}

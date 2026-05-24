@@ -12,6 +12,7 @@ import (
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
+	"github.com/anthropic/isdp/internal/service/workspace"
 	"github.com/google/uuid"
 )
 
@@ -19,14 +20,39 @@ import (
 type Service struct {
 	repo         *repo.ProjectRepository
 	workflowRepo *repo.WorkflowTemplateRepository // 新增依赖
+	workspace    *workspace.Guard
 }
 
 // NewService 创建项目服务
-func NewService(repo *repo.ProjectRepository, workflowRepo *repo.WorkflowTemplateRepository) *Service {
+func NewService(repo *repo.ProjectRepository, workflowRepo *repo.WorkflowTemplateRepository, workspaceGuard *workspace.Guard) *Service {
 	return &Service{
 		repo:         repo,
 		workflowRepo: workflowRepo,
+		workspace:    workspaceGuard,
 	}
+}
+
+func (s *Service) validateWorkspacePath(path string) error {
+	if s.workspace == nil {
+		return nil
+	}
+	return s.workspace.Validate(path)
+}
+
+func pathWithin(basePath, targetPath string) bool {
+	baseAbs, err := filepath.Abs(filepath.Clean(basePath))
+	if err != nil {
+		return false
+	}
+	targetAbs, err := filepath.Abs(filepath.Clean(targetPath))
+	if err != nil {
+		return false
+	}
+	rel, err := filepath.Rel(baseAbs, targetAbs)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel))
 }
 
 // List 列出项目
@@ -41,6 +67,9 @@ func (s *Service) GetByID(ctx context.Context, id uuid.UUID) (*model.Project, er
 
 // Create 创建项目
 func (s *Service) Create(ctx context.Context, req *model.CreateProjectRequest) (*model.Project, error) {
+	if err := s.validateWorkspacePath(req.LocalPath); err != nil {
+		return nil, err
+	}
 	// 默认值
 	projectType := req.Type
 	if projectType == "" {
@@ -108,6 +137,9 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, req *model.UpdatePro
 		project.Status = *req.Status
 	}
 	if req.LocalPath != nil {
+		if err := s.validateWorkspacePath(*req.LocalPath); err != nil {
+			return nil, err
+		}
 		project.LocalPath = *req.LocalPath
 	}
 	if req.RepositoryUrl != nil {
@@ -141,12 +173,16 @@ func (s *Service) ListFiles(ctx context.Context, id uuid.UUID, subPath string) (
 		return nil, errors.New("项目未设置本地路径")
 	}
 
+	if err := s.validateWorkspacePath(basePath); err != nil {
+		return nil, err
+	}
+
 	// 安全检查：防止路径遍历攻击
 	subPath = filepath.Clean("/" + subPath)
 	fullPath := filepath.Join(basePath, subPath)
 
 	// 确保完整路径在项目路径内
-	if !strings.HasPrefix(fullPath, basePath) {
+	if !pathWithin(basePath, fullPath) {
 		return nil, errors.New("无效的路径")
 	}
 
@@ -204,7 +240,10 @@ func (s *Service) BrowsePath(ctx context.Context, path string) (*model.BrowsePat
 	}
 
 	// 如果路径为空，返回驱动器列表或根目录
-	if path == "" {
+	if s.workspace != nil {
+		path = s.workspace.NormalizeStart(path)
+	}
+	if strings.TrimSpace(path) == "" {
 		if runtime.GOOS == "windows" {
 			drives, err := getWindowsDrives()
 			if err != nil {
@@ -216,7 +255,7 @@ func (s *Service) BrowsePath(ctx context.Context, path string) (*model.BrowsePat
 			return resp, nil
 		}
 		// 非 Windows 系统从根目录开始
-		path = "/"
+		path = string(filepath.Separator)
 	}
 
 	// Windows 驱动器路径处理：将 "D:" 转换为 "D:\"
@@ -227,6 +266,11 @@ func (s *Service) BrowsePath(ctx context.Context, path string) (*model.BrowsePat
 	// 规范化路径
 	path = filepath.Clean(path)
 	resp.CurrentPath = path
+
+	if err := s.validateWorkspacePath(path); err != nil {
+		resp.Error = err.Error()
+		return resp, nil
+	}
 
 	// 检查路径是否存在
 	info, err := os.Stat(path)
@@ -248,7 +292,10 @@ func (s *Service) BrowsePath(ctx context.Context, path string) (*model.BrowsePat
 
 	// 设置父目录路径
 	if path != "/" && path != "" {
-		resp.ParentPath = filepath.Dir(path)
+		parentPath := filepath.Dir(path)
+		if s.workspace == nil || !s.workspace.Enabled() || pathWithin(s.workspace.Root(), parentPath) {
+			resp.ParentPath = parentPath
+		}
 	}
 
 	// 读取目录内容
@@ -321,6 +368,11 @@ func (s *Service) ValidatePath(ctx context.Context, path string) (*model.Validat
 		path = path + string(filepath.Separator)
 	}
 
+	if err := s.validateWorkspacePath(path); err != nil {
+		resp.Error = err.Error()
+		return resp, nil
+	}
+
 	// 检查路径是否存在
 	info, err := os.Stat(path)
 	if err != nil {
@@ -367,7 +419,15 @@ func (s *Service) CreateFolder(ctx context.Context, parentPath, name string) err
 
 	// 规范化路径
 	parentPath = filepath.Clean(parentPath)
-	fullPath := filepath.Join(parentPath, name)
+	fullPath := filepath.Join(parentPath, strings.TrimSpace(name))
+
+	if s.workspace != nil {
+		var err error
+		fullPath, err = s.workspace.ValidateChild(parentPath, name)
+		if err != nil {
+			return err
+		}
+	}
 
 	// 检查父目录是否存在
 	parentInfo, err := os.Stat(parentPath)
@@ -424,12 +484,16 @@ func (s *Service) ListFilesByPath(ctx context.Context, basePath string, subPath 
 		return nil, errors.New("基础路径不能为空")
 	}
 
+	if err := s.validateWorkspacePath(basePath); err != nil {
+		return nil, err
+	}
+
 	// 安全检查：防止路径遍历攻击
 	subPath = filepath.Clean("/" + subPath)
 	fullPath := filepath.Join(basePath, subPath)
 
 	// 确保完整路径在基础路径内
-	if !strings.HasPrefix(fullPath, basePath) {
+	if !pathWithin(basePath, fullPath) {
 		return nil, errors.New("无效的路径")
 	}
 
@@ -539,6 +603,10 @@ func (s *Service) GetFileContent(ctx context.Context, basePath string, filePath 
 		return nil, errors.New("基础路径不能为空")
 	}
 
+	if err := s.validateWorkspacePath(basePath); err != nil {
+		return nil, err
+	}
+
 	// 规范化 basePath，确保有尾部分隔符
 	basePath = filepath.Clean(basePath)
 	if !strings.HasSuffix(basePath, string(filepath.Separator)) {
@@ -558,7 +626,7 @@ func (s *Service) GetFileContent(ctx context.Context, basePath string, filePath 
 	fullPath := filepath.Join(basePath, filePath)
 
 	// 确保完整路径在基础路径内
-	if !strings.HasPrefix(fullPath+string(filepath.Separator), basePath) {
+	if !pathWithin(basePath, fullPath) {
 		return nil, errors.New("无效的路径")
 	}
 
@@ -588,7 +656,7 @@ func (s *Service) GetFileContent(ctx context.Context, basePath string, filePath 
 		return nil, errors.New("无法解析基础路径: " + err.Error())
 	}
 	// 确保解析后的路径仍在解析后的基础路径内
-	if !strings.HasPrefix(evaluatedPath+string(filepath.Separator), evaluatedBase+string(filepath.Separator)) {
+	if !pathWithin(evaluatedBase, evaluatedPath) {
 		return nil, errors.New("无效的路径（symlink指向外部目录）")
 	}
 
