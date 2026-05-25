@@ -10,6 +10,7 @@ import (
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
+	"github.com/anthropic/isdp/pkg/config"
 	"github.com/anthropic/isdp/pkg/errors"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -48,11 +49,12 @@ func NewService(
 	versionRepo *repo.TeamPackageVersionRepository,
 	tempBase string,
 	logger *zap.Logger,
+	cfg *config.GitURLConversionConfig,
 ) *Service {
 	return &Service{
 		marketRepo:  marketRepo,
 		versionRepo: versionRepo,
-		gitClient:   NewGitClient(logger),
+		gitClient:   NewGitClient(logger, cfg),
 		tempBase:    tempBase,
 		logger:      logger,
 		cache:       NewMarketCache(5 * time.Minute), // 5分钟缓存

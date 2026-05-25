@@ -159,6 +159,20 @@ market:
   name: "Colink官方市场"
   url: "https://gitee.com/colink_1/colinkmarketplace.git"  # 官方市场Git仓库URL
   branch: "master"
+
+# Git URL 自动转换配置
+# 开启后，HTTPS 格式的 Git URL 将按规则自动转换为 SSH 格式
+# 转换示例：https://gitee.com/owner/repo.git → git@gitee.com:owner/repo.git
+git_url_conversion:
+  # 是否启用自动转换，默认 false
+  enabled: false
+  # 自定义映射规则列表
+  rules:
+    - pattern: "https://gitee.com/"
+      ssh_host: "git@gitee.com"
+    - pattern: "https://github.com/"
+      ssh_host: "git@github.com"
+
 # 帮助入口配置
 help:
   # 支撑群号，如 "12345678"

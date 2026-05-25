@@ -16,6 +16,7 @@ import (
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/service/configgen"
 	"github.com/anthropic/isdp/internal/service/skill"
+	"github.com/anthropic/isdp/pkg/config"
 	pkgexec "github.com/anthropic/isdp/pkg/exec"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -29,16 +30,18 @@ type SkillHandler struct {
 	storagePath   string
 	uploadMax     int64
 	autoGenerator *configgen.AutoGenerator // 自动配置生成器
+	cfg           *config.GitURLConversionConfig
 }
 
 // NewSkillHandler 创建SkillHandler
-func NewSkillHandler(skillSvc *skill.Service, scanner *skill.SkillScanner, storagePath string, uploadMax int64, autoGenerator *configgen.AutoGenerator) *SkillHandler {
+func NewSkillHandler(skillSvc *skill.Service, scanner *skill.SkillScanner, storagePath string, uploadMax int64, autoGenerator *configgen.AutoGenerator, cfg *config.GitURLConversionConfig) *SkillHandler {
 	return &SkillHandler{
 		skillSvc:      skillSvc,
 		scanner:       scanner,
 		storagePath:   storagePath,
 		uploadMax:     uploadMax,
 		autoGenerator: autoGenerator,
+		cfg:           cfg,
 	}
 }
 
@@ -602,7 +605,8 @@ func (h *SkillHandler) ImportFromRepo(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
 	defer cancel()
 
-	cmd := pkgexec.CommandContext(ctx, "git", "clone", "--depth", "1", req.RepoURL, tempDir)
+	repoURL := h.cfg.ConvertHTTPToSSH(req.RepoURL)
+	cmd := pkgexec.CommandContext(ctx, "git", "clone", "--depth", "1", repoURL, tempDir)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("克隆仓库失败: %s", string(output))})

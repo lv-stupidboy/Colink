@@ -16,6 +16,7 @@ import (
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
 	"github.com/anthropic/isdp/internal/service/workspace"
+	"github.com/anthropic/isdp/pkg/config"
 	"github.com/google/uuid"
 )
 
@@ -23,11 +24,12 @@ import (
 type Service struct {
 	repo      *repo.LocalRepoRepository
 	workspace *workspace.Guard
+	cfg       *config.GitURLConversionConfig
 }
 
 // NewService 创建本地代码仓服务
-func NewService(repo *repo.LocalRepoRepository, workspaceGuard *workspace.Guard) *Service {
-	return &Service{repo: repo, workspace: workspaceGuard}
+func NewService(repo *repo.LocalRepoRepository, workspaceGuard *workspace.Guard, cfg *config.GitURLConversionConfig) *Service {
+	return &Service{repo: repo, workspace: workspaceGuard, cfg: cfg}
 }
 
 func (s *Service) validateWorkspacePath(path string) error {
@@ -162,13 +164,14 @@ func (s *Service) Upload(ctx context.Context, fileBytes []byte, originalName str
 
 // Clone 从远程URL克隆代码仓
 func (s *Service) Clone(ctx context.Context, req *model.CloneRepoRequest) (*model.LocalRepo, error) {
-	if !isSSHGitURL(req.GitUrl) {
+	gitUrl := s.cfg.ConvertHTTPToSSH(req.GitUrl)
+	if !isSSHGitURL(gitUrl) {
 		return nil, errors.New("仅支持 SSH 格式的 Git URL，例如 git@github.com:owner/repo.git")
 	}
 
 	name := req.Name
 	if name == "" {
-		name = inferRepoNameFromGitUrl(req.GitUrl)
+		name = inferRepoNameFromGitUrl(gitUrl)
 	}
 	if err := s.validateRepoName(name); err != nil {
 		return nil, err
@@ -198,7 +201,7 @@ func (s *Service) Clone(ctx context.Context, req *model.CloneRepoRequest) (*mode
 	} else {
 		args = append(args, "--depth", "1")
 	}
-	args = append(args, req.GitUrl, localPath)
+	args = append(args, gitUrl, localPath)
 
 	cmd := exec.Command("git", args...)
 	output, err := cmd.CombinedOutput()
@@ -286,7 +289,11 @@ func (s *Service) ConfigureGit(ctx context.Context, id uuid.UUID, req *model.Git
 		return nil, err
 	}
 
-	localRepo.GitUrl = req.GitUrl
+	gitUrl := s.cfg.ConvertHTTPToSSH(req.GitUrl)
+	if !isSSHGitURL(gitUrl) {
+		return nil, errors.New("仅支持 SSH 格式的 Git URL，例如 git@github.com:owner/repo.git")
+	}
+	localRepo.GitUrl = gitUrl
 	localRepo.Branch = &req.Branch
 	localRepo.UpdatedAt = time.Now()
 	if err := s.repo.Update(ctx, localRepo); err != nil {
@@ -295,10 +302,10 @@ func (s *Service) ConfigureGit(ctx context.Context, id uuid.UUID, req *model.Git
 
 	gitDir := filepath.Join(localRepo.LocalPath, ".git")
 	if _, err := os.Stat(gitDir); err == nil {
-		cmd := exec.Command("git", "-C", localRepo.LocalPath, "remote", "set-url", "origin", req.GitUrl)
+		cmd := exec.Command("git", "-C", localRepo.LocalPath, "remote", "set-url", "origin", gitUrl)
 		output, err := cmd.CombinedOutput()
 		if err != nil {
-			cmd = exec.Command("git", "-C", localRepo.LocalPath, "remote", "add", "origin", req.GitUrl)
+			cmd = exec.Command("git", "-C", localRepo.LocalPath, "remote", "add", "origin", gitUrl)
 			output, err = cmd.CombinedOutput()
 			if err != nil {
 				return localRepo, fmt.Errorf("设置git remote失败: %w, output: %s", err, string(output))
@@ -373,6 +380,7 @@ func (s *Service) CreateFolder(_ context.Context, parentPath, name string) error
 
 // GetRemoteBranches 获取远程仓库的分支列表
 func (s *Service) GetRemoteBranches(gitUrl string) ([]*model.RemoteBranch, error) {
+	gitUrl = s.cfg.ConvertHTTPToSSH(gitUrl)
 	if !isSSHGitURL(gitUrl) {
 		return nil, errors.New("仅支持 SSH 格式的 Git URL，例如 git@github.com:owner/repo.git")
 	}

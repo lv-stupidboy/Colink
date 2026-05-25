@@ -53,6 +53,7 @@ func NewSyncService(
 	cfg config.TeamPackageSyncConfig,
 	basePath string,
 	logger *zap.Logger,
+	gitURLCfg *config.GitURLConversionConfig,
 ) *SyncService {
 	return &SyncService{
 		versionRepo:    versionRepo,
@@ -66,7 +67,7 @@ func NewSyncService(
 		teamPackageSvc: teamPackageSvc,
 		marketSvc:      marketSvc,
 		config:         cfg,
-		gitClient:      NewGitClient(cfg, basePath, logger),
+		gitClient:      NewGitClient(cfg, basePath, logger, gitURLCfg),
 		logger:         logger,
 	}
 }

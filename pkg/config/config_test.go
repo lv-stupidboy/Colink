@@ -46,3 +46,57 @@ func TestDatabaseConfigDefaults(t *testing.T) {
 		t.Errorf("expected empty path (must be configured), got %s", cfg.Path)
 	}
 }
+
+func TestGitURLConversionDisabled(t *testing.T) {
+	cfg := &GitURLConversionConfig{Enabled: false}
+	url := "https://gitee.com/colink_1/colinkmarketplace.git"
+	result := cfg.ConvertHTTPToSSH(url)
+	if result != url {
+		t.Errorf("expected %s, got %s", url, result)
+	}
+}
+
+func TestGitURLConversionNoRules(t *testing.T) {
+	cfg := &GitURLConversionConfig{Enabled: true, Rules: nil}
+	url := "https://gitee.com/colink_1/colinkmarketplace.git"
+	result := cfg.ConvertHTTPToSSH(url)
+	if result != url {
+		t.Errorf("expected %s when no rules, got %s", url, result)
+	}
+}
+
+func TestGitURLConversionNonHTTPS(t *testing.T) {
+	cfg := &GitURLConversionConfig{
+		Enabled: true,
+		Rules:   []GitURLConversionRule{{Pattern: "https://gitee.com/", SSHHost: "git@gitee.com"}},
+	}
+	url := "git@gitee.com:colink_1/colinkmarketplace.git"
+	result := cfg.ConvertHTTPToSSH(url)
+	if result != url {
+		t.Errorf("expected %s for non-HTTPS, got %s", url, result)
+	}
+}
+
+func TestGitURLConversionMatching(t *testing.T) {
+	cfg := &GitURLConversionConfig{
+		Enabled: true,
+		Rules: []GitURLConversionRule{
+			{Pattern: "https://gitee.com/", SSHHost: "git@gitee.com"},
+			{Pattern: "https://github.com/", SSHHost: "git@github.com"},
+		},
+	}
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"https://gitee.com/colink_1/colinkmarketplace.git", "git@gitee.com:colink_1/colinkmarketplace.git"},
+		{"https://github.com/owner/repo.git", "git@github.com:owner/repo.git"},
+		{"https://gitlab.com/user/project.git", "https://gitlab.com/user/project.git"},
+	}
+	for _, tt := range tests {
+		result := cfg.ConvertHTTPToSSH(tt.input)
+		if result != tt.expected {
+			t.Errorf("ConvertHTTPToSSH(%s) = %s, want %s", tt.input, result, tt.expected)
+		}
+	}
+}

@@ -3,6 +3,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/spf13/viper"
@@ -33,6 +34,7 @@ type Config struct {
 	TeamPackageSync TeamPackageSyncConfig `mapstructure:"team_package_sync"`
 	Deployment      DeploymentConfig      `mapstructure:"deployment"`
 	Market          MarketDefaultConfig   `mapstructure:"market"`
+	GitURLConversion GitURLConversionConfig `mapstructure:"git_url_conversion"`
 	Help            HelpConfig            `mapstructure:"help"`
 }
 
@@ -392,6 +394,33 @@ type MarketDefaultConfig struct {
 	Name   string `mapstructure:"name"`   // 默认市场名称
 	URL    string `mapstructure:"url"`    // 默认市场Git仓库URL
 	Branch string `mapstructure:"branch"` // 默认分支
+}
+
+// GitURLConversionConfig Git URL 自动转换配置
+type GitURLConversionConfig struct {
+	Enabled bool                   `mapstructure:"enabled"` // 总开关，默认 false
+	Rules   []GitURLConversionRule `mapstructure:"rules"`   // 映射规则列表
+}
+
+// GitURLConversionRule Git URL 转换规则
+type GitURLConversionRule struct {
+	Pattern string `mapstructure:"pattern"`  // 匹配的 HTTPS URL 前缀
+	SSHHost string `mapstructure:"ssh_host"` // SSH 用户@主机，如 git@gitee.com
+}
+
+// ConvertHTTPToSSH 将 HTTPS 格式的 Git URL 按规则转换为 SSH 格式
+// 如果开关关闭或 URL 非 HTTPS 或无匹配规则，返回原 URL
+func (c *GitURLConversionConfig) ConvertHTTPToSSH(url string) string {
+	if !c.Enabled || !strings.HasPrefix(url, "https://") {
+		return url
+	}
+	for _, rule := range c.Rules {
+		if strings.HasPrefix(url, rule.Pattern) {
+			path := strings.TrimPrefix(url, rule.Pattern)
+			return rule.SSHHost + ":" + path
+		}
+	}
+	return url
 }
 
 // HelpConfig 帮助入口配置

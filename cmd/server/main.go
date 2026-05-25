@@ -209,7 +209,7 @@ func main() {
 
 	// 初始化Services
 	projectService := project.NewService(projectRepo, workflowRepo, workspaceGuard)
-	localRepoService := local_repo.NewService(localRepoRepo, workspaceGuard)
+	localRepoService := local_repo.NewService(localRepoRepo, workspaceGuard, &cfg.GitURLConversion)
 	threadService := thread.NewService(threadRepo, projectRepo, workflowRepo)
 	messageService := message.NewService(messageRepo, wsHub)
 	configService := agent.NewConfigService(agentConfigRepo, baseAgentRepo)
@@ -324,7 +324,7 @@ func main() {
 	marketRepo := repo.NewMarketRepository(db, dbType)
 
 	// 初始化 MarketService
-	marketSvc := market.NewService(marketRepo, teamPackageVersionRepo, cfg.Data.BasePath+"/temp", logger)
+	marketSvc := market.NewService(marketRepo, teamPackageVersionRepo, cfg.Data.BasePath+"/temp", logger, &cfg.GitURLConversion)
 
 	// 创建 TeamPackageSync Service（扩展：支持冲突检测）
 	teamPackageSyncSvc := teampackagesync.NewSyncService(
@@ -332,6 +332,7 @@ func main() {
 		agentConfigRepo, skillRepo, commandRepo, subagentRepo, ruleRepo, settingsRepo,
 		teamPackageSvc, marketSvc,
 		cfg.TeamPackageSync, cfg.Data.BasePath, logger,
+		&cfg.GitURLConversion,
 	)
 
 	// 初始化 UseCountUpdater（技能使用次数统计）
@@ -629,7 +630,7 @@ func main() {
 	workflowHandler.RegisterRoutes(v1)
 
 	// Skill Handler
-	skillHandler := api.NewSkillHandler(skillService, skillScanner, cfg.GetSkillStoragePath(), cfg.Skill.GetUploadMaxSize(), autoGenerator)
+	skillHandler := api.NewSkillHandler(skillService, skillScanner, cfg.GetSkillStoragePath(), cfg.Skill.GetUploadMaxSize(), autoGenerator, &cfg.GitURLConversion)
 	skillHandler.RegisterRoutes(v1)
 
 	// Registry Handler

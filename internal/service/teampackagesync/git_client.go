@@ -15,18 +15,22 @@ import (
 type GitClient struct {
 	basePath string // 数据根目录
 	logger   *zap.Logger
+	cfg      *config.GitURLConversionConfig
 }
 
 // NewGitClient creates a new GitClient instance
-func NewGitClient(cfg config.TeamPackageSyncConfig, basePath string, logger *zap.Logger) *GitClient {
+func NewGitClient(cfg config.TeamPackageSyncConfig, basePath string, logger *zap.Logger, gitURLCfg *config.GitURLConversionConfig) *GitClient {
 	return &GitClient{
 		basePath: basePath,
 		logger:   logger,
+		cfg:      gitURLCfg,
 	}
 }
 
 // CloneFromURL clones a specific URL to a temp directory
 func (g *GitClient) CloneFromURL(ctx context.Context, url string, branch string) (string, error) {
+	url = g.cfg.ConvertHTTPToSSH(url)
+
 	// 使用项目数据目录下的临时目录
 	tempBase := filepath.Join(g.basePath, "temp")
 

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/anthropic/isdp/internal/model"
+	"github.com/anthropic/isdp/pkg/config"
 	"github.com/anthropic/isdp/pkg/errors"
 	pkgexec "github.com/anthropic/isdp/pkg/exec"
 	"go.uber.org/zap"
@@ -16,15 +17,18 @@ import (
 // GitClient Git客户端，用于克隆市场仓库
 type GitClient struct {
 	logger *zap.Logger
+	cfg    *config.GitURLConversionConfig
 }
 
 // NewGitClient 创建GitClient
-func NewGitClient(logger *zap.Logger) *GitClient {
-	return &GitClient{logger: logger}
+func NewGitClient(logger *zap.Logger, cfg *config.GitURLConversionConfig) *GitClient {
+	return &GitClient{logger: logger, cfg: cfg}
 }
 
 // Clone 克隆市场仓库到临时目录
 func (g *GitClient) Clone(ctx context.Context, url, branch, tempBase string) (string, error) {
+	url = g.cfg.ConvertHTTPToSSH(url)
+
 	if err := os.MkdirAll(tempBase, 0755); err != nil {
 		return "", errors.WithDetail(errors.ErrInternal, "create temp base dir: "+err.Error())
 	}
