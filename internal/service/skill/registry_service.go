@@ -423,7 +423,7 @@ func (s *RegistryService) cloneAndScanGitRepo(ctx context.Context, registry *mod
 	cloneCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 
-	cmd := pkgexec.CommandContext(cloneCtx, "git", "clone", "--depth", "1", cloneURL, tempDir)
+	cmd := pkgexec.GitCommandContext(cloneCtx, "git", "clone", "--depth", "1", cloneURL, tempDir)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		// 清理临时目录

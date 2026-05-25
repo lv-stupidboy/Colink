@@ -122,7 +122,7 @@ func (s *SkillScanner) ScanRegistry(ctx context.Context, registryID uuid.UUID) (
 	cloneCtx, cancel := context.WithTimeout(ctx, s.cloneTimeout)
 	defer cancel()
 
-	cmd := pkgexec.CommandContext(cloneCtx, "git", "clone", "--depth", "1", cloneURL, tempDir)
+	cmd := pkgexec.GitCommandContext(cloneCtx, "git", "clone", "--depth", "1", cloneURL, tempDir)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		// 清理临时目录
@@ -566,7 +566,7 @@ func (s *SkillScanner) ImportSkills(ctx context.Context, req *model.BatchImportR
 	cloneCtx, cancel := context.WithTimeout(ctx, s.cloneTimeout)
 	defer cancel()
 
-	cmd := pkgexec.CommandContext(cloneCtx, "git", "clone", "--depth", "1", cloneURL, tempDir)
+	cmd := pkgexec.GitCommandContext(cloneCtx, "git", "clone", "--depth", "1", cloneURL, tempDir)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		// 清理临时目录

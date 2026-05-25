@@ -606,7 +606,7 @@ func (h *SkillHandler) ImportFromRepo(c *gin.Context) {
 	defer cancel()
 
 	repoURL := h.cfg.ConvertHTTPToSSH(req.RepoURL)
-	cmd := pkgexec.CommandContext(ctx, "git", "clone", "--depth", "1", repoURL, tempDir)
+	cmd := pkgexec.GitCommandContext(ctx, "git", "clone", "--depth", "1", repoURL, tempDir)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("克隆仓库失败: %s", string(output))})

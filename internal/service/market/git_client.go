@@ -44,7 +44,7 @@ func (g *GitClient) Clone(ctx context.Context, url, branch, tempBase string) (st
 		zap.String("tempDir", tempDir),
 	)
 
-	cmd := pkgexec.CommandContext(ctx, "git", "clone", "--depth", "1", "--branch", branch, url, tempDir)
+	cmd := pkgexec.GitCommandContext(ctx, "git", "clone", "--depth", "1", "--branch", branch, url, tempDir)
 	cmd.Env = os.Environ()
 
 	output, err := cmd.CombinedOutput()

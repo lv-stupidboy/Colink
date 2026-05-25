@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -17,6 +16,7 @@ import (
 	"github.com/anthropic/isdp/internal/repo"
 	"github.com/anthropic/isdp/internal/service/workspace"
 	"github.com/anthropic/isdp/pkg/config"
+	pkgexec "github.com/anthropic/isdp/pkg/exec"
 	"github.com/google/uuid"
 )
 
@@ -203,7 +203,7 @@ func (s *Service) Clone(ctx context.Context, req *model.CloneRepoRequest) (*mode
 	}
 	args = append(args, gitUrl, localPath)
 
-	cmd := exec.Command("git", args...)
+	cmd := pkgexec.GitCommand("git", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("克隆失败: %w, output: %s", err, string(output))
@@ -252,7 +252,7 @@ func (s *Service) Sync(ctx context.Context, id uuid.UUID) (*model.LocalRepo, err
 		return nil, fmt.Errorf("更新状态为syncing失败: %w", err)
 	}
 
-	cmd := exec.Command("git", "-C", localRepo.LocalPath, "pull")
+	cmd := pkgexec.GitCommand("git", "-C", localRepo.LocalPath, "pull")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		localRepo.Status = model.RepoStatusError
@@ -302,10 +302,10 @@ func (s *Service) ConfigureGit(ctx context.Context, id uuid.UUID, req *model.Git
 
 	gitDir := filepath.Join(localRepo.LocalPath, ".git")
 	if _, err := os.Stat(gitDir); err == nil {
-		cmd := exec.Command("git", "-C", localRepo.LocalPath, "remote", "set-url", "origin", gitUrl)
+		cmd := pkgexec.GitCommand("git", "-C", localRepo.LocalPath, "remote", "set-url", "origin", gitUrl)
 		output, err := cmd.CombinedOutput()
 		if err != nil {
-			cmd = exec.Command("git", "-C", localRepo.LocalPath, "remote", "add", "origin", gitUrl)
+			cmd = pkgexec.GitCommand("git", "-C", localRepo.LocalPath, "remote", "add", "origin", gitUrl)
 			output, err = cmd.CombinedOutput()
 			if err != nil {
 				return localRepo, fmt.Errorf("设置git remote失败: %w, output: %s", err, string(output))
@@ -384,7 +384,7 @@ func (s *Service) GetRemoteBranches(gitUrl string) ([]*model.RemoteBranch, error
 	if !isSSHGitURL(gitUrl) {
 		return nil, errors.New("仅支持 SSH 格式的 Git URL，例如 git@github.com:owner/repo.git")
 	}
-	cmd := exec.Command("git", "ls-remote", "--heads", "--tags", gitUrl)
+	cmd := pkgexec.GitCommand("git", "ls-remote", "--heads", "--tags", gitUrl)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("获取远程分支失败: %w, output: %s", err, string(output))
@@ -585,7 +585,7 @@ func probeGitInfo(localPath string) (gitUrl string, branch *string, commit *stri
 		return "", nil, nil
 	}
 
-	cmd := exec.Command("git", "-C", localPath, "remote", "get-url", "origin")
+	cmd := pkgexec.GitCommand("git", "-C", localPath, "remote", "get-url", "origin")
 	output, err := cmd.Output()
 	if err == nil {
 		url := strings.TrimSpace(string(output))
@@ -594,7 +594,7 @@ func probeGitInfo(localPath string) (gitUrl string, branch *string, commit *stri
 		}
 	}
 
-	cmd = exec.Command("git", "-C", localPath, "rev-parse", "--abbrev-ref", "HEAD")
+	cmd = pkgexec.GitCommand("git", "-C", localPath, "rev-parse", "--abbrev-ref", "HEAD")
 	output, err = cmd.Output()
 	if err == nil {
 		b := strings.TrimSpace(string(output))
@@ -603,7 +603,7 @@ func probeGitInfo(localPath string) (gitUrl string, branch *string, commit *stri
 		}
 	}
 
-	cmd = exec.Command("git", "-C", localPath, "rev-parse", "--short", "HEAD")
+	cmd = pkgexec.GitCommand("git", "-C", localPath, "rev-parse", "--short", "HEAD")
 	output, err = cmd.Output()
 	if err == nil {
 		c := strings.TrimSpace(string(output))
