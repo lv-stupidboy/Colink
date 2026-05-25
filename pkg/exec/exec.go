@@ -43,7 +43,7 @@ func injectGitSSHConfig(cmd *exec.Cmd) {
 	if cmd.Env == nil {
 		cmd.Env = os.Environ()
 	}
-	sshCmd := "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+	sshCmd := "ssh -o StrictHostKeyChecking=no"
 	found := false
 	for i, env := range cmd.Env {
 		if strings.HasPrefix(env, "GIT_SSH_COMMAND=") {
