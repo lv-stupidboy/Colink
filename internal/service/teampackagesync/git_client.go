@@ -53,7 +53,6 @@ func (g *GitClient) CloneFromURL(ctx context.Context, url string, branch string)
 
 	// Git clone with --depth 1 and specified branch
 	cmd := pkgexec.GitCommandContext(ctx, "git", "clone", "--depth", "1", "--branch", branch, url, tempDir)
-	cmd.Env = os.Environ()
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {

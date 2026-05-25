@@ -45,7 +45,6 @@ func (g *GitClient) Clone(ctx context.Context, url, branch, tempBase string) (st
 	)
 
 	cmd := pkgexec.GitCommandContext(ctx, "git", "clone", "--depth", "1", "--branch", branch, url, tempDir)
-	cmd.Env = os.Environ()
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
