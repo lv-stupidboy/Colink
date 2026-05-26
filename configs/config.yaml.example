@@ -58,6 +58,16 @@ mcp:
 agent_assets:
   base_path: ./data/agent-assets
 
+# 日志配置
+logging:
+  # 日志级别: debug | info | warn | error
+  level: info
+  # 日志格式: json | console
+  format: console
+  # 日志目录（默认 ./logs，与 bin 同级目录）
+  # 未设置时回退到 data.base_path/logs（向后兼容）
+  dir: ./logs
+
 # 技能配置
 skill:
   # 更新间隔格式: "30m", "1h", "2h30m"

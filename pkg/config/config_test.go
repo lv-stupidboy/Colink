@@ -100,3 +100,25 @@ func TestGitURLConversionMatching(t *testing.T) {
 		}
 	}
 }
+
+func TestGetLogDir(t *testing.T) {
+	tests := []struct {
+		name     string
+		logging  LoggingConfig
+		data     DataConfig
+		expected string
+	}{
+		{"logging.dir set", LoggingConfig{Dir: "/var/log/colink"}, DataConfig{BasePath: "./data"}, "/var/log/colink"},
+		{"logging.dir empty, data.base_path set", LoggingConfig{}, DataConfig{BasePath: "./data"}, "./data/logs"},
+		{"both empty, default", LoggingConfig{}, DataConfig{}, "./logs"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{Logging: tt.logging, Data: tt.data}
+			result := cfg.GetLogDir()
+			if result != tt.expected {
+				t.Errorf("GetLogDir() = %s, want %s", result, tt.expected)
+			}
+		})
+	}
+}

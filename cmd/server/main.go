@@ -115,7 +115,7 @@ func main() {
 	fmt.Printf("Loaded config from: %s\n", configPath)
 
 	// 初始化日志
-	logger, err := initLogger(cfg.Logging.Level, cfg.Logging.Format, cfg.Data.GetLogsPath())
+	logger, err := initLogger(cfg.Logging.Level, cfg.Logging.Format, cfg.GetLogDir())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to init logger: %v\n", err)
 		os.Exit(1)
@@ -755,13 +755,13 @@ func main() {
 		defer ticker.Stop()
 
 		// 立即执行一次日志维护
-		performLogMaintenance(logger, cfg.Data.GetLogsPath())
+		performLogMaintenance(logger, cfg.GetLogDir())
 
 		for {
 			select {
 			case <-ticker.C:
 				// 定期执行日志维护
-				performLogMaintenance(logger, cfg.Data.GetLogsPath())
+				performLogMaintenance(logger, cfg.GetLogDir())
 			}
 		}
 	}()

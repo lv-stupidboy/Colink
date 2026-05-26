@@ -211,6 +211,18 @@ type AgentConfig struct {
 type LoggingConfig struct {
 	Level  string `mapstructure:"level"`
 	Format string `mapstructure:"format"`
+	Dir    string `mapstructure:"dir"`
+}
+
+// GetLogDir 返回日志目录路径，优先使用 logging.dir，其次 data.base_path/logs，默认 ./logs
+func (c *Config) GetLogDir() string {
+	if c.Logging.Dir != "" {
+		return c.Logging.Dir
+	}
+	if path := c.Data.GetLogsPath(); path != "" {
+		return path
+	}
+	return "./logs"
 }
 
 // MCPConfig MCP配置
