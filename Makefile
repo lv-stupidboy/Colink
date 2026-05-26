@@ -1,4 +1,4 @@
-.PHONY: build genplugins run test clean docker-up docker-down sync-resources release desktop-dev desktop-build desktop-package desktop-package-all test-all test-frontend test-backend test-performance test-feature test-feature-priority test-p0 test-p1
+.PHONY: build build-mcp genplugins run test clean docker-up docker-down sync-resources release desktop-dev desktop-build desktop-package desktop-package-all test-all test-frontend test-backend test-performance test-feature test-feature-priority test-p0 test-p1
 
 # 从 VERSION 文件读取版本号
 VERSION := $(shell cat VERSION 2>/dev/null || echo "dev")
@@ -13,6 +13,9 @@ genplugins:
 
 build: genplugins
 	go build -ldflags "-X main.Version=$(FULL_VERSION) -X main.GitCommit=$(GIT_COMMIT) -X main.BuildTime=$(BUILD_TIME)" -o bin/isdp-server ./cmd/server
+
+build-mcp:
+	go build -o bin/mcp-server ./cmd/mcp-server
 
 # 同步资源到 installer-tauri
 sync-resources:
