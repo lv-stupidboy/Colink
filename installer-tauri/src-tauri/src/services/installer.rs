@@ -1,6 +1,5 @@
 use crate::error::{InstallerError, Result};
 use crate::services::{
-    disk_space::get_disk_space,
     file_ops::{atomic_copy_dir, kill_all_processes, delete_except_whitelist, copy_dir_recursive, remove_dir_all_with_retry, cleanup_staging_dirs},
     registry::write_registry,
     shortcut::{create_desktop_shortcut, create_start_menu_shortcut, delete_all_shortcuts},
@@ -332,23 +331,14 @@ where
     // Standard installation (fresh or upgrade)
     let install_dir = Path::new(&config.install_dir);
 
-    // Step 0: Check disk space
+    // Step 0: Prepare for installation
     emit_progress(&InstallProgress {
         step: "prepare".to_string(),
         status: "running".to_string(),
         progress: Some(0),
-        message: Some("检查磁盘空间...".into()),
+        message: Some("准备安装...".into()),
         details: None,
     });
-
-    let disk_space = get_disk_space(&config.install_dir)?;
-    let required_space = 500 * 1024 * 1024; // 500MB minimum
-    if disk_space.free < required_space {
-        return Err(InstallerError::DiskSpaceInsufficient {
-            required: required_space,
-            available: disk_space.free,
-        });
-    }
 
     // Step 1: Prepare for upgrade if existing installation
     if install_dir.exists() {
@@ -408,23 +398,14 @@ where
     log::info!("Reinstall mode: old={}, new={}, changed={}, keepData={}",
         old_install_dir.display(), install_dir.display(), dir_changed, config.keep_data);
 
-    // Step 0: Prepare - check disk space, stop processes
+    // Step 0: Prepare - stop running processes
     emit_progress(&InstallProgress {
         step: "prepare".to_string(),
         status: "running".to_string(),
         progress: Some(0),
-        message: Some("检查磁盘空间，停止运行中的进程...".into()),
+        message: Some("停止运行中的进程...".into()),
         details: None,
     });
-
-    let disk_space = get_disk_space(&config.install_dir)?;
-    let required_space = 500 * 1024 * 1024; // 500MB minimum
-    if disk_space.free < required_space {
-        return Err(InstallerError::DiskSpaceInsufficient {
-            required: required_space,
-            available: disk_space.free,
-        });
-    }
 
     // Kill running processes
     #[cfg(target_os = "windows")]

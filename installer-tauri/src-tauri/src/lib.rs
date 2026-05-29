@@ -50,7 +50,6 @@ pub fn run() {
             commands::check_old_isdp,
             commands::uninstall_old_isdp,
             commands::select_directory,
-            commands::get_disk_space,
             commands::generate_config_preview,
             commands::read_existing_config,
             commands::start_installation,
