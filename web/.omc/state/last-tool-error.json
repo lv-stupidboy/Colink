@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"taskkill /F /PID 15308 && taskkill /F /PID 13040\"}",
-  "error": "Exit code 1\n����: ��Ч����/ѡ�� - 'F:/'��\r\n���� \"TASKKILL /?\" ���˽��÷���",
-  "timestamp": "2026-04-22T06:05:47.941Z",
-  "retry_count": 1
-}
