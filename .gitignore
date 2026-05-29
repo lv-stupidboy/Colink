@@ -89,6 +89,12 @@ openspec/
 # oh my claude 工作目录
 .omc/
 
+# sisyphus 工作目录
+.sisyphus/
+
+# superpowers 工作目录
+.superpowers/
+
 # Git worktrees
 .worktrees/
 .gstack/
