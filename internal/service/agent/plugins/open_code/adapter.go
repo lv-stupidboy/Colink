@@ -55,9 +55,10 @@ func NewOpenCodeAdapter(baseAgent *model.BaseAgent) agent.AgentAdapter {
 
 			return env
 		},
-		// 如果通过 CONFIG_CONTENT 配置了模型，跳过 session/set_model
+		// OpenCode ACP 模式不读取 OPENCODE_CONFIG_CONTENT 来设置模型
+		// 必须通过 session/set_model 设置，所以不跳过
 		SkipModelConfig: func(req *agent.ExecutionRequest) bool {
-			return hasConfigContent(baseAgent)
+			return false // 始终调用 session/set_model
 		},
 	}
 
