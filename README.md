@@ -59,7 +59,7 @@ On Windows, use PowerShell or another terminal that can run `make`.
 ### 1. Enter the Project
 
 ```powershell
-cd D:\workspace\colink\Colink
+cd Colink
 ```
 
 ### 2. Build Backend Resources
@@ -67,9 +67,10 @@ cd D:\workspace\colink\Colink
 ```powershell
 make build
 make genplugins
+go build -o bin/mcp-server.exe ./cmd/mcp-server
 ```
 
-`make build` already depends on plugin generation, but running `make genplugins` explicitly is useful when you want to refresh the local plugin registry before starting the application.
+`make build` already depends on plugin generation, but running `make genplugins` explicitly is useful when you want to refresh the local plugin registry before starting the application. Build `mcp-server.exe` before starting the backend so MCP-related functionality is available at runtime.
 
 ### 3. Prepare Configuration
 
@@ -134,7 +135,7 @@ Or run the compiled server:
 Open another terminal:
 
 ```powershell
-cd D:\workspace\colink\Colink\web
+cd web
 npm install
 npm run dev
 ```
@@ -171,6 +172,7 @@ Add new migration directories for schema changes. Do not modify migration files 
 ```powershell
 make genplugins
 make build
+go build -o bin/mcp-server.exe ./cmd/mcp-server
 make run
 make test
 ```
