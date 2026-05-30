@@ -162,6 +162,15 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 		isdpID: invocationIDStr,
 	}
 
+	// 将 session 保存到 sessions map，以便 GetCurrentProcess 能找到它用于取消执行
+	if invocationIDStr != "" {
+		a.mu.Lock()
+		a.sessions[invocationIDStr] = session
+		a.mu.Unlock()
+		LogInfo("ACP: session saved to sessions map for execution",
+			zap.String("isdpID", invocationIDStr))
+	}
+
 	transport := newACPTransport(stdinPipe, stdoutPipe, func(method string, params json.RawMessage) {
 		a.handleNotification(session, method, params, onChunk)
 	})
@@ -806,16 +815,20 @@ func (a *BaseACPAdapter) cleanup(session *acpSession) {
 		select {
 		case <-done:
 			// 进程正常退出
+			LogInfo("ACP: process exited normally", zap.String("sessionId", session.id))
 		case <-time.After(3 * time.Second):
-			LogWarn("ACP: process still running, sending interrupt", zap.String("sessionId", session.id))
-			session.cmd.Process.Signal(os.Interrupt)
+			LogWarn("ACP: process still running, terminating process tree", zap.String("sessionId", session.id), zap.Int("pid", session.cmd.Process.Pid))
+			// 使用 killProcessTree 终止整个进程树（包括子进程如 bun）
+			if err := killProcessTree(session.cmd.Process); err != nil {
+				LogError("ACP: failed to terminate process tree", zap.Error(err), zap.Int("pid", session.cmd.Process.Pid))
+			}
+			// 等待进程完全退出
 			select {
 			case <-done:
-				LogInfo("ACP: process exited after interrupt")
+				LogInfo("ACP: process tree terminated")
 			case <-time.After(2 * time.Second):
-				session.cmd.Process.Kill()
-				LogWarn("ACP: process killed after timeout")
-				<-done // 等待 Kill 完成
+				LogWarn("ACP: process still not exiting after killProcessTree")
+				<-done // 最终等待
 			}
 		}
 	}

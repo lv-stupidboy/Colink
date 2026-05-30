@@ -687,6 +687,7 @@ func main() {
 
 	// WebSocket
 	wsHandler := ws.NewHandler(wsHub, orchestrator, orchestrator)
+	wsHandler.SetCancelAgentFunc(orchestrator.CancelAgent)
 	wsHandler.RegisterRoutes(v1)
 
 	// 飞书 Webhook Handler (仅 webhook 模式)
