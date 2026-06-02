@@ -37,7 +37,7 @@ export function useWebSocket(
         if (reconnectTimeoutRef.current) {
           clearTimeout(reconnectTimeoutRef.current);
         }
-        wsRef.current.close();
+        wsRef.current.close(1000, 'Thread ID cleared');
         wsRef.current = null;
         setConnected(false);
       }
@@ -100,7 +100,7 @@ export function useWebSocket(
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
       }
-      ws.close();
+      ws.close(1000, 'Component unmounted');
       wsRef.current = null;
     };
   }, [threadId, reconnectInterval]);

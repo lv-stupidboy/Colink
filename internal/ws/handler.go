@@ -218,13 +218,16 @@ func (c *Client) ReadPump() {
 	for {
 		_, message, err := c.Conn.ReadMessage()
 		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+			// 1005 (No Status) 是客户端调用 close() 不传参数时的正常关闭
+			// 1000 (Normal) 是显式正常关闭
+			// 1001 (GoingAway) 是浏览器关闭页面/导航
+			// 1006 (Abnormal) 是异常关闭（无 close frame）
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure, websocket.CloseNoStatusReceived) {
 				if wsLogger != nil {
 					wsLogger.Warn("Read error", zap.Error(err), zap.String("threadId", c.ThreadID))
 				}
 			} else if wsLogger != nil {
-				// 正常关闭或超时
-				wsLogger.Info("Connection closed or timeout", zap.String("threadId", c.ThreadID), zap.Error(err))
+				wsLogger.Info("Connection closed normally", zap.String("threadId", c.ThreadID), zap.Error(err))
 			}
 			break
 		}
