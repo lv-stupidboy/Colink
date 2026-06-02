@@ -5,6 +5,7 @@ package acp
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -35,18 +36,22 @@ type AcpAdapterConfig struct {
 const maxStderrSize = 64 * 1024
 
 type acpSession struct {
-	id              string
-	isdpID          string
-	transport       *acpTransport
-	cmd             *exec.Cmd
-	ctx             context.Context
-	cancel          context.CancelFunc
-	status          agent.SessionStatus
-	output          strings.Builder
-	stderrOutput    strings.Builder // stderr 输出缓冲（用于错误诊断）
-	pendingQuestion *agent.Chunk    // 待处理的 AskUserQuestion（等待用户响应）
-	thoughtChunkCount int           // 流式思考内容计数器（用于采样打印）
-	mu              sync.Mutex
+	id                string
+	isdpID            string
+	transport         *acpTransport
+	cmd               *exec.Cmd
+	ctx               context.Context
+	cancel            context.CancelFunc
+	status            agent.SessionStatus
+	output            strings.Builder
+	stderrOutput      strings.Builder // stderr 输出缓冲（用于错误诊断）
+	pendingQuestion   *agent.Chunk    // 待处理的 AskUserQuestion（等待用户响应）
+	thoughtChunkCount int             // 流式思考内容计数器（用于采样打印）
+	// 诊断字段（info 级别可见，用于捕捉无限循环问题）
+	notificationCount    int    // 收到的通知总数
+	duplicateUpdateCount int    // 连续重复通知计数
+	lastUpdateHash       string // 最后一次 session/update 的内容哈希（前16位）
+	mu                   sync.Mutex
 }
 
 // BaseACPAdapter implements AgentAdapter using ACP (Agent Client Protocol) over stdio.
@@ -574,6 +579,35 @@ func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, 
 		if onChunk == nil {
 			return
 		}
+
+		// 诊断：检测重复通知（info 级别，用于捕捉无限循环）
+		session.mu.Lock()
+		session.notificationCount++
+		// 每 20 个通知打印一次摘要（避免日志爆炸，但能捕捉异常）
+		if session.notificationCount%20 == 0 {
+			LogInfo("ACP: notification progress",
+				zap.String("sessionId", session.id),
+				zap.Int("count", session.notificationCount),
+				zap.Int("duplicateCount", session.duplicateUpdateCount))
+		}
+		// 检测内容重复：计算 params 哈希并比较
+		contentHash := fmt.Sprintf("%x", sha256.Sum256(params))[:16]
+		if session.lastUpdateHash == contentHash {
+			session.duplicateUpdateCount++
+			// 重复 >3 次立即警告（info 级别）
+			if session.duplicateUpdateCount > 3 {
+				LogWarn("ACP: duplicate session/update detected",
+					zap.String("sessionId", session.id),
+					zap.String("hash", contentHash),
+					zap.Int("duplicateCount", session.duplicateUpdateCount),
+					zap.Int("totalCount", session.notificationCount))
+			}
+		} else {
+			session.duplicateUpdateCount = 0
+			session.lastUpdateHash = contentHash
+		}
+		session.mu.Unlock()
+
 		var updateParams acpSessionUpdateParams
 		if err := json.Unmarshal(params, &updateParams); err != nil {
 			LogError("ACP: failed to parse session/update params", zap.Error(err))
@@ -677,7 +711,7 @@ func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, 
 			return
 		}
 		// 工具调用更新日志降级为 Debug（高频）
-			LogDebug("ACP: received session/tool_call_update notification", zap.String("params", string(params)))
+		LogDebug("ACP: received session/tool_call_update notification", zap.String("params", string(params)))
 
 		// 尝试解析通知参数
 		var updateParams struct {
@@ -871,12 +905,20 @@ func (a *BaseACPAdapter) configureViaConfigOptions(transport *acpTransport, sess
 }
 
 func (a *BaseACPAdapter) cleanup(session *acpSession) {
-	// 先关闭 transport（这会关闭 stdin/stdout）
+	// 诊断：cleanup 调用时打印关键指标（info 级别）
+	session.mu.Lock()
+	LogInfo("ACP: cleanup called",
+		zap.String("sessionId", session.id),
+		zap.Int("notificationCount", session.notificationCount),
+		zap.Int("duplicateCount", session.duplicateUpdateCount),
+		zap.Int("outputLen", session.output.Len()),
+		zap.Int("stderrLen", session.stderrOutput.Len()))
+	session.mu.Unlock()
+
 	if session.transport != nil {
 		session.transport.Close()
 	}
 
-	// 等待进程结束（stdin 关闭后进程应该退出）
 	if session.cmd != nil && session.cmd.Process != nil {
 		done := make(chan error, 1)
 		go func() {
