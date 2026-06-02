@@ -66,7 +66,7 @@ logging:
   format: console
   # 日志目录（默认 ./logs，与 bin 同级目录）
   # 未设置时回退到 data.base_path/logs（向后兼容）
-  dir: ./logs
+  dir: ./data/logs
 
 # 技能配置
 skill:
