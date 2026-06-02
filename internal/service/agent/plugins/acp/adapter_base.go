@@ -30,6 +30,10 @@ type AcpAdapterConfig struct {
 	LegacyModelConfig bool                                   // 如果 true，使用 session/set_model 而非 configOptions
 }
 
+// maxStderrSize 定义 stderr 缓冲的最大大小（64KB）
+// 防止 stderr 输出过大导致内存问题
+const maxStderrSize = 64 * 1024
+
 type acpSession struct {
 	id              string
 	isdpID          string
@@ -39,7 +43,8 @@ type acpSession struct {
 	cancel          context.CancelFunc
 	status          agent.SessionStatus
 	output          strings.Builder
-	pendingQuestion *agent.Chunk // 待处理的 AskUserQuestion（等待用户响应）
+	stderrOutput    strings.Builder // stderr 输出缓冲（用于错误诊断）
+	pendingQuestion *agent.Chunk    // 待处理的 AskUserQuestion（等待用户响应）
 	mu              sync.Mutex
 }
 
@@ -139,28 +144,42 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 
 	LogInfo("[PERF] ACP cmd.Start", zap.Duration("duration", time.Since(cliStartTime)))
 
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		scanner := bufio.NewScanner(stderrPipe)
-		for scanner.Scan() {
-			// stderr 内容通常不处理，只消耗
-		}
-	}()
-
 	// 设置 invocationID 用于 AskUserQuestion 答案发送
 	var invocationIDStr string
 	if req.InvocationID != uuid.Nil {
 		invocationIDStr = req.InvocationID.String()
 	}
 
+	// 创建 session（先创建，以便 stderr goroutine 可以引用它）
 	session := &acpSession{
 		cmd:    cmd,
 		ctx:    ctx,
 		status: agent.SessionStatusRunning,
 		isdpID: invocationIDStr,
 	}
+
+	// 启动 stderr 消费 goroutine（在 session 创建之后）
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		scanner := bufio.NewScanner(stderrPipe)
+		for scanner.Scan() {
+			line := scanner.Text()
+			// 记录到日志（实时可见）
+			LogInfo("ACP: stderr output", zap.String("line", line))
+			// 缓存到 session（带 64KB 上限）
+			session.mu.Lock()
+			if session.stderrOutput.Len() < maxStderrSize {
+				session.stderrOutput.WriteString(line)
+				session.stderrOutput.WriteString("\n")
+			}
+			session.mu.Unlock()
+		}
+		if err := scanner.Err(); err != nil {
+			LogError("ACP: stderr scanner error", zap.Error(err))
+		}
+	}()
 
 	// 将 session 保存到 sessions map，以便 GetCurrentProcess 能找到它用于取消执行
 	if invocationIDStr != "" {
@@ -182,9 +201,12 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 		ClientCapabilities: acpClientCapabilities{},
 	})
 	if err != nil {
+		session.mu.Lock()
+		stderrContent := session.stderrOutput.String()
+		session.mu.Unlock()
 		a.cleanup(session)
 		wg.Wait()
-		return nil, fmt.Errorf("ACP: initialize handshake failed: %w", err)
+		return nil, fmt.Errorf("ACP: initialize handshake failed: %w\nstderr: %s", err, stderrContent)
 	}
 
 	var initResp acpInitializeResult
@@ -206,9 +228,12 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 		MCPServers: mcpServers,
 	})
 	if err != nil {
+		session.mu.Lock()
+		stderrContent := session.stderrOutput.String()
+		session.mu.Unlock()
 		a.cleanup(session)
 		wg.Wait()
-		return nil, fmt.Errorf("ACP: session/new failed: %w", err)
+		return nil, fmt.Errorf("ACP: session/new failed: %w\nstderr: %s", err, stderrContent)
 	}
 
 	var sessionResp acpNewSessionResult
@@ -235,9 +260,12 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 		Prompt:    []acpContentBlock{{Type: "text", Text: prompt}},
 	})
 	if err != nil {
+		session.mu.Lock()
+		stderrContent := session.stderrOutput.String()
+		session.mu.Unlock()
 		a.cleanup(session)
 		wg.Wait()
-		return nil, fmt.Errorf("ACP: session/prompt failed: %w", err)
+		return nil, fmt.Errorf("ACP: session/prompt failed: %w\nstderr: %s", err, stderrContent)
 	}
 
 	var promptResp acpPromptResult
@@ -336,12 +364,7 @@ func (a *BaseACPAdapter) StartSession(ctx context.Context, sessionID string, req
 		zap.String("sessionID", sessionID),
 		zap.String("psCommand", psCmd.String()))
 
-	go func() {
-		scanner := bufio.NewScanner(stderrPipe)
-		for scanner.Scan() {
-		}
-	}()
-
+	// 创建 session（先创建，以便 stderr goroutine 可以引用它）
 	sessionCtx, sessionCancel := context.WithCancel(ctx)
 	session := &acpSession{
 		id:     sessionID,
@@ -351,6 +374,31 @@ func (a *BaseACPAdapter) StartSession(ctx context.Context, sessionID string, req
 		cancel: sessionCancel,
 		status: agent.SessionStatusRunning,
 	}
+
+	// 启动 stderr 消费 goroutine（添加 wg 以防止 goroutine leak）
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		scanner := bufio.NewScanner(stderrPipe)
+		for scanner.Scan() {
+			line := scanner.Text()
+			// 记录到日志
+			LogInfo("ACP: stderr output (StartSession)",
+				zap.String("sessionID", sessionID),
+				zap.String("line", line))
+			// 缓存到 session（带 64KB 上限）
+			session.mu.Lock()
+			if session.stderrOutput.Len() < maxStderrSize {
+				session.stderrOutput.WriteString(line)
+				session.stderrOutput.WriteString("\n")
+			}
+			session.mu.Unlock()
+		}
+		if err := scanner.Err(); err != nil {
+			LogError("ACP: stderr scanner error (StartSession)", zap.Error(err))
+		}
+	}()
 
 	transport := newACPTransport(stdinPipe, stdoutPipe, func(method string, params json.RawMessage) {
 		a.handleNotification(session, method, params, nil)
@@ -363,9 +411,13 @@ func (a *BaseACPAdapter) StartSession(ctx context.Context, sessionID string, req
 		ClientCapabilities: acpClientCapabilities{},
 	})
 	if err != nil {
+		session.mu.Lock()
+		stderrContent := session.stderrOutput.String()
+		session.mu.Unlock()
+		wg.Wait()
 		transport.Close()
 		cmd.Process.Kill()
-		return fmt.Errorf("ACP: initialize handshake failed: %w", err)
+		return fmt.Errorf("ACP: initialize handshake failed: %w\nstderr: %s", err, stderrContent)
 	}
 
 	// 根据服务器实际支持的协议版本决定是否传递 MCP Servers
@@ -378,9 +430,13 @@ func (a *BaseACPAdapter) StartSession(ctx context.Context, sessionID string, req
 		MCPServers: mcpServers,
 	})
 	if err != nil {
+		session.mu.Lock()
+		stderrContent := session.stderrOutput.String()
+		session.mu.Unlock()
+		wg.Wait()
 		transport.Close()
 		cmd.Process.Kill()
-		return fmt.Errorf("ACP: session/new failed: %w", err)
+		return fmt.Errorf("ACP: session/new failed: %w\nstderr: %s", err, stderrContent)
 	}
 
 	var sessionResp acpNewSessionResult
