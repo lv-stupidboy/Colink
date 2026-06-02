@@ -74,7 +74,7 @@ func parseACPToolCall(raw json.RawMessage, session *acpSession) ([]agent.Chunk, 
 	}
 
 	// 详细日志：输出完整的工具调用信息
-	LogInfo("ACP: received tool_call",
+	LogDebug("ACP: received tool_call",
 		zap.String("toolCallId", tc.ToolCallID),
 		zap.String("title", tc.Title),
 		zap.String("kind", tc.Kind),
@@ -163,7 +163,7 @@ func parseACPToolCallUpdate(raw json.RawMessage) ([]agent.Chunk, error) {
 
 		// 如果有 rawInput，发送更新
 		if len(toolInput) > 0 {
-			LogInfo("ACP: tool_call_update with input",
+			LogDebug("ACP: tool_call_update with input",
 				zap.String("toolCallId", update.ToolCallID),
 				zap.String("status", update.Status),
 				zap.Any("rawInput", toolInput))

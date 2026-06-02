@@ -722,6 +722,9 @@ func setDefaults() {
 	viper.SetDefault("subagent.upload_max_size", 2)
 	viper.SetDefault("command.upload_max_size", 2)
 	viper.SetDefault("rule.upload_max_size", 2)
+	// Logging 默认值
+	viper.SetDefault("logging.level", "info")
+	viper.SetDefault("logging.format", "json")
 	viper.SetDefault("reporter.enabled", true)
 	viper.SetDefault("reporter.interval", "30m")
 	viper.SetDefault("reporter.retry_times", 3)

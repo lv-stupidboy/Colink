@@ -45,6 +45,7 @@ type acpSession struct {
 	output          strings.Builder
 	stderrOutput    strings.Builder // stderr 输出缓冲（用于错误诊断）
 	pendingQuestion *agent.Chunk    // 待处理的 AskUserQuestion（等待用户响应）
+	thoughtChunkCount int           // 流式思考内容计数器（用于采样打印）
 	mu              sync.Mutex
 }
 
@@ -563,8 +564,8 @@ func (a *BaseACPAdapter) CheckHealth(ctx context.Context) error {
 }
 
 func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, params json.RawMessage, onChunk func(agent.Chunk)) {
-	// 记录所有收到的通知（调试用）
-	LogInfo("ACP: received notification",
+	// 记录所有收到的通知（调试用，高频日志降级为 Debug）
+	LogDebug("ACP: received notification",
 		zap.String("method", method),
 		zap.String("paramsPreview", string(params)[:min(500, len(string(params)))]))
 
@@ -579,10 +580,10 @@ func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, 
 			return
 		}
 
-		// 解析 sessionUpdate 类型
+		// 解析 sessionUpdate 类型（高频日志降级为 Debug）
 		var header acpSessionUpdateHeader
 		if err := json.Unmarshal(updateParams.Update, &header); err == nil {
-			LogInfo("ACP: session/update type",
+			LogDebug("ACP: session/update type",
 				zap.String("sessionId", updateParams.SessionID),
 				zap.String("sessionUpdate", header.SessionUpdate))
 		}
@@ -602,6 +603,16 @@ func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, 
 			// 对于 question 类型，存储到 session 以便等待用户响应
 			if chunk.Type == agent.ChunkTypeQuestion {
 				session.pendingQuestion = &chunk
+			}
+			// 流式思考内容采样打印：每50个 thinking chunk 打印一条摘要日志
+			if chunk.Type == agent.ChunkTypeThinking {
+				session.thoughtChunkCount++
+				if session.thoughtChunkCount%50 == 0 {
+					LogInfo("ACP: thinking progress",
+						zap.String("sessionId", session.id),
+						zap.Int("chunkCount", session.thoughtChunkCount),
+						zap.Int("contentLen", len(chunk.Content)))
+				}
 			}
 			onChunk(chunk)
 		}
@@ -624,20 +635,21 @@ func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, 
 			LogError("ACP: failed to parse session/request_user_input params", zap.Error(err))
 			return
 		}
-		LogInfo("ACP: received user input request",
+		// 用户输入请求日志降级为 Debug（调试时可用）
+		LogDebug("ACP: received user input request",
 			zap.String("sessionId", inputRequest.SessionID),
 			zap.String("toolCallId", inputRequest.ToolCallID),
 			zap.String("toolName", inputRequest.ToolName),
 			zap.Any("input", inputRequest.Input))
 
-		// 详细打印 input 结构（用于调试解析问题）
+		// 详细打印 input 结构（用于调试解析问题，高频降级为 Debug）
 		inputJSON, _ := json.MarshalIndent(inputRequest.Input, "", "  ")
-		LogInfo("ACP: user input request - detailed input structure",
+		LogDebug("ACP: user input request - detailed input structure",
 			zap.String("inputJSON", string(inputJSON)))
 
-		// 解析问题并创建 question chunk
+		// 解析问题并创建 question chunk（调试日志降级为 Debug）
 		chunk := parseACPUserInputRequest(inputRequest)
-		LogInfo("ACP: parsed question chunk",
+		LogDebug("ACP: parsed question chunk",
 			zap.String("toolName", chunk.ToolName),
 			zap.Int("questionsCount", len(chunk.Questions)),
 			zap.Any("questions", chunk.Questions))
@@ -651,7 +663,7 @@ func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, 
 			a.mu.Lock()
 			a.sessions[session.isdpID] = session
 			a.mu.Unlock()
-			LogInfo("ACP: session saved to sessions map for AskUserQuestion",
+			LogDebug("ACP: session saved to sessions map for AskUserQuestion",
 				zap.String("isdpID", session.isdpID),
 				zap.String("acpSessionId", session.id),
 				zap.String("toolCallId", inputRequest.ToolCallID))
@@ -664,7 +676,8 @@ func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, 
 		if onChunk == nil {
 			return
 		}
-		LogInfo("ACP: received session/tool_call_update notification", zap.String("params", string(params)))
+		// 工具调用更新日志降级为 Debug（高频）
+			LogDebug("ACP: received session/tool_call_update notification", zap.String("params", string(params)))
 
 		// 尝试解析通知参数
 		var updateParams struct {
@@ -698,7 +711,8 @@ func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, 
 		}
 
 	default:
-		LogInfo("ACP: unknown notification method",
+		// 未知通知方法降级为 Debug
+		LogDebug("ACP: unknown notification method",
 			zap.String("method", method),
 			zap.String("params", string(params)))
 	}

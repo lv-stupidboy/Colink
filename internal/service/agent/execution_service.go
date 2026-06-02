@@ -2490,7 +2490,8 @@ func (es *ExecutionService) broadcastStatus(threadID, invocationID uuid.UUID, st
 
 // broadcastChunk 广播输出块（实时流式输出）
 func (es *ExecutionService) broadcastChunk(threadID, invocationID uuid.UUID, chunk Chunk, agentID, agentName string) {
-	logInfo("broadcastChunk called", zap.String("threadId", threadID.String()), zap.String("chunkType", string(chunk.Type)), zap.String("toolName", chunk.ToolName))
+	// 高频流式日志降级为 Debug
+	logDebug("broadcastChunk called", zap.String("threadId", threadID.String()), zap.String("chunkType", string(chunk.Type)), zap.String("toolName", chunk.ToolName))
 
 	// 更新 Agent 的最后活动时间，并处理工具执行状态
 	es.mu.Lock()
