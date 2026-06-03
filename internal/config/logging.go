@@ -50,13 +50,14 @@ func SetupLogging(logLevel string) (*zap.Logger, error) {
 		Filename:   "logs/server.log", // 统一日志文件位置
 		MaxSize:    1,                 // MB
 		MaxBackups: 10,
-		MaxAge:     30,                // days
-		Compress:   true,              // disabled by default
+		MaxAge:     30,   // days
+		Compress:   true, // disabled by default
 	}
 
 	// 设置编码器配置
 	encoderConfig := zap.NewProductionEncoderConfig()
 	encoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
+	encoderConfig.EncodeCaller = zapcore.ShortCallerEncoder
 
 	// 解析日志级别
 	level := ParseLogLevel(logLevel)
