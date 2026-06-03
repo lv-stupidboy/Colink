@@ -8,6 +8,9 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -808,7 +811,7 @@ func initLogger(level, format, logDir string) (*zap.Logger, error) {
 		MaxSize:    1,    // MB，单个文件最大大小
 		MaxBackups: 10,   // 保留的旧日志文件数量
 		MaxAge:     30,   // 天，保留天数
-		Compress:   true, // 压缩旧日志文件
+		Compress:   false, // 不压缩旧日志文件
 	}
 
 	// 解析日志级别
@@ -827,17 +830,21 @@ func initLogger(level, format, logDir string) (*zap.Logger, error) {
 	}
 
 	// 配置编码器
-	var encoder zapcore.Encoder
 	encoderConfig := zap.NewProductionEncoderConfig()
-	encoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
-	encoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
-
-	if format == "json" {
-		encoder = zapcore.NewJSONEncoder(encoderConfig)
-	} else {
-		encoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
-		encoder = zapcore.NewConsoleEncoder(encoderConfig)
+	encoderConfig.EncodeTime = func(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
+		enc.AppendString(t.Format("2006-01-02 15:04:05.000"))
 	}
+	encoderConfig.EncodeLevel = func(level zapcore.Level, enc zapcore.PrimitiveArrayEncoder) {
+		// 输出 [INFO] [goroutineID]
+		gid := getGoroutineID()
+		enc.AppendString("[" + level.CapitalString() + "] [" + strconv.FormatUint(gid, 10) + "]")
+	}
+	encoderConfig.EncodeCaller = func(caller zapcore.EntryCaller, enc zapcore.PrimitiveArrayEncoder) {
+		enc.AppendString("[" + caller.String() + "]")
+	}
+	encoderConfig.ConsoleSeparator = " " // 1个空格分隔各部分
+
+	encoder := zapcore.NewConsoleEncoder(encoderConfig)
 
 	// 创建多输出：同时输出到文件和控制台
 	fileWriter := zapcore.AddSync(logFile)
@@ -854,6 +861,16 @@ func initLogger(level, format, logDir string) (*zap.Logger, error) {
 	zap.ReplaceGlobals(logger)
 
 	return logger, nil
+}
+
+// getGoroutineID 获取当前 goroutine ID
+func getGoroutineID() uint64 {
+	var buf [64]byte
+	n := runtime.Stack(buf[:], false)
+	// 解析 goroutine ID，格式: "goroutine X [running]:"
+	idField := strings.Fields(string(buf[:n]))[1]
+	id, _ := strconv.ParseUint(idField, 10, 64)
+	return id
 }
 
 func corsMiddleware() gin.HandlerFunc {
