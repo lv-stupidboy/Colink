@@ -15,11 +15,11 @@ var (
 	// 匹配完整的 memory-context block
 	memoryContextBlockRegex = regexp.MustCompile(`(?s)<memory-context>[\s\S]*?</memory-context>`)
 	// 匹配开始的标签
-	memoryContextOpenRegex  = regexp.MustCompile(`<memory-context>`)
+	memoryContextOpenRegex = regexp.MustCompile(`<memory-context>`)
 	// 匹配结束的标签
 	memoryContextCloseRegex = regexp.MustCompile(`</memory-context>`)
 	// 匹配 System note 行
-	memorySystemNoteRegex   = regexp.MustCompile(`\[System note: The following is recalled memory context[^\]]*\]\s*`)
+	memorySystemNoteRegex = regexp.MustCompile(`\[System note: The following is recalled memory context[^\]]*\]\s*`)
 )
 
 // ScrubMemoryContext 从文本中清除 memory-context 标签及其内容

@@ -24,9 +24,9 @@ import (
 	"github.com/anthropic/isdp/internal/service/knowledge"
 	"github.com/anthropic/isdp/internal/service/local_repo"
 	"github.com/anthropic/isdp/internal/service/market"
+	"github.com/anthropic/isdp/internal/service/memory"
 	"github.com/anthropic/isdp/internal/service/mention"
 	"github.com/anthropic/isdp/internal/service/merge"
-	"github.com/anthropic/isdp/internal/service/memory"
 	"github.com/anthropic/isdp/internal/service/message"
 	"github.com/anthropic/isdp/internal/service/project"
 	"github.com/anthropic/isdp/internal/service/rule"
@@ -251,27 +251,27 @@ func main() {
 		logger,
 	)
 
-		// 设置缓存失效回调：配置生成后刷新 ConfigService 缓存
-		configGenService.SetCacheInvalidateCallback(func(agentRoleID uuid.UUID) {
-			configService.InvalidateCache(agentRoleID)
-		})
+	// 设置缓存失效回调：配置生成后刷新 ConfigService 缓存
+	configGenService.SetCacheInvalidateCallback(func(agentRoleID uuid.UUID) {
+		configService.InvalidateCache(agentRoleID)
+	})
 
-		// 创建 AutoGenerator（自动配置生成器）
-		autoGenerator := configgen.NewAutoGenerator(
-			configGenService,
-			agentConfigRepo,
-			baseAgentRepo,
-			&configgen.BindingRepositories{
-				SkillBindingRepo:    agentSkillBindingRepo,
-				CommandBindingRepo:  agentCommandBindingRepo,
-				SubagentBindingRepo: agentSubagentBindingRepo,
-				RuleBindingRepo:     agentRuleBindingRepo,
-				SettingsBindingRepo: agentSettingsBindingRepo,
-			},
-			logger,
-		)
+	// 创建 AutoGenerator（自动配置生成器）
+	autoGenerator := configgen.NewAutoGenerator(
+		configGenService,
+		agentConfigRepo,
+		baseAgentRepo,
+		&configgen.BindingRepositories{
+			SkillBindingRepo:    agentSkillBindingRepo,
+			CommandBindingRepo:  agentCommandBindingRepo,
+			SubagentBindingRepo: agentSubagentBindingRepo,
+			RuleBindingRepo:     agentRuleBindingRepo,
+			SettingsBindingRepo: agentSettingsBindingRepo,
+		},
+		logger,
+	)
 
-		// 创建 Subagent Service
+	// 创建 Subagent Service
 	subagentSvc := subagent.NewService(
 		subagentRepo, agentSubagentBindingRepo, subagentSkillBindingRepo,
 		agentConfigRepo, skillRepo,
@@ -400,7 +400,7 @@ func main() {
 	_ = agent.NewContextBuilder(threadRepo, messageRepo, artifactRepo) // TODO: wire into orchestrator
 	tracker := agent.NewInvocationTracker(invocationRepo)
 	// 初始化记忆管理器（US-004 集成）
-	memoryManager := memory.NewMemoryManager(db)
+	memoryManager := memory.NewMemoryManager(agentConfigRepo)
 	// 设置 API URL（用于 MCP server 回调）
 	apiURL := fmt.Sprintf("http://localhost:%d", cfg.Server.Port)
 	orchestrator := agent.NewOrchestrator(
@@ -669,7 +669,7 @@ func main() {
 	marketHandler := api.NewMarketHandler(marketSvc, cfg, logger)
 	marketHandler.RegisterRoutes(v1)
 
-// Help Handler
+	// Help Handler
 	helpHandler := api.NewHelpHandler(
 		cfg.Help.SupportGroup,
 		cfg.Help.OfficialWebsite,
@@ -682,7 +682,7 @@ func main() {
 	runtimeConfigHandler.RegisterRoutes(v1)
 
 	// MCP Callback Handler - 注册在 /api 下（不含 /v1），与 MCP client URL 一致
-	callbackHandler := api.NewCallbackHandler(invocationRegistry, mcpAuthService, messageService, messageRepo, wsHub, orchestrator, baseAgentRepo, invocationQueue, queueProcessor, mentionParser, humanTaskSvc, agentConfigRepo)
+	callbackHandler := api.NewCallbackHandler(invocationRegistry, mcpAuthService, messageService, messageRepo, wsHub, orchestrator, baseAgentRepo, invocationQueue, queueProcessor, mentionParser, humanTaskSvc, agentConfigRepo, invocationRepo, projectRepo, threadRepo, workflowRepo, memoryManager)
 	callbackHandler.RegisterRoutes(router.Group("/api"))
 
 	// WebSocket

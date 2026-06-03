@@ -11,7 +11,6 @@ import (
 	"github.com/anthropic/isdp/internal/mcp-server/tools"
 )
 
-// Server MCP 服务器实现
 type Server struct {
 	apiURL        string
 	invocationID  string
@@ -20,7 +19,6 @@ type Server struct {
 	mu            sync.Mutex
 }
 
-// Tool MCP 工具接口
 type Tool interface {
 	Name() string
 	Description() string
@@ -28,7 +26,6 @@ type Tool interface {
 	Execute(args map[string]interface{}) (interface{}, error)
 }
 
-// JSONRPCRequest JSON-RPC 请求
 type JSONRPCRequest struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      interface{}     `json:"id"`
@@ -36,7 +33,6 @@ type JSONRPCRequest struct {
 	Params  json.RawMessage `json:"params"`
 }
 
-// JSONRPCResponse JSON-RPC 响应
 type JSONRPCResponse struct {
 	JSONRPC string      `json:"jsonrpc"`
 	ID      interface{} `json:"id"`
@@ -44,13 +40,11 @@ type JSONRPCResponse struct {
 	Error   *RPCError   `json:"error,omitempty"`
 }
 
-// RPCError RPC 错误
 type RPCError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
 }
 
-// NewServer 创建 MCP Server
 func NewServer(apiURL, invocationID, callbackToken string) *Server {
 	s := &Server{
 		apiURL:        apiURL,
@@ -59,18 +53,22 @@ func NewServer(apiURL, invocationID, callbackToken string) *Server {
 		tools:         make(map[string]Tool),
 	}
 
-	// 注册工具 - 分层设计：team_memory + project_memory（替代原 memory 工具）
-	s.registerTool(&tools.TeamMemoryTool{
+	// Team and project memory are handled through memory.add with type=team/project.
+	s.registerTool(&tools.TeamListAgentsTool{
 		APIURL:        apiURL,
 		InvocationID:  invocationID,
 		CallbackToken: callbackToken,
 	})
-	s.registerTool(&tools.ProjectMemoryTool{
+	s.registerTool(&tools.MemoryAddTool{
 		APIURL:        apiURL,
 		InvocationID:  invocationID,
 		CallbackToken: callbackToken,
 	})
-	// 保留其他工具
+	s.registerTool(&tools.MemorySearchTool{
+		APIURL:        apiURL,
+		InvocationID:  invocationID,
+		CallbackToken: callbackToken,
+	})
 	s.registerTool(&tools.PostMessageTool{
 		APIURL:        apiURL,
 		InvocationID:  invocationID,
@@ -91,7 +89,6 @@ func (s *Server) registerTool(tool Tool) {
 	s.mu.Unlock()
 }
 
-// Run 启动 MCP Server（stdio 模式）
 func (s *Server) Run() error {
 	reader := bufio.NewReader(os.Stdin)
 	encoder := json.NewEncoder(os.Stdout)
@@ -105,14 +102,12 @@ func (s *Server) Run() error {
 			return fmt.Errorf("read error: %w", err)
 		}
 
-		// 解析请求
 		var req JSONRPCRequest
 		if err := json.Unmarshal([]byte(line), &req); err != nil {
 			s.sendError(encoder, nil, -32700, "Parse error")
 			continue
 		}
 
-		// 处理请求
 		resp := s.handleRequest(&req)
 		if err := encoder.Encode(resp); err != nil {
 			return fmt.Errorf("encode error: %w", err)
@@ -168,7 +163,7 @@ func (s *Server) handleToolsList(req *JSONRPCRequest) *JSONRPCResponse {
 	}
 
 	return &JSONRPCResponse{
-		JSONRPC: "2.0",
+		JSONRPC: req.JSONRPC,
 		ID:      req.ID,
 		Result: map[string]interface{}{
 			"tools": toolList,
@@ -210,8 +205,8 @@ func (s *Server) handleToolsCall(req *JSONRPCRequest) *JSONRPCResponse {
 			Result: map[string]interface{}{
 				"content": []map[string]interface{}{
 					{
-						"type": "text",
-						"text": fmt.Sprintf("Error: %v", err),
+						"type":    "text",
+						"text":    fmt.Sprintf("Error: %v", err),
 						"isError": true,
 					},
 				},
@@ -234,7 +229,7 @@ func (s *Server) handleToolsCall(req *JSONRPCRequest) *JSONRPCResponse {
 }
 
 func (s *Server) sendError(encoder *json.Encoder, id interface{}, code int, message string) {
-	encoder.Encode(&JSONRPCResponse{
+	_ = encoder.Encode(&JSONRPCResponse{
 		JSONRPC: "2.0",
 		ID:      id,
 		Error:   &RPCError{Code: code, Message: message},

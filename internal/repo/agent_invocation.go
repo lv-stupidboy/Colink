@@ -25,11 +25,15 @@ func NewAgentInvocationRepository(db *sql.DB, dbType DBType) *AgentInvocationRep
 // Create 创建调用记录
 func (r *AgentInvocationRepository) Create(ctx context.Context, invocation *model.AgentInvocation) error {
 	query := `
-		INSERT INTO agent_invocations (id, thread_id, agent_config_id, role, agent_name, status, input, full_prompt, output, started_at, completed_at, created_at, session_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO agent_invocations (id, thread_id, agent_config_id, role, agent_name, status, input, full_prompt, output, started_at, completed_at, created_at, session_id, callback_token, triggered_by)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
+	var triggeredBy interface{}
+	if invocation.TriggeredBy != uuid.Nil {
+		triggeredBy = invocation.TriggeredBy.String()
+	}
 	_, err := r.DB().ExecContext(ctx, query,
-		invocation.ID.String(), invocation.ThreadID.String(), invocation.AgentConfigID.String(), invocation.Role, invocation.AgentName, invocation.Status, invocation.Input, invocation.FullPrompt, invocation.Output, invocation.StartedAt, invocation.CompletedAt, invocation.CreatedAt, invocation.SessionID,
+		invocation.ID.String(), invocation.ThreadID.String(), invocation.AgentConfigID.String(), invocation.Role, invocation.AgentName, invocation.Status, invocation.Input, invocation.FullPrompt, invocation.Output, invocation.StartedAt, invocation.CompletedAt, invocation.CreatedAt, invocation.SessionID, invocation.CallbackToken, triggeredBy,
 	)
 	return err
 }
@@ -38,16 +42,17 @@ func (r *AgentInvocationRepository) Create(ctx context.Context, invocation *mode
 func (r *AgentInvocationRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.AgentInvocation, error) {
 	query := `
 		SELECT id, thread_id, agent_config_id, role, agent_name, status, input, full_prompt, output, started_at, completed_at, created_at, session_id,
-		       input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, cost_usd, duration_ms, duration_api_ms
+		       input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, cost_usd, duration_ms, duration_api_ms, callback_token, triggered_by
 		FROM agent_invocations WHERE id = ?
 	`
 	invocation := &model.AgentInvocation{}
 	var idStr, threadIDStr, agentConfigIDStr string
-	var agentName, sessionID, fullPrompt sql.NullString
+	var agentName, sessionID, fullPrompt, callbackToken, triggeredBy sql.NullString
 	var startedAt, completedAt, createdAt SQLiteTimeScanner
 	err := r.DB().QueryRowContext(ctx, query, id.String()).Scan(
 		&idStr, &threadIDStr, &agentConfigIDStr, &invocation.Role, &agentName, &invocation.Status, &invocation.Input, &fullPrompt, &invocation.Output, &startedAt, &completedAt, &createdAt, &sessionID,
 		&invocation.InputTokens, &invocation.OutputTokens, &invocation.CacheReadTokens, &invocation.CacheCreationTokens, &invocation.CostUsd, &invocation.DurationMs, &invocation.DurationApiMs,
+		&callbackToken, &triggeredBy,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find invocation: %w", err)
@@ -64,6 +69,12 @@ func (r *AgentInvocationRepository) FindByID(ctx context.Context, id uuid.UUID) 
 	if sessionID.Valid {
 		invocation.SessionID = sessionID.String
 	}
+	if callbackToken.Valid {
+		invocation.CallbackToken = callbackToken.String
+	}
+	if triggeredBy.Valid {
+		invocation.TriggeredBy, _ = uuid.Parse(triggeredBy.String)
+	}
 	invocation.CreatedAt = createdAt.Time
 	if startedAt.Valid {
 		invocation.StartedAt = &startedAt.Time
@@ -78,7 +89,7 @@ func (r *AgentInvocationRepository) FindByID(ctx context.Context, id uuid.UUID) 
 func (r *AgentInvocationRepository) FindByThreadID(ctx context.Context, threadID uuid.UUID) ([]*model.AgentInvocation, error) {
 	query := `
 		SELECT id, thread_id, agent_config_id, role, agent_name, status, input, full_prompt, output, started_at, completed_at, created_at, session_id,
-		       input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, cost_usd, duration_ms, duration_api_ms
+		       input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, cost_usd, duration_ms, duration_api_ms, callback_token, triggered_by
 		FROM agent_invocations WHERE thread_id = ? ORDER BY created_at DESC
 	`
 	rows, err := r.DB().QueryContext(ctx, query, threadID.String())
@@ -91,11 +102,12 @@ func (r *AgentInvocationRepository) FindByThreadID(ctx context.Context, threadID
 	for rows.Next() {
 		invocation := &model.AgentInvocation{}
 		var idStr, threadIDStr, agentConfigIDStr string
-		var agentName, sessionID, fullPrompt sql.NullString
+		var agentName, sessionID, fullPrompt, callbackToken, triggeredBy sql.NullString
 		var startedAt, completedAt, createdAt SQLiteTimeScanner
 		err := rows.Scan(
 			&idStr, &threadIDStr, &agentConfigIDStr, &invocation.Role, &agentName, &invocation.Status, &invocation.Input, &fullPrompt, &invocation.Output, &startedAt, &completedAt, &createdAt, &sessionID,
 			&invocation.InputTokens, &invocation.OutputTokens, &invocation.CacheReadTokens, &invocation.CacheCreationTokens, &invocation.CostUsd, &invocation.DurationMs, &invocation.DurationApiMs,
+			&callbackToken, &triggeredBy,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan invocation: %w", err)
@@ -111,6 +123,12 @@ func (r *AgentInvocationRepository) FindByThreadID(ctx context.Context, threadID
 		}
 		if sessionID.Valid {
 			invocation.SessionID = sessionID.String
+		}
+		if callbackToken.Valid {
+			invocation.CallbackToken = callbackToken.String
+		}
+		if triggeredBy.Valid {
+			invocation.TriggeredBy, _ = uuid.Parse(triggeredBy.String)
 		}
 		invocation.CreatedAt = createdAt.Time
 		if startedAt.Valid {
@@ -129,12 +147,18 @@ func (r *AgentInvocationRepository) Update(ctx context.Context, invocation *mode
 	query := `
 		UPDATE agent_invocations
 		SET status = ?, full_prompt = ?, output = ?, started_at = ?, completed_at = ?, session_id = ?,
-		    input_tokens = ?, output_tokens = ?, cache_read_tokens = ?, cache_creation_tokens = ?, cost_usd = ?, duration_ms = ?, duration_api_ms = ?
+		    input_tokens = ?, output_tokens = ?, cache_read_tokens = ?, cache_creation_tokens = ?, cost_usd = ?, duration_ms = ?, duration_api_ms = ?,
+		    callback_token = ?, triggered_by = ?
 		WHERE id = ?
 	`
+	var triggeredBy interface{}
+	if invocation.TriggeredBy != uuid.Nil {
+		triggeredBy = invocation.TriggeredBy.String()
+	}
 	_, err := r.DB().ExecContext(ctx, query,
 		invocation.Status, invocation.FullPrompt, invocation.Output, invocation.StartedAt, invocation.CompletedAt, invocation.SessionID,
 		invocation.InputTokens, invocation.OutputTokens, invocation.CacheReadTokens, invocation.CacheCreationTokens, invocation.CostUsd, invocation.DurationMs, invocation.DurationApiMs,
+		invocation.CallbackToken, triggeredBy,
 		invocation.ID.String(),
 	)
 	return err
@@ -151,7 +175,7 @@ func (r *AgentInvocationRepository) Delete(ctx context.Context, id uuid.UUID) er
 func (r *AgentInvocationRepository) FindByStatus(ctx context.Context, status model.InvocationStatus) ([]*model.AgentInvocation, error) {
 	query := `
 		SELECT id, thread_id, agent_config_id, role, agent_name, status, input, full_prompt, output, started_at, completed_at, created_at, process_id, session_id,
-		       input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, cost_usd, duration_ms, duration_api_ms
+		       input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, cost_usd, duration_ms, duration_api_ms, callback_token, triggered_by
 		FROM agent_invocations WHERE status = ? ORDER BY created_at DESC
 	`
 	rows, err := r.DB().QueryContext(ctx, query, string(status))
@@ -164,11 +188,12 @@ func (r *AgentInvocationRepository) FindByStatus(ctx context.Context, status mod
 	for rows.Next() {
 		invocation := &model.AgentInvocation{}
 		var idStr, threadIDStr, agentConfigIDStr string
-		var agentName, processID, sessionID, fullPrompt sql.NullString
+		var agentName, processID, sessionID, fullPrompt, callbackToken, triggeredBy sql.NullString
 		var startedAt, completedAt, createdAt SQLiteTimeScanner
 		err := rows.Scan(
 			&idStr, &threadIDStr, &agentConfigIDStr, &invocation.Role, &agentName, &invocation.Status, &invocation.Input, &fullPrompt, &invocation.Output, &startedAt, &completedAt, &createdAt, &processID, &sessionID,
 			&invocation.InputTokens, &invocation.OutputTokens, &invocation.CacheReadTokens, &invocation.CacheCreationTokens, &invocation.CostUsd, &invocation.DurationMs, &invocation.DurationApiMs,
+			&callbackToken, &triggeredBy,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan invocation: %w", err)
@@ -188,6 +213,12 @@ func (r *AgentInvocationRepository) FindByStatus(ctx context.Context, status mod
 		if sessionID.Valid {
 			invocation.SessionID = sessionID.String
 		}
+		if callbackToken.Valid {
+			invocation.CallbackToken = callbackToken.String
+		}
+		if triggeredBy.Valid {
+			invocation.TriggeredBy, _ = uuid.Parse(triggeredBy.String)
+		}
 		invocation.CreatedAt = createdAt.Time
 		if startedAt.Valid {
 			invocation.StartedAt = &startedAt.Time
@@ -206,7 +237,7 @@ func (r *AgentInvocationRepository) FindRecentlyCompletedByThread(ctx context.Co
 	cutoffTime := time.Now().Add(-time.Duration(sinceMinutes) * time.Minute)
 	query := `
 		SELECT id, thread_id, agent_config_id, role, agent_name, status, input, full_prompt, output, started_at, completed_at, created_at, session_id,
-		       input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, cost_usd, duration_ms, duration_api_ms
+		       input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, cost_usd, duration_ms, duration_api_ms, callback_token, triggered_by
 		FROM agent_invocations
 		WHERE thread_id = ?
 			AND status IN ('completed', 'failed', 'interrupted')
@@ -223,11 +254,12 @@ func (r *AgentInvocationRepository) FindRecentlyCompletedByThread(ctx context.Co
 	for rows.Next() {
 		invocation := &model.AgentInvocation{}
 		var idStr, threadIDStr, agentConfigIDStr string
-		var agentName, sessionID, fullPrompt sql.NullString
+		var agentName, sessionID, fullPrompt, callbackToken, triggeredBy sql.NullString
 		var startedAt, completedAt, createdAt SQLiteTimeScanner
 		err := rows.Scan(
 			&idStr, &threadIDStr, &agentConfigIDStr, &invocation.Role, &agentName, &invocation.Status, &invocation.Input, &fullPrompt, &invocation.Output, &startedAt, &completedAt, &createdAt, &sessionID,
 			&invocation.InputTokens, &invocation.OutputTokens, &invocation.CacheReadTokens, &invocation.CacheCreationTokens, &invocation.CostUsd, &invocation.DurationMs, &invocation.DurationApiMs,
+			&callbackToken, &triggeredBy,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan invocation: %w", err)
@@ -243,6 +275,12 @@ func (r *AgentInvocationRepository) FindRecentlyCompletedByThread(ctx context.Co
 		}
 		if sessionID.Valid {
 			invocation.SessionID = sessionID.String
+		}
+		if callbackToken.Valid {
+			invocation.CallbackToken = callbackToken.String
+		}
+		if triggeredBy.Valid {
+			invocation.TriggeredBy, _ = uuid.Parse(triggeredBy.String)
 		}
 		invocation.CreatedAt = createdAt.Time
 		if startedAt.Valid {

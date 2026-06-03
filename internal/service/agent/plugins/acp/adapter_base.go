@@ -640,39 +640,7 @@ func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, 
 }
 
 func (a *BaseACPAdapter) buildPromptFromRequest(req *agent.ExecutionRequest) string {
-	var sb strings.Builder
-
-	if req.Context != nil {
-		if req.Context.Layer0 != "" {
-			sb.WriteString("<system>\n")
-			sb.WriteString(req.Context.Layer0)
-			sb.WriteString("\n</system>\n\n")
-		}
-
-		if req.Context.Layer1 != "" {
-			sb.WriteString("<conversation>\n")
-			sb.WriteString(req.Context.Layer1)
-			sb.WriteString("\n</conversation>\n\n")
-		}
-
-		if req.Context.Layer2 != "" {
-			sb.WriteString("<artifacts>\n")
-			sb.WriteString(req.Context.Layer2)
-			sb.WriteString("\n</artifacts>\n\n")
-		}
-
-		if req.Context.Layer3 != "" {
-			sb.WriteString("<environment>\n")
-			sb.WriteString(req.Context.Layer3)
-			sb.WriteString("\n</environment>\n\n")
-		}
-	}
-
-	sb.WriteString("<user>\n")
-	sb.WriteString(req.Input)
-	sb.WriteString("\n</user>\n")
-
-	return sb.String()
+	return agent.BuildPromptFromRequest(req)
 }
 
 func (a *BaseACPAdapter) buildEnv(req *agent.ExecutionRequest) []string {

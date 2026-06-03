@@ -12,6 +12,7 @@ import (
 	"github.com/anthropic/isdp/internal/service/a2a"
 	"github.com/anthropic/isdp/internal/service/agent"
 	"github.com/anthropic/isdp/internal/service/humantask"
+	"github.com/anthropic/isdp/internal/service/memory"
 	"github.com/anthropic/isdp/internal/service/mention"
 	"github.com/anthropic/isdp/internal/service/message"
 	"github.com/anthropic/isdp/internal/ws"
@@ -21,14 +22,14 @@ import (
 
 // CallbackHandler MCP Callback 路由处理器
 type CallbackHandler struct {
-	registry      *a2a.InvocationRegistry
-	mcpAuth       *a2a.MCPAuthService
-	messageSvc    *message.Service
-	msgRepo       *repo.MessageRepository
-	wsHub         *ws.Hub
-	orchestrator  *agent.Orchestrator
-	baseAgentRepo *repo.BaseAgentRepository
-	queue         *a2a.InvocationQueue
+	registry       *a2a.InvocationRegistry
+	mcpAuth        *a2a.MCPAuthService
+	messageSvc     *message.Service
+	msgRepo        *repo.MessageRepository
+	wsHub          *ws.Hub
+	orchestrator   *agent.Orchestrator
+	baseAgentRepo  *repo.BaseAgentRepository
+	queue          *a2a.InvocationQueue
 	queueProcessor *a2a.QueueProcessor
 
 	// Mention 解析器（支持动态 patterns）
@@ -37,6 +38,11 @@ type CallbackHandler struct {
 	// Human 任务服务（用于人角色触发）
 	humanTaskSvc    *humantask.Service
 	agentConfigRepo *repo.AgentConfigRepository
+	invocationRepo  *repo.AgentInvocationRepository
+	projectRepo     *repo.ProjectRepository
+	threadRepo      *repo.ThreadRepository
+	workflowRepo    *repo.WorkflowTemplateRepository
+	memoryManager   *memory.MemoryManager
 }
 
 // NewCallbackHandler 创建 Callback 处理器
@@ -53,6 +59,11 @@ func NewCallbackHandler(
 	mentionParser *mention.Parser,
 	humanTaskSvc *humantask.Service,
 	agentConfigRepo *repo.AgentConfigRepository,
+	invocationRepo *repo.AgentInvocationRepository,
+	projectRepo *repo.ProjectRepository,
+	threadRepo *repo.ThreadRepository,
+	workflowRepo *repo.WorkflowTemplateRepository,
+	memoryManager *memory.MemoryManager,
 ) *CallbackHandler {
 	return &CallbackHandler{
 		registry:        registry,
@@ -67,27 +78,62 @@ func NewCallbackHandler(
 		mentionParser:   mentionParser,
 		humanTaskSvc:    humanTaskSvc,
 		agentConfigRepo: agentConfigRepo,
+		invocationRepo:  invocationRepo,
+		projectRepo:     projectRepo,
+		threadRepo:      threadRepo,
+		workflowRepo:    workflowRepo,
+		memoryManager:   memoryManager,
 	}
 }
 
 // PostMessageRequest post-message 请求
 type PostMessageRequest struct {
-	InvocationID     string `json:"invocationId" binding:"required"`
-	CallbackToken    string `json:"callbackToken" binding:"required"`
-	Content          string `json:"content" binding:"required,max=50000"`
-	ThreadID         string `json:"threadId"`          // 可选：跨线程发送
-	ReplyTo          string `json:"replyTo"`           // 可选：回复的消息 ID
-	ClientMessageID  string `json:"clientMessageId"`   // 可选：客户端消息 ID（幂等性）
-	TargetCats       []string `json:"targetCats"`       // 可选：显式指定目标 Agent
+	InvocationID    string   `json:"invocationId" binding:"required"`
+	CallbackToken   string   `json:"callbackToken" binding:"required"`
+	Content         string   `json:"content" binding:"required,max=50000"`
+	ThreadID        string   `json:"threadId"`        // 可选：跨线程发送
+	ReplyTo         string   `json:"replyTo"`         // 可选：回复的消息 ID
+	ClientMessageID string   `json:"clientMessageId"` // 可选：客户端消息 ID（幂等性）
+	TargetCats      []string `json:"targetCats"`      // 可选：显式指定目标 Agent
 }
 
 // PostMessageResponse post-message 响应
 type PostMessageResponse struct {
-	Status       string `json:"status"`
-	ThreadID     string `json:"threadId,omitempty"`
-	MessageID    string `json:"messageId,omitempty"`
-	ReplyTo      string `json:"replyTo,omitempty"`
+	Status          string `json:"status"`
+	ThreadID        string `json:"threadId,omitempty"`
+	MessageID       string `json:"messageId,omitempty"`
+	ReplyTo         string `json:"replyTo,omitempty"`
 	ClientMessageID string `json:"clientMessageId,omitempty"`
+}
+
+type MemoryCallbackRequest struct {
+	InvocationID  string   `json:"invocationId"`
+	CallbackToken string   `json:"callbackToken"`
+	Action        string   `json:"action"`
+	Scope         string   `json:"scope"`
+	Type          string   `json:"type"`
+	WorkspacePath string   `json:"workspacePath"`
+	Content       string   `json:"content"`
+	OldText       string   `json:"oldText"`
+	Query         string   `json:"query"`
+	Status        string   `json:"status"`
+	Category      string   `json:"category"`
+	Tags          []string `json:"tags"`
+	Topic         string   `json:"topic"`
+	Facts         []string `json:"facts"`
+	Usage         []string `json:"usage"`
+}
+
+type ListTeamAgentsRequest struct {
+	InvocationID  string `json:"invocationId"`
+	CallbackToken string `json:"callbackToken"`
+	WorkspacePath string `json:"workspacePath"`
+}
+
+type callbackIdentity struct {
+	InvocationID uuid.UUID
+	ThreadID     uuid.UUID
+	AgentID      string
 }
 
 // PostMessage Agent 主动发消息
@@ -163,12 +209,12 @@ func (h *CallbackHandler) PostMessage(c *gin.Context) {
 
 	// 存储消息
 	msg := &model.Message{
-		ThreadID:  effectiveThreadID,
-		Role:      model.MessageRoleAgent,
-		AgentID:   record.CatID,
-		Content:   req.Content,
-		Mentions:  allMentions,
-		Origin:    "callback",
+		ThreadID: effectiveThreadID,
+		Role:     model.MessageRoleAgent,
+		AgentID:  record.CatID,
+		Content:  req.Content,
+		Mentions: allMentions,
+		Origin:   "callback",
 	}
 
 	// 处理回复
@@ -212,6 +258,106 @@ func (h *CallbackHandler) PostMessage(c *gin.Context) {
 		ReplyTo:         req.ReplyTo,
 		ClientMessageID: req.ClientMessageID,
 	})
+}
+
+// Memory handles MCP memory tool callbacks.
+// POST /api/callbacks/memory
+func (h *CallbackHandler) Memory(c *gin.Context) {
+	if h.memoryManager == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "memory manager is not initialized"})
+		return
+	}
+
+	var req MemoryCallbackRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	identity, ok := h.verifyCallbackIdentity(c, req.InvocationID, req.CallbackToken)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error":   "expired_credentials",
+			"message": "Invocation ID or callback token is invalid or expired",
+		})
+		return
+	}
+
+	scopeIdentity := h.resolveMemoryScope(c.Request.Context(), identity.ThreadID)
+	if scopeIdentity.WorkspacePath == "" {
+		scopeIdentity.WorkspacePath = strings.TrimSpace(req.WorkspacePath)
+	}
+
+	toolName := "memory.add"
+	scope := req.Scope
+	if scope == "" {
+		scope = req.Type
+	}
+	if req.Action == "search" || req.Action == "list" {
+		toolName = "memory.search"
+	}
+
+	args := map[string]any{
+		"action":        req.Action,
+		"scope":         scope,
+		"type":          req.Type,
+		"workspacePath": scopeIdentity.WorkspacePath,
+		"teamId":        scopeIdentity.TeamID,
+		"teamName":      scopeIdentity.TeamName,
+		"projectId":     scopeIdentity.ProjectID,
+		"projectName":   scopeIdentity.ProjectName,
+		"content":       req.Content,
+		"oldText":       req.OldText,
+		"query":         req.Query,
+		"status":        req.Status,
+		"category":      req.Category,
+		"tags":          req.Tags,
+		"topic":         req.Topic,
+		"facts":         req.Facts,
+		"usage":         req.Usage,
+		"source":        "manual",
+	}
+
+	result, err := h.memoryManager.HandleToolCall(c.Request.Context(), toolName, args)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.Data(http.StatusOK, "application/json; charset=utf-8", []byte(result))
+}
+
+// ListTeamAgents handles team.list_agents MCP callbacks.
+// POST /api/callbacks/team/list-agents
+func (h *CallbackHandler) ListTeamAgents(c *gin.Context) {
+	if h.memoryManager == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "memory manager is not initialized"})
+		return
+	}
+
+	var req ListTeamAgentsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	identity, ok := h.verifyCallbackIdentity(c, req.InvocationID, req.CallbackToken)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error":   "expired_credentials",
+			"message": "Invocation ID or callback token is invalid or expired",
+		})
+		return
+	}
+	workspacePath := strings.TrimSpace(req.WorkspacePath)
+	if workspacePath == "" {
+		workspacePath = h.resolveWorkspacePath(c.Request.Context(), identity.ThreadID)
+	}
+
+	agents, err := h.memoryManager.ListTeamAgents(c.Request.Context(), workspacePath)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"agents": agents})
 }
 
 // PendingMentionsRequest pending-mentions 请求
@@ -281,10 +427,10 @@ func (h *CallbackHandler) PendingMentions(c *gin.Context) {
 type ThreadContextRequest struct {
 	InvocationID  string `form:"invocationId" binding:"required"`
 	CallbackToken string `form:"callbackToken" binding:"required"`
-	ThreadID      string `form:"threadId"`  // 可选：读取其他线程
-	CatID         string `form:"catId"`     // 可选：过滤特定 Agent 的消息
-	Keyword       string `form:"keyword"`   // 可选：关键词搜索
-	Limit         int    `form:"limit"`     // 可选：消息数量限制
+	ThreadID      string `form:"threadId"` // 可选：读取其他线程
+	CatID         string `form:"catId"`    // 可选：过滤特定 Agent 的消息
+	Keyword       string `form:"keyword"`  // 可选：关键词搜索
+	Limit         int    `form:"limit"`    // 可选：消息数量限制
 }
 
 // ThreadContextMessage 线程上下文消息
@@ -388,12 +534,12 @@ func (h *CallbackHandler) triggerA2A(ctx context.Context, threadID uuid.UUID, me
 
 	// 构建触发消息
 	triggerMsg := &model.Message{
-		ID:        uuid.New(),
-		ThreadID:  threadID,
-		Content:   content,
-		AgentID:   record.CatID,
-		Mentions:  mentions,
-		Origin:    "callback",
+		ID:       uuid.New(),
+		ThreadID: threadID,
+		Content:  content,
+		AgentID:  record.CatID,
+		Mentions: mentions,
+		Origin:   "callback",
 	}
 
 	// 构建依赖
@@ -439,12 +585,109 @@ func (h *CallbackHandler) RegisterRoutes(r *gin.RouterGroup) {
 	callbacks := r.Group("/callbacks")
 	{
 		callbacks.POST("/post-message", h.PostMessage)
+		callbacks.POST("/memory", h.Memory)
+		callbacks.POST("/team/list-agents", h.ListTeamAgents)
 		callbacks.GET("/pending-mentions", h.PendingMentions)
 		callbacks.GET("/thread-context", h.ThreadContext)
 	}
 }
 
 // 辅助函数
+
+func (h *CallbackHandler) verifyCallbackIdentity(c *gin.Context, bodyInvocationID, bodyToken string) (*callbackIdentity, bool) {
+	invocationIDStr := strings.TrimSpace(bodyInvocationID)
+	if invocationIDStr == "" {
+		invocationIDStr = strings.TrimSpace(c.GetHeader("X-Invocation-ID"))
+	}
+	token := strings.TrimSpace(bodyToken)
+	if token == "" {
+		token = strings.TrimSpace(c.GetHeader("X-Callback-Token"))
+	}
+	if invocationIDStr == "" || token == "" {
+		return nil, false
+	}
+	invocationID, err := uuid.Parse(invocationIDStr)
+	if err != nil {
+		return nil, false
+	}
+
+	if h.registry != nil {
+		if record := h.registry.Verify(invocationID, token); record != nil {
+			return &callbackIdentity{
+				InvocationID: invocationID,
+				ThreadID:     record.ThreadID,
+				AgentID:      record.CatID,
+			}, true
+		}
+	}
+
+	if h.invocationRepo == nil {
+		return nil, false
+	}
+	invocation, err := h.invocationRepo.FindByID(c.Request.Context(), invocationID)
+	if err != nil || invocation == nil || invocation.CallbackToken == "" || invocation.CallbackToken != token {
+		return nil, false
+	}
+	return &callbackIdentity{
+		InvocationID: invocationID,
+		ThreadID:     invocation.ThreadID,
+		AgentID:      invocation.AgentConfigID.String(),
+	}, true
+}
+
+func (h *CallbackHandler) resolveWorkspacePath(ctx context.Context, threadID uuid.UUID) string {
+	if h.projectRepo == nil || threadID == uuid.Nil {
+		return ""
+	}
+	project, err := h.projectRepo.GetByThreadID(ctx, threadID)
+	if err != nil || project == nil {
+		return ""
+	}
+	return project.LocalPath
+}
+
+func (h *CallbackHandler) resolveMemoryScope(ctx context.Context, threadID uuid.UUID) memory.MemoryScopeIdentity {
+	var scope memory.MemoryScopeIdentity
+	if threadID == uuid.Nil {
+		return scope
+	}
+
+	var thread *model.Thread
+	if h.threadRepo != nil {
+		if t, err := h.threadRepo.FindByID(ctx, threadID); err == nil {
+			thread = t
+			if t.ProjectID != uuid.Nil {
+				scope.ProjectID = t.ProjectID.String()
+			}
+		}
+	}
+
+	var project *model.Project
+	if h.projectRepo != nil {
+		if p, err := h.projectRepo.GetByThreadID(ctx, threadID); err == nil && p != nil {
+			project = p
+			scope.ProjectID = p.ID.String()
+			scope.ProjectName = p.Name
+			scope.WorkspacePath = p.LocalPath
+		}
+	}
+
+	var workflowID *uuid.UUID
+	if thread != nil && thread.WorkflowTemplateID != nil {
+		workflowID = thread.WorkflowTemplateID
+	} else if project != nil && project.WorkflowTemplateID != nil {
+		workflowID = project.WorkflowTemplateID
+	}
+	if workflowID != nil {
+		scope.TeamID = workflowID.String()
+		if h.workflowRepo != nil {
+			if workflow, err := h.workflowRepo.FindByID(ctx, *workflowID); err == nil && workflow != nil {
+				scope.TeamName = workflow.Name
+			}
+		}
+	}
+	return scope
+}
 
 func mergeMentions(parsed []string, explicit []string) []string {
 	seen := make(map[string]bool)

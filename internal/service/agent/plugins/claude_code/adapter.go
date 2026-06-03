@@ -193,7 +193,6 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execut
 	}
 	cmdForCopy.WriteString(cliCmd)
 
-
 	// 打印完整命令到 zap 日志
 	logInfo("Claude: CLI full command",
 		zap.String("workDir", cmd.Dir),
@@ -287,8 +286,8 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execut
 	chunkCount := 0
 	firstLineReceived := false
 	processLines := true
-	cmdWaitErr := error(nil) // 存储 cmd.Wait() 的结果
-	cmdWaitReceived := false // 标记是否已收到 cmd.Wait 结果
+	cmdWaitErr := error(nil)                       // 存储 cmd.Wait() 的结果
+	cmdWaitReceived := false                       // 标记是否已收到 cmd.Wait 结果
 	lineTimeout := time.NewTimer(30 * time.Second) // 30秒无新输出则检查进程状态
 	defer lineTimeout.Stop()
 
@@ -522,44 +521,7 @@ func (a *ClaudeAdapter) buildPromptFromRequest(req *agent.ExecutionRequest) stri
 		zap.String("inputFirstLine", inputLines[0]),
 		zap.String("inputLastLine", inputLines[len(inputLines)-1]))
 
-	var sb strings.Builder
-
-	if req.Context != nil {
-		// Layer 0: 系统提示
-		if req.Context.Layer0 != "" {
-			sb.WriteString("<system>\n")
-			sb.WriteString(req.Context.Layer0)
-			sb.WriteString("\n</system>\n\n")
-		}
-
-		// Layer 1: Thread历史
-		if req.Context.Layer1 != "" {
-			sb.WriteString("<conversation>\n")
-			sb.WriteString(req.Context.Layer1)
-			sb.WriteString("\n</conversation>\n\n")
-		}
-
-		// Layer 2: 工作产物
-		if req.Context.Layer2 != "" {
-			sb.WriteString("<artifacts>\n")
-			sb.WriteString(req.Context.Layer2)
-			sb.WriteString("\n</artifacts>\n\n")
-		}
-
-		// Layer 3: 环境信息
-		if req.Context.Layer3 != "" {
-			sb.WriteString("<environment>\n")
-			sb.WriteString(req.Context.Layer3)
-			sb.WriteString("\n</environment>\n\n")
-		}
-	}
-
-	// 用户输入
-	sb.WriteString("<user>\n")
-	sb.WriteString(req.Input)
-	sb.WriteString("\n</user>\n")
-
-	return sb.String()
+	return agent.BuildPromptFromRequest(req)
 }
 
 // buildMCPConfig 构建 MCP 配置 JSON 字符串
@@ -744,7 +706,6 @@ func (a *ClaudeAdapter) CheckHealth(ctx context.Context) error {
 		cmdForCopy.WriteString("; ")
 	}
 	cmdForCopy.WriteString(cliCmd)
-
 
 	// 打印完整命令到 zap 日志
 	logInfo("Claude: CheckHealth full command",
