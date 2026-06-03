@@ -242,7 +242,8 @@ const ThreadView: React.FC = () => {
     setAppendMention(agentName);
   }, []);
 
-  // 调试模式的 WebSocket 连接
+  // 调试模式的 WebSocket 连接（带心跳检测支持）
+  // 浏览器 WebSocket 会自动响应 ping 消息
   const connectDebugWebSocket = (id: string) => {
     // 先关闭已有连接，避免重复连接
     if (wsRef.current) {
@@ -256,18 +257,21 @@ const ThreadView: React.FC = () => {
     }
 
     const wsUrl = `ws://${window.location.host}/api/v1/ws?threadId=${id}`;
+    console.log('[WebSocket-Debug] Connecting to:', wsUrl);
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
     ws.onopen = () => {
       if (wsRef.current === ws) {
+        console.log('[WebSocket-Debug] Connected successfully');
         wsConnectedRef.current = true;
         setDebugWsConnected(true);
       }
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       if (wsRef.current === ws) {
+        console.log('[WebSocket-Debug] Disconnected, code:', event.code, 'reason:', event.reason);
         wsConnectedRef.current = false;
         setDebugWsConnected(false);
       }
@@ -277,8 +281,13 @@ const ThreadView: React.FC = () => {
       // 确保这是当前的 WebSocket
       if (wsRef.current === ws) {
         const data = JSON.parse(event.data);
+        // ping/pong 是协议层消息，不会触发 onmessage
         handleDebugWsMessage(data);
       }
+    };
+
+    ws.onerror = (error) => {
+      console.error('[WebSocket-Debug] Error:', error);
     };
   };
 
@@ -551,18 +560,21 @@ const ThreadView: React.FC = () => {
     }
 
     const wsUrl = `ws://${window.location.host}/api/v1/ws?threadId=${id}`;
+    console.log('[WebSocket-Team] Connecting to:', wsUrl);
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
     ws.onopen = () => {
       if (wsRef.current === ws) {
+        console.log('[WebSocket-Team] Connected successfully');
         wsConnectedRef.current = true;
         setWsConnected(true);
       }
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       if (wsRef.current === ws) {
+        console.log('[WebSocket-Team] Disconnected, code:', event.code, 'reason:', event.reason);
         wsConnectedRef.current = false;
         setWsConnected(false);
       }
@@ -572,8 +584,13 @@ const ThreadView: React.FC = () => {
       // 确保这是当前的 WebSocket
       if (wsRef.current === ws) {
         const data = JSON.parse(event.data);
+        // ping/pong 是 WebSocket 协议层消息，不会触发 onmessage
         handleWsMessage(data);
       }
+    };
+
+    ws.onerror = (error) => {
+      console.error('[WebSocket-Team] Error:', error);
     };
   };
 

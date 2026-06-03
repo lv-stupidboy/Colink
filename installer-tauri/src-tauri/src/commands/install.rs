@@ -1,4 +1,4 @@
-use crate::services::{disk_space, installer, registry, shortcut};
+use crate::services::{installer, registry, shortcut};
 use crate::services::installer::{InstallConfig, InstallProgress, InstallResult};
 use serde::Deserialize;
 use tauri::{AppHandle, Emitter, Manager};
@@ -56,13 +56,6 @@ pub async fn select_directory(
         .map_err(|e| e.to_string())?;
 
     Ok(result.map(|p| p.to_string()))
-}
-
-/// Get disk space for path
-#[tauri::command]
-pub fn get_disk_space(path: String) -> Result<disk_space::DiskSpace, String> {
-    disk_space::get_disk_space(&path)
-        .map_err(|e| e.to_string())
 }
 
 /// Generate config preview

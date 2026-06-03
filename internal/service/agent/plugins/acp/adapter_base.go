@@ -5,6 +5,7 @@ package acp
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -30,17 +31,27 @@ type AcpAdapterConfig struct {
 	LegacyModelConfig bool                                   // 如果 true，使用 session/set_model 而非 configOptions
 }
 
+// maxStderrSize 定义 stderr 缓冲的最大大小（64KB）
+// 防止 stderr 输出过大导致内存问题
+const maxStderrSize = 64 * 1024
+
 type acpSession struct {
-	id              string
-	isdpID          string
-	transport       *acpTransport
-	cmd             *exec.Cmd
-	ctx             context.Context
-	cancel          context.CancelFunc
-	status          agent.SessionStatus
-	output          strings.Builder
-	pendingQuestion *agent.Chunk // 待处理的 AskUserQuestion（等待用户响应）
-	mu              sync.Mutex
+	id                string
+	isdpID            string
+	transport         *acpTransport
+	cmd               *exec.Cmd
+	ctx               context.Context
+	cancel            context.CancelFunc
+	status            agent.SessionStatus
+	output            strings.Builder
+	stderrOutput      strings.Builder // stderr 输出缓冲（用于错误诊断）
+	pendingQuestion   *agent.Chunk    // 待处理的 AskUserQuestion（等待用户响应）
+	thoughtChunkCount int             // 流式思考内容计数器（用于采样打印）
+	// 诊断字段（info 级别可见，用于捕捉无限循环问题）
+	notificationCount    int    // 收到的通知总数
+	duplicateUpdateCount int    // 连续重复通知计数
+	lastUpdateHash       string // 最后一次 session/update 的内容哈希（前16位）
+	mu                   sync.Mutex
 }
 
 // BaseACPAdapter implements AgentAdapter using ACP (Agent Client Protocol) over stdio.
@@ -139,27 +150,50 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 
 	LogInfo("[PERF] ACP cmd.Start", zap.Duration("duration", time.Since(cliStartTime)))
 
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		scanner := bufio.NewScanner(stderrPipe)
-		for scanner.Scan() {
-			// stderr 内容通常不处理，只消耗
-		}
-	}()
-
 	// 设置 invocationID 用于 AskUserQuestion 答案发送
 	var invocationIDStr string
 	if req.InvocationID != uuid.Nil {
 		invocationIDStr = req.InvocationID.String()
 	}
 
+	// 创建 session（先创建，以便 stderr goroutine 可以引用它）
 	session := &acpSession{
 		cmd:    cmd,
 		ctx:    ctx,
 		status: agent.SessionStatusRunning,
 		isdpID: invocationIDStr,
+	}
+
+	// 启动 stderr 消费 goroutine（在 session 创建之后）
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		scanner := bufio.NewScanner(stderrPipe)
+		for scanner.Scan() {
+			line := scanner.Text()
+			// 记录到日志（实时可见）
+			LogInfo("ACP: stderr output", zap.String("line", line))
+			// 缓存到 session（带 64KB 上限）
+			session.mu.Lock()
+			if session.stderrOutput.Len() < maxStderrSize {
+				session.stderrOutput.WriteString(line)
+				session.stderrOutput.WriteString("\n")
+			}
+			session.mu.Unlock()
+		}
+		if err := scanner.Err(); err != nil {
+			LogError("ACP: stderr scanner error", zap.Error(err))
+		}
+	}()
+
+	// 将 session 保存到 sessions map，以便 GetCurrentProcess 能找到它用于取消执行
+	if invocationIDStr != "" {
+		a.mu.Lock()
+		a.sessions[invocationIDStr] = session
+		a.mu.Unlock()
+		LogInfo("ACP: session saved to sessions map for execution",
+			zap.String("isdpID", invocationIDStr))
 	}
 
 	transport := newACPTransport(stdinPipe, stdoutPipe, func(method string, params json.RawMessage) {
@@ -173,9 +207,12 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 		ClientCapabilities: acpClientCapabilities{},
 	})
 	if err != nil {
+		session.mu.Lock()
+		stderrContent := session.stderrOutput.String()
+		session.mu.Unlock()
 		a.cleanup(session)
 		wg.Wait()
-		return nil, fmt.Errorf("ACP: initialize handshake failed: %w", err)
+		return nil, fmt.Errorf("ACP: initialize handshake failed: %w\nstderr: %s", err, stderrContent)
 	}
 
 	var initResp acpInitializeResult
@@ -197,9 +234,12 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 		MCPServers: mcpServers,
 	})
 	if err != nil {
+		session.mu.Lock()
+		stderrContent := session.stderrOutput.String()
+		session.mu.Unlock()
 		a.cleanup(session)
 		wg.Wait()
-		return nil, fmt.Errorf("ACP: session/new failed: %w", err)
+		return nil, fmt.Errorf("ACP: session/new failed: %w\nstderr: %s", err, stderrContent)
 	}
 
 	var sessionResp acpNewSessionResult
@@ -226,9 +266,12 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 		Prompt:    []acpContentBlock{{Type: "text", Text: prompt}},
 	})
 	if err != nil {
+		session.mu.Lock()
+		stderrContent := session.stderrOutput.String()
+		session.mu.Unlock()
 		a.cleanup(session)
 		wg.Wait()
-		return nil, fmt.Errorf("ACP: session/prompt failed: %w", err)
+		return nil, fmt.Errorf("ACP: session/prompt failed: %w\nstderr: %s", err, stderrContent)
 	}
 
 	var promptResp acpPromptResult
@@ -327,12 +370,7 @@ func (a *BaseACPAdapter) StartSession(ctx context.Context, sessionID string, req
 		zap.String("sessionID", sessionID),
 		zap.String("psCommand", psCmd.String()))
 
-	go func() {
-		scanner := bufio.NewScanner(stderrPipe)
-		for scanner.Scan() {
-		}
-	}()
-
+	// 创建 session（先创建，以便 stderr goroutine 可以引用它）
 	sessionCtx, sessionCancel := context.WithCancel(ctx)
 	session := &acpSession{
 		id:     sessionID,
@@ -342,6 +380,31 @@ func (a *BaseACPAdapter) StartSession(ctx context.Context, sessionID string, req
 		cancel: sessionCancel,
 		status: agent.SessionStatusRunning,
 	}
+
+	// 启动 stderr 消费 goroutine（添加 wg 以防止 goroutine leak）
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		scanner := bufio.NewScanner(stderrPipe)
+		for scanner.Scan() {
+			line := scanner.Text()
+			// 记录到日志
+			LogInfo("ACP: stderr output (StartSession)",
+				zap.String("sessionID", sessionID),
+				zap.String("line", line))
+			// 缓存到 session（带 64KB 上限）
+			session.mu.Lock()
+			if session.stderrOutput.Len() < maxStderrSize {
+				session.stderrOutput.WriteString(line)
+				session.stderrOutput.WriteString("\n")
+			}
+			session.mu.Unlock()
+		}
+		if err := scanner.Err(); err != nil {
+			LogError("ACP: stderr scanner error (StartSession)", zap.Error(err))
+		}
+	}()
 
 	transport := newACPTransport(stdinPipe, stdoutPipe, func(method string, params json.RawMessage) {
 		a.handleNotification(session, method, params, nil)
@@ -354,9 +417,13 @@ func (a *BaseACPAdapter) StartSession(ctx context.Context, sessionID string, req
 		ClientCapabilities: acpClientCapabilities{},
 	})
 	if err != nil {
+		session.mu.Lock()
+		stderrContent := session.stderrOutput.String()
+		session.mu.Unlock()
+		wg.Wait()
 		transport.Close()
 		cmd.Process.Kill()
-		return fmt.Errorf("ACP: initialize handshake failed: %w", err)
+		return fmt.Errorf("ACP: initialize handshake failed: %w\nstderr: %s", err, stderrContent)
 	}
 
 	// 根据服务器实际支持的协议版本决定是否传递 MCP Servers
@@ -369,9 +436,13 @@ func (a *BaseACPAdapter) StartSession(ctx context.Context, sessionID string, req
 		MCPServers: mcpServers,
 	})
 	if err != nil {
+		session.mu.Lock()
+		stderrContent := session.stderrOutput.String()
+		session.mu.Unlock()
+		wg.Wait()
 		transport.Close()
 		cmd.Process.Kill()
-		return fmt.Errorf("ACP: session/new failed: %w", err)
+		return fmt.Errorf("ACP: session/new failed: %w\nstderr: %s", err, stderrContent)
 	}
 
 	var sessionResp acpNewSessionResult
@@ -498,8 +569,8 @@ func (a *BaseACPAdapter) CheckHealth(ctx context.Context) error {
 }
 
 func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, params json.RawMessage, onChunk func(agent.Chunk)) {
-	// 记录所有收到的通知（调试用）
-	LogInfo("ACP: received notification",
+	// 记录所有收到的通知（调试用，高频日志降级为 Debug）
+	LogDebug("ACP: received notification",
 		zap.String("method", method),
 		zap.String("paramsPreview", string(params)[:min(500, len(string(params)))]))
 
@@ -508,16 +579,45 @@ func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, 
 		if onChunk == nil {
 			return
 		}
+
+		// 诊断：检测重复通知（info 级别，用于捕捉无限循环）
+		session.mu.Lock()
+		session.notificationCount++
+		// 每 20 个通知打印一次摘要（避免日志爆炸，但能捕捉异常）
+		if session.notificationCount%20 == 0 {
+			LogInfo("ACP: notification progress",
+				zap.String("sessionId", session.id),
+				zap.Int("count", session.notificationCount),
+				zap.Int("duplicateCount", session.duplicateUpdateCount))
+		}
+		// 检测内容重复：计算 params 哈希并比较
+		contentHash := fmt.Sprintf("%x", sha256.Sum256(params))[:16]
+		if session.lastUpdateHash == contentHash {
+			session.duplicateUpdateCount++
+			// 重复 >3 次立即警告（info 级别）
+			if session.duplicateUpdateCount > 3 {
+				LogWarn("ACP: duplicate session/update detected",
+					zap.String("sessionId", session.id),
+					zap.String("hash", contentHash),
+					zap.Int("duplicateCount", session.duplicateUpdateCount),
+					zap.Int("totalCount", session.notificationCount))
+			}
+		} else {
+			session.duplicateUpdateCount = 0
+			session.lastUpdateHash = contentHash
+		}
+		session.mu.Unlock()
+
 		var updateParams acpSessionUpdateParams
 		if err := json.Unmarshal(params, &updateParams); err != nil {
 			LogError("ACP: failed to parse session/update params", zap.Error(err))
 			return
 		}
 
-		// 解析 sessionUpdate 类型
+		// 解析 sessionUpdate 类型（高频日志降级为 Debug）
 		var header acpSessionUpdateHeader
 		if err := json.Unmarshal(updateParams.Update, &header); err == nil {
-			LogInfo("ACP: session/update type",
+			LogDebug("ACP: session/update type",
 				zap.String("sessionId", updateParams.SessionID),
 				zap.String("sessionUpdate", header.SessionUpdate))
 		}
@@ -537,6 +637,16 @@ func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, 
 			// 对于 question 类型，存储到 session 以便等待用户响应
 			if chunk.Type == agent.ChunkTypeQuestion {
 				session.pendingQuestion = &chunk
+			}
+			// 流式思考内容采样打印：每50个 thinking chunk 打印一条摘要日志
+			if chunk.Type == agent.ChunkTypeThinking {
+				session.thoughtChunkCount++
+				if session.thoughtChunkCount%50 == 0 {
+					LogInfo("ACP: thinking progress",
+						zap.String("sessionId", session.id),
+						zap.Int("chunkCount", session.thoughtChunkCount),
+						zap.Int("contentLen", len(chunk.Content)))
+				}
 			}
 			onChunk(chunk)
 		}
@@ -559,20 +669,21 @@ func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, 
 			LogError("ACP: failed to parse session/request_user_input params", zap.Error(err))
 			return
 		}
-		LogInfo("ACP: received user input request",
+		// 用户输入请求日志降级为 Debug（调试时可用）
+		LogDebug("ACP: received user input request",
 			zap.String("sessionId", inputRequest.SessionID),
 			zap.String("toolCallId", inputRequest.ToolCallID),
 			zap.String("toolName", inputRequest.ToolName),
 			zap.Any("input", inputRequest.Input))
 
-		// 详细打印 input 结构（用于调试解析问题）
+		// 详细打印 input 结构（用于调试解析问题，高频降级为 Debug）
 		inputJSON, _ := json.MarshalIndent(inputRequest.Input, "", "  ")
-		LogInfo("ACP: user input request - detailed input structure",
+		LogDebug("ACP: user input request - detailed input structure",
 			zap.String("inputJSON", string(inputJSON)))
 
-		// 解析问题并创建 question chunk
+		// 解析问题并创建 question chunk（调试日志降级为 Debug）
 		chunk := parseACPUserInputRequest(inputRequest)
-		LogInfo("ACP: parsed question chunk",
+		LogDebug("ACP: parsed question chunk",
 			zap.String("toolName", chunk.ToolName),
 			zap.Int("questionsCount", len(chunk.Questions)),
 			zap.Any("questions", chunk.Questions))
@@ -586,7 +697,7 @@ func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, 
 			a.mu.Lock()
 			a.sessions[session.isdpID] = session
 			a.mu.Unlock()
-			LogInfo("ACP: session saved to sessions map for AskUserQuestion",
+			LogDebug("ACP: session saved to sessions map for AskUserQuestion",
 				zap.String("isdpID", session.isdpID),
 				zap.String("acpSessionId", session.id),
 				zap.String("toolCallId", inputRequest.ToolCallID))
@@ -599,7 +710,8 @@ func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, 
 		if onChunk == nil {
 			return
 		}
-		LogInfo("ACP: received session/tool_call_update notification", zap.String("params", string(params)))
+		// 工具调用更新日志降级为 Debug（高频）
+		LogDebug("ACP: received session/tool_call_update notification", zap.String("params", string(params)))
 
 		// 尝试解析通知参数
 		var updateParams struct {
@@ -633,7 +745,8 @@ func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, 
 		}
 
 	default:
-		LogInfo("ACP: unknown notification method",
+		// 未知通知方法降级为 Debug
+		LogDebug("ACP: unknown notification method",
 			zap.String("method", method),
 			zap.String("params", string(params)))
 	}
@@ -760,12 +873,20 @@ func (a *BaseACPAdapter) configureViaConfigOptions(transport *acpTransport, sess
 }
 
 func (a *BaseACPAdapter) cleanup(session *acpSession) {
-	// 先关闭 transport（这会关闭 stdin/stdout）
+	// 诊断：cleanup 调用时打印关键指标（info 级别）
+	session.mu.Lock()
+	LogInfo("ACP: cleanup called",
+		zap.String("sessionId", session.id),
+		zap.Int("notificationCount", session.notificationCount),
+		zap.Int("duplicateCount", session.duplicateUpdateCount),
+		zap.Int("outputLen", session.output.Len()),
+		zap.Int("stderrLen", session.stderrOutput.Len()))
+	session.mu.Unlock()
+
 	if session.transport != nil {
 		session.transport.Close()
 	}
 
-	// 等待进程结束（stdin 关闭后进程应该退出）
 	if session.cmd != nil && session.cmd.Process != nil {
 		done := make(chan error, 1)
 		go func() {
@@ -774,16 +895,20 @@ func (a *BaseACPAdapter) cleanup(session *acpSession) {
 		select {
 		case <-done:
 			// 进程正常退出
+			LogInfo("ACP: process exited normally", zap.String("sessionId", session.id))
 		case <-time.After(3 * time.Second):
-			LogWarn("ACP: process still running, sending interrupt", zap.String("sessionId", session.id))
-			session.cmd.Process.Signal(os.Interrupt)
+			LogWarn("ACP: process still running, terminating process tree", zap.String("sessionId", session.id), zap.Int("pid", session.cmd.Process.Pid))
+			// 使用 killProcessTree 终止整个进程树（包括子进程如 bun）
+			if err := killProcessTree(session.cmd.Process); err != nil {
+				LogError("ACP: failed to terminate process tree", zap.Error(err), zap.Int("pid", session.cmd.Process.Pid))
+			}
+			// 等待进程完全退出
 			select {
 			case <-done:
-				LogInfo("ACP: process exited after interrupt")
+				LogInfo("ACP: process tree terminated")
 			case <-time.After(2 * time.Second):
-				session.cmd.Process.Kill()
-				LogWarn("ACP: process killed after timeout")
-				<-done // 等待 Kill 完成
+				LogWarn("ACP: process still not exiting after killProcessTree")
+				<-done // 最终等待
 			}
 		}
 	}

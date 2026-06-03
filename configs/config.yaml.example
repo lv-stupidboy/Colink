@@ -1,0 +1,195 @@
+server:
+  port: 26305
+  mode: release
+
+# 部署配置
+# type 支持: windows | linux | docker
+# workspace_path 为空表示不限制项目和代码仓路径
+# 设置后，项目路径、本地仓上传/拉取路径仅允许在该目录下
+deployment:
+  type: windows
+  workspace_path: ""
+
+# 前端开发服务器配置
+web:
+  # 前端开发服务器端口
+  port: 26306
+  # 后端 API 地址（前端代理目标）
+  api_url: http://127.0.0.1:26305
+
+# 数据目录配置
+data:
+  # 数据根目录，子目录: configs/, logs/, agent-assets/, agent-configs/, repos/
+  base_path: ./data
+
+database:
+  # 数据库类型: sqlite | mysql（默认使用 sqlite）
+  type: sqlite
+
+  # SQLite配置 (type=sqlite时生效)
+  path: ./data/sqlite/colink.db
+
+  # MySQL配置 (type=mysql时生效，已弃用，建议使用 sqlite)
+  # mysql:
+  #   host: "localhost"
+  #   port: 3306
+  #   database: colink
+  #   username: "root"
+  #   password: ""  # 请填写实际密码
+  #   charset: utf8mb4
+  #   max_open_conns: 10
+  #   max_idle_conns: 5
+  #   conn_max_lifetime: 300
+
+redis:
+  addr: localhost:6379
+  password: ""
+  db: 0
+
+# Agent A2A 深度配置
+agent:
+  max_depth: 15  # A2A 链最大深度，防止无限递归
+
+mcp:
+  base_url: http://localhost:26305/api/v1/mcp
+  token_ttl: 30m
+
+# Agent资产配置
+agent_assets:
+  base_path: ./data/agent-assets
+
+# 日志配置
+logging:
+  # 日志级别: debug | info | warn | error
+  level: info
+  # 日志格式: json | console
+  format: console
+  # 日志目录（默认 ./logs，与 bin 同级目录）
+  # 未设置时回退到 data.base_path/logs（向后兼容）
+  dir: ./data/logs
+
+# 技能配置
+skill:
+  # 更新间隔格式: "30m", "1h", "2h30m"
+  use_count_update_interval: "1h"
+  upload_max_size: 5
+
+# 子代理配置
+subagent:
+  upload_max_size: 2
+
+# 命令配置
+command:
+  upload_max_size: 2
+
+# 规约配置
+rule:
+  upload_max_size: 2
+
+# Agent配置池
+agent_config:
+   data_dir: ./data/agent-configs
+
+# Multi-platform IM configuration
+# 如需启用飞书等平台集成，请取消下方注释并填写对应配置
+# 详见 docs/im-adapter-guide.md
+im:
+  platforms: []
+  # platforms:
+  #   # Feishu (Lark) platform
+  #   - type: feishu
+  #     enabled: true
+  #     rate_limit_max: 20
+  #     rate_limit_window: 60s
+  #     max_retries: 3
+  #     app_id: "your_app_id"
+  #     app_secret: "your_app_secret"
+  #     verification_token: ""
+  #     encrypt_key: ""
+  #     lark_cli_path: lark-cli
+  #     default_project_id: ""
+  #     event_mode: listener
+  #
+  #   # Slack platform
+  #   - type: slack
+  #     enabled: true
+  #     rate_limit_max: 20
+  #     rate_limit_window: 60s
+  #     max_retries: 3
+  #     bot_token: ""
+  #     signing_secret: ""
+  #
+  #   # Discord platform
+  #   - type: discord
+  #     enabled: true
+  #     rate_limit_max: 20
+  #     rate_limit_window: 60s
+  #     max_retries: 3
+  #     bot_token: ""
+  #     application_id: ""
+
+# 数据上报配置 - 用于产品分析和内部统计
+reporter:
+  # 是否启用上报，默认开启
+  enabled: true
+  # 上报服务地址，如 https://stats.example.com/api/report
+  endpoint: ""
+  # 上报间隔，格式: "30m", "1h"
+  interval: "30m"
+  # 失败重试次数
+  retry_times: 3
+  # 重试间隔，格式: "1m", "30s"
+  retry_interval: "1m"
+
+# 会话消息上报配置 - 用于日志分析和审计
+message_reporter:
+  # 是否启用上报，默认开启
+  enabled: true
+  # 上报服务地址
+  endpoint: ""
+  # 上报间隔，格式: "30m", "1h"
+  interval: "5m"
+  # 单次上报最大消息数
+  batch_size: 100
+  # 失败重试次数
+  retry_times: 3
+  # 重试间隔，格式: "1m", "30s"
+  retry_interval: "1m"
+
+# 待办任务配置
+human_task:
+  # 是否启用待办任务自动创建，默认关闭
+  # 开启后：Agent 等待用户输入（AskUserQuestion）时自动创建待办任务
+  # 用户回复后自动关闭对应的待办任务
+  enabled: false
+
+# 默认市场配置
+market:
+  # Colink官方市场配置（用于一键添加）
+  name: "Colink官方市场"
+  url: "https://gitee.com/colink_1/colinkmarketplace.git"  # 官方市场Git仓库URL
+  branch: "master"
+
+# Git URL 自动转换配置
+# 开启后，HTTPS 格式的 Git URL 将按规则自动转换为 SSH 格式
+# 转换示例：https://gitee.com/owner/repo.git → git@gitee.com:owner/repo.git
+git_url_conversion:
+  # 是否启用自动转换，默认 false
+  enabled: false
+  # 自定义映射规则列表
+  rules:
+    - pattern: "https://gitee.com/"
+      ssh_host: "git@gitee.com"
+    - pattern: "https://github.com/"
+      ssh_host: "git@github.com"
+
+# 帮助入口配置
+help:
+  # 支撑群号，如 "12345678"
+  support_group: ""
+  # 官网链接
+  official_website: ""
+  # 指导文档链接
+  doc_link: ""
+  # 问题反馈API地址（可选）
+  feedback_api: ""

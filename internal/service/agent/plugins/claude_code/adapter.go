@@ -308,17 +308,17 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execut
 			// 记录首行时间
 			if !firstLineReceived {
 				firstLineReceived = true
-				logInfo("[PERF] CLI first line received", zap.Duration("duration", time.Since(cliStartTime)), zap.Int("lineNum", lineCount))
+				logDebug("[PERF] CLI first line received", zap.Duration("duration", time.Since(cliStartTime)), zap.Int("lineNum", lineCount))
 			}
 			// 调试：打印每行原始输出（前5行或包含工具相关内容）
 			if lineCount <= 5 || strings.Contains(line, "tool_use") || strings.Contains(line, "AskUserQuestion") || strings.Contains(line, "input_json") {
-				logInfo("ExecuteWithStream: received line", zap.Int("lineNum", lineCount), zap.String("line", line[:min(500, len(line))]))
+				logDebug("ExecuteWithStream: received line", zap.Int("lineNum", lineCount), zap.String("line", line[:min(500, len(line))]))
 			}
 			chunks := parseStreamJSONLine(line, onChunk != nil)
 			for _, chunk := range chunks {
 				if onChunk != nil {
 					chunkCount++
-					logInfo("ExecuteWithStream: calling onChunk", zap.Int("chunkNum", chunkCount), zap.String("type", string(chunk.Type)))
+					logDebug("ExecuteWithStream: calling onChunk", zap.Int("chunkNum", chunkCount), zap.String("type", string(chunk.Type)))
 					onChunk(chunk)
 				}
 			}

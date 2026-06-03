@@ -12,6 +12,16 @@ import (
 	"go.uber.org/zap"
 )
 
+// 心跳保活配置
+const (
+	// pingInterval 后端发送 ping 的间隔
+	pingInterval = 30 * time.Second
+	// pongTimeout 等待 pong 响应的超时时间（超过此时间认为连接断开）
+	pongTimeout = 60 * time.Second
+	// writeTimeout 写操作超时
+	writeTimeout = 10 * time.Second
+)
+
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
@@ -184,17 +194,46 @@ type ClientMessage struct {
 }
 
 // ReadPump 读取客户端消息（支持处理客户端请求）
+// 配合 WritePump 的 ping/pong 心跳机制，检测连接健康状态
+// 如果 pongTimeout 内没有收到任何消息（包括 pong），则断开连接
 func (c *Client) ReadPump() {
 	defer func() {
 		c.Hub.unregister <- c
 		c.Conn.Close()
 	}()
 
+	// 设置 pong 响应处理：收到 pong 时重置读超时
+	// 浏览器 WebSocket 收到 ping 会自动回复 pong
+	c.Conn.SetPongHandler(func(string) error {
+		if wsLogger != nil {
+			wsLogger.Debug("Received pong from client", zap.String("threadId", c.ThreadID))
+		}
+		// 重置读超时（连接仍然活跃）
+		return c.Conn.SetReadDeadline(time.Now().Add(pongTimeout))
+	})
+
+	// 设置初始读超时
+	c.Conn.SetReadDeadline(time.Now().Add(pongTimeout))
+
 	for {
 		_, message, err := c.Conn.ReadMessage()
 		if err != nil {
+			// 1005 (No Status) 是客户端调用 close() 不传参数时的正常关闭
+			// 1000 (Normal) 是显式正常关闭
+			// 1001 (GoingAway) 是浏览器关闭页面/导航
+			// 1006 (Abnormal) 是异常关闭（无 close frame）
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure, websocket.CloseNoStatusReceived) {
+				if wsLogger != nil {
+					wsLogger.Warn("Read error", zap.Error(err), zap.String("threadId", c.ThreadID))
+				}
+			} else if wsLogger != nil {
+				wsLogger.Info("Connection closed normally", zap.String("threadId", c.ThreadID), zap.Error(err))
+			}
 			break
 		}
+
+		// 重置读超时（收到消息表示连接活跃）
+		c.Conn.SetReadDeadline(time.Now().Add(pongTimeout))
 
 		// 解析消息
 		var msg ClientMessage
@@ -284,13 +323,44 @@ func (c *Client) handleCancelInvocation(threadID, invocationID string) {
 	}
 }
 
-// WritePump 写入消息到客户端
+// WritePump 写入消息到客户端（带心跳保活）
+// 定期发送 ping 消息，检测连接健康状态
 func (c *Client) WritePump() {
 	defer c.Conn.Close()
 
-	for message := range c.Send {
-		if err := c.Conn.WriteMessage(websocket.TextMessage, message); err != nil {
-			break
+	// 创建定时器：定期发送 ping
+	pingTicker := time.NewTicker(pingInterval)
+	defer pingTicker.Stop()
+
+	for {
+		select {
+		case message, ok := <-c.Send:
+			// 设置写超时
+			c.Conn.SetWriteDeadline(time.Now().Add(writeTimeout))
+			if !ok {
+				// Send channel 关闭，服务端主动关闭连接
+				c.Conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+			if err := c.Conn.WriteMessage(websocket.TextMessage, message); err != nil {
+				if wsLogger != nil {
+					wsLogger.Warn("Write message failed", zap.Error(err), zap.String("threadId", c.ThreadID))
+				}
+				return
+			}
+
+		case <-pingTicker.C:
+			// 发送 ping 消息，保持连接活跃
+			c.Conn.SetWriteDeadline(time.Now().Add(writeTimeout))
+			if err := c.Conn.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
+				if wsLogger != nil {
+					wsLogger.Warn("Ping failed, closing connection", zap.Error(err), zap.String("threadId", c.ThreadID))
+				}
+				return
+			}
+			if wsLogger != nil {
+				wsLogger.Debug("Sent ping to client", zap.String("threadId", c.ThreadID))
+			}
 		}
 	}
 }

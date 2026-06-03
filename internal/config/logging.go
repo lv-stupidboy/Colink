@@ -11,8 +11,35 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
+// LogLevel 日志级别类型
+type LogLevel string
+
+const (
+	LogLevelDebug LogLevel = "debug"
+	LogLevelInfo  LogLevel = "info"
+	LogLevelWarn  LogLevel = "warn"
+	LogLevelError LogLevel = "error"
+)
+
+// ParseLogLevel 解析日志级别字符串
+func ParseLogLevel(level string) zapcore.Level {
+	switch LogLevel(level) {
+	case LogLevelDebug:
+		return zapcore.DebugLevel
+	case LogLevelInfo:
+		return zapcore.InfoLevel
+	case LogLevelWarn:
+		return zapcore.WarnLevel
+	case LogLevelError:
+		return zapcore.ErrorLevel
+	default:
+		return zapcore.InfoLevel
+	}
+}
+
 // SetupLogging 初始化日志系统，将日志输出到logs目录
-func SetupLogging() (*zap.Logger, error) {
+// logLevel 参数支持: debug, info, warn, error
+func SetupLogging(logLevel string) (*zap.Logger, error) {
 	// 确保logs目录存在
 	if err := os.MkdirAll("logs", 0755); err != nil {
 		return nil, err
@@ -31,11 +58,14 @@ func SetupLogging() (*zap.Logger, error) {
 	encoderConfig := zap.NewProductionEncoderConfig()
 	encoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
 
+	// 解析日志级别
+	level := ParseLogLevel(logLevel)
+
 	// 创建核心
 	core := zapcore.NewCore(
 		zapcore.NewJSONEncoder(encoderConfig),
 		zapcore.NewMultiWriteSyncer(zapcore.AddSync(os.Stdout), zapcore.AddSync(logFile)),
-		zapcore.InfoLevel,
+		level,
 	)
 
 	return zap.New(core), nil

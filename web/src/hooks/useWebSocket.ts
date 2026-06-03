@@ -37,7 +37,7 @@ export function useWebSocket(
         if (reconnectTimeoutRef.current) {
           clearTimeout(reconnectTimeoutRef.current);
         }
-        wsRef.current.close();
+        wsRef.current.close(1000, 'Thread ID cleared');
         wsRef.current = null;
         setConnected(false);
       }
@@ -67,6 +67,8 @@ export function useWebSocket(
     ws.onmessage = (event) => {
       try {
         const data: WSMessage = JSON.parse(event.data);
+        // ping/pong 是 WebSocket 协议层消息，不会触发 onmessage
+        // 这里只处理业务消息
         console.log('[WebSocket] Received message:', data.type);
         onMessageRef.current?.(data);
       } catch (e) {
@@ -74,8 +76,8 @@ export function useWebSocket(
       }
     };
 
-    ws.onclose = () => {
-      console.log('[WebSocket] Disconnected, threadId:', threadId);
+    ws.onclose = (event) => {
+      console.log('[WebSocket] Disconnected, threadId:', threadId, 'code:', event.code, 'reason:', event.reason);
       setConnected(false);
       onDisconnectRef.current?.();
       // 只有当 threadId 仍然存在时才重连
@@ -98,7 +100,7 @@ export function useWebSocket(
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
       }
-      ws.close();
+      ws.close(1000, 'Component unmounted');
       wsRef.current = null;
     };
   }, [threadId, reconnectInterval]);
