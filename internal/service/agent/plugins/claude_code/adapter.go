@@ -228,6 +228,11 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execut
 	a.currentCmd = cmd
 	a.currentCmdMu.Unlock()
 
+	// 调用进程启动回调（用于 ExecutionService 保存 cmd 引用）
+	if req.OnProcessStarted != nil {
+		req.OnProcessStarted(cmd)
+	}
+
 	// 确保执行结束后清除进程引用
 	defer func() {
 		a.currentCmdMu.Lock()

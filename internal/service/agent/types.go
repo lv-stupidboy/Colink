@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"os/exec"
 	"time"
 
 	"github.com/anthropic/isdp/internal/model"
@@ -126,6 +127,9 @@ type ExecutionRequest struct {
 	InvocationID    uuid.UUID        // Invocation ID（用于 AskUserQuestion 答案发送）
 	CallbackToken   string           // MCP server 回调认证 Token
 	APIURL          string           // MCP server 回调 API URL
+	// OnProcessStarted 进程启动后的回调函数（用于取消时获取进程引用）
+	// adapter 在 cmd.Start() 成功后调用此回调，传递 cmd 引用
+	OnProcessStarted func(cmd *exec.Cmd)
 }
 
 // ExecutionResult 执行结果

@@ -120,6 +120,11 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 		return nil, fmt.Errorf("ACP: failed to start CLI process: %w", err)
 	}
 
+	// 调用进程启动回调（用于 ExecutionService 保存 cmd 引用）
+	if req.OnProcessStarted != nil {
+		req.OnProcessStarted(cmd)
+	}
+
 	// 打印 PowerShell 可执行的命令（只打印我们设置的环境变量）
 	customEnv := a.Config.BuildEnv(req)
 	var psCmd strings.Builder
@@ -338,6 +343,11 @@ func (a *BaseACPAdapter) StartSession(ctx context.Context, sessionID string, req
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("ACP: failed to start CLI process: %w", err)
+	}
+
+	// 调用进程启动回调（用于 ExecutionService 保存 cmd 引用）
+	if req.OnProcessStarted != nil {
+		req.OnProcessStarted(cmd)
 	}
 
 	// 打印 PowerShell 可执行的命令（只打印我们设置的环境变量）

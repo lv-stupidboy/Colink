@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os/exec"
 	"regexp"
 	"strings"
 	"sync"
@@ -531,6 +532,20 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 		InvocationID:    invocation.ID,            // 用于 AskUserQuestion 答案发送
 		CallbackToken:   invocation.CallbackToken, // 用于 MCP server 回调
 		APIURL:          es.apiURL,                // 用于 MCP server 回调
+		// 进程启动回调：保存 cmd 到 RunningAgent（用于取消时获取进程引用）
+		OnProcessStarted: func(cmd *exec.Cmd) {
+			es.mu.Lock()
+			if agent, ok := es.runningAgents[invocation.ID]; ok {
+				agent.Cmd = cmd
+				logInfo("OnProcessStarted: cmd saved to RunningAgent",
+					zap.String("invocationID", invocation.ID.String()),
+					zap.Int("pid", cmd.Process.Pid))
+			} else {
+				logWarn("OnProcessStarted: RunningAgent not found",
+					zap.String("invocationID", invocation.ID.String()))
+			}
+			es.mu.Unlock()
+		},
 	}
 	logInfo("[PERF] buildExecutionRequest", zap.Duration("duration", time.Since(execReqBuildStart)), zap.String("sessionID", sessionID), zap.String("sessionStrategy", string(req.SessionStrategy)))
 
