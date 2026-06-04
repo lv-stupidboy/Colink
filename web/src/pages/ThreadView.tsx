@@ -1783,7 +1783,7 @@ const ThreadView: React.FC = () => {
 
           {/* 右侧面板（代码/沙箱） */}
           {/* StatusPanel - 状态栏 */}
-          <StatusPanel width={320} threadId={threadId || debugThreadId || undefined} />
+          <StatusPanel width={320} threadId={threadId || debugThreadId || undefined} projectPath={displayProjectPath} />
           {/* 文件预览面板 */}
           {filePreviewVisible && filePreviewPath && (
             <FilePreviewPanel

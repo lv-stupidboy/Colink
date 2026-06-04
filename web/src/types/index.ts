@@ -6,6 +6,36 @@ export interface RuntimeConfig {
   defaultPath: string;
 }
 
+export interface MemoryScopeIdentity {
+  teamId?: string;
+  teamName?: string;
+  projectId?: string;
+  projectName?: string;
+  workspacePath?: string;
+}
+
+export interface RawMemoryFile {
+  name: string;
+  path: string;
+  content: string;
+}
+
+export interface RawMemoryGroup {
+  type?: 'team' | 'project';
+  indexPath?: string;
+  indexExists?: boolean;
+  index?: string;
+  files: RawMemoryFile[];
+  missing?: string[];
+  scope?: MemoryScopeIdentity;
+}
+
+export interface RawMemoryResponse {
+  scope: MemoryScopeIdentity;
+  team: RawMemoryGroup;
+  project: RawMemoryGroup;
+}
+
 // Agent角色（human 已废弃，仅保留用于兼容）
 /** @deprecated 'human' 类型已废弃 */
 export type AgentRole = 'agent' | 'human';

@@ -4,16 +4,26 @@ import { AgentStatusCard } from './AgentStatusCard';
 import { TokenUsage } from './TokenUsage';
 import { AgentInvocationLogPanel } from './AgentInvocationLogPanel';
 import { TaskProgressPanel } from './TaskProgressPanel';
+import { MemoryEntriesPanel } from './MemoryEntriesPanel';
 import { CopyOutlined, CheckOutlined } from '@ant-design/icons';
 import './StatusPanel.css';
 
 interface StatusPanelProps {
   width?: number;
   threadId?: string;
+  projectPath?: string;
 }
 
-export const StatusPanel: React.FC<StatusPanelProps> = ({ width = 320, threadId }) => {
-  const { activeAgents, agentUsage, completedAgents, agentTaskProgress } = useAppStore();
+export const StatusPanel: React.FC<StatusPanelProps> = ({ width = 320, threadId, projectPath }) => {
+  const {
+    activeAgents,
+    agentUsage,
+    completedAgents,
+    agentTaskProgress,
+    currentProject,
+    currentWorkflowTemplate,
+    debugProjectPath,
+  } = useAppStore();
   const [copied, setCopied] = useState(false);
 
   // 计算调用统计
@@ -79,6 +89,16 @@ export const StatusPanel: React.FC<StatusPanelProps> = ({ width = 320, threadId 
       </div>
 
       {/* Agent 状态 */}
+      <MemoryEntriesPanel
+        scope={{
+          teamId: currentWorkflowTemplate?.id || currentProject?.workflowTemplateId,
+          teamName: currentWorkflowTemplate?.name,
+          projectId: currentProject?.id,
+          projectName: currentProject?.name,
+          workspacePath: projectPath || currentProject?.localPath || debugProjectPath,
+        }}
+      />
+
       <AgentStatusCard activeAgents={activeAgents} agentUsage={agentUsage} />
 
       {/* Agent 调用日志（合并历史参与） */}

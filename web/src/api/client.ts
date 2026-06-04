@@ -85,6 +85,7 @@ import type {
   HelpConfig,
   FeedbackRequest,
   RuntimeConfig,
+  RawMemoryResponse,
 } from '@/types';
 import {
   transformProjects,
@@ -646,6 +647,27 @@ class APIClient {
       this.request(`/knowledge/${id}/query`, 'POST', request),
     queryAll: (request: KnowledgeQueryRequest): Promise<{ query: string; results: KnowledgeQueryResult[] }> =>
       this.request('/knowledge/query', 'POST', request),
+  };
+
+  memory = {
+    raw: (
+      type: 'team' | 'project' | 'all' = 'all',
+      scope?: {
+        teamId?: string;
+        teamName?: string;
+        projectId?: string;
+        projectName?: string;
+        workspacePath?: string;
+      }
+    ): Promise<RawMemoryResponse> => {
+      const params = new URLSearchParams({ type });
+      if (scope?.teamId) params.append('teamId', scope.teamId);
+      if (scope?.teamName) params.append('teamName', scope.teamName);
+      if (scope?.projectId) params.append('projectId', scope.projectId);
+      if (scope?.projectName) params.append('projectName', scope.projectName);
+      if (scope?.workspacePath) params.append('workspacePath', scope.workspacePath);
+      return this.request(`/memory/raw?${params.toString()}`, 'GET');
+    },
   };
 
   // Subagent API

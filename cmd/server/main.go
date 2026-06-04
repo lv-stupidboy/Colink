@@ -644,6 +644,9 @@ func main() {
 	knowledgeHandler := api.NewKnowledgeHandler(knowledgeService)
 	knowledgeHandler.RegisterRoutes(v1)
 
+	memoryHandler := api.NewMemoryHandler(memoryManager)
+	memoryHandler.RegisterRoutes(v1)
+
 	// Subagent Handler
 	subagentHandler := api.NewSubagentHandler(subagentSvc, cfg.GetSubagentStoragePath(), cfg.Subagent.GetUploadMaxSize(), autoGenerator, agentConfigRepo)
 	subagentHandler.RegisterRoutes(v1)
