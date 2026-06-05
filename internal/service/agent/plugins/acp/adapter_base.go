@@ -280,9 +280,11 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 	}
 
 	prompt := a.buildPromptFromRequest(req)
+	// 构建内容块列表（文本 + 图片）
+	contentBlocks := a.buildContentBlocks(prompt, req.Images)
 	promptResult, err := transport.SendRequest("session/prompt", &acpPromptParams{
 		SessionID: session.id,
-		Prompt:    []acpContentBlock{{Type: "text", Text: prompt}},
+		Prompt:    contentBlocks,
 	})
 	if err != nil {
 		session.mu.Lock()
@@ -506,6 +508,7 @@ func (a *BaseACPAdapter) ResumeSession(ctx context.Context, sessionID string, in
 	}
 	session.mu.Unlock()
 
+	// Resume 时只传递文本（不传递图片）
 	prompt := []acpContentBlock{{Type: "text", Text: input}}
 	_, err := session.transport.SendRequest("session/prompt", &acpPromptParams{
 		SessionID: session.id,
@@ -792,6 +795,22 @@ func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, 
 
 func (a *BaseACPAdapter) buildPromptFromRequest(req *agent.ExecutionRequest) string {
 	return agent.BuildPromptFromRequest(req)
+}
+
+// buildContentBlocks 构建内容块列表（文本 + 图片）
+func (a *BaseACPAdapter) buildContentBlocks(text string, images []model.ImageContent) []acpContentBlock {
+	blocks := []acpContentBlock{{Type: "text", Text: text}}
+
+	// 添加图片内容块
+	for _, img := range images {
+		blocks = append(blocks, acpContentBlock{
+			Type:     "image",
+			MimeType: img.MimeType,
+			Data:     img.Data,
+		})
+	}
+
+	return blocks
 }
 
 func (a *BaseACPAdapter) buildEnv(req *agent.ExecutionRequest) []string {
