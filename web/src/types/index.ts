@@ -1,5 +1,15 @@
 export type DeploymentType = 'windows' | 'linux' | 'docker';
 
+// 图片附件类型（用于多模态输入）
+export interface ImageAttachment {
+  id: string;           // 唯一标识
+  base64: string;       // base64 数据（不含 data:image/xxx;base64, 前缀）
+  mimeType: string;     // MIME 类型：image/png, image/jpeg, image/gif 等
+  filename?: string;    // 文件名（可选）
+  width?: number;       // 图片宽度（可选）
+  height?: number;      // 图片高度（可选）
+}
+
 export interface RuntimeConfig {
   deploymentType: DeploymentType;
   workspacePath: string;

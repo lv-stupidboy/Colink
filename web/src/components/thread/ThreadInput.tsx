@@ -1,9 +1,9 @@
 // isdp/web/src/components/thread/ThreadInput.tsx
 import React, { memo, useState, useCallback, useRef, useEffect } from 'react';
-import { Input, Button, Space, Card, List, Spin } from 'antd';
-import { SendOutlined } from '@ant-design/icons';
+import { Input, Button, Space, Card, List, Spin, Upload, Image } from 'antd';
+import { SendOutlined, PictureOutlined, CloseOutlined } from '@ant-design/icons';
 import AgentTypeIcon from '@/components/AgentTypeIcon';
-import type { AgentRole } from '@/types';
+import type { AgentRole, ImageAttachment } from '@/types';
 
 const { TextArea } = Input;
 
@@ -20,17 +20,17 @@ interface ThreadInputProps {
   placeholder: string;
   loadingContext: boolean;
   agentOptions: AgentOption[];
-  onSend: (content: string) => void;
+  onSend: (content: string, images?: ImageAttachment[]) => void; // 支持图片参数
   disabled?: boolean;
-  prefilledMention?: string;       // 预填入的 @mention 名称（替换现有内容）
-  onPrefillConsumed?: () => void;  // 预填入被使用后的回调
-  appendMention?: string;          // 追加的 @mention 名称（追加到现有内容后面）
-  onAppendConsumed?: () => void;   // 追加被使用后的回调
+  prefilledMention?: string;
+  onPrefillConsumed?: () => void;
+  appendMention?: string;
+  onAppendConsumed?: () => void;
 }
 
 /**
  * 独立的输入组件
- * 内部管理 inputValue 状态，避免每次输入触发父组件重渲染
+ * 支持文本输入和图片上传（多模态）
  */
 export const ThreadInput: React.FC<ThreadInputProps> = memo(({
   placeholder,
@@ -46,20 +46,85 @@ export const ThreadInput: React.FC<ThreadInputProps> = memo(({
   const inputRef = useRef<any>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const [inputValue, setInputValue] = useState('');
+  const [images, setImages] = useState<ImageAttachment[]>([]);
   const [mentionListVisible, setMentionListVisible] = useState(false);
   const [mentionFilter, setMentionFilter] = useState('');
   const [highlightedIndex, setHighlightedIndex] = useState(0);
-  const [showPrefillHint, setShowPrefillHint] = useState(false);  // 新增
+  const [showPrefillHint, setShowPrefillHint] = useState(false);
+
+  // 将文件转换为 ImageAttachment
+  const fileToImageAttachment = useCallback(async (file: File): Promise<ImageAttachment> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const dataUrl = e.target?.result as string;
+        // 提取 base64 数据（去掉 data:image/xxx;base64, 前缀）
+        const base64Match = dataUrl.match(/^data:image\/[^;]+;base64,(.+)$/);
+        if (!base64Match) {
+          reject(new Error('Invalid image format'));
+          return;
+        }
+
+        // 获取图片尺寸
+        const img = new window.Image();
+        img.onload = () => {
+          resolve({
+            id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            base64: base64Match[1],
+            mimeType: file.type,
+            filename: file.name,
+            width: img.width,
+            height: img.height,
+          });
+        };
+        img.onerror = () => reject(new Error('Failed to load image'));
+        img.src = dataUrl;
+      };
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.readAsDataURL(file);
+    });
+  }, []);
+
+  // 处理图片上传
+  const handleImageUpload = useCallback(async (file: File) => {
+    // 检查文件类型
+    if (!file.type.startsWith('image/')) {
+      return false;
+    }
+
+    // 检查文件大小（限制 10MB）
+    if (file.size > 10 * 1024 * 1024) {
+      return false;
+    }
+
+    try {
+      const attachment = await fileToImageAttachment(file);
+      setImages(prev => [...prev, attachment]);
+    } catch (err) {
+      console.error('Failed to process image:', err);
+    }
+
+    return false; // 阻止 antd Upload 的默认上传行为
+  }, [fileToImageAttachment]);
+
+  // 删除图片
+  const handleRemoveImage = useCallback((imageId: string) => {
+    setImages(prev => prev.filter(img => img.id !== imageId));
+  }, []);
 
   // 发送消息
   const handleSend = useCallback(() => {
-    if (!inputValue.trim() || disabled) return;
+    const hasContent = inputValue.trim() || images.length > 0;
+    if (!hasContent || disabled) return;
 
     const content = inputValue.trim();
+    const imagesToSend = images.length > 0 ? images : undefined;
+
     setInputValue('');
+    setImages([]);
     setMentionListVisible(false);
-    onSend(content);
-  }, [inputValue, disabled, onSend]);
+    onSend(content, imagesToSend);
+  }, [inputValue, images, disabled, onSend]);
 
   // 输入变化
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -113,10 +178,9 @@ export const ThreadInput: React.FC<ThreadInputProps> = memo(({
     }
   }, [highlightedIndex, mentionListVisible]);
 
-  // 自动填入 @mention（阻塞确认后触发）- 智能前置逻辑
+  // 自动填入 @mention（阻塞确认后触发）
   useEffect(() => {
     if (prefilledMention && inputRef.current) {
-      // 检查是否在 agentOptions 中
       const agentExists = agentOptions.some(
         opt => opt.name === prefilledMention || opt.label.includes(prefilledMention)
       );
@@ -125,35 +189,26 @@ export const ThreadInput: React.FC<ThreadInputProps> = memo(({
 
       const currentText = inputValue;
 
-      // 判断是否以 @ 开头（已有 @mention 时不添加）
       if (currentText.startsWith('@')) {
-        // 通知父组件预填入已使用（跳过添加）
         onPrefillConsumed?.();
         return;
       }
 
-      // 记录当前光标位置
       const cursorPos = inputRef.current.selectionStart || 0;
-
-      // 构建新内容：前置 @mention
       const mention = `@${prefilledMention} `;
       const newText = mention + currentText;
 
-      // 更新输入框
       setInputValue(newText);
       inputRef.current.focus();
 
-      // 恢复光标相对偏移：原位置 + mention 长度
       const newCursorPos = cursorPos + mention.length;
       setTimeout(() => {
         inputRef.current?.setSelectionRange(newCursorPos, newCursorPos);
       }, 0);
 
-      // 显示提示
       setShowPrefillHint(true);
       setTimeout(() => setShowPrefillHint(false), 3000);
 
-      // 通知父组件预填入已使用
       onPrefillConsumed?.();
     }
   }, [prefilledMention, agentOptions, inputValue, onPrefillConsumed]);
@@ -161,21 +216,17 @@ export const ThreadInput: React.FC<ThreadInputProps> = memo(({
   // 追加 @mention（点击 Agent 头像/名称触发）
   useEffect(() => {
     if (appendMention && inputRef.current) {
-      // 检查是否在 agentOptions 中
       const agentExists = agentOptions.some(
         opt => opt.name === appendMention || opt.label.includes(appendMention)
       );
 
       if (agentExists) {
-        // 追加 @mention 到现有内容后面
         const currentText = inputValue.trim();
         const newMention = `@${appendMention} `;
-        // 如果已有内容，追加在后面；否则直接设置
         const newText = currentText ? `${currentText} ${newMention}` : newMention;
         setInputValue(newText);
         inputRef.current.focus();
 
-        // 通知父组件追加已使用
         if (onAppendConsumed) {
           onAppendConsumed();
         }
@@ -183,7 +234,7 @@ export const ThreadInput: React.FC<ThreadInputProps> = memo(({
     }
   }, [appendMention, agentOptions, inputValue, onAppendConsumed]);
 
-  // 键盘导航 - 上下键选择、Enter 确认、Escape 关闭
+  // 键盘导航
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (mentionListVisible && filteredAgents.length > 0) {
       if (e.key === 'ArrowUp') {
@@ -218,8 +269,31 @@ export const ThreadInput: React.FC<ThreadInputProps> = memo(({
     }
   }, [mentionListVisible, filteredAgents, highlightedIndex, selectMention, handleSend]);
 
+  // 拖拽上传处理
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault();
+    const files = e.dataTransfer.files;
+    for (const file of files) {
+      if (file.type.startsWith('image/')) {
+        await handleImageUpload(file);
+      }
+    }
+  }, [handleImageUpload]);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+  }, []);
+
+  // 是否可以发送
+  const canSend = !disabled && (inputValue.trim() || images.length > 0);
+
   return (
-    <div className="thread-input" style={{ display: 'flex', gap: '12px', padding: '12px 16px' }}>
+    <div
+      className="thread-input"
+      style={{ display: 'flex', gap: '12px', padding: '12px 16px' }}
+      onDrop={handleDrop}
+      onDragOver={handleDragOver}
+    >
       <div style={{ position: 'relative', flex: 1 }}>
         {/* 预填入提示 */}
         {showPrefillHint && (
@@ -241,6 +315,61 @@ export const ThreadInput: React.FC<ThreadInputProps> = memo(({
           </div>
         )}
 
+        {/* 图片预览区域 */}
+        {images.length > 0 && (
+          <div
+            className="image-preview-container"
+            style={{
+              display: 'flex',
+              gap: 8,
+              marginBottom: 8,
+              padding: 8,
+              background: 'var(--bg-container, #fafafa)',
+              borderRadius: 8,
+            }}
+          >
+            {images.map(img => (
+              <div
+                key={img.id}
+                className="image-preview-item"
+                style={{
+                  position: 'relative',
+                  width: 80,
+                  height: 80,
+                  borderRadius: 8,
+                  overflow: 'hidden',
+                }}
+              >
+                <Image
+                  src={`data:${img.mimeType};base64,${img.base64}`}
+                  alt={img.filename || 'image'}
+                  style={{ width: 80, height: 80, objectFit: 'cover' }}
+                  preview={true}
+                />
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<CloseOutlined />}
+                  onClick={() => handleRemoveImage(img.id)}
+                  style={{
+                    position: 'absolute',
+                    top: 2,
+                    right: 2,
+                    background: 'rgba(0,0,0,0.5)',
+                    color: '#fff',
+                    borderRadius: '50%',
+                    width: 20,
+                    height: 20,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+
         <TextArea
           ref={inputRef}
           value={inputValue}
@@ -250,6 +379,27 @@ export const ThreadInput: React.FC<ThreadInputProps> = memo(({
           autoSize={{ minRows: 2, maxRows: 6 }}
           disabled={disabled}
         />
+
+        {/* 图片上传按钮 */}
+        <Upload
+          accept="image/*"
+          showUploadList={false}
+          beforeUpload={handleImageUpload}
+          multiple
+        >
+          <Button
+            type="text"
+            icon={<PictureOutlined />}
+            disabled={disabled}
+            style={{
+              position: 'absolute',
+              right: 8,
+              bottom: 8,
+            }}
+            title="上传图片"
+          />
+        </Upload>
+
         {mentionListVisible && (
           <Card
             size="small"
@@ -315,7 +465,7 @@ export const ThreadInput: React.FC<ThreadInputProps> = memo(({
         )}
       </div>
       <Space direction="vertical">
-        <Button type="primary" icon={<SendOutlined />} onClick={handleSend} disabled={disabled || !inputValue.trim()}>
+        <Button type="primary" icon={<SendOutlined />} onClick={handleSend} disabled={!canSend}>
           发送
         </Button>
       </Space>
