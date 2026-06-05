@@ -89,10 +89,17 @@ const LauncherDashboard: React.FC = () => {
   const [agentModalVisible, setAgentModalVisible] = useState(false);
   const [configModalVisible, setConfigModalVisible] = useState(false);
 
+  // Modal 打开时才进行依赖检查
+  useEffect(() => {
+    if (agentModalVisible && agentDependencies.length === 0) {
+      checkAgentDependencies();
+    }
+  }, [agentModalVisible]);
+
   useEffect(() => {
     checkStatus();
     loadInstallDir();
-    checkAgentDependencies();
+    // 不在启动时自动检查依赖，改为用户点击 Modal 时检查
     const interval = setInterval(checkStatus, 5000);
     return () => clearInterval(interval);
   }, []);
