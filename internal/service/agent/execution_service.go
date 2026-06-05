@@ -532,6 +532,7 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 		BaseAgent:       baseAgent,
 		Context:         contextLayers,
 		Input:           req.Input,
+		Images:          req.Images,
 		WorkDir:         req.ProjectPath,
 		ConfigDir:       config.ConfigPath,
 		SessionID:       sessionID,
@@ -3448,8 +3449,8 @@ func (es *ExecutionService) GetInvocationStatus(ctx context.Context, invocationI
 // 实现message.AgentSpawner接口
 // 使用工作流模板中指定的Agent，而不是根据Phase硬编码选择
 // 如果用户@的是同一个Agent，使用 resume 方式触发对话
-func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, threadID uuid.UUID, userMessage string) error {
-	logInfo("SpawnAgentForUserMessage 被调用", zap.String("threadID", threadID.String()), zap.String("userMessage", userMessage))
+func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, threadID uuid.UUID, userMessage string, images []model.ImageContent) error {
+	logInfo("SpawnAgentForUserMessage 被调用", zap.String("threadID", threadID.String()), zap.String("userMessage", userMessage), zap.Int("imagesCount", len(images)))
 
 	// 获取Thread信息（先获取，用于确定 workflow 范围）
 	thread, err := es.threadRepo.FindByID(ctx, threadID)
@@ -3760,6 +3761,7 @@ func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, thread
 		Role:            targetConfig.Role,
 		ConfigID:        targetConfig.ID,
 		Input:           userMessage,
+		Images:          images,
 		ProjectPath:     projectPath,
 		SessionStrategy: sessionStrategy,
 		SessionID:       sessionIdFromDB,

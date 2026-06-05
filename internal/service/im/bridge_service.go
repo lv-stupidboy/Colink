@@ -15,7 +15,7 @@ import (
 )
 
 type agentSpawner interface {
-	SpawnAgentForUserMessage(ctx context.Context, threadID uuid.UUID, userMessage string) error
+	SpawnAgentForUserMessage(ctx context.Context, threadID uuid.UUID, userMessage string, images []model.ImageContent) error
 }
 
 // invocationCardState tracks an in-flight streaming card for a specific agent invocation.
@@ -109,7 +109,7 @@ func (s *IMBridgeService) HandleInboundMessage(
 		return err
 	}
 
-	if err := s.orchestrator.SpawnAgentForUserMessage(ctx, session.ThreadID, text); err != nil {
+	if err := s.orchestrator.SpawnAgentForUserMessage(ctx, session.ThreadID, text, nil); err != nil {
 		return fmt.Errorf("failed to spawn agent for inbound message %s: %w", messageID, err)
 	}
 

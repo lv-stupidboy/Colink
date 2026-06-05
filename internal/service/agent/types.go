@@ -121,6 +121,7 @@ type ExecutionRequest struct {
 	BaseAgent       *model.BaseAgent
 	Context         *ContextLayers
 	Input           string
+	Images          []model.ImageContent // 多模态输入：图片列表
 	WorkDir         string
 	ConfigDir       string           // Agent配置目录路径（使用生成的配置）
 	SessionID       string           // 会话ID（用于 --resume 复用已有会话，避免冷启动延迟）

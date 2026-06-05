@@ -329,6 +329,7 @@ type SpawnRequest struct {
 	Role            model.AgentRole
 	RequiresHuman   bool             // 是否需要人工参与
 	Input           string
+	Images          []model.ImageContent // 多模态输入：图片列表
 	ProjectPath     string           // 工作目录
 	SessionID       string           // 会话ID（用于 --resume 复用已有会话）
 	SessionStrategy SessionStrategy  // 会话策略：new 或 resume
@@ -352,9 +353,9 @@ var (
 // SpawnAgentForUserMessage 为用户消息触发Agent响应
 // 实现message.AgentSpawner接口
 // 使用工作流模板中指定的Agent，而不是根据Phase硬编码选择
-func (o *Orchestrator) SpawnAgentForUserMessage(ctx context.Context, threadID uuid.UUID, userMessage string) error {
+func (o *Orchestrator) SpawnAgentForUserMessage(ctx context.Context, threadID uuid.UUID, userMessage string, images []model.ImageContent) error {
 	// 委托给执行服务
-	return o.executionService.SpawnAgentForUserMessage(ctx, threadID, userMessage)
+	return o.executionService.SpawnAgentForUserMessage(ctx, threadID, userMessage, images)
 }
 
 // SetDebugThreadManager 设置调试线程管理器

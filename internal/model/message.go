@@ -7,6 +7,14 @@ import (
 	"github.com/google/uuid"
 )
 
+// ========== Image Content Model ==========
+
+// ImageContent 图片内容（用于多模态输入）
+type ImageContent struct {
+	MimeType string `json:"mimeType"` // MIME类型：image/png, image/jpeg, image/gif
+	Data     string `json:"data"`     // base64数据（不含 data:image/xxx;base64, 前缀）
+}
+
 // ========== Message Models ==========
 
 type MessageRole string

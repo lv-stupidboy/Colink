@@ -2,6 +2,7 @@ package message
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
@@ -11,7 +12,7 @@ import (
 
 // AgentSpawner Agent触发接口（避免循环依赖）
 type AgentSpawner interface {
-	SpawnAgentForUserMessage(ctx context.Context, threadID uuid.UUID, userMessage string) error
+	SpawnAgentForUserMessage(ctx context.Context, threadID uuid.UUID, userMessage string, images []model.ImageContent) error
 }
 
 // Service Message服务
@@ -31,15 +32,37 @@ func (s *Service) SetAgentSpawner(spawner AgentSpawner) {
 	s.agentSpawner = spawner
 }
 
-// Create 创建消息
+// Create 创建消息（纯文本）
 // skipAgentTrigger: 当前端已处理Agent触发时设为true，避免重复触发
 func (s *Service) Create(ctx context.Context, threadID uuid.UUID, role model.MessageRole, agentID, content string, skipAgentTrigger bool) (*model.Message, error) {
+	return s.CreateWithImages(ctx, threadID, role, agentID, content, nil, skipAgentTrigger)
+}
+
+// CreateWithImages 创建消息（支持图片）
+// images: 图片附件列表（多模态输入）
+func (s *Service) CreateWithImages(ctx context.Context, threadID uuid.UUID, role model.MessageRole, agentID, content string, images []model.ImageContent, skipAgentTrigger bool) (*model.Message, error) {
 	msg := &model.Message{
 		ThreadID:    threadID,
 		Role:        role,
 		AgentID:     agentID,
 		Content:     content,
 		MessageType: model.MessageTypeText,
+	}
+
+	// 如果有图片，将图片信息存储到 contentBlocks
+	if len(images) > 0 {
+		imageBlocks := make([]map[string]interface{}, len(images))
+		for i, img := range images {
+			imageBlocks[i] = map[string]interface{}{
+				"type":     "image",
+				"mimeType": img.MimeType,
+				"data":     img.Data,
+			}
+		}
+		contentBlocks := map[string]interface{}{
+			"blocks": imageBlocks,
+		}
+		msg.ContentBlocks, _ = jsonMarshal(contentBlocks)
 	}
 
 	if err := s.repo.Create(ctx, msg); err != nil {
@@ -65,7 +88,7 @@ func (s *Service) Create(ctx context.Context, threadID uuid.UUID, role model.Mes
 	if role == model.MessageRoleUser && s.agentSpawner != nil && !skipAgentTrigger {
 		go func() {
 			// 异步触发Agent，不阻塞用户请求
-			if err := s.agentSpawner.SpawnAgentForUserMessage(context.Background(), threadID, content); err != nil {
+			if err := s.agentSpawner.SpawnAgentForUserMessage(context.Background(), threadID, content, images); err != nil {
 				// 记录错误但不影响用户消息保存
 				println("[WARN] Failed to spawn agent for user message:", err.Error())
 			}
@@ -73,6 +96,11 @@ func (s *Service) Create(ctx context.Context, threadID uuid.UUID, role model.Mes
 	}
 
 	return msg, nil
+}
+
+// jsonMarshal 辅助函数
+func jsonMarshal(v interface{}) ([]byte, error) {
+	return json.Marshal(v)
 }
 
 // GetByThreadID 根据ThreadID获取消息列表（最新的N条）

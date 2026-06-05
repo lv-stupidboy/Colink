@@ -206,7 +206,7 @@ func (s *FeishuBridgeService) triggerAgent(ctx context.Context, session *model.I
 	}()
 
 	// Trigger agent execution
-	s.orchestrator.SpawnAgentForUserMessage(ctx, session.ThreadID, message)
+	s.orchestrator.SpawnAgentForUserMessage(ctx, session.ThreadID, message, nil)
 }
 
 // OnAgentChunk handles agent chunk output - implements ChunkListener

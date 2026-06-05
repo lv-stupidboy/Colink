@@ -76,6 +76,12 @@ func (h *MessageHandler) ListBeforeCursor(c *gin.Context) {
 	})
 }
 
+// ImageInput 图片输入结构
+type ImageInput struct {
+	MimeType string `json:"mimeType" binding:"required"` // MIME类型：image/png, image/jpeg
+	Data     string `json:"data" binding:"required"`     // base64数据（不含前缀）
+}
+
 // Create 创建消息
 func (h *MessageHandler) Create(c *gin.Context) {
 	threadID, err := uuid.Parse(c.Param("threadId"))
@@ -85,8 +91,9 @@ func (h *MessageHandler) Create(c *gin.Context) {
 	}
 
 	var req struct {
-		Content          string `json:"content" binding:"required"`
-		SkipAgentTrigger bool   `json:"skipAgentTrigger"` // 前端已处理Agent触发时设为true，避免重复触发
+		Content          string       `json:"content" binding:"required"`
+		Images           []ImageInput `json:"images"`           // 图片附件（多模态输入）
+		SkipAgentTrigger bool         `json:"skipAgentTrigger"` // 前端已处理Agent触发时设为true
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -99,7 +106,16 @@ func (h *MessageHandler) Create(c *gin.Context) {
 		userID = "anonymous"
 	}
 
-	msg, err := h.service.Create(c.Request.Context(), threadID, model.MessageRoleUser, userID, req.Content, req.SkipAgentTrigger)
+	// 转换图片输入为模型格式
+	var images []model.ImageContent
+	for _, img := range req.Images {
+		images = append(images, model.ImageContent{
+			MimeType: img.MimeType,
+			Data:     img.Data,
+		})
+	}
+
+	msg, err := h.service.CreateWithImages(c.Request.Context(), threadID, model.MessageRoleUser, userID, req.Content, images, req.SkipAgentTrigger)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
