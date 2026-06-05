@@ -135,6 +135,12 @@ func (a *ClaudeCLIAdapter) ExecuteWithStream(ctx context.Context, req *agent.Exe
 		logInfo("Claude: Injected MCP config", zap.String("mcpConfig", mcpConfig[:min(200, len(mcpConfig))]))
 	}
 
+	// 添加图片支持参数
+	if len(req.Images) > 0 {
+		args = append(args, "--allowedTools", "image_reader")
+		logInfo("Claude: Image input enabled", zap.Int("imageCount", len(req.Images)))
+	}
+
 	logDebug("Claude: Starting execution", zap.String("workDir", req.WorkDir), zap.String("configDir", req.ConfigDir))
 
 	cmd := exec.CommandContext(ctx, a.cliPath, args...)
@@ -146,9 +152,15 @@ func (a *ClaudeCLIAdapter) ExecuteWithStream(ctx context.Context, req *agent.Exe
 		return nil, fmt.Errorf("failed to create stdin pipe: %w", err)
 	}
 
-	// 发送初始 prompt 后关闭 stdin
+	// 构建输入内容（文本 + 图片）
 	go func() {
-		stdinPipe.Write([]byte(prompt))
+		// 如果有图片，构建多模态输入
+		if len(req.Images) > 0 {
+			inputContent := a.buildMultimodalInput(prompt, req.Images)
+			stdinPipe.Write([]byte(inputContent))
+		} else {
+			stdinPipe.Write([]byte(prompt))
+		}
 		stdinPipe.Close()
 	}()
 
@@ -578,6 +590,48 @@ func (a *ClaudeCLIAdapter) loadUserMCPConfig() map[string]interface{} {
 	logInfo("Claude: Loaded user MCP servers", zap.Strings("servers", serverNames), zap.String("path", userConfigPath))
 
 	return mcpServersMap
+}
+
+// buildMultimodalInput 构建多模态输入（文本 + 图片）
+// Claude CLI 接受 JSON 格式的多模态输入
+func (a *ClaudeCLIAdapter) buildMultimodalInput(prompt string, images []model.ImageContent) string {
+	// 构建内容块列表
+	contentBlocks := make([]map[string]interface{}, 0)
+
+	// 先添加文本内容
+	contentBlocks = append(contentBlocks, map[string]interface{}{
+		"type": "text",
+		"text": prompt,
+	})
+
+	// 添加图片内容块
+	for _, img := range images {
+		contentBlocks = append(contentBlocks, map[string]interface{}{
+			"type": "image",
+			"source": map[string]interface{}{
+				"type":      "base64",
+				"media_type": img.MimeType,
+				"data":       img.Data,
+			},
+		})
+	}
+
+	// stream-json 输入格式要求 NDJSON 信封：{"type":"user","message":{...}}
+	envelope := map[string]interface{}{
+		"type": "user",
+		"message": map[string]interface{}{
+			"role":    "user",
+			"content": contentBlocks,
+		},
+	}
+
+	jsonBytes, err := json.Marshal(envelope)
+	if err != nil {
+		logInfo("Claude: WARNING - Failed to marshal multimodal input", zap.Error(err))
+		return prompt // 降级：返回纯文本
+	}
+
+	return string(jsonBytes) + "\n"
 }
 
 // buildMCPConfig 构建 MCP 配置 JSON 字符串
