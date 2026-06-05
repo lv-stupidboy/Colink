@@ -1,51 +1,27 @@
 package memory
 
 import (
-	"regexp"
+	"fmt"
 	"strings"
 )
 
-var (
-	memoryPortConstraintPattern = regexp.MustCompile(`(?i)\b(MEM_TEST_PORT_\d+|\d{2,5})\b[^。\n]*(不可用|不能用|不要用|必须避开|禁用|unavailable|avoid|cannot use)`)
-	uppercaseMemoryTokenPattern = regexp.MustCompile(`\b[A-Z][A-Z0-9_]{3,}\b`)
-)
-
-func compactReusableMemory(content string) (string, bool) {
-	content = strings.TrimSpace(ScrubMemoryContext(content))
-	if content == "" {
-		return "", false
-	}
-	if memory := extractUserTitlePreference(content); memory != "" {
-		return memory, true
-	}
-	if memory := extractPortConstraint(content); memory != "" {
-		return memory, true
-	}
-	if memory := extractTokenRule(content); memory != "" {
-		return memory, true
-	}
-	if isConversationNoise(content) {
-		return "", false
-	}
-	return "", false
-}
-
-func normalizeMemoryDraft(draft MemoryDraft) (memoryText, usageText, topic string, used bool, ok bool) {
+func normalizeMemoryDraft(draft MemoryDraft) (memoryText, usageText, topic, summary string, used bool, ok bool) {
 	facts := normalizeDraftLines(draft.Facts, 12, 260)
 	usage := normalizeDraftLines(draft.Usage, 8, 220)
 	if len(facts) == 0 {
-		return "", "", "", false, false
+		return "", "", "", "", false, false
 	}
 	for _, fact := range append(append([]string{}, facts...), usage...) {
 		if containsSensitive(fact) {
-			return "", "", "", true, false
+			return "", "", "", "", true, false
 		}
 	}
 	topic = strings.TrimSpace(draft.Topic)
 	if topic != "" {
 		topic = slugForFilename(topic)
 	}
-	return strings.Join(facts, "\n"), strings.Join(usage, "\n"), topic, true, true
+	summary = normalizeSummary(draft.Summary)
+	return strings.Join(facts, "\n"), strings.Join(usage, "\n"), topic, summary, true, true
 }
 
 func normalizeDraftLines(values []string, limit int, maxRunes int) []string {
@@ -70,126 +46,48 @@ func normalizeDraftLines(values []string, limit int, maxRunes int) []string {
 	return result
 }
 
-func compactMemoryEntry(entry MemoryEntry) MemoryEntry {
-	if memory, ok := compactReusableMemory(entry.Memory); ok && entry.Topic == "" {
-		entry.Memory = memory
+func normalizeSummary(value string) string {
+	value = strings.TrimSpace(ScrubMemoryContext(value))
+	if value == "" || isConversationNoise(value) || containsSensitive(value) {
+		return ""
 	}
+	value = strings.ReplaceAll(value, "\r\n", " ")
+	value = strings.ReplaceAll(value, "\n", " ")
+	return trimRunes(value, 120)
+}
+
+func compactMemoryEntry(entry MemoryEntry) MemoryEntry {
+	entry.Summary = normalizeSummary(entry.Summary)
 	if isConversationNoise(entry.Memory) {
 		entry.Memory = ""
 	}
 	if isGenericUsage(entry.Usage) {
-		entry.Usage = buildUsage(entry.Type, entry.Memory)
+		entry.Usage = ""
 	}
 	return entry
 }
 
-func extractUserTitlePreference(content string) string {
-	if !strings.Contains(content, "大王") {
-		return ""
-	}
-	if !containsAnyFold(content, []string{"称呼", "开头", "回答前", "回答之前", "title", "address"}) {
-		return ""
-	}
-	return `用户希望回答前先称呼为"大王"。`
-}
-
-func isUserTitlePreference(content string) bool {
-	return extractUserTitlePreference(content) != ""
-}
-
-func extractPortConstraint(content string) string {
-	match := memoryPortConstraintPattern.FindStringSubmatch(content)
-	if len(match) < 2 {
-		return ""
-	}
-	port := match[1]
-	if strings.HasPrefix(strings.ToUpper(port), "MEM_TEST_PORT_") {
-		return port + " 不可用，所有任务必须避开。"
-	}
-	return port + " 端口不可用，相关服务和测试必须避开。"
-}
-
-func extractPortToken(content string) string {
-	match := memoryPortConstraintPattern.FindStringSubmatch(content)
-	if len(match) >= 2 {
-		return match[1]
-	}
-	return ""
-}
-
-func extractTokenRule(content string) string {
-	token := firstUppercaseMemoryToken(content)
-	if token == "" {
-		return ""
-	}
-	directive := conciseDirective(content)
-	if directive == "" {
-		return ""
-	}
-	if containsAnyFold(content, []string{"agent", "协作", "handoff", "review"}) {
-		return "多 Agent 协作：" + token + "，" + directive
-	}
-	return token + "，" + directive
-}
-
-func firstUppercaseMemoryToken(content string) string {
-	for _, token := range uppercaseMemoryTokenPattern.FindAllString(content, -1) {
-		if strings.Contains(token, "_") {
-			return token
-		}
-	}
-	return ""
-}
-
-func conciseDirective(content string) string {
-	content = strings.TrimSpace(strings.ReplaceAll(content, "\n", " "))
-	lower := strings.ToLower(content)
-	for _, marker := range []string{"必须", "需要", "应该", "不能", "不可", "avoid", "must"} {
-		if idx := strings.Index(lower, strings.ToLower(marker)); idx >= 0 {
-			return trimRunes(strings.TrimSpace(content[idx:]), 90)
-		}
-	}
-	return ""
-}
-
-func normalizePortToken(port string) string {
-	port = strings.TrimSpace(port)
-	port = strings.TrimPrefix(strings.ToUpper(port), "MEM_TEST_PORT_")
-	return strings.ToLower(port)
-}
-
-func semanticMemorySlug(entry MemoryEntry) string {
-	if isUserTitlePreference(entry.Memory) || entry.ID == "user-title-preference" {
-		return "user_preferences"
-	}
-	if port := extractPortToken(entry.Memory); port != "" {
-		return "port_constraints"
-	}
-	if token := firstUppercaseMemoryToken(entry.Memory); token != "" {
-		if containsAnyFold(entry.Memory, []string{"agent", "协作"}) {
-			return "memory_test_rules"
-		}
-		return strings.ToLower(strings.ReplaceAll(token, "_", "_"))
-	}
-	return ""
-}
-
 func conciseMemorySummary(entry MemoryEntry) string {
-	if isUserTitlePreference(entry.Memory) || entry.ID == "user-title-preference" {
-		return `回答前先称呼用户为"大王"`
+	if summary := normalizeSummary(entry.Summary); summary != "" {
+		return summary
 	}
-	if port := extractPortToken(entry.Memory); port != "" {
-		if strings.HasPrefix(strings.ToUpper(port), "MEM_TEST_PORT_") {
-			return port + " 不可用，所有任务必须避开"
-		}
-		return port + " 端口不可用，相关服务和测试必须避开"
+	return fallbackMemorySummary(entry)
+}
+
+func fallbackMemorySummary(entry MemoryEntry) string {
+	facts := splitMemoryFacts(entry.Memory)
+	count := len(facts)
+	if count == 0 {
+		return "记录该主题的长期记忆"
 	}
-	if token := firstUppercaseMemoryToken(entry.Memory); token != "" {
-		if directive := conciseDirective(entry.Memory); directive != "" {
-			return token + " " + strings.TrimSuffix(directive, "。")
-		}
+	subject := topicTitleFromKey(strings.TrimSpace(entry.Topic))
+	if subject == "" {
+		subject = memoryTitle(entry)
 	}
-	return firstSentence(entry.Memory, 42)
+	if count <= 1 {
+		return "记录1条" + subject
+	}
+	return "记录" + fmt.Sprintf("%d", count) + "条" + subject
 }
 
 func isConversationNoise(line string) bool {
@@ -218,8 +116,8 @@ func isGenericUsage(usage string) bool {
 
 func trimRunes(value string, max int) string {
 	runes := []rune(strings.TrimSpace(value))
-	if len(runes) <= max {
+	if max <= 0 || len(runes) <= max {
 		return string(runes)
 	}
-	return strings.TrimSpace(string(runes[:max])) + "..."
+	return strings.TrimSpace(string(runes[:max]))
 }

@@ -2,6 +2,7 @@ package memory_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -125,6 +126,84 @@ func TestProjectMemory_UsesWorkspaceScope(t *testing.T) {
 	}
 }
 
+func TestMemoryIndex_UsesTopicSummaryWithoutEllipsis(t *testing.T) {
+	tempDir := t.TempDir()
+	teamRoot := filepath.Join(tempDir, "team-memory")
+	manager := memory.NewMemoryManagerWithTeamPath(nil, teamRoot)
+	workspace := filepath.Join(tempDir, "workspace")
+	scope := testScope("team-a", "架构团队", workspace)
+
+	result, err := manager.AddMemoryCandidate(memory.AddMemoryCandidateInput{
+		Content: "架构设计师负责团队技术方案。",
+		Source:  memory.MemorySourceAgentObservation,
+		Type:    memory.MemoryTypeTeam,
+		Scope:   scope,
+		Draft: memory.MemoryDraft{
+			Topic:   "agent_roles",
+			Summary: "记录架构设计师、代码工程师的职责与上下游关系",
+			Facts: []string{
+				"架构设计师负责方案设计、技术选型、模块拆分、关键风险识别、设计文档输出和后续实现交接。",
+				"代码工程师负责根据架构设计完成代码实现、单元测试、问题修复和实现状态反馈。",
+				"架构设计师的下游是代码工程师，代码工程师完成实现后需要反馈阻塞与验证结果。",
+			},
+			Usage: []string{"回答团队分工、角色职责或调度下游 Agent 前先检查。"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddMemoryCandidate(team) error = %v", err)
+	}
+	if !result.Written {
+		t.Fatalf("expected team memory write, got %+v", result)
+	}
+
+	teamIndexData, err := os.ReadFile(filepath.Join(teamRoot, "team-a", "MEMORY.md"))
+	if err != nil {
+		t.Fatalf("ReadFile(team index) error = %v", err)
+	}
+	teamIndex := string(teamIndexData)
+	if strings.Contains(teamIndex, "...") {
+		t.Fatalf("team index should not contain ellipsis truncation:\n%s", teamIndex)
+	}
+	if want := "- [Agent 角色职责](agent_roles.md) — 记录架构设计师、代码工程师的职责与上下游关系"; !strings.Contains(teamIndex, want) {
+		t.Fatalf("expected topic summary %q in team index:\n%s", want, teamIndex)
+	}
+
+	result, err = manager.AddMemoryCandidate(memory.AddMemoryCandidateInput{
+		Content:       "项目常用命令。",
+		Source:        memory.MemorySourceAgentObservation,
+		WorkspacePath: workspace,
+		Type:          memory.MemoryTypeProject,
+		Scope:         scope,
+		Draft: memory.MemoryDraft{
+			Topic:   "project_commands",
+			Summary: "记录2条项目命令约定",
+			Facts: []string{
+				"go test ./internal/service/memory ./internal/mcp-server/... ./internal/api ./cmd/server -run TestNonExistent 用于快速验证记忆服务与 MCP 工具编译。",
+				"go test ./auto-test/internal/service/memory 用于验证 Markdown 记忆索引、隔离和检索行为。",
+			},
+			Usage: []string{"修改记忆落盘或注入逻辑后运行。"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddMemoryCandidate(project) error = %v", err)
+	}
+	if !result.Written {
+		t.Fatalf("expected project memory write, got %+v", result)
+	}
+
+	projectIndexData, err := os.ReadFile(memory.ProjectMemoryPath(workspace))
+	if err != nil {
+		t.Fatalf("ReadFile(project index) error = %v", err)
+	}
+	projectIndex := string(projectIndexData)
+	if strings.Contains(projectIndex, "...") {
+		t.Fatalf("project index should not contain ellipsis truncation:\n%s", projectIndex)
+	}
+	if want := "- [项目命令约定](project_commands.md) — 记录2条项目命令约定"; !strings.Contains(projectIndex, want) {
+		t.Fatalf("expected topic summary %q in project index:\n%s", want, projectIndex)
+	}
+}
+
 func TestMemoryToolAdd_RequiresTeamIdentityAndSavesWithScope(t *testing.T) {
 	tempDir := t.TempDir()
 	teamRoot := filepath.Join(tempDir, "team-memory")
@@ -209,5 +288,69 @@ Use another port when starting local services.
 	}
 	if len(results) != 1 || results[0].ID != "legacy-port-memory" {
 		t.Fatalf("expected legacy memory to be parsed, got %+v", results)
+	}
+}
+
+func TestAutoMemoryIndexBlock_InjectsOnlyFirstThirtyIndexEntries(t *testing.T) {
+	tempDir := t.TempDir()
+	workspace := filepath.Join(tempDir, "workspace")
+	projectIndex := memory.ProjectMemoryPath(workspace)
+	if err := os.MkdirAll(filepath.Dir(projectIndex), 0755); err != nil {
+		t.Fatalf("MkdirAll(project) error = %v", err)
+	}
+	var project strings.Builder
+	project.WriteString("# Memory Index\n\n## Project Memory\n")
+	for i := 1; i <= 35; i++ {
+		project.WriteString(fmt.Sprintf("- [project topic %02d](project_topic_%02d.md) — summary %02d\n", i, i, i))
+	}
+	if err := os.WriteFile(projectIndex, []byte(project.String()), 0644); err != nil {
+		t.Fatalf("WriteFile(project index) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(filepath.Dir(projectIndex), "project_topic_01.md"), []byte("FULL PROJECT TOPIC BODY"), 0644); err != nil {
+		t.Fatalf("WriteFile(project topic) error = %v", err)
+	}
+
+	teamRoot := filepath.Join(tempDir, "team-memory")
+	teamIndex := filepath.Join(teamRoot, "team-a", "MEMORY.md")
+	if err := os.MkdirAll(filepath.Dir(teamIndex), 0755); err != nil {
+		t.Fatalf("MkdirAll(team) error = %v", err)
+	}
+	var team strings.Builder
+	team.WriteString("# Memory Index\n\n## Team Memory\n")
+	for i := 1; i <= 35; i++ {
+		team.WriteString(fmt.Sprintf("- [team topic %02d](team_topic_%02d.md) — summary %02d\n", i, i, i))
+	}
+	if err := os.WriteFile(teamIndex, []byte(team.String()), 0644); err != nil {
+		t.Fatalf("WriteFile(team index) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(filepath.Dir(teamIndex), "team_topic_01.md"), []byte("FULL TEAM TOPIC BODY"), 0644); err != nil {
+		t.Fatalf("WriteFile(team topic) error = %v", err)
+	}
+
+	manager := memory.NewMemoryManagerWithTeamPath(nil, teamRoot)
+	block := manager.BuildAutoMemoryIndexBlock(nil, testScope("team-a", "架构团队", workspace), 30)
+
+	for _, want := range []string{
+		"<memory-index>",
+		"## Project Memory Index",
+		"## Team Memory Index",
+		"- [project topic 30](project_topic_30.md)",
+		"- [team topic 30](team_topic_30.md)",
+		projectIndex,
+		teamIndex,
+	} {
+		if !strings.Contains(block, want) {
+			t.Fatalf("expected %q in auto memory block:\n%s", want, block)
+		}
+	}
+	for _, unwanted := range []string{
+		"- [project topic 31](project_topic_31.md)",
+		"- [team topic 31](team_topic_31.md)",
+		"FULL PROJECT TOPIC BODY",
+		"FULL TEAM TOPIC BODY",
+	} {
+		if strings.Contains(block, unwanted) {
+			t.Fatalf("did not expect %q in auto memory block:\n%s", unwanted, block)
+		}
 	}
 }

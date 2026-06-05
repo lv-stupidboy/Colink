@@ -15,6 +15,7 @@ import api from '@/api/client';
 import type { RawMemoryGroup, RawMemoryResponse } from '@/types';
 
 interface Props {
+  refreshKey?: number;
   scope?: {
     teamId?: string;
     teamName?: string;
@@ -133,7 +134,7 @@ const MarkdownView: React.FC<MarkdownViewProps> = ({ content, className, emptyTe
   );
 };
 
-export const MemoryEntriesPanel: React.FC<Props> = ({ scope }) => {
+export const MemoryEntriesPanel: React.FC<Props> = ({ scope, refreshKey = 0 }) => {
   const [data, setData] = useState<RawMemoryResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -176,7 +177,7 @@ export const MemoryEntriesPanel: React.FC<Props> = ({ scope }) => {
     return () => {
       cancelled = true;
     };
-  }, [scope?.teamId, scope?.teamName, scope?.projectId, scope?.projectName, scope?.workspacePath, reloadKey]);
+  }, [scope?.teamId, scope?.teamName, scope?.projectId, scope?.projectName, scope?.workspacePath, reloadKey, refreshKey]);
 
   const totalFiles = useMemo(() => {
     if (!data) return 0;

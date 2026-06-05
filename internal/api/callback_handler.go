@@ -2,10 +2,12 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
@@ -323,7 +325,46 @@ func (h *CallbackHandler) Memory(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	if shouldBroadcastMemoryUpdate(req.Action, result) {
+		h.broadcastMemoryUpdated(identity.ThreadID, scopeIdentity, req)
+	}
 	c.Data(http.StatusOK, "application/json; charset=utf-8", []byte(result))
+}
+
+func shouldBroadcastMemoryUpdate(action string, result string) bool {
+	normalizedAction := strings.ToLower(strings.TrimSpace(action))
+	switch normalizedAction {
+	case "", "add", "replace", "remove", "update_status":
+	default:
+		return false
+	}
+
+	var response memory.MemoryToolResponse
+	if err := json.Unmarshal([]byte(result), &response); err != nil {
+		return false
+	}
+	return response.Success
+}
+
+func (h *CallbackHandler) broadcastMemoryUpdated(threadID uuid.UUID, scope memory.MemoryScopeIdentity, req MemoryCallbackRequest) {
+	if h.wsHub == nil || threadID == uuid.Nil {
+		return
+	}
+	h.wsHub.BroadcastToThread(threadID.String(), ws.WSMessage{
+		Type:      "memory_updated",
+		ThreadID:  threadID.String(),
+		Timestamp: time.Now().UnixMilli(),
+		Payload: map[string]interface{}{
+			"action":        req.Action,
+			"type":          req.Type,
+			"scope":         req.Scope,
+			"teamId":        scope.TeamID,
+			"teamName":      scope.TeamName,
+			"projectId":     scope.ProjectID,
+			"projectName":   scope.ProjectName,
+			"workspacePath": scope.WorkspacePath,
+		},
+	})
 }
 
 // ListTeamAgents handles team.list_agents MCP callbacks.

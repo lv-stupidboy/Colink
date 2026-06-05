@@ -1346,13 +1346,8 @@ func (es *ExecutionService) loadThreadContext(ctx context.Context, threadID uuid
 	}
 	tc.Project = project
 
-	// 3. 确定工作流模板ID
-	var workflowTemplateID *uuid.UUID
-	if project != nil && project.WorkflowTemplateID != nil {
-		workflowTemplateID = project.WorkflowTemplateID
-	} else if thread.WorkflowTemplateID != nil {
-		workflowTemplateID = thread.WorkflowTemplateID
-	}
+	// 3. 确定工作流模板ID：任务绑定团队优先，项目绑定团队仅作为兜底。
+	workflowTemplateID := selectThreadTeamWorkflowTemplateID(thread, project)
 
 	// 4. 获取工作流模板和 Agent 列表
 	if workflowTemplateID != nil && es.workflowRepo != nil {
@@ -1483,12 +1478,14 @@ func (es *ExecutionService) buildContextLayers(ctx context.Context, threadID uui
 			workspacePath = tc.Project.LocalPath
 		}
 
-		// 预取记忆（参数：threadID, agentID, teamID, projectID）
-		memoryRaw := es.memoryManager.PrefetchMultiScope(ctx, threadIDStr, agentIDStr, teamIDStr, projectIDStr, workspacePath)
-		if memoryRaw != "" {
-			// 包装为 fenced block（参考 hermes-agent build_memory_context_block）
-			layers.MemoryContext = es.memoryManager.BuildMemoryContextBlock(memoryRaw)
-			logInfo("Memory prefetch completed",
+		memoryIndex := es.memoryManager.BuildAutoMemoryIndexBlock(ctx, memory.MemoryScopeIdentity{
+			TeamID:        teamIDStr,
+			ProjectID:     projectIDStr,
+			WorkspacePath: workspacePath,
+		}, 30)
+		if memoryIndex != "" {
+			layers.MemoryContext = memoryIndex
+			logInfo("Memory index injection completed",
 				zap.String("threadID", threadIDStr),
 				zap.String("agentID", agentIDStr),
 				zap.String("teamID", teamIDStr),
@@ -1515,6 +1512,16 @@ func (es *ExecutionService) resolveWorkspacePath(ctx context.Context, threadID u
 		}
 	}
 	return ""
+}
+
+func selectThreadTeamWorkflowTemplateID(thread *model.Thread, project *model.Project) *uuid.UUID {
+	if thread != nil && thread.WorkflowTemplateID != nil {
+		return thread.WorkflowTemplateID
+	}
+	if project != nil && project.WorkflowTemplateID != nil {
+		return project.WorkflowTemplateID
+	}
+	return nil
 }
 
 // roleTriggerHints 根据角色自动生成的触发提示
@@ -3325,21 +3332,14 @@ func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, thread
 
 	// 获取项目路径和工作流模板（提前获取，用于限定 @mention 解析范围）
 	var projectPath string
-	var workflowTemplateID *uuid.UUID
+	var project *model.Project
 	if es.projectRepo != nil {
-		project, err := es.projectRepo.GetByThreadID(ctx, threadID)
+		project, err = es.projectRepo.GetByThreadID(ctx, threadID)
 		if err == nil && project != nil {
 			projectPath = project.LocalPath
-			// 优先使用 Project 的工作流模板
-			if project.WorkflowTemplateID != nil {
-				workflowTemplateID = project.WorkflowTemplateID
-			}
 		}
 	}
-	// 如果 Project 没有工作流模板，使用 Thread 的
-	if workflowTemplateID == nil && thread.WorkflowTemplateID != nil {
-		workflowTemplateID = thread.WorkflowTemplateID
-	}
+	workflowTemplateID := selectThreadTeamWorkflowTemplateID(thread, project)
 
 	// 获取 workflow 范围内的 agents，用于限定 @mention 解析
 	var workflowAgents []*model.AgentRoleConfig

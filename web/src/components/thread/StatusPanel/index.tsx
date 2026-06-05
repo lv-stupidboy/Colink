@@ -12,9 +12,10 @@ interface StatusPanelProps {
   width?: number;
   threadId?: string;
   projectPath?: string;
+  memoryRefreshKey?: number;
 }
 
-export const StatusPanel: React.FC<StatusPanelProps> = ({ width = 320, threadId, projectPath }) => {
+export const StatusPanel: React.FC<StatusPanelProps> = ({ width = 320, threadId, projectPath, memoryRefreshKey = 0 }) => {
   const {
     activeAgents,
     agentUsage,
@@ -90,6 +91,7 @@ export const StatusPanel: React.FC<StatusPanelProps> = ({ width = 320, threadId,
 
       {/* Agent 状态 */}
       <MemoryEntriesPanel
+        refreshKey={memoryRefreshKey}
         scope={{
           teamId: currentWorkflowTemplate?.id || currentProject?.workflowTemplateId,
           teamName: currentWorkflowTemplate?.name,

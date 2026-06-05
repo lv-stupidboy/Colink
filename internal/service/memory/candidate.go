@@ -11,9 +11,8 @@ import (
 )
 
 var (
-	sensitivePattern       = regexp.MustCompile(`(?i)(api[_-]?key|token|password|passwd|secret|authorization|bearer)\s*[:=]\s*["']?[^\s"']+`)
-	secretLikePattern      = regexp.MustCompile(`(?i)\b(sk-[a-z0-9_-]{12,}|xox[baprs]-[a-z0-9-]{10,}|gh[pousr]_[a-z0-9_]{20,})\b`)
-	portUnavailablePattern = regexp.MustCompile(`(?i)(MEM_TEST_PORT_\d+|\d{2,5}).*(不可用|不能用|不要用|必须避开|禁用|unavailable|avoid|cannot)`)
+	sensitivePattern  = regexp.MustCompile(`(?i)(api[_-]?key|token|password|passwd|secret|authorization|bearer)\s*[:=]\s*["']?[^\s"']+`)
+	secretLikePattern = regexp.MustCompile(`(?i)\b(sk-[a-z0-9_-]{12,}|xox[baprs]-[a-z0-9-]{10,}|gh[pousr]_[a-z0-9_]{20,})\b`)
 )
 
 func (m *MemoryManager) AddMemoryCandidate(input AddMemoryCandidateInput) (*AddMemoryCandidateResult, error) {
@@ -25,15 +24,14 @@ func (m *MemoryManager) AddMemoryCandidate(input AddMemoryCandidateInput) (*AddM
 		return &AddMemoryCandidateResult{Written: false, Reason: "content contains sensitive credential-like text"}, nil
 	}
 
-	memoryText, usageText, topic, usedDraft, ok := normalizeMemoryDraft(input.Draft)
+	memoryText, usageText, topic, summary, usedDraft, ok := normalizeMemoryDraft(input.Draft)
 	roleMemory, isRoleMemory := extractRoleMemory(content)
 	if !usedDraft {
 		if isRoleMemory {
 			memoryText = roleMemory.memory
 			ok = true
 		} else {
-			memoryText, ok = compactReusableMemory(content)
-			if !ok && shouldAcceptManualMemory(input, content) {
+			if shouldAcceptManualMemory(input, content) {
 				memoryText = trimRunes(content, 300)
 				ok = true
 			}
@@ -70,6 +68,7 @@ func (m *MemoryManager) AddMemoryCandidate(input AddMemoryCandidateInput) (*AddM
 		Status:     MemoryStatusActive,
 		Tags:       mergeStrings(input.Tags, inferTags(memoryText)),
 		Topic:      topic,
+		Summary:    summary,
 		Created:    now,
 		Updated:    now,
 		Memory:     memoryText,
@@ -81,6 +80,7 @@ func (m *MemoryManager) AddMemoryCandidate(input AddMemoryCandidateInput) (*AddM
 	if isRoleMemory {
 		entry.ID = roleMemoryID(roleMemory.role)
 		entry.Topic = "agent_roles"
+		entry.Summary = "记录该 Agent 的角色职责与上下游关系"
 		entry.Tags = mergeStrings(entry.Tags, []string{"agent-role"})
 		entry.Usage = "调度或交接任务前，检查该角色的职责、上游和下游关系。"
 	}
@@ -113,9 +113,6 @@ func shouldAcceptManualMemory(input AddMemoryCandidateInput, content string) boo
 }
 
 func classifyMemoryType(content string) MemoryType {
-	if isUserTitlePreference(content) {
-		return MemoryTypeTeam
-	}
 	projectScore := countSignals(content, []string{"项目", "workspace", "repo", "端口", "port", "pnpm", "npm", "yarn", "make ", "go test", "测试", "构建", "启动", "命令", "数据库", "mysql", "sqlite", "目录", "路径"})
 	teamScore := countSignals(content, []string{"agent", "团队", "工程师", "架构师", "代码工程师", "测试工程师", "职责", "角色", "上游", "下游", "协作", "交接", "分工"})
 	if projectScore == 0 && teamScore == 0 {
@@ -138,19 +135,6 @@ func countSignals(content string, signals []string) int {
 }
 
 func buildMemoryID(content string, tags []string) string {
-	if isUserTitlePreference(content) {
-		return "user-title-preference"
-	}
-	if m := portUnavailablePattern.FindStringSubmatch(content); len(m) >= 2 {
-		return "port-" + normalizePortToken(m[1]) + "-unavailable"
-	}
-	if token := firstUppercaseMemoryToken(content); token != "" {
-		prefix := ""
-		if containsAnyFold(content, []string{"agent", "协作"}) {
-			prefix = "agent-"
-		}
-		return prefix + strings.ToLower(strings.ReplaceAll(token, "_", "-"))
-	}
 	seed := content
 	if len(tags) > 0 {
 		seed = strings.Join(tags, "-") + "-" + content
@@ -210,12 +194,6 @@ func inferTags(content string) []string {
 }
 
 func buildUsage(memoryType MemoryType, content string) string {
-	if isUserTitlePreference(content) {
-		return "回答用户前先检查称呼偏好。"
-	}
-	if port := extractPortToken(content); port != "" {
-		return "配置端口、启动服务或编写端口相关测试前，确认没有使用 " + port + "。"
-	}
 	if memoryType == MemoryTypeTeam && containsAnyFold(content, []string{"角色", "职责", "上游", "下游", "协作"}) {
 		return "分配任务、触发下游 Agent 或解释团队分工前先检查。"
 	}

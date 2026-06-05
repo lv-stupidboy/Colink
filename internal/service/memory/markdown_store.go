@@ -160,6 +160,11 @@ func mergeTopicEntry(existing, next MemoryEntry) MemoryEntry {
 	existing.Memory = mergeMemoryText(existing.Memory, next.Memory)
 	existing.Usage = mergeMemoryText(existing.Usage, next.Usage)
 	existing.Tags = mergeStrings(existing.Tags, next.Tags)
+	if summary := normalizeSummary(next.Summary); summary != "" {
+		existing.Summary = summary
+	} else {
+		existing.Summary = normalizeSummary(existing.Summary)
+	}
 	if existing.Created.IsZero() || (!next.Created.IsZero() && next.Created.Before(existing.Created)) {
 		existing.Created = next.Created
 	}
@@ -287,6 +292,7 @@ func renderMemoryEntryMarkdown(entry MemoryEntry) string {
 	sb.WriteString("metadata:\n")
 	writeMetadataField(&sb, "node_type", "memory")
 	writeMetadataField(&sb, "topic", topic.Key)
+	writeMetadataField(&sb, "summary", entry.Summary)
 	writeMetadataField(&sb, "type", string(entry.Type))
 	writeMetadataField(&sb, "source", string(entry.Source))
 	writeMetadataField(&sb, "confidence", string(entry.Confidence))
@@ -342,9 +348,6 @@ func parseMemoryIndexLinks(raw string) []string {
 func memoryEntryFilename(entry MemoryEntry) string {
 	if topic := deriveMemoryTopic(entry); topic.Filename != "" {
 		return topic.Filename
-	}
-	if slug := semanticMemorySlug(entry); slug != "" {
-		return slug + ".md"
 	}
 	slug := slugForFilename(memoryTitle(entry))
 	if slug == "" {
@@ -430,11 +433,8 @@ func formatFrontmatterValue(value string) string {
 }
 
 func memoryTitle(entry MemoryEntry) string {
-	if isUserTitlePreference(entry.Memory) || entry.ID == "user-title-preference" {
+	if entry.ID == "user-title-preference" || containsString(entry.Tags, "user-preference") || containsString(entry.Tags, "preference") {
 		return "用户偏好"
-	}
-	if extractPortToken(entry.Memory) != "" || strings.Contains(entry.ID, "-unavailable") {
-		return "端口约束"
 	}
 	if tag := firstNonEmpty(entry.Tags); tag != "" {
 		return humanizeID(tag)
@@ -442,7 +442,7 @@ func memoryTitle(entry MemoryEntry) string {
 	if entry.ID != "" {
 		return humanizeID(entry.ID)
 	}
-	return firstSentence(entry.Memory, 24)
+	return "通用记忆"
 }
 
 func memoryDescription(entry MemoryEntry) string {
@@ -504,7 +504,7 @@ func firstSentence(value string, maxRunes int) string {
 	if len(runes) <= maxRunes {
 		return value
 	}
-	return strings.TrimSpace(string(runes[:maxRunes])) + "..."
+	return strings.TrimSpace(string(runes[:maxRunes]))
 }
 
 func parseMemoryMarkdown(raw string) []MemoryEntry {
@@ -581,6 +581,8 @@ func parseFrontmatterMemoryBlock(frontmatter, body []string) (MemoryEntry, bool)
 			entry.Tags = splitCSV(value)
 		case "topic":
 			entry.Topic = value
+		case "summary":
+			entry.Summary = value
 		case "created":
 			entry.Created = parseMemoryDate(value)
 		case "updated":
@@ -694,6 +696,8 @@ func parseMemoryBlock(lines []string) (MemoryEntry, bool) {
 				entry.Status = MemoryStatus(value)
 			case "tags":
 				entry.Tags = splitCSV(value)
+			case "summary":
+				entry.Summary = value
 			case "created":
 				entry.Created = parseMemoryDate(value)
 			case "updated":

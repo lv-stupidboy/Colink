@@ -52,6 +52,7 @@ type MemoryEntry struct {
 	Status     MemoryStatus     `json:"status"`
 	Tags       []string         `json:"tags,omitempty"`
 	Topic      string           `json:"topic,omitempty"`
+	Summary    string           `json:"summary,omitempty"`
 	Created    time.Time        `json:"created"`
 	Updated    time.Time        `json:"updated"`
 	Memory     string           `json:"memory"`
@@ -59,9 +60,10 @@ type MemoryEntry struct {
 }
 
 type MemoryDraft struct {
-	Topic string   `json:"topic,omitempty"`
-	Facts []string `json:"facts,omitempty"`
-	Usage []string `json:"usage,omitempty"`
+	Topic   string   `json:"topic,omitempty"`
+	Summary string   `json:"summary,omitempty"`
+	Facts   []string `json:"facts,omitempty"`
+	Usage   []string `json:"usage,omitempty"`
 }
 
 type MemoryScopeIdentity struct {
@@ -119,6 +121,7 @@ type MemoryToolRequest struct {
 	Category      string     `json:"category,omitempty"`
 	Tags          []string   `json:"tags,omitempty"`
 	Topic         string     `json:"topic,omitempty"`
+	Summary       string     `json:"summary,omitempty"`
 	Facts         []string   `json:"facts,omitempty"`
 	Usage         []string   `json:"usage,omitempty"`
 }

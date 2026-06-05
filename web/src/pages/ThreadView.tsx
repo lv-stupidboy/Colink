@@ -184,6 +184,7 @@ const ThreadView: React.FC = () => {
   const [artifacts, setArtifacts] = useState<Artifact[]>([]);
   const [reviewResult, setReviewResult] = useState<MergeCheckResult | undefined>();
   const [reviewIssues, setReviewIssues] = useState<ReviewIssue[]>([]);
+  const [memoryRefreshKey, setMemoryRefreshKey] = useState(0);
   const [checkpointModalVisible, setCheckpointModalVisible] = useState(false);
   const [currentCheckpoint, setCurrentCheckpoint] = useState<{
     type: 'requirement' | 'design' | 'review' | 'deploy';
@@ -316,6 +317,10 @@ const ThreadView: React.FC = () => {
         };
         addDebugMessage(agentMsg);
         setDebugStatus('idle');
+        break;
+
+      case 'memory_updated':
+        setMemoryRefreshKey(value => value + 1);
         break;
 
       case 'system_message':
@@ -603,6 +608,10 @@ const ThreadView: React.FC = () => {
     }
 
     switch (data.type) {
+      case 'memory_updated':
+        setMemoryRefreshKey(value => value + 1);
+        break;
+
       case 'agent_output_chunk': {
         const chunkType = data.payload.chunkType as string || 'text';
         const invocId = data.payload.invocationId as string;
@@ -1783,7 +1792,7 @@ const ThreadView: React.FC = () => {
 
           {/* 右侧面板（代码/沙箱） */}
           {/* StatusPanel - 状态栏 */}
-          <StatusPanel width={320} threadId={threadId || debugThreadId || undefined} projectPath={displayProjectPath} />
+          <StatusPanel width={320} threadId={threadId || debugThreadId || undefined} projectPath={displayProjectPath} memoryRefreshKey={memoryRefreshKey} />
           {/* 文件预览面板 */}
           {filePreviewVisible && filePreviewPath && (
             <FilePreviewPanel

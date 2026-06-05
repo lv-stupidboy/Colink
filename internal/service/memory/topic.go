@@ -2,7 +2,6 @@ package memory
 
 import (
 	"regexp"
-	"strings"
 )
 
 var commandPattern = regexp.MustCompile(`(?i)\b(go test|npm run|pnpm|yarn|make|docker|kubectl|git)\b`)
@@ -18,16 +17,16 @@ func deriveMemoryTopic(entry MemoryEntry) memoryTopic {
 	if key := slugForFilename(entry.Topic); key != "" {
 		return memoryTopic{Key: key, Title: topicTitleFromKey(key), Filename: key + ".md", Summary: conciseMemorySummary(entry)}
 	}
-	if containsString(entry.Tags, "agent-role") || containsAnyFold(entry.Memory, []string{"职责", "上游", "下游"}) {
+	if containsString(entry.Tags, "agent-role") {
 		return memoryTopic{Key: "agent_roles", Title: "Agent 角色职责", Filename: "agent_roles.md", Summary: conciseMemorySummary(entry)}
 	}
-	if isUserTitlePreference(entry.Memory) || entry.ID == "user-title-preference" || containsAnyFold(entry.Memory, []string{"用户偏好", "称呼"}) {
+	if containsString(entry.Tags, "user-preference") || containsString(entry.Tags, "preference") {
 		return memoryTopic{Key: "user_preferences", Title: "用户偏好", Filename: "user_preferences.md", Summary: conciseMemorySummary(entry)}
 	}
-	if extractPortToken(entry.Memory) != "" || containsAnyFold(entry.Memory, []string{"端口", "port", "MEM_TEST_PORT"}) {
+	if containsString(entry.Tags, "port") || containsString(entry.Tags, "port-constraint") {
 		return memoryTopic{Key: "port_constraints", Title: "端口约束", Filename: "port_constraints.md", Summary: conciseMemorySummary(entry)}
 	}
-	if firstUppercaseMemoryToken(entry.Memory) != "" || containsAnyFold(entry.Memory, []string{"协作", "协同", "智能体", "多智能体", "交接", "review", "refactor"}) {
+	if containsString(entry.Tags, "collaboration") || containsString(entry.Tags, "test") || containsString(entry.Tags, "refactor") {
 		key := collaborationTopicKey(entry)
 		return memoryTopic{Key: key, Title: topicTitleFromKey(key), Filename: key + ".md", Summary: conciseMemorySummary(entry)}
 	}
@@ -38,9 +37,6 @@ func deriveMemoryTopic(entry MemoryEntry) memoryTopic {
 		}
 		return memoryTopic{Key: key, Title: topicTitleFromKey(key), Filename: key + ".md", Summary: conciseMemorySummary(entry)}
 	}
-	if key := semanticMemorySlug(entry); key != "" {
-		return memoryTopic{Key: key, Title: topicTitleFromKey(key), Filename: key + ".md", Summary: conciseMemorySummary(entry)}
-	}
 	key := slugForFilename(memoryTitle(entry))
 	if key == "" {
 		key = "general_memory"
@@ -49,11 +45,10 @@ func deriveMemoryTopic(entry MemoryEntry) memoryTopic {
 }
 
 func collaborationTopicKey(entry MemoryEntry) string {
-	token := firstUppercaseMemoryToken(entry.Memory)
-	if containsAnyFold(entry.Memory, []string{"test", "测试"}) || strings.Contains(token, "TEST") || containsString(entry.Tags, "test") {
+	if containsString(entry.Tags, "test") {
 		return "memory_test_rules"
 	}
-	if containsAnyFold(entry.Memory, []string{"重构", "refactor"}) || strings.Contains(token, "REFACTOR") {
+	if containsString(entry.Tags, "refactor") {
 		return "refactor_collaboration_rules"
 	}
 	return "collaboration_rules"
