@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
-import type { Thread, Message, AgentInvocation, AgentConfig, Phase, AgentRole, Project, WorkflowTemplate, SandboxServer, MessageContentBlock } from '@/types';
+import type { Thread, Message, AgentInvocation, AgentConfig, Phase, AgentRole, Project, WorkflowTemplate, SandboxServer, MessageContentBlock, ImageAttachment } from '@/types';
 import type { TokenUsage, TaskProgress } from '@/types/status';
 import type { BlockingItem } from '@/types/blocking';
 import api from '@/api/client';
@@ -104,7 +104,7 @@ interface AppActions {
   setCurrentThread: (thread: Thread) => void;
 
   // 发送消息
-  sendMessage: (content: string, skipAgentTrigger?: boolean) => Promise<void>;
+  sendMessage: (content: string, skipAgentTrigger?: boolean, images?: ImageAttachment[]) => Promise<void>;
 
   // 触发Agent
   spawnAgent: (role: AgentRole, input: string, configId?: string) => Promise<void>;
@@ -397,7 +397,7 @@ export const useAppStore = create<AppState & AppActions>()(
       set({ currentThread: thread });
     },
 
-    sendMessage: async (content, skipAgentTrigger = false) => {
+    sendMessage: async (content, skipAgentTrigger = false, images) => {
       const { currentThread, blockingItems } = get();
       if (!currentThread) return;
 
@@ -422,7 +422,7 @@ export const useAppStore = create<AppState & AppActions>()(
       }));
 
       try {
-        await api.messages.create(currentThread.id, content, skipAgentTrigger);
+        await api.messages.create(currentThread.id, content, skipAgentTrigger, images);
       } catch (error) {
         set({ error: (error as Error).message });
       }

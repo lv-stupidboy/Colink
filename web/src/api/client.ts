@@ -86,6 +86,7 @@ import type {
   FeedbackRequest,
   RuntimeConfig,
   RawMemoryResponse,
+  ImageAttachment,
 } from '@/types';
 import {
   transformProjects,
@@ -347,8 +348,8 @@ class APIClient {
     // 加载历史消息（向上滚动加载）
     listHistory: (threadId: string, cursor: string, limit = 10): Promise<{ messages: Message[]; hasMore: boolean }> =>
       this.request(`/messages/thread/${threadId}/history`, 'GET', undefined, { params: { cursor, limit } }),
-    create: (threadId: string, content: string, skipAgentTrigger?: boolean): Promise<Message> =>
-      this.request(`/messages/thread/${threadId}`, 'POST', { content, skipAgentTrigger }),
+    create: (threadId: string, content: string, skipAgentTrigger?: boolean, images?: ImageAttachment[]): Promise<Message> =>
+      this.request(`/messages/thread/${threadId}`, 'POST', { content, skipAgentTrigger, images }),
   };
 
   // Agent 配置 API

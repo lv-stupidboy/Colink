@@ -35,7 +35,7 @@ import {
 } from '@ant-design/icons';
 import { useAppStore } from '@/store';
 import { useDebugThreadStore } from '@/store/debugThread';
-import type { Message, Artifact, ReviewIssue, MergeCheckResult, AgentConfig, ToolEvent, MessageContentBlock } from '@/types';
+import type { Message, Artifact, ReviewIssue, MergeCheckResult, AgentConfig, ToolEvent, MessageContentBlock, ImageAttachment } from '@/types';
 import type { FileChange } from '@/types/content';
 import { ArtifactTypeLabels } from '@/types';
 import { ReviewReport } from '@/components/ReviewReport';
@@ -1608,8 +1608,8 @@ const ThreadView: React.FC = () => {
    * 调试模式：直接发送给当前 Agent
    * 团队模式：支持 @mention 触发特定 Agent
    */
-  const handleSend = useCallback(async (content: string) => {
-    if (!content.trim()) return;
+  const handleSend = useCallback(async (content: string, images?: ImageAttachment[]) => {
+    if (!content.trim() && !images?.length) return;
 
     // 用户发送新消息时，清除之前的阻塞项（开始新的交互）
     const state = useAppStore.getState();
@@ -1644,7 +1644,7 @@ const ThreadView: React.FC = () => {
         opt.label.toLowerCase() === agentName
       );
       if (agentByName) {
-        await sendMessage(content, true);
+        await sendMessage(content, true, images);
         await spawnAgent('agent', input, agentByName.id);
         return;
       }
@@ -1652,7 +1652,7 @@ const ThreadView: React.FC = () => {
       message.warning(`未找到 Agent: ${agentName}，请从下拉列表中选择`);
       return;
     } else {
-      await sendMessage(content);
+      await sendMessage(content, false, images);
     }
   }, [isDebugMode, agentOptions, sendMessage, spawnAgent, handleDebugSend]);
 
