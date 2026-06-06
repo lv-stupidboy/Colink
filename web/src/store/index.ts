@@ -406,12 +406,31 @@ export const useAppStore = create<AppState & AppActions>()(
         set({ blockingItems: [] });
       }
 
+      // 构建图片内容块（用于前端展示）
+      let contentBlocks: MessageContentBlock[] | undefined;
+      if (images && images.length > 0) {
+        contentBlocks = images.map(img => ({
+          id: `img-${img.id}`,
+          type: 'rich' as const,
+          richType: 'media_gallery' as const,
+          timestamp: Date.now(),
+          images: [{
+            id: img.id,
+            url: `data:${img.mimeType};base64,${img.base64}`,
+            thumbnailUrl: `data:${img.mimeType};base64,${img.base64}`,
+            width: img.width,
+            height: img.height,
+          }],
+        }));
+      }
+
       // 先创建本地消息（乐观更新）
       const userMessage: Message = {
         id: `user-${Date.now()}`,
         threadId: currentThread.id,
         role: 'user',
         content,
+        contentBlocks,
         messageType: 'text',
         createdAt: new Date().toISOString(),
       };
