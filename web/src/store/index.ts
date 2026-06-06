@@ -406,22 +406,30 @@ export const useAppStore = create<AppState & AppActions>()(
         set({ blockingItems: [] });
       }
 
-      // 构建图片内容块（用于前端展示）
+      // 构建内容块（文本 + 图片）
       let contentBlocks: MessageContentBlock[] | undefined;
       if (images && images.length > 0) {
-        contentBlocks = images.map(img => ({
-          id: `img-${img.id}`,
+        // 先添加文本块
+        contentBlocks = [{
+          id: `text-${Date.now()}`,
+          type: 'text',
+          content,
+          timestamp: Date.now(),
+        }];
+        // 再添加图片画廊块
+        contentBlocks.push({
+          id: `img-${Date.now()}`,
           type: 'rich' as const,
           richType: 'media_gallery' as const,
           timestamp: Date.now(),
-          images: [{
+          images: images.map(img => ({
             id: img.id,
             url: `data:${img.mimeType};base64,${img.base64}`,
             thumbnailUrl: `data:${img.mimeType};base64,${img.base64}`,
             width: img.width,
             height: img.height,
-          }],
-        }));
+          })),
+        });
       }
 
       // 先创建本地消息（乐观更新）

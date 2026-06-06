@@ -3,6 +3,8 @@ package message
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"time"
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
@@ -49,20 +51,37 @@ func (s *Service) CreateWithImages(ctx context.Context, threadID uuid.UUID, role
 		MessageType: model.MessageTypeText,
 	}
 
-	// 如果有图片，将图片信息存储到 contentBlocks
+	// 如果有图片，将图片信息存储到 contentBlocks（前端渲染格式）
 	if len(images) > 0 {
-		imageBlocks := make([]map[string]interface{}, len(images))
+		// 构建图片列表（用于 media_gallery rich block）
+		mediaItems := make([]map[string]interface{}, len(images))
 		for i, img := range images {
-			imageBlocks[i] = map[string]interface{}{
-				"type":     "image",
-				"mimeType": img.MimeType,
-				"data":     img.Data,
+			dataURI := fmt.Sprintf("data:%s;base64,%s", img.MimeType, img.Data)
+			mediaItems[i] = map[string]interface{}{
+				"id":           fmt.Sprintf("img-%d", i),
+				"url":          dataURI,
+				"thumbnailUrl": dataURI,
 			}
 		}
-		contentBlocks := map[string]interface{}{
-			"blocks": imageBlocks,
+
+		// 构建内容块数组：文本块 + 图片画廊块
+		ts := time.Now().UnixMilli()
+		contentBlocksArray := []map[string]interface{}{
+			{
+				"id":        fmt.Sprintf("text-%d", ts),
+				"type":      "text",
+				"content":   content,
+				"timestamp": ts,
+			},
+			{
+				"id":        fmt.Sprintf("img-%d", ts),
+				"type":      "rich",
+				"richType":  "media_gallery",
+				"timestamp": ts,
+				"images":    mediaItems,
+			},
 		}
-		msg.ContentBlocks, _ = jsonMarshal(contentBlocks)
+		msg.ContentBlocks, _ = jsonMarshal(contentBlocksArray)
 	}
 
 	if err := s.repo.Create(ctx, msg); err != nil {

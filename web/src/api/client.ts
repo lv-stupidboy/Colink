@@ -348,8 +348,14 @@ class APIClient {
     // 加载历史消息（向上滚动加载）
     listHistory: (threadId: string, cursor: string, limit = 10): Promise<{ messages: Message[]; hasMore: boolean }> =>
       this.request(`/messages/thread/${threadId}/history`, 'GET', undefined, { params: { cursor, limit } }),
-    create: (threadId: string, content: string, skipAgentTrigger?: boolean, images?: ImageAttachment[]): Promise<Message> =>
-      this.request(`/messages/thread/${threadId}`, 'POST', { content, skipAgentTrigger, images }),
+    create: (threadId: string, content: string, skipAgentTrigger?: boolean, images?: ImageAttachment[]): Promise<Message> => {
+      // 转换 images 格式：前端 base64 → 后端 data
+      const apiImages = images?.map(img => ({
+        mimeType: img.mimeType,
+        data: img.base64,
+      }));
+      return this.request(`/messages/thread/${threadId}`, 'POST', { content, skipAgentTrigger, images: apiImages });
+    },
   };
 
   // Agent 配置 API
