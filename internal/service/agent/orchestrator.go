@@ -372,6 +372,11 @@ func (o *Orchestrator) SetExecutionServiceAPIURL(url string) {
 	o.executionService.SetAPIURL(url)
 }
 
+// SetSessionManager 设置 Session 管理器（用于不同 CLI 类型的 session 策略）
+func (o *Orchestrator) SetSessionManager(sm *SessionManager) {
+	o.executionService.SetSessionManager(sm)
+}
+
 // SpawnDebugAgent 调试模式启动Agent
 func (o *Orchestrator) SpawnDebugAgent(ctx context.Context, req *SpawnRequest) (*model.AgentInvocation, error) {
 	if o.debugThreadMgr == nil {

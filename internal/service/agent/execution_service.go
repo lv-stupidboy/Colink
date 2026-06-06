@@ -137,6 +137,9 @@ type ExecutionService struct {
 
 	// Token 预算管理器（用于 A2A 深度控制）
 	tokenBudgetManager *TokenBudgetManager
+
+	// Session 管理器（用于不同 CLI 类型的 session 策略）
+	sessionManager *SessionManager
 }
 
 // NewExecutionService 创建统一执行服务
@@ -209,6 +212,11 @@ func (es *ExecutionService) SetMemoryManager(mm *memory.MemoryManager) {
 // SetAPIURL 设置 API URL（用于 MCP server 回调）
 func (es *ExecutionService) SetAPIURL(url string) {
 	es.apiURL = url
+}
+
+// SetSessionManager 设置 Session 管理器（用于不同 CLI 类型的 session 策略）
+func (es *ExecutionService) SetSessionManager(sm *SessionManager) {
+	es.sessionManager = sm
 }
 
 // NotifyChunkListeners 通知所有外部 chunk 监听器
@@ -534,17 +542,114 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 	}
 	logInfo("[PERF] buildExecutionRequest", zap.Duration("duration", time.Since(execReqBuildStart)), zap.String("sessionID", sessionID), zap.String("sessionStrategy", string(req.SessionStrategy)))
 
-	// CLI 执行阶段（这是主要耗时点）
-	cliStart := time.Now()
-	logInfo("[PERF] CLI execution starting", zap.String("invocationID", invocation.ID.String()))
+		// === 长连接模式判断 ===
+		var sessionHandle SessionHandle
+		if es.sessionManager != nil {
+			threadUUID, _ := uuid.Parse(req.ThreadID.String())
+			configUUID := config.ID
+			var handleErr error
+			sessionHandle, handleErr = es.sessionManager.GetOrCreateSession(ctx, threadUUID, configUUID, baseAgent)
+			if handleErr != nil {
+				logError("GetOrCreateSession failed", zap.Error(handleErr))
+			}
+		}
 
-	// 使用流式执行，实时广播输出
-	var outputBuilder strings.Builder
-	result, err := adapter.ExecuteWithStream(ctx, execReq, func(chunk Chunk) {
-		outputBuilder.WriteString(chunk.Content)
-		// 实时广播输出块
-		es.broadcastChunk(req.ThreadID, invocation.ID, chunk, config.ID.String(), config.Name)
-	})
+		var outputBuilder strings.Builder
+		var result *ExecutionResult
+
+		cliStart := time.Now()
+		logInfo("[PERF] CLI execution starting", zap.String("invocationID", invocation.ID.String()))
+
+		if sessionHandle != nil && sessionHandle.IsLongRunning() {
+			lrs := sessionHandle.GetLongRunningSession()
+			if lrs == nil {
+				logError("GetLongRunningSession returned nil", zap.String("sessionId", sessionID))
+				result, err = adapter.ExecuteWithStream(ctx, execReq, func(chunk Chunk) {
+					outputBuilder.WriteString(chunk.Content)
+					es.broadcastChunk(req.ThreadID, invocation.ID, chunk, config.ID.String(), config.Name)
+				})
+			} else {
+				savedAdapter := lrs.Adapter
+				if savedAdapter == nil {
+					lrs.SetAdapter(adapter, baseAgent)
+					savedAdapter = adapter
+				}
+
+				longRunning, ok := savedAdapter.(LongRunningSessionCapable)
+				if !ok {
+					logError("Adapter does not support long running session", zap.String("agentType", string(baseAgent.Type)))
+					result, err = adapter.ExecuteWithStream(ctx, execReq, func(chunk Chunk) {
+						outputBuilder.WriteString(chunk.Content)
+						es.broadcastChunk(req.ThreadID, invocation.ID, chunk, config.ID.String(), config.Name)
+					})
+				} else {
+					lrs.SetInvocationID(invocation.ID.String())
+
+					acpSessionID := lrs.AcpSessionID
+					isSessionAlive := longRunning.IsSessionAlive(acpSessionID)
+					isProcessAlive := lrs.IsProcessAlive()
+					logInfo("LongRunningSession: checking state",
+						zap.String("acpSessionId", acpSessionID),
+						zap.Bool("isSessionAlive", isSessionAlive),
+						zap.Bool("isProcessAlive", isProcessAlive))
+
+					var fullPrompt string
+					if acpSessionID != "" && isSessionAlive && isProcessAlive {
+						fullPrompt = req.Input
+						logInfo("Long running session alive, sending only user input",
+							zap.String("acpSessionId", acpSessionID),
+							zap.Int("inputLen", len(req.Input)))
+					} else {
+						recoveryHistory := lrs.GetRecoveryHistory()
+						if recoveryHistory != nil && recoveryHistory.Content != "" {
+							fullPrompt = lrs.BuildRecoveryPrompt(execReq.Input)
+						} else {
+							fullPrompt = BuildPromptFromRequest(execReq)
+						}
+					}
+
+					invocation.FullPrompt = fullPrompt
+					es.invocationRepo.Update(ctx, invocation)
+					es.broadcastFullPrompt(req.ThreadID, invocation.ID, fullPrompt)
+
+					if acpSessionID != "" && isSessionAlive && isProcessAlive {
+						logInfo("Long running session alive, sending prompt", zap.String("acpSessionId", acpSessionID), zap.Int("promptLen", len(fullPrompt)))
+						err = lrs.SendPromptToSession(ctx, fullPrompt, func(chunk Chunk) {
+							outputBuilder.WriteString(chunk.Content)
+							es.broadcastChunk(req.ThreadID, invocation.ID, chunk, config.ID.String(), config.Name)
+							lrs.AppendChunk(chunk)
+						})
+						if err == nil {
+							result = &ExecutionResult{SessionID: lrs.AcpSessionID, Output: outputBuilder.String()}
+						}
+					} else {
+						logInfo("Long running session not alive, starting new", zap.String("sessionId", sessionID))
+						err = lrs.StartLongRunningSession(ctx, execReq)
+						if err != nil {
+							logError("Failed to start long running session", zap.Error(err))
+							result, err = adapter.ExecuteWithStream(ctx, execReq, func(chunk Chunk) {
+								outputBuilder.WriteString(chunk.Content)
+								es.broadcastChunk(req.ThreadID, invocation.ID, chunk, config.ID.String(), config.Name)
+							})
+						} else {
+							err = lrs.SendPromptToSession(ctx, fullPrompt, func(chunk Chunk) {
+								outputBuilder.WriteString(chunk.Content)
+								es.broadcastChunk(req.ThreadID, invocation.ID, chunk, config.ID.String(), config.Name)
+								lrs.AppendChunk(chunk)
+							})
+							if err == nil {
+								result = &ExecutionResult{SessionID: lrs.AcpSessionID, Output: outputBuilder.String()}
+							}
+						}
+					}
+				}
+			}
+		} else {
+			result, err = adapter.ExecuteWithStream(ctx, execReq, func(chunk Chunk) {
+				outputBuilder.WriteString(chunk.Content)
+				es.broadcastChunk(req.ThreadID, invocation.ID, chunk, config.ID.String(), config.Name)
+			})
+		}
 
 	// 会话恢复失败降级机制
 	if err != nil && sessionID != "" && isResumeFallbackError(err) {
@@ -4001,7 +4106,7 @@ func (es *ExecutionService) extractStructuredHistory(messages []*model.Message, 
 }
 
 // extractSimplifiedAgentBlocks 从 Agent 的 ContentBlocks 中提取简化内容
-// 删除 tool_result 的 output，简化 text 内容
+// 删除 tool_result 的 output，简化 text/thinking 内容
 func (es *ExecutionService) extractSimplifiedAgentBlocks(blocks []ContentBlockData) string {
 	var parts []string
 	toolCalls := make(map[string]string) // toolID -> toolName，用于关联 tool_result
@@ -4018,6 +4123,16 @@ func (es *ExecutionService) extractSimplifiedAgentBlocks(blocks []ContentBlockDa
 				}
 				parts = append(parts, content)
 			}
+		case "thinking":
+			// thinking 内容：聚合展示，标记为思考过程
+			content := strings.TrimSpace(block.Content)
+			if content != "" {
+				// 截断过长的 thinking 内容
+				if len(content) > 300 {
+					content = content[:300] + "...(思考内容已省略)"
+				}
+				parts = append(parts, "[思考] " + content)
+			}
 		case "tool_use":
 			// tool_use：只记录工具名，不保留完整 input
 			toolCalls[block.ToolID] = block.ToolName
@@ -4033,15 +4148,15 @@ func (es *ExecutionService) extractSimplifiedAgentBlocks(blocks []ContentBlockDa
 				status = "失败"
 			}
 			// 不保留 output 内容
-			parts = append(parts, fmt.Sprintf("[工具结果: %s - %s，output已省略]", toolName, status))
+			parts = append(parts, fmt.Sprintf("[工具结果: %s - %s]", toolName, status))
 		}
 	}
 
 	if len(parts) == 0 {
-		return "(执行了工具调用)"
+		return "(无可用内容)"
 	}
 
-	return strings.Join(parts, " ")
+	return strings.Join(parts, "\n")
 }
 
 // filterAndTruncateContent 过滤 thinking 内容并截断过长内容

@@ -163,6 +163,14 @@ func (t *acpTransport) Close() error {
 	return closeErr
 }
 
+// SetNotificationHandler 设置 notification handler
+// 用于长连接模式下动态更新 handler
+func (t *acpTransport) SetNotificationHandler(handler func(method string, params json.RawMessage)) {
+	t.pendingMu.Lock()
+	t.onNotification = handler
+	t.pendingMu.Unlock()
+}
+
 func (t *acpTransport) readLoop() {
 	defer close(t.done)
 

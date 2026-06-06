@@ -90,7 +90,27 @@ export class ServiceManager {
 
   async stop(): Promise<void> {
     if (this.process) {
-      this.process.kill('SIGTERM')
+      const proc = this.process
+
+      // 发送 SIGTERM 优雅停止
+      proc.kill('SIGTERM')
+
+      // 等待进程退出（最多 10 秒）
+      await new Promise<void>((resolve) => {
+        const timeout = setTimeout(() => {
+          // 超时强制 kill
+          console.warn('[Service] Graceful shutdown timeout, forcing kill')
+          proc.kill('SIGKILL')
+          resolve()
+        }, 10000)
+
+        proc.on('close', (code) => {
+          clearTimeout(timeout)
+          console.log(`[Service] Process exited with code ${code}`)
+          resolve()
+        })
+      })
+
       this.process = null
     }
   }

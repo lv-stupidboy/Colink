@@ -3,6 +3,7 @@ package ws
 import (
 	"encoding/json"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -138,4 +139,24 @@ func (h *Hub) GetClientCount(threadID string) int {
 
 func jsonMarshal(v interface{}) ([]byte, error) {
 	return json.Marshal(v)
+}
+// SessionBroadcasterAdapter 将 Hub 适配为 SessionBroadcaster 接口
+// 用于 SessionPool 向前端广播 session 状态变化
+type SessionBroadcasterAdapter struct {
+	hub *Hub
+}
+
+// NewSessionBroadcasterAdapter 创建适配器
+func NewSessionBroadcasterAdapter(hub *Hub) *SessionBroadcasterAdapter {
+	return &SessionBroadcasterAdapter{hub: hub}
+}
+
+// BroadcastToThread 实现 SessionBroadcaster 接口
+func (a *SessionBroadcasterAdapter) BroadcastToThread(threadID string, eventType string, payload map[string]interface{}) {
+	a.hub.BroadcastToThread(threadID, WSMessage{
+		Type:      eventType,
+		ThreadID:  threadID,
+		Timestamp: time.Now().Unix(),
+		Payload:   payload,
+	})
 }

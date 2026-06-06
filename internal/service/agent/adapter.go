@@ -35,6 +35,24 @@ type AgentAdapter interface {
 	GetCurrentProcess() *exec.Cmd
 }
 
+// LongRunningSessionCapable 长连接 Session 能力接口
+// 用于 OpenCode/CodeAgent 等不支持原生 resume 的 CLI
+// 使用接口断言方式，避免对 AgentAdapter 接口进行侵入式修改
+type LongRunningSessionCapable interface {
+	// StartLongRunningSession 启动长连接 session（进程保持存活）
+	// 返回 ACP session ID 用于后续 SendPromptToSession
+	StartLongRunningSession(ctx context.Context, req *ExecutionRequest) (string, error)
+
+	// SendPromptToSession 向已有 session 发送新 prompt（复用进程）
+	SendPromptToSession(ctx context.Context, sessionID string, prompt string, onChunk func(Chunk)) error
+
+	// StopLongRunningSession 停止长连接 session
+	StopLongRunningSession(sessionID string) error
+
+	// IsSessionAlive 检查 session 进程是否存活
+	IsSessionAlive(sessionID string) bool
+}
+
 // ToolResultSender 发送工具结果的接口（用于 AskUserQuestion 等需要用户输入的工具）
 // ACP adapter 等需要支持此接口
 type ToolResultSender interface {
@@ -45,12 +63,20 @@ type ToolResultSender interface {
 type SessionStatus string
 
 const (
+	// 基础状态（原有）
 	SessionStatusIdle      SessionStatus = "idle"
 	SessionStatusRunning   SessionStatus = "running"
 	SessionStatusPaused    SessionStatus = "paused"
 	SessionStatusCompleted SessionStatus = "completed"
 	SessionStatusFailed    SessionStatus = "failed"
 	SessionStatusStopped   SessionStatus = "stopped"
+
+	// 长连接 Session 状态（新增）
+	SessionStatusActive     SessionStatus = "active"     // 正在执行
+	SessionStatusSealing    SessionStatus = "sealing"    // 正在封存
+	SessionStatusSealed     SessionStatus = "sealed"     // 已封存（可恢复）
+	SessionStatusRecovering SessionStatus = "recovering" // 正在恢复
+	SessionStatusError      SessionStatus = "error"      // 异常状态
 )
 
 func min(a, b int) int {

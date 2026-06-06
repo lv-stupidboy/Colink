@@ -421,7 +421,33 @@ func main() {
 	orchestrator.SetExecutionServiceAPIURL(apiURL)
 	logger.Info("MemoryManager initialized and injected into Orchestrator", zap.String("apiURL", apiURL))
 
-	// 设置 MCP server 路径（用于 Agent 记忆工具调用）
+	// 初始化 SessionManager（统一管理不同 CLI 类型的 session 策略）
+	// 支持：
+	// 1. Claude CLI: 使用原生 resume，持久化 session ID
+	// 2. OpenCode/CodeAgent: 使用长连接 + Prompt 注入恢复
+	sessionRecordRepo := repo.NewSessionRecordRepository(db)
+	sessionManager := agent.NewSessionManager(sessionRecordRepo, agent.SessionManagerConfig{
+		LongRunning: agent.SessionPoolConfig{
+			IdleTimeout:      10 * time.Minute,
+			MaxSessions:      20,
+			PersistInterval:  3,
+			MaxHistoryTokens: 4000,
+		},
+		ResumeExpiry:     168,  // 7 天
+		SealedExpiry:     24,   // 24 小时
+		CleanupInterval:  30,   // 30 分钟
+	})
+			// 将 SessionManager 注入到 ExecutionService
+		orchestrator.SetSessionManager(sessionManager)
+		logger.Info("SessionManager initialized and injected into Orchestrator")
+
+		// 将 WebSocket Hub 注入到 SessionManager
+		// 用于向前端广播 session 状态变化（sealed、recovered 等）
+		wsAdapter := ws.NewSessionBroadcasterAdapter(wsHub)
+		sessionManager.SetWSHub(wsAdapter)
+		logger.Info("WebSocket Hub injected into SessionManager for session events broadcasting")
+
+		// 设置 MCP server 路径（用于 Agent 记忆工具调用）
 	// 开发模式：bin/mcp-server.exe（相对于项目根目录）
 	// 安装模式：packages/runtime/tools/mcp-server.exe（相对于安装目录）
 	mcpServerPath := ""
@@ -787,6 +813,16 @@ func main() {
 	<-quit
 
 	logger.Info("Shutting down server...")
+
+	// 优雅关闭 SessionManager（封存所有活跃 session）
+	if sessionManager != nil {
+		logger.Info("SessionManager: initiating graceful shutdown")
+		if err := sessionManager.Shutdown(); err != nil {
+			logger.Error("SessionManager: shutdown error", zap.Error(err))
+		} else {
+			logger.Info("SessionManager: shutdown completed")
+		}
+	}
 
 	if eventListener != nil {
 		eventListener.Stop()
