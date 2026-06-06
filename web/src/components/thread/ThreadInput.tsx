@@ -112,6 +112,28 @@ export const ThreadInput: React.FC<ThreadInputProps> = memo(({
     setImages(prev => prev.filter(img => img.id !== imageId));
   }, []);
 
+  // 处理粘贴图片
+  const handlePaste = useCallback(async (e: React.ClipboardEvent) => {
+    const items = e.clipboardData.items;
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (file) {
+          // 检查文件大小（限制 10MB）
+          if (file.size > 10 * 1024 * 1024) {
+            continue;
+          }
+          try {
+            const attachment = await fileToImageAttachment(file);
+            setImages(prev => [...prev, attachment]);
+          } catch (err) {
+            console.error('Failed to process pasted image:', err);
+          }
+        }
+      }
+    }
+  }, [fileToImageAttachment]);
+
   // 发送消息
   const handleSend = useCallback(() => {
     const hasContent = inputValue.trim() || images.length > 0;
@@ -375,6 +397,7 @@ export const ThreadInput: React.FC<ThreadInputProps> = memo(({
           value={inputValue}
           onChange={handleInputChange}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
           placeholder={placeholder}
           autoSize={{ minRows: 2, maxRows: 6 }}
           disabled={disabled}
