@@ -282,6 +282,7 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 	prompt := a.buildPromptFromRequest(req)
 	// 构建内容块列表（文本 + 图片）
 	contentBlocks := a.buildContentBlocks(prompt, req.Images)
+	LogInfo("ACP: buildContentBlocks", zap.Int("textLen", len(prompt)), zap.Int("imagesCount", len(req.Images)), zap.Int("blocksCount", len(contentBlocks)))
 	promptResult, err := transport.SendRequest("session/prompt", &acpPromptParams{
 		SessionID: session.id,
 		Prompt:    contentBlocks,
@@ -801,12 +802,15 @@ func (a *BaseACPAdapter) buildPromptFromRequest(req *agent.ExecutionRequest) str
 func (a *BaseACPAdapter) buildContentBlocks(text string, images []model.ImageContent) []acpContentBlock {
 	blocks := []acpContentBlock{{Type: "text", Text: text}}
 
-	// 添加图片内容块
+	// 添加图片内容块（使用 ACP source 格式）
 	for _, img := range images {
 		blocks = append(blocks, acpContentBlock{
-			Type:     "image",
-			MimeType: img.MimeType,
-			Data:     img.Data,
+			Type: "image",
+			Source: &acpImageSource{
+				Type:      "base64",
+				MediaType: img.MimeType,
+				Data:      img.Data,
+			},
 		})
 	}
 

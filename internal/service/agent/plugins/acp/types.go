@@ -132,7 +132,15 @@ type acpContentBlock struct {
 	Text     string          `json:"text,omitempty"`
 	MimeType string          `json:"mimeType,omitempty"`
 	Data     string          `json:"data,omitempty"`
+	Source   *acpImageSource `json:"source,omitempty"` // ACP image source format
 	Content  json.RawMessage `json:"content,omitempty"` // OpenCode nested content: {"type":"text","text":"..."}
+}
+
+// acpImageSource ACP 图片源格式
+type acpImageSource struct {
+	Type      string `json:"type"`       // "base64"
+	MediaType string `json:"media_type"` // "image/png", "image/jpeg"
+	Data      string `json:"data"`       // base64 data
 }
 
 type acpPromptResult struct {
