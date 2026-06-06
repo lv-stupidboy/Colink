@@ -229,8 +229,8 @@ const MediaGalleryBlock: React.FC<{ block: MediaGalleryRichBlock }> = memo(({ bl
           key={image.id}
           src={image.thumbnailUrl || image.url}
           alt={image.caption}
-          width={120}
-          height={120}
+          width={80}
+          height={80}
           style={{ objectFit: 'cover', borderRadius: 4 }}
         />
       ))}
