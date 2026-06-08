@@ -1531,6 +1531,77 @@ const ThreadView: React.FC = () => {
   }, [threadId, updateContentBlock, sendMessage]);
 
   /**
+   * 处理 Rich Block 交互动作
+   * 将用户的交互动作（如确认、选择）反馈给 agent
+   */
+  const handleInteractiveAction = useCallback(async (blockId: string, action: string, value?: string | string[]) => {
+    if (!threadId) {
+      console.error('[handleInteractiveAction] No threadId available');
+      return;
+    }
+
+    try {
+      // 获取提出问题的 Agent 名称（从 streamingContentBlocks 或 messages 中获取）
+      const state = useAppStore.getState();
+
+      // 先从 streamingContentBlocks 查找 rich block
+      let richBlock = state.streamingContentBlocks.find(b => b.id === blockId);
+
+      // 如果找不到，从 messages 的 contentBlocks 中查找
+      if (!richBlock) {
+        for (const msg of state.messages) {
+          if (msg.contentBlocks) {
+            const found = msg.contentBlocks.find(b => b.id === blockId);
+            if (found && found.type === 'rich') {
+              richBlock = found;
+              break;
+            }
+          }
+        }
+      }
+
+      // 获取 agentName（如果有的话）
+      const agentName = (richBlock as any)?.agentName || state.streamingAgentName || '';
+
+      // 构建交互消息
+      let actionMessage = '';
+      if (action === 'confirm') {
+        actionMessage = '已确认方案';
+      } else if (action === 'cancel') {
+        actionMessage = '已取消';
+      } else if (action === 'select' && value) {
+        actionMessage = `已选择: ${value}`;
+      } else if (action === 'multi_select' && Array.isArray(value)) {
+        actionMessage = `已选择: ${value.join('、')}`;
+      } else {
+        actionMessage = `交互动作: ${action}`;
+        if (value) {
+          actionMessage += ` - ${Array.isArray(value) ? value.join('、') : value}`;
+        }
+      }
+
+      // 加上 @AgentName 前缀（如果有）
+      const finalMessage = agentName ? `@${agentName} ${actionMessage}` : actionMessage;
+
+      console.log('[handleInteractiveAction] Sending interactive action:', {
+        blockId,
+        action,
+        value,
+        agentName,
+        finalMessage,
+      });
+
+      // 发送消息，触发 agent 继续执行
+      await sendMessage(finalMessage);
+
+      message.success('交互已确认，Agent 正在处理...');
+    } catch (error) {
+      console.error('[handleInteractiveAction] Failed:', error);
+      message.error('交互确认失败，请重试');
+    }
+  }, [threadId, sendMessage]);
+
+  /**
    * 处理发送消息
    * 调试模式：直接发送给当前 Agent
    * 团队模式：支持 @mention 触发特定 Agent
@@ -1718,6 +1789,7 @@ const ThreadView: React.FC = () => {
                   onOpenCodePanel={openCodePanel}
                   autoScroll={true}
                   onQuestionSubmit={handleInlineQuestionSubmit}
+                  onInteractiveAction={handleInteractiveAction}
                   hasMoreHistory={!isDebugMode && messagesHasMore}
                   loadingMore={!isDebugMode && messagesLoadingMore}
                   onLoadMore={!isDebugMode ? loadMoreMessages : undefined}

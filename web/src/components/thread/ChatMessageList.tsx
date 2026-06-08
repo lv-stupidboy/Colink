@@ -42,6 +42,7 @@ interface ChatMessageListProps {
   loading?: boolean;
   autoScroll?: boolean;
   onQuestionSubmit?: (blockId: string, answers: Record<number, string | string[]>, invocationId: string) => void;
+  onInteractiveAction?: (blockId: string, action: string, value?: string | string[]) => void;
   hasMoreHistory?: boolean;
   loadingMore?: boolean;
   onLoadMore?: () => void;
@@ -82,6 +83,7 @@ export const ChatMessageList = forwardRef<HTMLDivElement, ChatMessageListProps>(
       loading = false,
       autoScroll = true,
       onQuestionSubmit,
+      onInteractiveAction,
       hasMoreHistory = false,
       loadingMore = false,
       onLoadMore,
@@ -225,6 +227,7 @@ export const ChatMessageList = forwardRef<HTMLDivElement, ChatMessageListProps>(
             onRetry={onRetryAgent ? () => onRetryAgent(message) : undefined}
             onOpenCodePanel={onOpenCodePanel}
             onQuestionSubmit={onQuestionSubmit}
+            onInteractiveAction={onInteractiveAction}
             onAgentClick={onAgentClick}
           />
         );
@@ -237,6 +240,7 @@ export const ChatMessageList = forwardRef<HTMLDivElement, ChatMessageListProps>(
         toolEvents={toolEvents}
         onStop={onStopAgent}
         onQuestionSubmit={onQuestionSubmit}
+        onInteractiveAction={onInteractiveAction}
       />
 
       {/* 底部锚点 - 用于 IntersectionObserver */}

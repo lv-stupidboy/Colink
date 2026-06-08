@@ -44,6 +44,7 @@ interface ChatMessageProps {
   onOpenCodePanel?: (files: FileChange[]) => void;
   onReplyClick?: (messageId: string) => void;  // 点击回复引用跳转
   onQuestionSubmit?: (blockId: string, answers: Record<number, string | string[]>, invocationId: string) => void;  // AskUserQuestion 答案提交
+  onInteractiveAction?: (blockId: string, action: string, value?: string | string[]) => void;  // Rich block 交互动作
   onAgentClick?: (agentName: string) => void;  // 点击 Agent 头像/名称的回调
 }
 
@@ -152,6 +153,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
   onOpenCodePanel: _onOpenCodePanel,
   onReplyClick,
   onQuestionSubmit,
+  onInteractiveAction,
   onAgentClick,
 }) => {
   const isUser = message.role === 'user';
@@ -423,6 +425,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
             defaultExpanded={false}
             agentConfigs={_agentConfigs}
             onQuestionSubmit={onQuestionSubmit}
+            onInteractiveAction={onInteractiveAction}
             filterWaitingQuestions={!isStreaming}
             messageInvocationId={message.metadata?.invocationId as string | undefined}
           />

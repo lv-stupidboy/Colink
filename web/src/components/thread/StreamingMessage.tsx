@@ -11,6 +11,7 @@ interface StreamingMessageProps {
   toolEvents: Record<string, ToolEvent[]>;
   onStop?: (invocationId: string) => void;
   onQuestionSubmit?: (blockId: string, answers: Record<number, string | string[]>, invocationId: string) => void;
+  onInteractiveAction?: (blockId: string, action: string, value?: string | string[]) => void;
 }
 
 /**
@@ -25,6 +26,7 @@ export const StreamingMessage: React.FC<StreamingMessageProps> = memo(({
   toolEvents,
   onStop,
   onQuestionSubmit,
+  onInteractiveAction,
 }) => {
   // 订阅流式状态
   const isStreaming = useAppStore((s) => s.isStreaming);
@@ -115,6 +117,7 @@ export const StreamingMessage: React.FC<StreamingMessageProps> = memo(({
         toolEvents={messageToolEvents}
         onStop={onStop && streamingInvocationId ? () => onStop(streamingInvocationId) : undefined}
         onQuestionSubmit={onQuestionSubmit}
+        onInteractiveAction={onInteractiveAction}
       />
     </div>
   );

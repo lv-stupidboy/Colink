@@ -95,6 +95,7 @@ const MessageContentRenderer: React.FC<MessageContentRendererProps> = memo(({
                 tools={block.tools as ToolUseBlock[]}
                 richBlocks={block.richBlocks as RichBlock[]}
                 defaultExpanded={defaultExpanded}
+                onInteractiveAction={onInteractiveAction}
               />
             );
           case 'question':
@@ -301,6 +302,7 @@ interface ToolGroupBlockProps {
   tools: ToolUseBlock[];
   richBlocks?: RichBlock[];
   defaultExpanded?: boolean;
+  onInteractiveAction?: (blockId: string, action: string, value?: string | string[]) => void;
 }
 
 /** rich 块预览构建（从 richBlocks 提取摘要） */
@@ -327,7 +329,7 @@ function buildRichPreview(richBlocks?: RichBlock[], maxChars = 48): string {
   return '';
 }
 
-const ToolGroupBlock: React.FC<ToolGroupBlockProps> = memo(({ tools, richBlocks, defaultExpanded = false }) => {
+const ToolGroupBlock: React.FC<ToolGroupBlockProps> = memo(({ tools, richBlocks, defaultExpanded = false, onInteractiveAction }) => {
   if (tools.length === 0) return null;
 
   // 单个工具：直接用单行显示
@@ -445,7 +447,7 @@ const ToolGroupBlock: React.FC<ToolGroupBlockProps> = memo(({ tools, richBlocks,
           {/* rich 块渲染 */}
           {richBlocks && richBlocks.length > 0 && (
             <div className="cli-output-rich">
-              <RichBlocks blocks={richBlocks} onInteractiveAction={undefined} />
+              <RichBlocks blocks={richBlocks} onInteractiveAction={onInteractiveAction} />
             </div>
           )}
         </div>
