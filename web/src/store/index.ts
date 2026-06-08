@@ -447,9 +447,65 @@ export const useAppStore = create<AppState & AppActions>()(
     cancelAgent: async (invocationId) => {
       try {
         await api.invocations.cancel(invocationId);
-        set((state) => ({
-          activeAgents: state.activeAgents.filter((a) => a.id !== invocationId),
-        }));
+        set((state) => {
+          const isCurrentStreaming = state.streamingInvocationId === invocationId;
+
+          // 将 streaming 状态的 content blocks 更新为终态
+          let finalizedBlocks = state.streamingContentBlocks;
+          if (isCurrentStreaming && state.streamingContentBlocks.length > 0) {
+            finalizedBlocks = state.streamingContentBlocks.map(block => {
+              if ((block.type === 'thinking' || block.type === 'tool_use') && 'status' in block && block.status === 'streaming') {
+                return {
+                  ...block,
+                  status: 'success' as const,
+                };
+              }
+              return block;
+            });
+          }
+
+          // 如果有流式内容，创建临时消息保存
+          let newMessages = state.messages;
+          if (isCurrentStreaming && finalizedBlocks.length > 0) {
+            const tempMessage: Message = {
+              id: `agent-${invocationId}`,
+              threadId: state.currentThread?.id || '',
+              role: 'agent',
+              agentId: state.streamingAgentId || '',
+              agentName: state.streamingAgentName || undefined,
+              content: finalizedBlocks
+                .filter(b => b.type === 'text')
+                .map(b => b.type === 'text' ? b.content : '')
+                .join(''),
+              contentBlocks: finalizedBlocks,
+              messageType: 'text',
+              metadata: {
+                agentName: state.streamingAgentName,
+                cancelled: true,
+              },
+              createdAt: new Date().toISOString(),
+            };
+            const exists = state.messages.some(m => m.id === tempMessage.id);
+            if (!exists) {
+              newMessages = [...state.messages, tempMessage];
+            }
+          }
+
+          return {
+            activeAgents: state.activeAgents.filter((a) => a.id !== invocationId),
+            // 重置流式状态
+            isStreaming: isCurrentStreaming ? false : state.isStreaming,
+            streamingInvocationId: isCurrentStreaming ? null : state.streamingInvocationId,
+            streamingAgentId: isCurrentStreaming ? null : state.streamingAgentId,
+            streamingAgentName: isCurrentStreaming ? null : state.streamingAgentName,
+            streamingContentBlocks: isCurrentStreaming ? [] : state.streamingContentBlocks,
+            // 重置进度状态
+            progressStatus: isCurrentStreaming ? 'idle' : state.progressStatus,
+            progressToolName: isCurrentStreaming ? null : state.progressToolName,
+            progressToolInput: isCurrentStreaming ? null : state.progressToolInput,
+            messages: newMessages,
+          };
+        });
       } catch (error) {
         set({ error: (error as Error).message });
       }
@@ -493,17 +549,30 @@ export const useAppStore = create<AppState & AppActions>()(
           // 对于 completed/failed/interrupted/cancelled 都需要保存流式内容
           let newMessages = state.messages;
           if (isCurrentStreaming && state.streamingContentBlocks.length > 0) {
+            // 将 streaming 状态的 content blocks 更新为终态
+            const finalizedBlocks = state.streamingContentBlocks.map(block => {
+              // thinking 和 tool_use 块有 status 属性
+              if ((block.type === 'thinking' || block.type === 'tool_use') && 'status' in block && block.status === 'streaming') {
+                return {
+                  ...block,
+                  // cancelled/interrupted 使用 success 状态显示
+                  status: (status === 'cancelled' || status === 'interrupted') ? 'success' as const : status as 'success' | 'failed',
+                };
+              }
+              return block;
+            });
+
             const tempMessage: Message = {
               id: `agent-${invocationId}`,
               threadId: state.currentThread?.id || '',
               role: 'agent',
               agentId: state.streamingAgentId || '',
               agentName: state.streamingAgentName || undefined,  // 设置直接属性
-              content: state.streamingContentBlocks
+              content: finalizedBlocks
                 .filter(b => b.type === 'text')
                 .map(b => b.type === 'text' ? b.content : '')
                 .join(''),
-              contentBlocks: state.streamingContentBlocks,
+              contentBlocks: finalizedBlocks,
               messageType: 'text',
               metadata: {
                 agentName: state.streamingAgentName,

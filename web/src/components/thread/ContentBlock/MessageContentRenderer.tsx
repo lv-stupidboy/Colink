@@ -373,7 +373,7 @@ const ToolGroupBlock: React.FC<ToolGroupBlockProps> = memo(({ tools, richBlocks,
   };
 
   // 状态文本和颜色
-  const statusText = anyStreaming ? 'running' : anyFailed ? 'failed' : 'completed';
+  const statusText = anyStreaming ? 'running' : 'completed';
   const accentColor = '#7C3AED';
 
   // 摘要行预览（折叠时显示）
@@ -392,7 +392,7 @@ const ToolGroupBlock: React.FC<ToolGroupBlockProps> = memo(({ tools, richBlocks,
         <ChevronIcon expanded={blockExpanded} color={accentColor} />
         <WrenchIcon color="#6B7280" />
         <span className="tool-block-label">CLI Output</span>
-        <span className="tool-block-status" style={{ color: anyStreaming ? accentColor : anyFailed ? '#ff4d4f' : '#52c41a' }}>
+        <span className="tool-block-status" style={{ color: anyStreaming ? accentColor : '#52c41a' }}>
           · {statusText}
         </span>
         <span className="tool-block-duration-badge">{tools.length} tools</span>
