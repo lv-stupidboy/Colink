@@ -51,6 +51,7 @@ const (
 	SealReasonServerError       SealReason = "server_error"      // 服务错误
 	SealReasonAskUserTimeout    SealReason = "ask_user_timeout"  // AskUserQuestion 超时
 	SealReasonGracefulShutdown  SealReason = "graceful_shutdown" // 优雅关闭
+	SealReasonContextOverflow   SealReason = "context_overflow"  // 上下文过长
 )
 
 // 预定义的 OpenCode 兼容类型列表

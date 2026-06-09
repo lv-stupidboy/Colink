@@ -612,6 +612,40 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 					es.invocationRepo.Update(ctx, invocation)
 					es.broadcastFullPrompt(req.ThreadID, invocation.ID, fullPrompt)
 
+					// 设置上下文限制（根据模型）
+					if longRunning != nil && baseAgent.DefaultModel != "" {
+						longRunning.SetContextLimit(acpSessionID, baseAgent.DefaultModel)
+					}
+
+					// 检查上下文使用量，必要时触发压缩
+					if acpSessionID != "" && longRunning != nil {
+						needsCompact, needsWarning, usagePercent := longRunning.ShouldCompact(acpSessionID)
+						if needsWarning {
+							logInfo("Context usage approaching limit",
+								zap.String("invocationID", invocation.ID.String()),
+								zap.Float64("usagePercent", usagePercent),
+								zap.Bool("needsCompact", needsCompact))
+							// 广播预警
+							es.broadcastStatus(req.ThreadID, invocation.ID, "context_warning", config.Role, config.Name, config.ID.String(),
+								fmt.Sprintf("对话历史较长（使用 %.1f%% 上下文），接近限制", usagePercent*100))
+						}
+						if needsCompact {
+							logInfo("Triggering context compact due to high usage",
+								zap.String("invocationID", invocation.ID.String()),
+								zap.Float64("usagePercent", usagePercent))
+							// 广播压缩通知
+							es.broadcastStatus(req.ThreadID, invocation.ID, "context_compacting", config.Role, config.Name, config.ID.String(),
+								fmt.Sprintf("对话历史过长（%.1f%%），正在自动压缩...", usagePercent*100))
+							// 执行压缩
+							compactErr := longRunning.TriggerCompact(ctx, acpSessionID)
+							if compactErr != nil {
+								logError("Context compact failed", zap.Error(compactErr))
+							} else {
+								logInfo("Context compact succeeded", zap.String("invocationID", invocation.ID.String()))
+							}
+						}
+					}
+
 					if acpSessionID != "" && isSessionAlive && isProcessAlive {
 						logInfo("Long running session alive, sending prompt", zap.String("acpSessionId", acpSessionID), zap.Int("promptLen", len(fullPrompt)))
 						err = lrs.SendPromptToSession(ctx, fullPrompt, func(chunk Chunk) {
@@ -620,7 +654,26 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 							lrs.AppendChunk(chunk)
 						})
 						if err == nil {
-							result = &ExecutionResult{SessionID: lrs.AcpSessionID, Output: outputBuilder.String()}
+							output := outputBuilder.String()
+							// 检测空内容：长连接模式下输出为空可能表示通知处理问题
+							if len(output) == 0 {
+								logWarn("Existing long running session returned empty output",
+									zap.String("invocationID", invocation.ID.String()),
+									zap.String("acpSessionId", acpSessionID),
+									zap.Int("promptLen", len(fullPrompt)))
+								// 获取 CLI stderr 输出用于诊断
+								cliStderr := ""
+								if longRunning != nil {
+									cliStderr = longRunning.GetSessionStderr(acpSessionID)
+								}
+								// 构建错误信息
+								errorMsg := buildEmptyOutputError(cliStderr)
+								// 广播错误状态，提示用户
+								es.broadcastStatus(req.ThreadID, invocation.ID, "failed", config.Role, config.Name, config.ID.String(), errorMsg)
+								result = &ExecutionResult{SessionID: lrs.AcpSessionID, Output: ""}
+							} else {
+								result = &ExecutionResult{SessionID: lrs.AcpSessionID, Output: output}
+							}
 						}
 					} else {
 						logInfo("Long running session not alive, starting new", zap.String("sessionId", sessionID))
@@ -638,7 +691,25 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 								lrs.AppendChunk(chunk)
 							})
 							if err == nil {
-								result = &ExecutionResult{SessionID: lrs.AcpSessionID, Output: outputBuilder.String()}
+								output := outputBuilder.String()
+								// 检测空内容：长连接模式下输出为空可能表示通知处理问题
+								if len(output) == 0 {
+									logWarn("Long running session returned empty output",
+										zap.String("invocationID", invocation.ID.String()),
+										zap.String("acpSessionId", acpSessionID),
+										zap.Int("promptLen", len(fullPrompt)))
+										// 获取 CLI stderr 输出用于诊断
+										cliStderr := ""
+										if longRunning != nil {
+											cliStderr = longRunning.GetSessionStderr(lrs.AcpSessionID)
+										}
+										// 构建错误信息（包含 stderr）
+										errorMsg := buildEmptyOutputError(cliStderr)
+										es.broadcastStatus(req.ThreadID, invocation.ID, "failed", config.Role, config.Name, config.ID.String(), errorMsg)
+										result = &ExecutionResult{SessionID: lrs.AcpSessionID, Output: ""}
+								} else {
+									result = &ExecutionResult{SessionID: lrs.AcpSessionID, Output: output}
+								}
 							}
 						}
 					}
@@ -1370,6 +1441,42 @@ func generateErrorSuggestions(err error, sessionID string, isResumeAttempt bool)
 	}
 
 	return suggestions
+}
+
+// buildEmptyOutputError 构建空输出错误信息
+// 包含 CLI stderr 输出用于诊断
+func buildEmptyOutputError(cliStderr string) string {
+	var sb strings.Builder
+
+	sb.WriteString("执行返回空内容\n\n")
+
+	// 可能原因
+	sb.WriteString("可能原因:\n")
+	sb.WriteString("1. CLI 进程异常退出\n")
+	sb.WriteString("2. 通知处理超时\n")
+	sb.WriteString("3. Agent 无响应\n")
+	sb.WriteString("4. 上下文过长导致 CLI 拒绝响应\n\n")
+
+	// 如果有 stderr 输出，展示给用户
+	if cliStderr != "" {
+		sb.WriteString("CLI 错误输出:\n")
+		sb.WriteString("---\n")
+		// 限制 stderr 输出长度，避免过长
+		stderrDisplay := cliStderr
+		if len(stderrDisplay) > 2000 {
+			stderrDisplay = stderrDisplay[:2000] + "\n... (输出过长，已截断)"
+		}
+		sb.WriteString(stderrDisplay)
+		sb.WriteString("\n---\n\n")
+	}
+
+	// 建议
+	sb.WriteString("建议:\n")
+	sb.WriteString("- 刷新页面重新发起对话\n")
+	sb.WriteString("- 如果问题持续，检查 CLI 配置是否正确\n")
+	sb.WriteString("- 查看 server.log 获取详细日志\n")
+
+	return sb.String()
 }
 
 // buildDetailedErrorOutput 构建详细的错误输出信息，用于前端展示

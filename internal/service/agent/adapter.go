@@ -51,6 +51,23 @@ type LongRunningSessionCapable interface {
 
 	// IsSessionAlive 检查 session 进程是否存活
 	IsSessionAlive(sessionID string) bool
+
+	// GetSessionStderr 获取 session 的 stderr 输出（用于错误诊断）
+	GetSessionStderr(sessionID string) string
+
+	// GetContextUsage 获取上下文使用情况（用于智能压缩）
+	// 返回：usagePercent（使用百分比），inputTokens（累计输入），contextLimit（上下文限制）
+	GetContextUsage(sessionID string) (usagePercent float64, inputTokens int64, contextLimit int64)
+
+	// ShouldCompact 检查是否需要上下文压缩
+	// 返回：needsCompact（需要压缩），needsWarning（需要预警），usagePercent（使用百分比）
+	ShouldCompact(sessionID string) (needsCompact bool, needsWarning bool, usagePercent float64)
+
+	// SetContextLimit 设置上下文限制（根据模型）
+	SetContextLimit(sessionID string, model string)
+
+	// TriggerCompact 触发上下文压缩（类似 /compact）
+	TriggerCompact(ctx context.Context, sessionID string) error
 }
 
 // ToolResultSender 发送工具结果的接口（用于 AskUserQuestion 等需要用户输入的工具）

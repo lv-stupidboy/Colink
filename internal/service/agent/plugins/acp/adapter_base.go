@@ -33,8 +33,57 @@ type AcpAdapterConfig struct {
 }
 
 // maxStderrSize 定义 stderr 缓冲的最大大小（64KB）
-// 防止 stderr 输出过大导致内存问题
+// 防止 stderr 输出过量导致内存问题
 const maxStderrSize = 64 * 1024
+
+// 上下文使用量阈值（百分比）
+const contextUsageWarningThreshold = 0.80  // 80% 时预警
+const contextUsageCompactThreshold = 0.95  // 95% 时触发压缩
+
+// 常见模型的上下文限制（tokens）
+// 参考：https://docs.anthropic.com/claude/docs/models-overview
+var modelContextLimits = map[string]int64{
+	// Claude 模型
+	"claude-opus-4-7":         200000,
+	"claude-opus-4-6":         200000,
+	"claude-opus-4-5":         200000,
+	"claude-sonnet-4-6":       200000,
+	"claude-sonnet-4-5":       200000,
+	"claude-haiku-4-5":        200000,
+	"claude-3-5-sonnet":       200000,
+	"claude-3-5-haiku":        200000,
+	"claude-3-opus":           200000,
+	"claude-3-sonnet":         200000,
+	"claude-3-haiku":          200000,
+	// OpenAI 模型
+	"gpt-4o":                  128000,
+	"gpt-4o-mini":             128000,
+	"gpt-4-turbo":             128000,
+	"gpt-4":                   8192,
+	"gpt-3.5-turbo":           16385,
+	// Gemini 模型
+	"gemini-1.5-pro":          1000000,
+	"gemini-1.5-flash":        1000000,
+	"gemini-2.0-flash":        1000000,
+	// 默认值
+	"default":                 200000,
+}
+
+// getModelContextLimit 根据模型名称获取上下文限制
+func getModelContextLimit(model string) int64 {
+	// 精确匹配
+	if limit, ok := modelContextLimits[model]; ok {
+		return limit
+	}
+	// 前缀匹配（处理带日期后缀的模型名如 claude-3-5-sonnet-20240620）
+	for prefix, limit := range modelContextLimits {
+		if strings.HasPrefix(model, prefix) {
+			return limit
+		}
+	}
+	// 默认值
+	return modelContextLimits["default"]
+}
 
 type acpSession struct {
 	id                string
@@ -53,7 +102,16 @@ type acpSession struct {
 	notificationCount    int    // 收到的通知总数
 	duplicateUpdateCount int    // 连续重复通知计数
 	lastUpdateHash       string // 最后一次 session/update 的内容哈希（前16位）
-	mu                   sync.Mutex
+	// 长连接模式输出同步信号
+	lastOutputLen       int        // 上次检查时的输出长度
+	outputUpdatedSignal chan struct{} // 输出更新信号（用于等待通知处理完成）
+	// 上下文使用量追踪（用于智能压缩）
+	cumulativeInputTokens  int64  // 累计输入 tokens（从 usage_update 通知获取）
+	cumulativeOutputTokens int64  // 累计输出 tokens
+	lastUsageInputTokens   int64  // 最近一次 usage_update 的输入 tokens
+	lastUsageOutputTokens  int64  // 最近一次 usage_update 的输出 tokens
+	contextLimit           int64  // 上下文限制（根据模型确定）
+	mu                     sync.Mutex
 }
 
 // BaseACPAdapter implements AgentAdapter using ACP (Agent Client Protocol) over stdio.
@@ -650,6 +708,21 @@ func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, 
 						zap.Int("contentLen", len(chunk.Content)))
 				}
 			}
+			// 追踪 token 使用量（用于上下文监控）
+			if chunk.Type == agent.ChunkTypeUsage && chunk.Usage != nil {
+				session.lastUsageInputTokens = chunk.Usage.InputTokens
+				session.lastUsageOutputTokens = chunk.Usage.OutputTokens
+				// 累加（usage_update 通常包含当前请求的完整统计）
+				session.cumulativeInputTokens = chunk.Usage.InputTokens
+				session.cumulativeOutputTokens += chunk.Usage.OutputTokens
+				LogInfo("ACP: usage update",
+					zap.String("sessionId", session.id),
+					zap.Int64("inputTokens", chunk.Usage.InputTokens),
+					zap.Int64("outputTokens", chunk.Usage.OutputTokens),
+					zap.Int64("cumulativeInput", session.cumulativeInputTokens),
+					zap.Int64("cumulativeOutput", session.cumulativeOutputTokens),
+					zap.Float64("contextUsage", float64(session.cumulativeInputTokens)/float64(session.contextLimit)))
+			}
 			onChunk(chunk)
 		}
 
@@ -1015,13 +1088,14 @@ func (a *BaseACPAdapter) StartLongRunningSession(ctx context.Context, req *agent
 	// 创建 session context（独立于请求 context）
 	sessionCtx, sessionCancel := context.WithCancel(context.Background())
 	session := &acpSession{
-		id:        sessionID,
-		isdpID:    sessionID,
-		cmd:       cmd,
-		ctx:       sessionCtx,
-		cancel:    sessionCancel,
-		status:    agent.SessionStatusRunning,
-		stdinPipe: stdinPipe, // 保存 stdin 引用用于断开检测
+		id:                 sessionID,
+		isdpID:             sessionID,
+		cmd:                cmd,
+		ctx:                sessionCtx,
+		cancel:             sessionCancel,
+		status:             agent.SessionStatusRunning,
+		stdinPipe:          stdinPipe, // 保存 stdin 引用用于断开检测
+		outputUpdatedSignal: make(chan struct{}, 1), // 初始化输出更新信号
 	}
 
 	// 启动 stdin 断开监控 goroutine
@@ -1119,6 +1193,7 @@ func (a *BaseACPAdapter) StartLongRunningSession(ctx context.Context, req *agent
 
 // SendPromptToSession 向已有 session 发送新的 prompt
 // 用于长连接模式，复用已有进程
+// 添加等待机制确保所有 session/update 通知处理完毕
 func (a *BaseACPAdapter) SendPromptToSession(ctx context.Context, sessionID string, prompt string, onChunk func(agent.Chunk)) error {
 	a.mu.RLock()
 	session, exists := a.sessions[sessionID]
@@ -1134,12 +1209,25 @@ func (a *BaseACPAdapter) SendPromptToSession(ctx context.Context, sessionID stri
 		return fmt.Errorf("ACP: session transport not available: %s", sessionID)
 	}
 	transport := session.transport
+	// 初始化输出更新信号（用于等待通知处理完成）
+	session.outputUpdatedSignal = make(chan struct{}, 1)
+	// 重置输出缓冲（确保新一轮的输出是干净的）
+	session.output.Reset()
 	session.mu.Unlock()
 
 	// 更新 notification handler 以处理 chunks
 	if onChunk != nil {
 		transport.SetNotificationHandler(func(method string, params json.RawMessage) {
 			a.handleNotification(session, method, params, onChunk)
+			// 每次通知处理后，发送更新信号
+			session.mu.Lock()
+			if session.outputUpdatedSignal != nil {
+				select {
+				case session.outputUpdatedSignal <- struct{}{}:
+				default: // 信号已存在，跳过
+				}
+			}
+			session.mu.Unlock()
 		})
 	}
 
@@ -1160,6 +1248,55 @@ func (a *BaseACPAdapter) SendPromptToSession(ctx context.Context, sessionID stri
 	LogInfo("ACP: prompt sent to long running session",
 		zap.String("sessionId", sessionID),
 		zap.String("stopReason", promptResp.StopReason))
+
+	// 等待所有通知处理完成（最多等待 500ms）
+	// 当 session/prompt 响应返回时，通知应该都已经发送了
+	// 但 readLoop 可能还在异步处理，需要等待一小段时间
+	session.mu.Lock()
+	signal := session.outputUpdatedSignal
+	currentOutputLen := session.output.Len()
+	session.mu.Unlock()
+
+	if signal != nil && currentOutputLen == 0 {
+		// 如果当前没有输出，等待更新信号（最多 500ms）
+		select {
+		case <-signal:
+			// 收到更新信号，继续等待可能的更多更新
+			// 使用退避策略：连续 3 次无新更新则认为完成
+			noUpdateCount := 0
+			for noUpdateCount < 3 {
+				session.mu.Lock()
+				newLen := session.output.Len()
+				session.mu.Unlock()
+				if newLen > currentOutputLen {
+					currentOutputLen = newLen
+					noUpdateCount = 0
+				} else {
+					noUpdateCount++
+				}
+				select {
+				case <-signal:
+				case <-time.After(100 * time.Millisecond):
+					break
+				}
+			}
+		case <-time.After(500 * time.Millisecond):
+			LogWarn("ACP: timeout waiting for output updates",
+				zap.String("sessionId", sessionID),
+				zap.String("stopReason", promptResp.StopReason))
+		}
+	} else if signal != nil {
+		// 已有输出，等待可能的更多更新（最多 300ms）
+		select {
+		case <-signal:
+		case <-time.After(300 * time.Millisecond):
+		}
+	}
+
+	// 清理信号
+	session.mu.Lock()
+	session.outputUpdatedSignal = nil
+	session.mu.Unlock()
 
 	return nil
 }
@@ -1231,6 +1368,146 @@ func (a *BaseACPAdapter) GetSessionOutput(sessionID string) string {
 	session.mu.Unlock()
 
 	return output
+}
+
+// GetSessionStderr 获取 session 累积的 stderr 输出（用于错误诊断）
+func (a *BaseACPAdapter) GetSessionStderr(sessionID string) string {
+	a.mu.RLock()
+	session, exists := a.sessions[sessionID]
+	a.mu.RUnlock()
+
+	if !exists {
+		return ""
+	}
+
+	session.mu.Lock()
+	stderr := session.stderrOutput.String()
+	session.mu.Unlock()
+
+	return stderr
+}
+
+// GetContextUsage 获取 session 的上下文使用情况
+// 返回值：usagePercent（使用百分比），inputTokens（累计输入），contextLimit（上下文限制）
+func (a *BaseACPAdapter) GetContextUsage(sessionID string) (usagePercent float64, inputTokens int64, contextLimit int64) {
+	a.mu.RLock()
+	session, exists := a.sessions[sessionID]
+	a.mu.RUnlock()
+
+	if !exists {
+		return 0, 0, 0
+	}
+
+	session.mu.Lock()
+	inputTokens = session.cumulativeInputTokens
+	contextLimit = session.contextLimit
+	session.mu.Unlock()
+
+	if contextLimit > 0 {
+		usagePercent = float64(inputTokens) / float64(contextLimit)
+	}
+
+	return usagePercent, inputTokens, contextLimit
+}
+
+// ShouldCompact 检查是否需要进行上下文压缩
+// 返回值：needsCompact（是否需要压缩），needsWarning（是否需要预警）
+func (a *BaseACPAdapter) ShouldCompact(sessionID string) (needsCompact bool, needsWarning bool, usagePercent float64) {
+	usagePercent, _, _ = a.GetContextUsage(sessionID)
+
+	if usagePercent >= contextUsageCompactThreshold {
+		return true, true, usagePercent
+	}
+	if usagePercent >= contextUsageWarningThreshold {
+		return false, true, usagePercent
+	}
+	return false, false, usagePercent
+}
+
+// SetContextLimit 设置 session 的上下文限制（根据模型）
+func (a *BaseACPAdapter) SetContextLimit(sessionID string, model string) {
+	a.mu.RLock()
+	session, exists := a.sessions[sessionID]
+	a.mu.RUnlock()
+
+	if !exists {
+		return
+	}
+
+	contextLimit := getModelContextLimit(model)
+	session.mu.Lock()
+	session.contextLimit = contextLimit
+	session.mu.Unlock()
+
+	LogInfo("ACP: context limit set",
+		zap.String("sessionId", sessionID),
+		zap.String("model", model),
+		zap.Int64("contextLimit", contextLimit))
+}
+
+// TriggerCompact 触发上下文压缩
+// 发送一个特殊的 prompt 让 CLI 执行类似 /compact 的操作
+func (a *BaseACPAdapter) TriggerCompact(ctx context.Context, sessionID string) error {
+	a.mu.RLock()
+	session, exists := a.sessions[sessionID]
+	a.mu.RUnlock()
+
+	if !exists {
+		return fmt.Errorf("ACP: session not found: %s", sessionID)
+	}
+
+	// 构建压缩 prompt
+	// 类似 Claude CLI 的 /compact 功能，压缩对话历史保留关键信息
+	compactPrompt := `[SYSTEM] 请执行以下上下文压缩操作：
+
+1. 总结之前的对话要点，保留关键信息：
+   - 用户的核心需求
+   - 已完成的工作和结果
+   - 待解决的问题
+   - 重要的技术决策和约束
+
+2. 删除冗余的历史消息，只保留：
+   - 最近 3-5 轮对话的完整内容
+   - 之前的对话摘要
+
+3. 保持对话连贯性，确保：
+   - 你仍然能理解用户的后续请求
+   - 关键上下文信息不丢失
+
+请开始压缩并回复"上下文已压缩"确认完成。`
+
+	LogInfo("ACP: triggering context compact",
+		zap.String("sessionId", sessionID),
+		zap.Int64("currentInputTokens", session.cumulativeInputTokens),
+		zap.Float64("usagePercent", float64(session.cumulativeInputTokens)/float64(session.contextLimit)))
+
+	// 发送压缩指令
+	session.mu.Lock()
+	transport := session.transport
+	session.mu.Unlock()
+
+	if transport == nil {
+		return fmt.Errorf("ACP: session transport not available")
+	}
+
+	_, err := transport.SendRequest("session/prompt", &acpPromptParams{
+		SessionID: session.id,
+		Prompt:    []acpContentBlock{{Type: "text", Text: compactPrompt}},
+	})
+	if err != nil {
+		return fmt.Errorf("ACP: compact prompt failed: %w", err)
+	}
+
+	// 重置 token 计数（压缩后应该会大幅减少）
+	session.mu.Lock()
+	session.cumulativeInputTokens = 0
+	session.cumulativeOutputTokens = 0
+	session.mu.Unlock()
+
+	LogInfo("ACP: context compact completed",
+		zap.String("sessionId", sessionID))
+
+	return nil
 }
 
 // ResetSessionOutput 重置 session 输出缓冲
