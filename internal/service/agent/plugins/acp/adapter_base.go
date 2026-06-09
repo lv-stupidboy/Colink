@@ -110,13 +110,27 @@ func getModelContextLimit(model string) int64 {
 	if limit, ok := cfg.ModelLimits[modelSuffix]; ok {
 		return limit
 	}
-	// 3. 前缀匹配（优先匹配最长前缀，更精确的配置优先）
-	// 例如：glm-5.1-xxx 应匹配 glm-5.1 而非 glm-5
+	// 3. 下划线替代点匹配（配置文件中用下划线替代点，如 gemini-1.5-pro → gemini-1_5-pro）
+	// 这是因为 YAML 的 mapstructure 无法正确处理带点的键名
+	modelWithUnderscore := strings.ReplaceAll(model, ".", "_")
+	if limit, ok := cfg.ModelLimits[modelWithUnderscore]; ok {
+		return limit
+	}
+	suffixWithUnderscore := strings.ReplaceAll(modelSuffix, ".", "_")
+	if limit, ok := cfg.ModelLimits[suffixWithUnderscore]; ok {
+		return limit
+	}
+	// 4. 前缀匹配（优先匹配最长前缀，更精确的配置优先）
+	// 例如：glm-5.1-xxx 应匹配 glm-5_1 而非 glm-5
 	var bestPrefix string
 	var bestLimit int64
 	for prefix, limit := range cfg.ModelLimits {
 		// 检查完整模型名或后缀是否能匹配该前缀
-		if strings.HasPrefix(model, prefix) || strings.HasPrefix(modelSuffix, prefix) {
+		// 同时支持下划线替代点的匹配
+		if strings.HasPrefix(model, prefix) ||
+			strings.HasPrefix(modelSuffix, prefix) ||
+			strings.HasPrefix(modelWithUnderscore, prefix) ||
+			strings.HasPrefix(suffixWithUnderscore, prefix) {
 			// 选择最长前缀（更精确）
 			if len(prefix) > len(bestPrefix) {
 				bestPrefix = prefix
@@ -127,7 +141,7 @@ func getModelContextLimit(model string) int64 {
 	if bestPrefix != "" {
 		return bestLimit
 	}
-	// 4. 默认值
+	// 5. 默认值
 	return cfg.DefaultLimit
 }
 
