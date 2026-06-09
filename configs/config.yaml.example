@@ -193,3 +193,28 @@ help:
   doc_link: ""
   # 问题反馈API地址（可选）
   feedback_api: ""
+
+# 上下文管理配置（用于智能压缩）
+context:
+  # 预警阈值（百分比），达到此阈值时广播预警状态，默认 0.80
+  warning_threshold: 0.80
+  # 压缩阈值（百分比），达到此阈值时自动触发压缩，默认 0.90
+  compact_threshold: 0.90
+  # 默认上下文限制（tokens），未匹配模型时使用此值，默认 200000
+  default_limit: 200000
+  # 各模型的上下文限制（tokens）
+  # 未配置的模型将使用 default_limit 或前缀匹配
+  model_limits:
+    # Claude 模型
+    claude-opus-4-7: 200000
+    claude-sonnet-4-6: 200000
+    claude-3-5-sonnet: 200000
+    # OpenAI 模型
+    gpt-4o: 128000
+    gpt-4-turbo: 128000
+    # Gemini 模型
+    gemini-1.5-pro: 1000000
+    gemini-2.0-flash: 1000000
+    # 智谱AI 模型
+	glm-5: 128000
+	glm-5.1: 200000

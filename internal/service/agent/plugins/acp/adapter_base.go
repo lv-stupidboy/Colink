@@ -36,53 +36,99 @@ type AcpAdapterConfig struct {
 // 防止 stderr 输出过量导致内存问题
 const maxStderrSize = 64 * 1024
 
-// 上下文使用量阈值（百分比）
-const contextUsageWarningThreshold = 0.80  // 80% 时预警
-const contextUsageCompactThreshold = 0.95  // 95% 时触发压缩
+// 默认上下文配置（当未通过 SetContextConfig 设置时使用）
+const defaultWarningThreshold = 0.80
+const defaultCompactThreshold = 0.95
+const defaultContextLimit = 200000
 
-// 常见模型的上下文限制（tokens）
-// 参考：https://docs.anthropic.com/claude/docs/models-overview
-var modelContextLimits = map[string]int64{
-	// Claude 模型
-	"claude-opus-4-7":         200000,
-	"claude-opus-4-6":         200000,
-	"claude-opus-4-5":         200000,
-	"claude-sonnet-4-6":       200000,
-	"claude-sonnet-4-5":       200000,
-	"claude-haiku-4-5":        200000,
-	"claude-3-5-sonnet":       200000,
-	"claude-3-5-haiku":        200000,
-	"claude-3-opus":           200000,
-	"claude-3-sonnet":         200000,
-	"claude-3-haiku":          200000,
-	// OpenAI 模型
-	"gpt-4o":                  128000,
-	"gpt-4o-mini":             128000,
-	"gpt-4-turbo":             128000,
-	"gpt-4":                   8192,
-	"gpt-3.5-turbo":           16385,
-	// Gemini 模型
-	"gemini-1.5-pro":          1000000,
-	"gemini-1.5-flash":        1000000,
-	"gemini-2.0-flash":        1000000,
-	// 默认值
-	"default":                 200000,
+// 上下文配置（可通过 SetContextConfig 设置）
+// 用于智能压缩功能，从配置文件读取
+var globalContextConfig *ContextConfig
+
+// ContextConfig 上下文管理配置
+type ContextConfig struct {
+	WarningThreshold float64           // 预警阈值（百分比）
+	CompactThreshold float64           // 压缩阈值（百分比）
+	ModelLimits       map[string]int64  // 各模型的上下文限制（tokens）
+	DefaultLimit      int64             // 默认上下文限制
+}
+
+// SetContextConfig 设置全局上下文配置（由 main.go 在启动时调用）
+func SetContextConfig(cfg *ContextConfig) {
+	globalContextConfig = cfg
+	LogInfo("ACP: context config set",
+		zap.Float64("warningThreshold", cfg.WarningThreshold),
+		zap.Float64("compactThreshold", cfg.CompactThreshold),
+		zap.Int64("defaultLimit", cfg.DefaultLimit),
+		zap.Int("modelLimitsCount", len(cfg.ModelLimits)))
+}
+
+// getContextConfig 获取上下文配置（返回配置值或默认值）
+func getContextConfig() *ContextConfig {
+	if globalContextConfig != nil {
+		return globalContextConfig
+	}
+	// 返回默认配置
+	return &ContextConfig{
+		WarningThreshold: defaultWarningThreshold,
+		CompactThreshold: defaultCompactThreshold,
+		DefaultLimit:     defaultContextLimit,
+		ModelLimits:      getDefaultModelLimits(),
+	}
+}
+
+// getDefaultModelLimits 返回默认的模型上下文限制
+func getDefaultModelLimits() map[string]int64 {
+	return map[string]int64{
+		// Claude 模型
+		"claude-opus-4-7":   200000,
+		"claude-opus-4-6":   200000,
+		"claude-sonnet-4-6": 200000,
+		"claude-3-5-sonnet": 200000,
+		// OpenAI 模型
+		"gpt-4o":      128000,
+		"gpt-4-turbo": 128000,
+		// Gemini 模型
+		"gemini-1.5-pro":   1000000,
+		"gemini-2.0-flash": 1000000,
+	}
 }
 
 // getModelContextLimit 根据模型名称获取上下文限制
 func getModelContextLimit(model string) int64 {
-	// 精确匹配
-	if limit, ok := modelContextLimits[model]; ok {
+	cfg := getContextConfig()
+	// 1. 精确匹配
+	if limit, ok := cfg.ModelLimits[model]; ok {
 		return limit
 	}
-	// 前缀匹配（处理带日期后缀的模型名如 claude-3-5-sonnet-20240620）
-	for prefix, limit := range modelContextLimits {
-		if strings.HasPrefix(model, prefix) {
-			return limit
+	// 2. 提取模型后缀（处理 provider/model 格式）
+	// 例如：bailian-coding-plan/glm-5 → glm-5
+	modelSuffix := model
+	if idx := strings.LastIndex(model, "/"); idx >= 0 {
+		modelSuffix = model[idx+1:]
+	}
+	if limit, ok := cfg.ModelLimits[modelSuffix]; ok {
+		return limit
+	}
+	// 3. 前缀匹配（优先匹配最长前缀，更精确的配置优先）
+	// 例如：glm-5.1-xxx 应匹配 glm-5.1 而非 glm-5
+	var bestPrefix string
+	var bestLimit int64
+	for prefix, limit := range cfg.ModelLimits {
+		// 检查完整模型名或后缀是否能匹配该前缀
+		if strings.HasPrefix(model, prefix) || strings.HasPrefix(modelSuffix, prefix) {
+			// 选择最长前缀（更精确）
+			if len(prefix) > len(bestPrefix) {
+				bestPrefix = prefix
+				bestLimit = limit
+			}
 		}
 	}
-	// 默认值
-	return modelContextLimits["default"]
+	if bestPrefix != "" {
+		return bestLimit
+	}
+	// 4. 默认值
+	return cfg.DefaultLimit
 }
 
 type acpSession struct {
@@ -1414,11 +1460,12 @@ func (a *BaseACPAdapter) GetContextUsage(sessionID string) (usagePercent float64
 // 返回值：needsCompact（是否需要压缩），needsWarning（是否需要预警）
 func (a *BaseACPAdapter) ShouldCompact(sessionID string) (needsCompact bool, needsWarning bool, usagePercent float64) {
 	usagePercent, _, _ = a.GetContextUsage(sessionID)
+	cfg := getContextConfig()
 
-	if usagePercent >= contextUsageCompactThreshold {
+	if usagePercent >= cfg.CompactThreshold {
 		return true, true, usagePercent
 	}
-	if usagePercent >= contextUsageWarningThreshold {
+	if usagePercent >= cfg.WarningThreshold {
 		return false, true, usagePercent
 	}
 	return false, false, usagePercent
