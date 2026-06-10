@@ -2668,7 +2668,41 @@ func (es *ExecutionService) CancelAgent(ctx context.Context, invocationID uuid.U
 			logWarn("CancelAgent: cmd is nil, cannot kill process")
 		}
 
-		// 4. 取消 Go goroutine
+		// 4. 保存已累积的消息到数据库（刷新页面后不丢失）
+		agent.ContentBlocksMu.Lock()
+		contentBlocksForSave := agent.AccumulatedContentBlocks
+		agent.ContentBlocksMu.Unlock()
+
+		if len(contentBlocksForSave) > 0 {
+			// 提取文本内容
+			var outputBuilder strings.Builder
+			for _, block := range contentBlocksForSave {
+				if block.Type == "text" {
+					outputBuilder.WriteString(block.Content)
+				}
+			}
+			outputForSave := outputBuilder.String()
+
+			// 获取 config 和 baseAgent
+			config := agent.AgentConfig
+			baseAgent := agent.BaseAgent
+
+			if config != nil {
+				// 使用新的 context 保存消息（因为当前 ctx 可能已被取消）
+				saveCtx, saveCancel := context.WithTimeout(context.Background(), 5*time.Second)
+				msgForSave := es.saveAgentMessageWithReturn(saveCtx, invocation.ThreadID, config, baseAgent, outputForSave, contentBlocksForSave)
+				saveCancel()
+
+				if msgForSave != nil {
+					es.broadcastAgentMessage(invocation.ThreadID, msgForSave, config.Name, string(config.Role))
+					logInfo("CancelAgent: saved agent message to database",
+						zap.String("invocationID", invocationID.String()),
+						zap.Int("contentBlocksCount", len(contentBlocksForSave)))
+				}
+			}
+		}
+
+		// 5. 取消 Go goroutine
 		agent.CancelFunc()
 		delete(es.runningAgents, invocationID)
 	} else {
@@ -2677,7 +2711,7 @@ func (es *ExecutionService) CancelAgent(ctx context.Context, invocationID uuid.U
 	}
 	es.mu.Unlock()
 
-	// 5. 清除 CLI session 缓存（避免下次复用残留状态的 session）
+	// 6. 清除 CLI session 缓存（避免下次复用残留状态的 session）
 	if invocation.AgentConfigID != uuid.Nil {
 		sessionKey := fmt.Sprintf("%s:%s", invocation.ThreadID.String(), invocation.AgentConfigID.String())
 		es.csMu.Lock()
