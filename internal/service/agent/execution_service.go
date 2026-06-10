@@ -3183,6 +3183,12 @@ broadcast:
 	if es.wsHub != nil {
 		// 处理 Usage 类型的 Chunk
 		if chunk.Type == ChunkTypeUsage && chunk.Usage != nil {
+			logInfo("broadcastChunk: usage chunk received",
+				zap.String("threadId", threadID.String()),
+				zap.Int64("inputTokens", chunk.Usage.InputTokens),
+				zap.Int64("outputTokens", chunk.Usage.OutputTokens),
+				zap.Int64("cacheReadTokens", chunk.Usage.CacheReadTokens),
+				zap.Float64("costUsd", chunk.Usage.CostUsd))
 			es.wsHub.BroadcastToThread(threadID.String(), ws.WSMessage{
 				Type:      "usage_update",
 				ThreadID:  threadID.String(),
