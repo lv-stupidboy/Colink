@@ -689,10 +689,10 @@ func (a *BaseACPAdapter) CheckHealth(ctx context.Context) error {
 }
 
 func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, params json.RawMessage, onChunk func(agent.Chunk)) {
-	// 记录所有收到的通知（调试用，高频日志降级为 Debug）
-	LogDebug("ACP: received notification",
+	// 记录所有收到的通知类型（Info 级别，用于排查 usage_update 是否收到）
+	LogInfo("ACP: received notification",
 		zap.String("method", method),
-		zap.String("paramsPreview", string(params)[:min(500, len(string(params)))]))
+		zap.String("sessionId", session.id))
 
 	switch method {
 	case "session/update":
