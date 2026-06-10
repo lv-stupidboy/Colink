@@ -1498,12 +1498,16 @@ func (a *BaseACPAdapter) SetContextLimit(sessionID string, model string) {
 	contextLimit := getModelContextLimit(model)
 	session.mu.Lock()
 	session.contextLimit = contextLimit
+	usedTokens := session.cumulativeInputTokens
 	session.mu.Unlock()
 
+	usagePercent := float64(usedTokens) / float64(contextLimit)
 	LogInfo("ACP: context limit set",
 		zap.String("sessionId", sessionID),
 		zap.String("model", model),
-		zap.Int64("contextLimit", contextLimit))
+		zap.Int64("contextLimit", contextLimit),
+		zap.Int64("usedTokens", usedTokens),
+		zap.Float64("usagePercent", usagePercent))
 }
 
 // TriggerCompact 触发上下文压缩
