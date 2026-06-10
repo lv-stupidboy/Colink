@@ -1327,6 +1327,9 @@ func isResumeFallbackError(err error) bool {
 		"invalid session",
 		"no such session",
 		"session corrupt",
+		"pipe is being closed", // 进程退出导致管道关闭
+		"broken pipe",          // 管道断裂
+		"process not alive",    // 进程已退出
 	}
 	for _, pattern := range fallbackPatterns {
 		if strings.Contains(errStr, pattern) {

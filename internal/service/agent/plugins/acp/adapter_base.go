@@ -1379,6 +1379,14 @@ func (a *BaseACPAdapter) IsSessionAlive(sessionID string) bool {
 		return false
 	}
 
+	// 检查进程是否已退出（关键修复：防止写入已关闭的管道）
+	if session.cmd.ProcessState != nil && session.cmd.ProcessState.Exited() {
+		LogInfo("ACP: IsSessionAlive detected process exited",
+			zap.String("sessionId", session.id),
+			zap.Int("pid", session.cmd.Process.Pid))
+		return false
+	}
+
 	// 棅查状态
 	if session.status != agent.SessionStatusRunning {
 		return false
