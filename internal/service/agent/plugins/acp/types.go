@@ -209,3 +209,51 @@ type acpUserInputResponse struct {
 	ToolCallID string `json:"toolCallId"`
 	Response   string `json:"response"` // 用户选择的答案
 }
+
+// ========== ACP 原生 Session 管理 API ==========
+
+// acpSessionListParams session/list 请求参数
+type acpSessionListParams struct {
+	CWD string `json:"cwd"` // 工作目录（可选）
+}
+
+// acpSessionListResult session/list 响应结果
+type acpSessionListResult struct {
+	Sessions []acpSessionInfo `json:"sessions"`
+}
+
+// acpSessionInfo 会话信息
+type acpSessionInfo struct {
+	SessionID string `json:"sessionId"` // ACP session ID
+	CWD       string `json:"cwd"`       // 工作目录
+	Title     string `json:"title"`     // 会话标题
+	UpdatedAt string `json:"updatedAt"` // 最后更新时间（ISO 8601）
+}
+
+// acpSessionResumeParams session/resume 请求参数
+// 恢复已有会话（不回放历史）
+type acpSessionResumeParams struct {
+	SessionID   string        `json:"sessionId"`   // 要恢复的 session ID
+	CWD         string        `json:"cwd"`         // 工作目录
+	MCPServers  []interface{} `json:"mcpServers"`  // MCP servers 配置
+}
+
+// acpSessionResumeResult session/resume 响应结果
+type acpSessionResumeResult struct {
+	SessionID     string                 `json:"sessionId,omitempty"`
+	ConfigOptions []acpSessionConfigOpt  `json:"configOptions,omitempty"`
+	Meta          map[string]interface{} `json:"_meta,omitempty"`
+}
+
+// acpSessionLoadParams session/load 请求参数
+// 加载已有会话（回放完整历史）
+type acpSessionLoadParams struct {
+	SessionID   string        `json:"sessionId"`   // 要加载的 session ID
+	CWD         string        `json:"cwd"`         // 工作目录
+	MCPServers  []interface{} `json:"mcpServers"`  // MCP servers 配置
+}
+
+// acpSessionCloseParams session/close 请求参数
+type acpSessionCloseParams struct {
+	SessionID string `json:"sessionId"` // 要关闭的 session ID
+}

@@ -1,5 +1,6 @@
 // internal/repo/session_record_repo.go
 // Session 记录 Repository
+// 用于 ACP 原生 session/resume
 package repo
 
 import (
@@ -13,7 +14,6 @@ import (
 )
 
 // SessionRecordRepository Session 记录 Repository
-// 接口定义
 type SessionRecordRepository interface {
 	// 基本操作
 	Create(ctx context.Context, record *model.SessionRecord) error
@@ -23,14 +23,10 @@ type SessionRecordRepository interface {
 
 	// 查询操作
 	FindByThreadAndAgent(ctx context.Context, threadID, agentID string) (*model.SessionRecord, error)
-	FindSealedByThreadAndAgent(ctx context.Context, threadID, agentID string) (*model.SessionRecord, error)
-	FindActiveByThread(ctx context.Context, threadID string) ([]*model.SessionRecord, error)
 	FindExpiredRecords(ctx context.Context, expiryDuration time.Duration) ([]*model.SessionRecord, error)
-	FindSealedRecords(ctx context.Context, maxAge time.Duration) ([]*model.SessionRecord, error)
 
 	// 批量操作
 	DeleteExpiredRecords(ctx context.Context, expiryDuration time.Duration) error
-	DeleteSealedRecords(ctx context.Context, maxAge time.Duration) error
 
 	// 统计
 	CountByThread(ctx context.Context, threadID string) (int, error)
@@ -54,11 +50,10 @@ func (r *SessionRecordRepoImpl) Create(ctx context.Context, record *model.Sessio
 	query := `
 		INSERT INTO session_records (
 			id, thread_id, agent_id, agent_type,
-			cli_session_id, resume_expiry,
-			status, turn_count, total_tokens, conversation, key_entities,
-			process_pid,
-			created_at, updated_at, last_active_at, sealed_at, last_error
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			acp_session_id, cli_session_id, resume_expiry,
+			status, last_active_at,
+			created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err := r.db.ExecContext(ctx, query,
@@ -66,19 +61,13 @@ func (r *SessionRecordRepoImpl) Create(ctx context.Context, record *model.Sessio
 		record.ThreadID.String(),
 		record.AgentID.String(),
 		record.AgentType,
+		record.AcpSessionID,
 		record.CliSessionID,
 		record.ResumeExpiry,
 		record.Status,
-		record.TurnCount,
-		record.TotalTokens,
-		record.Conversation,
-		record.KeyEntities,
-		record.ProcessPID,
+		record.LastActiveAt,
 		record.CreatedAt,
 		record.UpdatedAt,
-		record.LastActiveAt,
-		record.SealedAt,
-		record.LastError,
 	)
 
 	if err != nil {
@@ -94,34 +83,22 @@ func (r *SessionRecordRepoImpl) Update(ctx context.Context, record *model.Sessio
 
 	query := `
 		UPDATE session_records SET
+			acp_session_id = ?,
 			cli_session_id = ?,
 			resume_expiry = ?,
 			status = ?,
-			turn_count = ?,
-			total_tokens = ?,
-			conversation = ?,
-			key_entities = ?,
-			process_pid = ?,
-			updated_at = ?,
 			last_active_at = ?,
-			sealed_at = ?,
-			last_error = ?
+			updated_at = ?
 		WHERE id = ?
 	`
 
 	_, err := r.db.ExecContext(ctx, query,
+		record.AcpSessionID,
 		record.CliSessionID,
 		record.ResumeExpiry,
 		record.Status,
-		record.TurnCount,
-		record.TotalTokens,
-		record.Conversation,
-		record.KeyEntities,
-		record.ProcessPID,
-		record.UpdatedAt,
 		record.LastActiveAt,
-		record.SealedAt,
-		record.LastError,
+		record.UpdatedAt,
 		record.ID.String(),
 	)
 
@@ -146,10 +123,9 @@ func (r *SessionRecordRepoImpl) Delete(ctx context.Context, id uuid.UUID) error 
 func (r *SessionRecordRepoImpl) FindByID(ctx context.Context, id uuid.UUID) (*model.SessionRecord, error) {
 	query := `
 		SELECT id, thread_id, agent_id, agent_type,
-			cli_session_id, resume_expiry,
-			status, turn_count, total_tokens, conversation, key_entities,
-			process_pid,
-			created_at, updated_at, last_active_at, sealed_at, last_error
+			acp_session_id, cli_session_id, resume_expiry,
+			status, last_active_at,
+			created_at, updated_at
 		FROM session_records WHERE id = ?
 	`
 
@@ -161,10 +137,9 @@ func (r *SessionRecordRepoImpl) FindByID(ctx context.Context, id uuid.UUID) (*mo
 func (r *SessionRecordRepoImpl) FindByThreadAndAgent(ctx context.Context, threadID, agentID string) (*model.SessionRecord, error) {
 	query := `
 		SELECT id, thread_id, agent_id, agent_type,
-			cli_session_id, resume_expiry,
-			status, turn_count, total_tokens, conversation, key_entities,
-			process_pid,
-			created_at, updated_at, last_active_at, sealed_at, last_error
+			acp_session_id, cli_session_id, resume_expiry,
+			status, last_active_at,
+			created_at, updated_at
 		FROM session_records
 		WHERE thread_id = ? AND agent_id = ?
 		ORDER BY updated_at DESC
@@ -175,58 +150,17 @@ func (r *SessionRecordRepoImpl) FindByThreadAndAgent(ctx context.Context, thread
 	return r.scanRecord(row)
 }
 
-// FindSealedByThreadAndAgent 查找 Sealed 状态的记录（用于恢复）
-func (r *SessionRecordRepoImpl) FindSealedByThreadAndAgent(ctx context.Context, threadID, agentID string) (*model.SessionRecord, error) {
-	query := `
-		SELECT id, thread_id, agent_id, agent_type,
-			cli_session_id, resume_expiry,
-			status, turn_count, total_tokens, conversation, key_entities,
-			process_pid,
-			created_at, updated_at, last_active_at, sealed_at, last_error
-		FROM session_records
-		WHERE thread_id = ? AND agent_id = ? AND status = 'sealed'
-		ORDER BY sealed_at DESC
-		LIMIT 1
-	`
-
-	row := r.db.QueryRowContext(ctx, query, threadID, agentID)
-	return r.scanRecord(row)
-}
-
-// FindActiveByThread 查找 Thread 中所有活跃的 Session
-func (r *SessionRecordRepoImpl) FindActiveByThread(ctx context.Context, threadID string) ([]*model.SessionRecord, error) {
-	query := `
-		SELECT id, thread_id, agent_id, agent_type,
-			cli_session_id, resume_expiry,
-			status, turn_count, total_tokens, conversation, key_entities,
-			process_pid,
-			created_at, updated_at, last_active_at, sealed_at, last_error
-		FROM session_records
-		WHERE thread_id = ? AND status IN ('active', 'idle')
-		ORDER BY last_active_at DESC
-	`
-
-	rows, err := r.db.QueryContext(ctx, query, threadID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to find active sessions: %w", err)
-	}
-	defer rows.Close()
-
-	return r.scanRecords(rows)
-}
-
-// FindExpiredRecords 查找过期的记录（Claude CLI resume 模式）
+// FindExpiredRecords 查找过期的记录
 func (r *SessionRecordRepoImpl) FindExpiredRecords(ctx context.Context, expiryDuration time.Duration) ([]*model.SessionRecord, error) {
 	expiryThreshold := time.Now().Add(-expiryDuration).Unix()
 
 	query := `
 		SELECT id, thread_id, agent_id, agent_type,
-			cli_session_id, resume_expiry,
-			status, turn_count, total_tokens, conversation, key_entities,
-			process_pid,
-			created_at, updated_at, last_active_at, sealed_at, last_error
+			acp_session_id, cli_session_id, resume_expiry,
+			status, last_active_at,
+			created_at, updated_at
 		FROM session_records
-		WHERE agent_type = 'claude_code' AND resume_expiry < ?
+		WHERE resume_expiry < ?
 	`
 
 	rows, err := r.db.QueryContext(ctx, query, expiryThreshold)
@@ -238,49 +172,14 @@ func (r *SessionRecordRepoImpl) FindExpiredRecords(ctx context.Context, expiryDu
 	return r.scanRecords(rows)
 }
 
-// FindSealedRecords 查找过期的 Sealed 记录（长连接模式）
-func (r *SessionRecordRepoImpl) FindSealedRecords(ctx context.Context, maxAge time.Duration) ([]*model.SessionRecord, error) {
-	ageThreshold := time.Now().Add(-maxAge).Unix()
-
-	query := `
-		SELECT id, thread_id, agent_id, agent_type,
-			cli_session_id, resume_expiry,
-			status, turn_count, total_tokens, conversation, key_entities,
-			process_pid,
-			created_at, updated_at, last_active_at, sealed_at, last_error
-		FROM session_records
-		WHERE status = 'sealed' AND sealed_at < ?
-	`
-
-	rows, err := r.db.QueryContext(ctx, query, ageThreshold)
-	if err != nil {
-		return nil, fmt.Errorf("failed to find sealed records: %w", err)
-	}
-	defer rows.Close()
-
-	return r.scanRecords(rows)
-}
-
 // DeleteExpiredRecords 删除过期的记录
 func (r *SessionRecordRepoImpl) DeleteExpiredRecords(ctx context.Context, expiryDuration time.Duration) error {
 	expiryThreshold := time.Now().Add(-expiryDuration).Unix()
 
-	query := `DELETE FROM session_records WHERE agent_type = 'claude_code' AND resume_expiry < ?`
+	query := `DELETE FROM session_records WHERE resume_expiry < ?`
 	_, err := r.db.ExecContext(ctx, query, expiryThreshold)
 	if err != nil {
 		return fmt.Errorf("failed to delete expired records: %w", err)
-	}
-	return nil
-}
-
-// DeleteSealedRecords 删除过期的 Sealed 记录
-func (r *SessionRecordRepoImpl) DeleteSealedRecords(ctx context.Context, maxAge time.Duration) error {
-	ageThreshold := time.Now().Add(-maxAge).Unix()
-
-	query := `DELETE FROM session_records WHERE status = 'sealed' AND sealed_at < ?`
-	_, err := r.db.ExecContext(ctx, query, ageThreshold)
-	if err != nil {
-		return fmt.Errorf("failed to delete sealed records: %w", err)
 	}
 	return nil
 }
@@ -318,10 +217,9 @@ func (r *SessionRecordRepoImpl) scanRecord(row *sql.Row) (*model.SessionRecord, 
 
 	err := row.Scan(
 		&record.ID, &threadID, &agentID, &agentType,
-		&record.CliSessionID, &record.ResumeExpiry,
-		&record.Status, &record.TurnCount, &record.TotalTokens, &record.Conversation, &record.KeyEntities,
-		&record.ProcessPID,
-		&record.CreatedAt, &record.UpdatedAt, &record.LastActiveAt, &record.SealedAt, &record.LastError,
+		&record.AcpSessionID, &record.CliSessionID, &record.ResumeExpiry,
+		&record.Status, &record.LastActiveAt,
+		&record.CreatedAt, &record.UpdatedAt,
 	)
 
 	if err == sql.ErrNoRows {
@@ -348,10 +246,9 @@ func (r *SessionRecordRepoImpl) scanRecords(rows *sql.Rows) ([]*model.SessionRec
 
 		err := rows.Scan(
 			&record.ID, &threadID, &agentID, &agentType,
-			&record.CliSessionID, &record.ResumeExpiry,
-			&record.Status, &record.TurnCount, &record.TotalTokens, &record.Conversation, &record.KeyEntities,
-			&record.ProcessPID,
-			&record.CreatedAt, &record.UpdatedAt, &record.LastActiveAt, &record.SealedAt, &record.LastError,
+			&record.AcpSessionID, &record.CliSessionID, &record.ResumeExpiry,
+			&record.Status, &record.LastActiveAt,
+			&record.CreatedAt, &record.UpdatedAt,
 		)
 
 		if err != nil {

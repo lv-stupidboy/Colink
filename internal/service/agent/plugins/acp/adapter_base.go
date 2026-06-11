@@ -1099,28 +1099,136 @@ func (a *BaseACPAdapter) SendToolResult(invocationID uuid.UUID, toolCallID strin
 	return nil
 }
 
-// ========== 长连接 Session 支持 ==========
 
-// StartLongRunningSession 启动长连接 session
-// 用于 OpenCode/CodeAgent 等不支持原生 resume 的 CLI
-// 保持进程存活，避免每次都重新启动
-// 返回 ACP session ID 用于后续 SendPromptToSession
-func (a *BaseACPAdapter) StartLongRunningSession(ctx context.Context, req *agent.ExecutionRequest) (string, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
+// ========== ACP 原生 Session 管理 API ==========
 
-	// 生成唯一的 session ID
-	sessionID := uuid.New().String()
-
-	args := a.Config.BuildArgs(req)
+// SessionList 获取历史会话列表
+// 实现 agent.SessionResumeCapable 接口
+func (a *BaseACPAdapter) SessionList(ctx context.Context, cwd string) ([]agent.SessionInfo, error) {
+	// 启动临时进程来获取 session list
+	args := a.Config.BuildArgs(&agent.ExecutionRequest{WorkDir: cwd})
 	cmd := exec.CommandContext(ctx, a.Config.CliPath, args...)
 	hideCommandLineWindow(cmd)
 
-	if req.WorkDir != "" {
-		cmd.Dir = req.WorkDir
+	if cwd != "" {
+		cmd.Dir = cwd
 	}
 
-	env := a.buildEnv(req)
+	env := a.buildEnv(&agent.ExecutionRequest{WorkDir: cwd})
+	cmd.Env = env
+
+	stdinPipe, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, fmt.Errorf("ACP: failed to create stdin pipe: %w", err)
+	}
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("ACP: failed to create stdout pipe: %w", err)
+	}
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return nil, fmt.Errorf("ACP: failed to create stderr pipe: %w", err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("ACP: failed to start CLI process: %w", err)
+	}
+
+	// 创建临时 session 用于 transport
+	session := &acpSession{
+		cmd:    cmd,
+		ctx:    ctx,
+		status: agent.SessionStatusRunning,
+	}
+
+	// 启动 stderr 消费
+	go func() {
+		scanner := bufio.NewScanner(stderrPipe)
+		for scanner.Scan() {
+			line := scanner.Text()
+			LogInfo("ACP: stderr output (session/list)", zap.String("line", line))
+		}
+	}()
+
+	transport := newACPTransport(stdinPipe, stdoutPipe, func(method string, params json.RawMessage) {
+		a.handleNotification(session, method, params, nil)
+	})
+	transport.Start()
+
+	// Initialize
+	initResult, err := transport.SendRequest("initialize", &acpInitializeParams{
+		ProtocolVersion:    2025,
+		ClientCapabilities: acpClientCapabilities{},
+	})
+	if err != nil {
+		transport.Close()
+		cmd.Process.Kill()
+		return nil, fmt.Errorf("ACP: initialize handshake failed: %w", err)
+	}
+
+	var initResp acpInitializeResult
+	if err := json.Unmarshal(initResult, &initResp); err != nil {
+		LogWarn("ACP: initialize response parse warning", zap.Error(err))
+	}
+
+	// SessionList
+	listResult, err := transport.SendRequest("session/list", &acpSessionListParams{
+		CWD: cwd,
+	})
+	if err != nil {
+		transport.Close()
+		cmd.Process.Kill()
+		return nil, fmt.Errorf("ACP: session/list failed: %w", err)
+	}
+
+	var listResp acpSessionListResult
+	if err := json.Unmarshal(listResult, &listResp); err != nil {
+		transport.Close()
+		cmd.Process.Kill()
+		return nil, fmt.Errorf("ACP: session/list response parse error: %w", err)
+	}
+
+	// 关闭进程
+	transport.Close()
+	cmd.Process.Kill()
+	cmd.Wait()
+
+	// 转换为 agent.SessionInfo
+	sessions := make([]agent.SessionInfo, len(listResp.Sessions))
+	for i, s := range listResp.Sessions {
+		updatedAt, _ := time.Parse(time.RFC3339, s.UpdatedAt)
+		sessions[i] = agent.SessionInfo{
+			SessionID: s.SessionID,
+			CWD:       s.CWD,
+			Title:     s.Title,
+			UpdatedAt: updatedAt,
+		}
+	}
+
+	LogInfo("ACP: session/list completed",
+		zap.String("cwd", cwd),
+		zap.Int("count", len(sessions)))
+
+	return sessions, nil
+}
+
+// SessionResume 恢复已有会话（不回放历史）
+// 实现 agent.SessionResumeCapable 接口
+// 返回新的进程内 session ID（用于后续 prompt）
+func (a *BaseACPAdapter) SessionResume(ctx context.Context, acpSessionID string, cwd string, mcpServers []interface{}) (string, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	// 启动新进程
+	args := a.Config.BuildArgs(&agent.ExecutionRequest{WorkDir: cwd})
+	cmd := exec.CommandContext(ctx, a.Config.CliPath, args...)
+	hideCommandLineWindow(cmd)
+
+	if cwd != "" {
+		cmd.Dir = cwd
+	}
+
+	env := a.buildEnv(&agent.ExecutionRequest{WorkDir: cwd})
 	cmd.Env = env
 
 	stdinPipe, err := cmd.StdinPipe()
@@ -1140,35 +1248,29 @@ func (a *BaseACPAdapter) StartLongRunningSession(ctx context.Context, req *agent
 		return "", fmt.Errorf("ACP: failed to start CLI process: %w", err)
 	}
 
-	LogInfo("ACP: long running session started",
-		zap.String("sessionId", sessionID),
-		zap.Int("pid", cmd.Process.Pid),
-		zap.String("workDir", req.WorkDir))
+	// 生成内部 session ID
+	internalSessionID := uuid.New().String()
 
-	// 创建 session context（独立于请求 context）
+	// 创建 session context
 	sessionCtx, sessionCancel := context.WithCancel(context.Background())
 	session := &acpSession{
-		id:                 sessionID,
-		isdpID:             sessionID,
+		id:                 internalSessionID,
+		isdpID:             internalSessionID,
 		cmd:                cmd,
 		ctx:                sessionCtx,
 		cancel:             sessionCancel,
 		status:             agent.SessionStatusRunning,
-		stdinPipe:          stdinPipe, // 保存 stdin 引用用于断开检测
-		outputUpdatedSignal: make(chan struct{}, 1), // 初始化输出更新信号
+	 stdinPipe:          stdinPipe,
+		outputUpdatedSignal: make(chan struct{}, 1),
 	}
 
-	// 启动 stdin 断开监控 goroutine
-	// 当后端进程退出时，stdin 管道会被关闭，CLI 应该检测到并退出
-	go a.monitorStdinConnection(session, stdinPipe)
-
-	// 启动 stderr 消费 goroutine
+	// 启动 stderr 消费
 	go func() {
 		scanner := bufio.NewScanner(stderrPipe)
 		for scanner.Scan() {
 			line := scanner.Text()
-			LogInfo("ACP: stderr output (long running)",
-				zap.String("sessionId", sessionID),
+			LogInfo("ACP: stderr output (session/resume)",
+				zap.String("sessionId", internalSessionID),
 				zap.String("line", line))
 			session.mu.Lock()
 			if session.stderrOutput.Len() < maxStderrSize {
@@ -1179,16 +1281,13 @@ func (a *BaseACPAdapter) StartLongRunningSession(ctx context.Context, req *agent
 		}
 	}()
 
-	// 创建 transport
 	transport := newACPTransport(stdinPipe, stdoutPipe, func(method string, params json.RawMessage) {
-		// 长连接模式下，notification handler 可能不设置 onChunk
-		// 但仍需要处理 notification
 		a.handleNotification(session, method, params, nil)
 	})
 	session.transport = transport
 	transport.Start()
 
-	// 执行 initialize 和 session/new
+	// Initialize
 	initResult, err := transport.SendRequest("initialize", &acpInitializeParams{
 		ProtocolVersion:    2025,
 		ClientCapabilities: acpClientCapabilities{},
@@ -1207,14 +1306,10 @@ func (a *BaseACPAdapter) StartLongRunningSession(ctx context.Context, req *agent
 		LogWarn("ACP: initialize response parse warning", zap.Error(err))
 	}
 
-	// 根据 protocol version 决定是否传递 MCP Servers
-	mcpServers := []interface{}{}
-	if initResp.ProtocolVersion >= 2025 {
-		mcpServers = a.buildMCPServers(req)
-	}
-
-	sessionNewResult, err := transport.SendRequest("session/new", &acpNewSessionParams{
-		CWD:        req.WorkDir,
+	// SessionResume
+	resumeResult, err := transport.SendRequest("session/resume", &acpSessionResumeParams{
+		SessionID:  acpSessionID,
+		CWD:        cwd,
 		MCPServers: mcpServers,
 	})
 	if err != nil {
@@ -1223,465 +1318,308 @@ func (a *BaseACPAdapter) StartLongRunningSession(ctx context.Context, req *agent
 		session.mu.Unlock()
 		transport.Close()
 		cmd.Process.Kill()
-		return "", fmt.Errorf("ACP: session/new failed: %w\nstderr: %s", err, stderrContent)
+		return "", fmt.Errorf("ACP: session/resume failed: %w\nstderr: %s", err, stderrContent)
 	}
 
-	var sessionResp acpNewSessionResult
-	if err := json.Unmarshal(sessionNewResult, &sessionResp); err != nil {
-		LogWarn("ACP: session/new response parse warning", zap.Error(err))
+	var resumeResp acpSessionResumeResult
+	if err := json.Unmarshal(resumeResult, &resumeResp); err != nil {
+		LogWarn("ACP: session/resume response parse warning", zap.Error(err))
 	}
 
-	// 更新 ACP session ID
-	if sessionResp.SessionID != "" {
-		session.id = sessionResp.SessionID
-	}
+	// 保存 session 到 sessions map
+	a.sessions[internalSessionID] = session
 
-	// 配置 session（设置模型）
-	if err := a.configureSession(transport, session, &sessionResp, req); err != nil {
-		LogWarn("ACP: session configuration warning", zap.Error(err))
-	}
+	LogInfo("ACP: session/resume completed",
+		zap.String("internalSessionId", internalSessionID),
+		zap.String("acpSessionId", acpSessionID),
+		zap.String("cwd", cwd))
 
-	// 保存到 sessions map
-	a.sessions[sessionID] = session
-
-	LogInfo("ACP: long running session ready",
-		zap.String("sessionId", sessionID),
-		zap.String("acpSessionId", session.id))
-
-	return sessionID, nil
+	return internalSessionID, nil
 }
 
-// SendPromptToSession 向已有 session 发送新的 prompt
-// 用于长连接模式，复用已有进程
-// 添加等待机制确保所有 session/update 通知处理完毕
-func (a *BaseACPAdapter) SendPromptToSession(ctx context.Context, sessionID string, prompt string, onChunk func(agent.Chunk)) error {
-	a.mu.RLock()
-	session, exists := a.sessions[sessionID]
-	a.mu.RUnlock()
+// SessionLoad 加载已有会话（回放完整历史）
+// 实现 agent.SessionResumeCapable 接口
+// 注意：会通过 session/update 通知回放所有历史消息
+func (a *BaseACPAdapter) SessionLoad(ctx context.Context, acpSessionID string, cwd string, mcpServers []interface{}) (string, error) {
+	// SessionLoad 的实现与 SessionResume 类似
+	// 主要区别是会回放历史消息（通过 session/update 通知）
+	// 这里暂时复用 SessionResume 的实现
+	// TODO: 如果需要处理历史回放，需要特殊处理 session/update 通知
+	return a.SessionResume(ctx, acpSessionID, cwd, mcpServers)
+}
 
-	if !exists {
-		return fmt.Errorf("ACP: session not found: %s", sessionID)
+// SessionClose 关闭会话
+// 实现 agent.SessionResumeCapable 接口
+func (a *BaseACPAdapter) SessionClose(ctx context.Context, acpSessionID string) error {
+	// 注意：这里的 acpSessionID 是 ACP 协议的 session ID
+	// 不是我们内部的 session ID
+	// 需要启动临时进程来发送 session/close
+
+	args := a.Config.BuildArgs(&agent.ExecutionRequest{})
+	cmd := exec.CommandContext(ctx, a.Config.CliPath, args...)
+	hideCommandLineWindow(cmd)
+
+	stdinPipe, err := cmd.StdinPipe()
+	if err != nil {
+		return fmt.Errorf("ACP: failed to create stdin pipe: %w", err)
+	}
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("ACP: failed to create stdout pipe: %w", err)
 	}
 
-	session.mu.Lock()
-	if session.transport == nil {
-		session.mu.Unlock()
-		return fmt.Errorf("ACP: session transport not available: %s", sessionID)
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("ACP: failed to start CLI process: %w", err)
 	}
-	transport := session.transport
-	// 初始化输出更新信号（用于等待通知处理完成）
-	session.outputUpdatedSignal = make(chan struct{}, 1)
-	// 重置输出缓冲（确保新一轮的输出是干净的）
-	session.output.Reset()
-	session.mu.Unlock()
 
-	// 更新 notification handler 以处理 chunks
-	if onChunk != nil {
-		transport.SetNotificationHandler(func(method string, params json.RawMessage) {
+	transport := newACPTransport(stdinPipe, stdoutPipe, nil)
+	transport.Start()
+
+	// Initialize
+	_, err = transport.SendRequest("initialize", &acpInitializeParams{
+		ProtocolVersion:    2025,
+		ClientCapabilities: acpClientCapabilities{},
+	})
+	if err != nil {
+		transport.Close()
+		cmd.Process.Kill()
+		return fmt.Errorf("ACP: initialize handshake failed: %w", err)
+	}
+
+	// SessionClose
+	_, err = transport.SendRequest("session/close", &acpSessionCloseParams{
+		SessionID: acpSessionID,
+	})
+	if err != nil {
+		transport.Close()
+		cmd.Process.Kill()
+		return fmt.Errorf("ACP: session/close failed: %w", err)
+	}
+
+	transport.Close()
+	cmd.Process.Kill()
+	cmd.Wait()
+
+	LogInfo("ACP: session/close completed",
+		zap.String("acpSessionId", acpSessionID))
+
+	return nil
+}
+
+// ExecuteWithResume 使用 session/resume 执行
+// 实现 agent.SessionResumeCapable 接口
+// 如果 acpSessionID 不为空，先 resume 再发送 prompt
+// 否则创建新 session
+func (a *BaseACPAdapter) ExecuteWithResume(ctx context.Context, req *agent.ExecutionRequest, acpSessionID string, onChunk func(agent.Chunk)) (result *agent.ExecutionResult, newSessionID string, err error) {
+	var acpSessID string
+
+	if acpSessionID != "" {
+		// Resume existing session - start process directly with correct handler
+		// 关键修复：不调用 SessionResume，而是直接启动进程并发送完整流程
+		// 这样可以确保 handler 从一开始就正确设置，不会丢失历史回放通知
+
+		args := a.Config.BuildArgs(req)
+		cmd := exec.CommandContext(ctx, a.Config.CliPath, args...)
+		cmd.Dir = req.WorkDir
+
+		stdinPipe, err := cmd.StdinPipe()
+		if err != nil {
+			return nil, "", fmt.Errorf("ACP: failed to create stdin pipe: %w", err)
+		}
+		stdoutPipe, err := cmd.StdoutPipe()
+		if err != nil {
+			return nil, "", fmt.Errorf("ACP: failed to create stdout pipe: %w", err)
+		}
+		stderrPipe, err := cmd.StderrPipe()
+		if err != nil {
+			return nil, "", fmt.Errorf("ACP: failed to create stderr pipe: %w", err)
+		}
+
+		if err := cmd.Start(); err != nil {
+			return nil, "", fmt.Errorf("ACP: failed to start CLI process: %w", err)
+		}
+
+		// 生成内部 session ID
+		internalSessionID := uuid.New().String()
+
+		// 创建 session context
+		sessionCtx, sessionCancel := context.WithCancel(context.Background())
+		session := &acpSession{
+			id:                  internalSessionID,
+			isdpID:              internalSessionID,
+			cmd:                 cmd,
+			ctx:                 sessionCtx,
+			cancel:              sessionCancel,
+			status:              agent.SessionStatusRunning,
+			stdinPipe:           stdinPipe,
+			outputUpdatedSignal: make(chan struct{}, 1),
+		}
+
+		// 启动 stderr 消费
+		go func() {
+			scanner := bufio.NewScanner(stderrPipe)
+			for scanner.Scan() {
+				line := scanner.Text()
+				LogInfo("ACP: stderr output (ExecuteWithResume)",
+					zap.String("sessionId", internalSessionID),
+					zap.String("line", line))
+				session.mu.Lock()
+				if session.stderrOutput.Len() < maxStderrSize {
+					session.stderrOutput.WriteString(line)
+					session.stderrOutput.WriteString("\n")
+				}
+				session.mu.Unlock()
+			}
+		}()
+
+		// 关键：创建 transport 时使用正确的 handler（带 onChunk）
+		// 这样 session/resume 的历史回放通知会被正确处理
+		transport := newACPTransport(stdinPipe, stdoutPipe, func(method string, params json.RawMessage) {
 			a.handleNotification(session, method, params, onChunk)
-			// 每次通知处理后，发送更新信号
+			// Signal output update
 			session.mu.Lock()
 			if session.outputUpdatedSignal != nil {
 				select {
 				case session.outputUpdatedSignal <- struct{}{}:
-				default: // 信号已存在，跳过
+				default:
 				}
 			}
 			session.mu.Unlock()
 		})
-	}
+		session.transport = transport
+		transport.Start()
 
-	// 发送 prompt
-	promptResult, err := transport.SendRequest("session/prompt", &acpPromptParams{
-		SessionID: session.id,
-		Prompt:    []acpContentBlock{{Type: "text", Text: prompt}},
-	})
-	if err != nil {
-		return fmt.Errorf("ACP: session/prompt failed: %w", err)
-	}
-
-	var promptResp acpPromptResult
-	if err := json.Unmarshal(promptResult, &promptResp); err != nil {
-		LogWarn("ACP: prompt response parse warning", zap.Error(err))
-	}
-
-	LogInfo("ACP: prompt sent to long running session",
-		zap.String("sessionId", sessionID),
-		zap.String("stopReason", promptResp.StopReason))
-
-	// 等待所有通知处理完成（最多等待 500ms）
-	// 当 session/prompt 响应返回时，通知应该都已经发送了
-	// 但 readLoop 可能还在异步处理，需要等待一小段时间
-	session.mu.Lock()
-	signal := session.outputUpdatedSignal
-	currentOutputLen := session.output.Len()
-	session.mu.Unlock()
-
-	if signal != nil && currentOutputLen == 0 {
-		// 如果当前没有输出，等待更新信号（最多 500ms）
-		select {
-		case <-signal:
-			// 收到更新信号，继续等待可能的更多更新
-			// 使用退避策略：连续 3 次无新更新则认为完成
-			noUpdateCount := 0
-			for noUpdateCount < 3 {
-				session.mu.Lock()
-				newLen := session.output.Len()
-				session.mu.Unlock()
-				if newLen > currentOutputLen {
-					currentOutputLen = newLen
-					noUpdateCount = 0
-				} else {
-					noUpdateCount++
-				}
-				select {
-				case <-signal:
-				case <-time.After(100 * time.Millisecond):
-					break
-				}
-			}
-		case <-time.After(500 * time.Millisecond):
-			LogWarn("ACP: timeout waiting for output updates",
-				zap.String("sessionId", sessionID),
-				zap.String("stopReason", promptResp.StopReason))
-		}
-	} else if signal != nil {
-		// 已有输出，等待可能的更多更新（最多 300ms）
-		select {
-		case <-signal:
-		case <-time.After(300 * time.Millisecond):
-		}
-	}
-
-	// 清理信号
-	session.mu.Lock()
-	session.outputUpdatedSignal = nil
-	session.mu.Unlock()
-
-	return nil
-}
-
-// IsSessionAlive 检查 session 是否存活
-func (a *BaseACPAdapter) IsSessionAlive(sessionID string) bool {
-	a.mu.RLock()
-	session, exists := a.sessions[sessionID]
-	a.mu.RUnlock()
-
-	if !exists {
-		return false
-	}
-
-	session.mu.Lock()
-	defer session.mu.Unlock()
-
-	// 检查进程是否存活
-	if session.cmd == nil || session.cmd.Process == nil {
-		return false
-	}
-
-	// 检查进程是否已退出（关键修复：防止写入已关闭的管道）
-	if session.cmd.ProcessState != nil && session.cmd.ProcessState.Exited() {
-		LogInfo("ACP: IsSessionAlive detected process exited",
-			zap.String("sessionId", session.id),
-			zap.Int("pid", session.cmd.Process.Pid))
-		return false
-	}
-
-	// 棅查状态
-	if session.status != agent.SessionStatusRunning {
-		return false
-	}
-
-	return true
-}
-
-// StopLongRunningSession 停止长连接 session
-func (a *BaseACPAdapter) StopLongRunningSession(sessionID string) error {
-	a.mu.Lock()
-	session, exists := a.sessions[sessionID]
-	if !exists {
+		// 保存 session 到 sessions map
+		a.mu.Lock()
+		a.sessions[internalSessionID] = session
 		a.mu.Unlock()
-		return nil
-	}
-	delete(a.sessions, sessionID)
-	a.mu.Unlock()
 
-	session.mu.Lock()
-	session.status = agent.SessionStatusStopped
-	if session.cancel != nil {
-		session.cancel()
-	}
-	session.mu.Unlock()
-
-	a.cleanup(session)
-
-	LogInfo("ACP: long running session stopped",
-		zap.String("sessionId", sessionID))
-
-	return nil
-}
-
-// GetSessionOutput 获取 session 累积的输出
-func (a *BaseACPAdapter) GetSessionOutput(sessionID string) string {
-	a.mu.RLock()
-	session, exists := a.sessions[sessionID]
-	a.mu.RUnlock()
-
-	if !exists {
-		return ""
-	}
-
-	session.mu.Lock()
-	output := session.output.String()
-	session.mu.Unlock()
-
-	return output
-}
-
-// GetSessionStderr 获取 session 累积的 stderr 输出（用于错误诊断）
-func (a *BaseACPAdapter) GetSessionStderr(sessionID string) string {
-	a.mu.RLock()
-	session, exists := a.sessions[sessionID]
-	a.mu.RUnlock()
-
-	if !exists {
-		return ""
-	}
-
-	session.mu.Lock()
-	stderr := session.stderrOutput.String()
-	session.mu.Unlock()
-
-	return stderr
-}
-
-// GetContextUsage 获取 session 的上下文使用情况
-// 返回值：usagePercent（使用百分比），inputTokens（累计输入），contextLimit（上下文限制）
-func (a *BaseACPAdapter) GetContextUsage(sessionID string) (usagePercent float64, inputTokens int64, contextLimit int64) {
-	a.mu.RLock()
-	session, exists := a.sessions[sessionID]
-	a.mu.RUnlock()
-
-	if !exists {
-		return 0, 0, 0
-	}
-
-	session.mu.Lock()
-	inputTokens = session.cumulativeInputTokens
-	contextLimit = session.contextLimit
-	session.mu.Unlock()
-
-	if contextLimit > 0 {
-		usagePercent = float64(inputTokens) / float64(contextLimit)
-	}
-
-	return usagePercent, inputTokens, contextLimit
-}
-
-// ShouldCompact 检查是否需要进行上下文压缩
-// 返回值：needsCompact（是否需要压缩），needsWarning（是否需要预警）
-func (a *BaseACPAdapter) ShouldCompact(sessionID string) (needsCompact bool, needsWarning bool, usagePercent float64) {
-	usagePercent, _, _ = a.GetContextUsage(sessionID)
-	cfg := getContextConfig()
-
-	if usagePercent >= cfg.CompactThreshold {
-		return true, true, usagePercent
-	}
-	if usagePercent >= cfg.WarningThreshold {
-		return false, true, usagePercent
-	}
-	return false, false, usagePercent
-}
-
-// SetContextLimit 设置 session 的上下文限制（根据模型）
-func (a *BaseACPAdapter) SetContextLimit(sessionID string, model string) {
-	a.mu.RLock()
-	session, exists := a.sessions[sessionID]
-	a.mu.RUnlock()
-
-	if !exists {
-		return
-	}
-
-	contextLimit := getModelContextLimit(model)
-	session.mu.Lock()
-	session.contextLimit = contextLimit
-	usedTokens := session.cumulativeInputTokens
-	session.mu.Unlock()
-
-	usagePercent := float64(usedTokens) / float64(contextLimit)
-	LogInfo("ACP: context limit set",
-		zap.String("sessionId", sessionID),
-		zap.String("model", model),
-		zap.Int64("contextLimit", contextLimit),
-		zap.Int64("usedTokens", usedTokens),
-		zap.Float64("usagePercent", usagePercent))
-}
-
-// TriggerCompact 触发上下文压缩
-// 发送一个特殊的 prompt 让 CLI 执行类似 /compact 的操作
-func (a *BaseACPAdapter) TriggerCompact(ctx context.Context, sessionID string) error {
-	a.mu.RLock()
-	session, exists := a.sessions[sessionID]
-	a.mu.RUnlock()
-
-	if !exists {
-		return fmt.Errorf("ACP: session not found: %s", sessionID)
-	}
-
-	// 构建压缩 prompt
-	// 类似 Claude CLI 的 /compact 功能，压缩对话历史保留关键信息
-	compactPrompt := `[SYSTEM] 请执行以下上下文压缩操作：
-
-1. 总结之前的对话要点，保留关键信息：
-   - 用户的核心需求
-   - 已完成的工作和结果
-   - 待解决的问题
-   - 重要的技术决策和约束
-
-2. 删除冗余的历史消息，只保留：
-   - 最近 3-5 轮对话的完整内容
-   - 之前的对话摘要
-
-3. 保持对话连贯性，确保：
-   - 你仍然能理解用户的后续请求
-   - 关键上下文信息不丢失
-
-请开始压缩并回复"上下文已压缩"确认完成。`
-
-	LogInfo("ACP: triggering context compact",
-		zap.String("sessionId", sessionID),
-		zap.Int64("currentInputTokens", session.cumulativeInputTokens),
-		zap.Float64("usagePercent", float64(session.cumulativeInputTokens)/float64(session.contextLimit)))
-
-	// 发送压缩指令
-	session.mu.Lock()
-	transport := session.transport
-	session.mu.Unlock()
-
-	if transport == nil {
-		return fmt.Errorf("ACP: session transport not available")
-	}
-
-	_, err := transport.SendRequest("session/prompt", &acpPromptParams{
-		SessionID: session.id,
-		Prompt:    []acpContentBlock{{Type: "text", Text: compactPrompt}},
-	})
-	if err != nil {
-		return fmt.Errorf("ACP: compact prompt failed: %w", err)
-	}
-
-	// 重置 token 计数（压缩后应该会大幅减少）
-	session.mu.Lock()
-	session.cumulativeInputTokens = 0
-	session.cumulativeOutputTokens = 0
-	session.mu.Unlock()
-
-	LogInfo("ACP: context compact completed",
-		zap.String("sessionId", sessionID))
-
-	return nil
-}
-
-// ResetSessionOutput 重置 session 输出缓冲
-func (a *BaseACPAdapter) ResetSessionOutput(sessionID string) {
-	a.mu.RLock()
-	session, exists := a.sessions[sessionID]
-	a.mu.RUnlock()
-
-	if !exists {
-		return
-	}
-
-	session.mu.Lock()
-	session.output.Reset()
-	session.mu.Unlock()
-}
-
-// min helper function
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-// monitorStdinConnection monitors stdin pipe connection state.
-// When stdin is disconnected (backend process exits), it closes session and kills CLI process.
-// This is core of Plan C: ensuring CLI process lifecycle is bound to backend process.
-func (a *BaseACPAdapter) monitorStdinConnection(session *acpSession, stdinPipe io.WriteCloser) {
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-session.ctx.Done():
-			LogInfo("ACP: stdin monitor stopped (session done)",
-				zap.String("sessionId", session.id))
-			return
-		case <-ticker.C:
+		// Initialize
+		initResult, err := transport.SendRequest("initialize", &acpInitializeParams{
+			ProtocolVersion:    2025,
+			ClientCapabilities: acpClientCapabilities{},
+		})
+		if err != nil {
 			session.mu.Lock()
-			cmd := session.cmd
+			stderrContent := session.stderrOutput.String()
 			session.mu.Unlock()
-
-			if cmd == nil || cmd.Process == nil {
-				LogInfo("ACP: stdin monitor detected process gone",
-					zap.String("sessionId", session.id))
-				session.cancel()
-				return
-			}
-
-			if cmd.ProcessState != nil && cmd.ProcessState.Exited() {
-				LogInfo("ACP: stdin monitor detected process exited",
-					zap.String("sessionId", session.id),
-					zap.Int("pid", cmd.Process.Pid))
-				session.cancel()
-				return
-			}
+			transport.Close()
+			cmd.Process.Kill()
+			cmd.Wait()
+			a.mu.Lock()
+			delete(a.sessions, internalSessionID)
+			a.mu.Unlock()
+			return nil, "", fmt.Errorf("ACP: initialize handshake failed: %w\nstderr: %s", err, stderrContent)
 		}
-	}
-}
 
-// CloseAllSessions closes all active sessions (for graceful shutdown).
-// Called when backend process exits to ensure all CLI processes are properly terminated.
-func (a *BaseACPAdapter) CloseAllSessions() {
-	a.mu.Lock()
-	sessions := make([]*acpSession, 0, len(a.sessions))
-	for _, s := range a.sessions {
-		sessions = append(sessions, s)
-	}
-	a.mu.Unlock()
+		var initResp acpInitializeResult
+		if err := json.Unmarshal(initResult, &initResp); err != nil {
+			LogWarn("ACP: initialize response parse warning", zap.Error(err))
+		}
 
-	for _, session := range sessions {
+		// SessionResume - 历史回放通知会被正确处理（因为 handler 已设置）
+		mcpServers := []interface{}{}
+		resumeResult, err := transport.SendRequest("session/resume", &acpSessionResumeParams{
+			SessionID:  acpSessionID,
+			CWD:        req.WorkDir,
+			MCPServers: mcpServers,
+		})
+		if err != nil {
+			session.mu.Lock()
+			stderrContent := session.stderrOutput.String()
+			session.mu.Unlock()
+			transport.Close()
+			cmd.Process.Kill()
+			cmd.Wait()
+			a.mu.Lock()
+			delete(a.sessions, internalSessionID)
+			a.mu.Unlock()
+			return nil, "", fmt.Errorf("ACP: session/resume failed: %w\nstderr: %s", err, stderrContent)
+		}
+
+		var resumeResp acpSessionResumeResult
+		if err := json.Unmarshal(resumeResult, &resumeResp); err != nil {
+			LogWarn("ACP: session/resume response parse warning", zap.Error(err))
+		}
+
+		LogInfo("ACP: ExecuteWithResume session/resume completed",
+			zap.String("internalSessionId", internalSessionID),
+			zap.String("acpSessionId", acpSessionID),
+			zap.String("cwd", req.WorkDir))
+
+		acpSessID = acpSessionID
+
+		// Send prompt to resumed session
+		prompt := a.buildPromptFromRequest(req)
+		_, promptErr := transport.SendRequest("session/prompt", &acpPromptParams{
+			SessionID: acpSessionID,
+			Prompt:    []acpContentBlock{{Type: "text", Text: prompt}},
+		})
+		if promptErr != nil {
+			return nil, acpSessID, fmt.Errorf("ACP: session/prompt failed: %w", promptErr)
+		}
+
+		// Wait for notifications to be processed
 		session.mu.Lock()
-		cmd := session.cmd
-		transport := session.transport
+		signal := session.outputUpdatedSignal
+		currentOutputLen := session.output.Len()
 		session.mu.Unlock()
 
-		if transport != nil {
-			transport.Close()
-		}
-
-		if cmd != nil && cmd.Process != nil {
-			done := make(chan struct{})
-			go func() {
-				cmd.Wait()
-				close(done)
-			}()
-
+		if signal != nil && currentOutputLen == 0 {
 			select {
-			case <-done:
-				LogInfo("ACP: session closed gracefully",
-					zap.String("sessionId", session.id))
-			case <-time.After(3 * time.Second):
-				cmd.Process.Kill()
-				LogInfo("ACP: session killed (timeout)",
-					zap.String("sessionId", session.id))
+			case <-signal:
+				// Wait for more updates with backoff
+				noUpdateCount := 0
+				for noUpdateCount < 3 {
+					session.mu.Lock()
+					newLen := session.output.Len()
+					session.mu.Unlock()
+					if newLen > currentOutputLen {
+						currentOutputLen = newLen
+						noUpdateCount = 0
+					} else {
+						noUpdateCount++
+					}
+					select {
+					case <-signal:
+					case <-time.After(100 * time.Millisecond):
+						break
+					}
+				}
+			case <-time.After(500 * time.Millisecond):
+				LogWarn("ACP: timeout waiting for output updates (ExecuteWithResume)",
+					zap.String("acpSessionId", acpSessionID))
+			}
+		} else if signal != nil {
+			select {
+			case <-signal:
+			case <-time.After(300 * time.Millisecond):
 			}
 		}
 
-		session.cancel()
+		// Clean up signal
+		session.mu.Lock()
+		session.outputUpdatedSignal = nil
+		output := session.output.String()
+		session.mu.Unlock()
+
+		result = &agent.ExecutionResult{
+			Output:    output,
+			SessionID: acpSessID,
+		}
+
+		return result, acpSessID, nil
 	}
 
-	LogInfo("ACP: all sessions closed", zap.Int("count", len(sessions)))
+	// Create new session - use regular ExecuteWithStream
+	result, err = a.ExecuteWithStream(ctx, req, onChunk)
+	if err != nil {
+		return nil, "", fmt.Errorf("ACP: execute failed: %w", err)
+	}
+	acpSessID = result.SessionID
+
+	LogInfo("ACP: ExecuteWithResume using new session",
+		zap.String("acpSessionId", acpSessID))
+
+	return result, acpSessID, nil
 }

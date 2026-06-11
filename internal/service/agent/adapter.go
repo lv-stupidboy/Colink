@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"os/exec"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -35,39 +36,36 @@ type AgentAdapter interface {
 	GetCurrentProcess() *exec.Cmd
 }
 
-// LongRunningSessionCapable 长连接 Session 能力接口
-// 用于 OpenCode/CodeAgent 等不支持原生 resume 的 CLI
-// 使用接口断言方式，避免对 AgentAdapter 接口进行侵入式修改
-type LongRunningSessionCapable interface {
-	// StartLongRunningSession 启动长连接 session（进程保持存活）
-	// 返回 ACP session ID 用于后续 SendPromptToSession
-	StartLongRunningSession(ctx context.Context, req *ExecutionRequest) (string, error)
+// SessionResumeCapable ACP 原生 Session 恢复能力接口
+// 用于支持 ACP 协议的 session/resume、session/list 等方法的 CLI
+// OpenCode 1.17.0+ 支持 sessionCapabilities.resume
+type SessionResumeCapable interface {
+	// SessionList 获取历史会话列表
+	SessionList(ctx context.Context, cwd string) ([]SessionInfo, error)
 
-	// SendPromptToSession 向已有 session 发送新 prompt（复用进程）
-	SendPromptToSession(ctx context.Context, sessionID string, prompt string, onChunk func(Chunk)) error
+	// SessionResume 恢复已有会话（不回放历史）
+	// 返回 ACP session ID 用于后续 prompt
+	SessionResume(ctx context.Context, acpSessionID string, cwd string, mcpServers []interface{}) (string, error)
 
-	// StopLongRunningSession 停止长连接 session
-	StopLongRunningSession(sessionID string) error
+	// SessionLoad 加载已有会话（回放完整历史）
+	// 注意：会通过 session/update 通知回放所有历史消息
+	SessionLoad(ctx context.Context, acpSessionID string, cwd string, mcpServers []interface{}) (string, error)
 
-	// IsSessionAlive 检查 session 进程是否存活
-	IsSessionAlive(sessionID string) bool
+	// SessionClose 关闭会话
+	SessionClose(ctx context.Context, acpSessionID string) error
 
-	// GetSessionStderr 获取 session 的 stderr 输出（用于错误诊断）
-	GetSessionStderr(sessionID string) string
+	// ExecuteWithResume 使用 session/resume 执行
+	// 如果有历史 session ID，先 resume 再发送 prompt
+	// 否则创建新 session
+	ExecuteWithResume(ctx context.Context, req *ExecutionRequest, acpSessionID string, onChunk func(Chunk)) (result *ExecutionResult, newSessionID string, err error)
+}
 
-	// GetContextUsage 获取上下文使用情况（用于智能压缩）
-	// 返回：usagePercent（使用百分比），inputTokens（累计输入），contextLimit（上下文限制）
-	GetContextUsage(sessionID string) (usagePercent float64, inputTokens int64, contextLimit int64)
-
-	// ShouldCompact 检查是否需要上下文压缩
-	// 返回：needsCompact（需要压缩），needsWarning（需要预警），usagePercent（使用百分比）
-	ShouldCompact(sessionID string) (needsCompact bool, needsWarning bool, usagePercent float64)
-
-	// SetContextLimit 设置上下文限制（根据模型）
-	SetContextLimit(sessionID string, model string)
-
-	// TriggerCompact 触发上下文压缩（类似 /compact）
-	TriggerCompact(ctx context.Context, sessionID string) error
+// SessionInfo 会话信息（用于 session/list 返回）
+type SessionInfo struct {
+	SessionID string    `json:"sessionId"` // ACP session ID
+	CWD       string    `json:"cwd"`       // 工作目录
+	Title     string    `json:"title"`     // 会话标题
+	UpdatedAt time.Time `json:"updatedAt"` // 最后更新时间
 }
 
 // ToolResultSender 发送工具结果的接口（用于 AskUserQuestion 等需要用户输入的工具）
@@ -87,13 +85,6 @@ const (
 	SessionStatusCompleted SessionStatus = "completed"
 	SessionStatusFailed    SessionStatus = "failed"
 	SessionStatusStopped   SessionStatus = "stopped"
-
-	// 长连接 Session 状态（新增）
-	SessionStatusActive     SessionStatus = "active"     // 正在执行
-	SessionStatusSealing    SessionStatus = "sealing"    // 正在封存
-	SessionStatusSealed     SessionStatus = "sealed"     // 已封存（可恢复）
-	SessionStatusRecovering SessionStatus = "recovering" // 正在恢复
-	SessionStatusError      SessionStatus = "error"      // 异常状态
 )
 
 func min(a, b int) int {

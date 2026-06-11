@@ -542,15 +542,20 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 	}
 	logInfo("[PERF] buildExecutionRequest", zap.Duration("duration", time.Since(execReqBuildStart)), zap.String("sessionID", sessionID), zap.String("sessionStrategy", string(req.SessionStrategy)))
 
-		// === 长连接模式判断 ===
-		var sessionHandle SessionHandle
+		// === ACP 原生 session/resume 模式 ===
+		var acpSessionID string
+		var newACPSessionID string
 		if es.sessionManager != nil {
 			threadUUID, _ := uuid.Parse(req.ThreadID.String())
 			configUUID := config.ID
-			var handleErr error
-			sessionHandle, handleErr = es.sessionManager.GetOrCreateSession(ctx, threadUUID, configUUID, baseAgent)
+			sessionHandle, handleErr := es.sessionManager.GetOrCreateSession(ctx, threadUUID, configUUID, baseAgent)
 			if handleErr != nil {
 				logError("GetOrCreateSession failed", zap.Error(handleErr))
+			} else if sessionHandle != nil {
+				acpSessionID = sessionHandle.GetACPSessionID()
+				logInfo("SessionManager: got session handle",
+					zap.String("acpSessionId", acpSessionID),
+					zap.String("strategy", string(sessionHandle.GetStrategy())))
 			}
 		}
 
@@ -560,191 +565,53 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 		cliStart := time.Now()
 		logInfo("[PERF] CLI execution starting", zap.String("invocationID", invocation.ID.String()))
 
-		if sessionHandle != nil && sessionHandle.IsLongRunning() {
-			lrs := sessionHandle.GetLongRunningSession()
-			if lrs == nil {
-				logError("GetLongRunningSession returned nil", zap.String("sessionId", sessionID))
-				result, err = adapter.ExecuteWithStream(ctx, execReq, func(chunk Chunk) {
-					outputBuilder.WriteString(chunk.Content)
-					es.broadcastChunk(req.ThreadID, invocation.ID, chunk, config.ID.String(), config.Name)
-				})
-			} else {
-				savedAdapter := lrs.Adapter
-				if savedAdapter == nil {
-					lrs.SetAdapter(adapter, baseAgent)
-					savedAdapter = adapter
-				}
-
-				longRunning, ok := savedAdapter.(LongRunningSessionCapable)
-				if !ok {
-					logError("Adapter does not support long running session", zap.String("agentType", string(baseAgent.Type)))
-					result, err = adapter.ExecuteWithStream(ctx, execReq, func(chunk Chunk) {
-						outputBuilder.WriteString(chunk.Content)
-						es.broadcastChunk(req.ThreadID, invocation.ID, chunk, config.ID.String(), config.Name)
-					})
-				} else {
-					lrs.SetInvocationID(invocation.ID.String())
-
-					acpSessionID := lrs.AcpSessionID
-					isSessionAlive := longRunning.IsSessionAlive(acpSessionID)
-					isProcessAlive := lrs.IsProcessAlive()
-					logInfo("LongRunningSession: checking state",
-						zap.String("acpSessionId", acpSessionID),
-						zap.Bool("isSessionAlive", isSessionAlive),
-						zap.Bool("isProcessAlive", isProcessAlive))
-
-					var fullPrompt string
-					if acpSessionID != "" && isSessionAlive && isProcessAlive {
-						fullPrompt = req.Input
-						logInfo("Long running session alive, sending only user input",
-							zap.String("acpSessionId", acpSessionID),
-							zap.Int("inputLen", len(req.Input)))
-					} else {
-						recoveryHistory := lrs.GetRecoveryHistory()
-						if recoveryHistory != nil && recoveryHistory.Content != "" {
-							fullPrompt = lrs.BuildRecoveryPrompt(execReq.Input)
-						} else {
-							fullPrompt = BuildPromptFromRequest(execReq)
-						}
-					}
-
-					invocation.FullPrompt = fullPrompt
-					es.invocationRepo.Update(ctx, invocation)
-					es.broadcastFullPrompt(req.ThreadID, invocation.ID, fullPrompt)
-
-					// 设置上下文限制（根据模型）
-					if longRunning != nil && baseAgent.DefaultModel != "" {
-						longRunning.SetContextLimit(acpSessionID, baseAgent.DefaultModel)
-					}
-
-					// 检查上下文使用量，必要时触发压缩
-					if acpSessionID != "" && longRunning != nil {
-						needsCompact, needsWarning, usagePercent := longRunning.ShouldCompact(acpSessionID)
-						if needsWarning {
-							logInfo("Context usage approaching limit",
-								zap.String("invocationID", invocation.ID.String()),
-								zap.Float64("usagePercent", usagePercent),
-								zap.Bool("needsCompact", needsCompact))
-							// 广播预警
-							es.broadcastStatus(req.ThreadID, invocation.ID, "context_warning", config.Role, config.Name, config.ID.String(),
-								fmt.Sprintf("对话历史较长（使用 %.1f%% 上下文），接近限制", usagePercent*100))
-						}
-						if needsCompact {
-							logInfo("Triggering context compact due to high usage",
-								zap.String("invocationID", invocation.ID.String()),
-								zap.Float64("usagePercent", usagePercent))
-							// 广播压缩通知
-							es.broadcastStatus(req.ThreadID, invocation.ID, "context_compacting", config.Role, config.Name, config.ID.String(),
-								fmt.Sprintf("对话历史过长（%.1f%%），正在自动压缩...", usagePercent*100))
-							// 执行压缩
-							compactErr := longRunning.TriggerCompact(ctx, acpSessionID)
-							if compactErr != nil {
-								logError("Context compact failed", zap.Error(compactErr))
-							} else {
-								logInfo("Context compact succeeded", zap.String("invocationID", invocation.ID.String()))
-							}
-						}
-					}
-
-					if acpSessionID != "" && isSessionAlive && isProcessAlive {
-						logInfo("Long running session alive, sending prompt", zap.String("acpSessionId", acpSessionID), zap.Int("promptLen", len(fullPrompt)))
-						err = lrs.SendPromptToSession(ctx, fullPrompt, func(chunk Chunk) {
-							outputBuilder.WriteString(chunk.Content)
-							es.broadcastChunk(req.ThreadID, invocation.ID, chunk, config.ID.String(), config.Name)
-							lrs.AppendChunk(chunk)
-						})
-						if err == nil {
-							output := outputBuilder.String()
-							// 检测空内容：长连接模式下输出为空可能表示通知处理问题
-							if len(output) == 0 {
-								logWarn("Existing long running session returned empty output",
-									zap.String("invocationID", invocation.ID.String()),
-									zap.String("acpSessionId", acpSessionID),
-									zap.Int("promptLen", len(fullPrompt)))
-								// 获取 CLI stderr 输出用于诊断
-								cliStderr := ""
-								if longRunning != nil {
-									cliStderr = longRunning.GetSessionStderr(acpSessionID)
-								}
-								// 构建错误信息
-								errorMsg := buildEmptyOutputError(cliStderr)
-								// 广播错误状态，提示用户
-								es.broadcastStatus(req.ThreadID, invocation.ID, "failed", config.Role, config.Name, config.ID.String(), errorMsg)
-								result = &ExecutionResult{SessionID: lrs.AcpSessionID, Output: ""}
-							} else {
-								result = &ExecutionResult{SessionID: lrs.AcpSessionID, Output: output}
-							}
-						}
-					} else {
-						logInfo("Long running session not alive, starting new", zap.String("sessionId", sessionID))
-						err = lrs.StartLongRunningSession(ctx, execReq)
-						if err != nil {
-							logError("Failed to start long running session", zap.Error(err))
-							result, err = adapter.ExecuteWithStream(ctx, execReq, func(chunk Chunk) {
-								outputBuilder.WriteString(chunk.Content)
-								es.broadcastChunk(req.ThreadID, invocation.ID, chunk, config.ID.String(), config.Name)
-							})
-						} else {
-							err = lrs.SendPromptToSession(ctx, fullPrompt, func(chunk Chunk) {
-								outputBuilder.WriteString(chunk.Content)
-								es.broadcastChunk(req.ThreadID, invocation.ID, chunk, config.ID.String(), config.Name)
-								lrs.AppendChunk(chunk)
-							})
-							if err == nil {
-								output := outputBuilder.String()
-								// 检测空内容：长连接模式下输出为空可能表示通知处理问题
-								if len(output) == 0 {
-									logWarn("Long running session returned empty output",
-										zap.String("invocationID", invocation.ID.String()),
-										zap.String("acpSessionId", acpSessionID),
-										zap.Int("promptLen", len(fullPrompt)))
-										// 获取 CLI stderr 输出用于诊断
-										cliStderr := ""
-										if longRunning != nil {
-											cliStderr = longRunning.GetSessionStderr(lrs.AcpSessionID)
-										}
-										// 构建错误信息（包含 stderr）
-										errorMsg := buildEmptyOutputError(cliStderr)
-										es.broadcastStatus(req.ThreadID, invocation.ID, "failed", config.Role, config.Name, config.ID.String(), errorMsg)
-										result = &ExecutionResult{SessionID: lrs.AcpSessionID, Output: ""}
-								} else {
-									result = &ExecutionResult{SessionID: lrs.AcpSessionID, Output: output}
-								}
-							}
-						}
-					}
-				}
-			}
+		// 检查 adapter 是否支持 ACP 原生 session/resume
+		resumeCapable, ok := adapter.(SessionResumeCapable)
+		if ok && acpSessionID != "" {
+			// 使用 ACP 原生 session/resume 执行
+			logInfo("Using ACP native session/resume",
+				zap.String("invocationID", invocation.ID.String()),
+				zap.String("acpSessionId", acpSessionID))
+			result, newACPSessionID, err = resumeCapable.ExecuteWithResume(ctx, execReq, acpSessionID, func(chunk Chunk) {
+				outputBuilder.WriteString(chunk.Content)
+				es.broadcastChunk(req.ThreadID, invocation.ID, chunk, config.ID.String(), config.Name)
+			})
 		} else {
+			// 普通执行（新 session）
 			result, err = adapter.ExecuteWithStream(ctx, execReq, func(chunk Chunk) {
 				outputBuilder.WriteString(chunk.Content)
 				es.broadcastChunk(req.ThreadID, invocation.ID, chunk, config.ID.String(), config.Name)
 			})
+			newACPSessionID = result.SessionID
+		}
+
+		// 保存 ACP session ID 到数据库
+		if newACPSessionID != "" && es.sessionManager != nil {
+			saveErr := es.sessionManager.SaveACPSessionID(ctx, req.ThreadID.String(), config.ID.String(), newACPSessionID, baseAgent.Type)
+			if saveErr != nil {
+				logError("SaveACPSessionID failed", zap.Error(saveErr))
+			}
 		}
 
 	// 会话恢复失败降级机制
-	if err != nil && sessionID != "" && isResumeFallbackError(err) {
+	if err != nil && acpSessionID != "" && isResumeFallbackError(err) {
 		logWarn("Session resume failed, falling back to new session",
 			zap.String("invocationId", invocation.ID.String()),
-			zap.String("sessionId", sessionID),
+			zap.String("acpSessionId", acpSessionID),
 			zap.Error(err))
 
-		// 清除缓存的 sessionID
-		es.csMu.Lock()
-		delete(es.cliSessions, sessionKey)
-		es.csMu.Unlock()
-
 		// 降级：使用新会话重试
-		execReq.SessionID = ""
 		outputBuilder.Reset()
 		result, err = adapter.ExecuteWithStream(ctx, execReq, func(chunk Chunk) {
 			outputBuilder.WriteString(chunk.Content)
 			es.broadcastChunk(req.ThreadID, invocation.ID, chunk, config.ID.String(), config.Name)
 		})
+		newACPSessionID = result.SessionID
 
 		if err == nil {
 			logInfo("Session fallback succeeded, created new session",
-				zap.String("invocationId", invocation.ID.String()))
+				zap.String("invocationId", invocation.ID.String()),
+				zap.String("newAcpSessionId", newACPSessionID))
 		}
 	}
 
