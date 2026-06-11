@@ -524,8 +524,64 @@ func (a *ClaudeAdapter) buildPromptFromRequest(req *agent.ExecutionRequest) stri
 	return agent.BuildPromptFromRequest(req)
 }
 
+// loadUserMCPConfig 从用户级配置文件加载 MCP servers 配置
+// 读取 ~/.claude.json 文件中的顶层 mcpServers 字段
+func (a *ClaudeAdapter) loadUserMCPConfig() map[string]interface{} {
+	// 获取用户主目录
+	userHomeDir, err := os.UserHomeDir()
+	if err != nil {
+		logInfo("Claude: Failed to get user home directory", zap.Error(err))
+		return nil
+	}
+
+	// 用户级配置文件路径
+	userConfigPath := filepath.Join(userHomeDir, ".claude.json")
+
+	// 检查文件是否存在
+	if _, err := os.Stat(userConfigPath); os.IsNotExist(err) {
+		logInfo("Claude: User config file not found", zap.String("path", userConfigPath))
+		return nil
+	}
+
+	// 读取配置文件
+	configData, err := os.ReadFile(userConfigPath)
+	if err != nil {
+		logInfo("Claude: Failed to read user config file", zap.Error(err), zap.String("path", userConfigPath))
+		return nil
+	}
+
+	// 解析 JSON
+	var userConfig map[string]interface{}
+	if err := json.Unmarshal(configData, &userConfig); err != nil {
+		logInfo("Claude: Failed to parse user config JSON", zap.Error(err), zap.String("path", userConfigPath))
+		return nil
+	}
+
+	// 获取 mcpServers 字段
+	mcpServers, ok := userConfig["mcpServers"]
+	if !ok || mcpServers == nil {
+		logInfo("Claude: No mcpServers in user config", zap.String("path", userConfigPath))
+		return nil
+	}
+
+	mcpServersMap, ok := mcpServers.(map[string]interface{})
+	if !ok {
+		logInfo("Claude: mcpServers is not a map", zap.String("path", userConfigPath))
+		return nil
+	}
+
+	// 记录找到的 MCP servers
+	serverNames := make([]string, 0, len(mcpServersMap))
+	for name := range mcpServersMap {
+		serverNames = append(serverNames, name)
+	}
+	logInfo("Claude: Loaded user MCP servers", zap.Strings("servers", serverNames), zap.String("path", userConfigPath))
+
+	return mcpServersMap
+}
+
 // buildMCPConfig 构建 MCP 配置 JSON 字符串
-// 用于注入 memory MCP server
+// 合并平台注入的 isdp-memory MCP server 和用户级的 MCP 配置
 func (a *ClaudeAdapter) buildMCPConfig(req *agent.ExecutionRequest) string {
 	// 直接打印到 stdout 确认函数被调用
 	fmt.Printf("[DEBUG] buildMCPConfig called: token=%s, apiURL=%s, invocationID=%s\n",
@@ -544,37 +600,35 @@ func (a *ClaudeAdapter) buildMCPConfig(req *agent.ExecutionRequest) string {
 		zap.String("apiURL", req.APIURL),
 		zap.String("invocationID", req.InvocationID.String()))
 
-	if req.CallbackToken == "" || req.APIURL == "" || req.InvocationID == uuid.Nil {
-		logInfo("Claude: buildMCPConfig - skipping, missing required fields",
-			zap.Bool("hasCallbackToken", req.CallbackToken != ""),
-			zap.Bool("hasAPIURL", req.APIURL != ""),
-			zap.Bool("hasInvocationID", req.InvocationID != uuid.Nil))
-		return ""
-	}
+	// 合并后的 mcpServers 配置
+	mcpServers := make(map[string]interface{})
 
-	// 获取 MCP server 可执行文件路径
-	// 服务启动时已设置 ISDP_MCP_SERVER_PATH 环境变量（支持开发模式和安装模式）
-	mcpServerPath := os.Getenv("ISDP_MCP_SERVER_PATH")
-	if mcpServerPath == "" {
-		// 回退：如果环境变量未设置，尝试开发模式路径
-		workDir, err := os.Getwd()
-		if err == nil {
-			mcpServerPath = filepath.Join(workDir, "bin", "mcp-server.exe")
+	// 1. 加载用户级的 MCP 配置
+	userMCPConfig := a.loadUserMCPConfig()
+	if userMCPConfig != nil {
+		for name, config := range userMCPConfig {
+			mcpServers[name] = config
+			logInfo("Claude: Added user MCP server", zap.String("name", name))
 		}
 	}
 
-	if mcpServerPath == "" {
-		logInfo("Claude: WARNING - MCP server path not configured")
-		return ""
-	}
+	// 2. 添加平台注入的 isdp-memory MCP server（仅在必需字段存在时）
+	if req.CallbackToken != "" && req.APIURL != "" && req.InvocationID != uuid.Nil {
+		// 获取 MCP server 可执行文件路径
+		// 服务启动时已设置 ISDP_MCP_SERVER_PATH 环境变量（支持开发模式和安装模式）
+		mcpServerPath := os.Getenv("ISDP_MCP_SERVER_PATH")
+		if mcpServerPath == "" {
+			// 回退：如果环境变量未设置，尝试开发模式路径
+			workDir, err := os.Getwd()
+			if err == nil {
+				mcpServerPath = filepath.Join(workDir, "bin", "mcp-server.exe")
+			}
+		}
 
-	logInfo("Claude: MCP server path", zap.String("path", mcpServerPath))
+		if mcpServerPath != "" {
+			logInfo("Claude: MCP server path", zap.String("path", mcpServerPath))
 
-	// Claude Code CLI 使用 mcpServers 格式的 JSON 配置
-	// 参考: https://docs.anthropic.com/en/docs/claude-code/mcp
-	mcpConfig := map[string]interface{}{
-		"mcpServers": map[string]interface{}{
-			"isdp-memory": map[string]interface{}{
+			mcpServers["isdp-memory"] = map[string]interface{}{
 				"type":    "stdio",
 				"command": mcpServerPath,
 				"args":    []string{},
@@ -583,9 +637,31 @@ func (a *ClaudeAdapter) buildMCPConfig(req *agent.ExecutionRequest) string {
 					"ISDP_INVOCATION_ID":  req.InvocationID.String(),
 					"ISDP_CALLBACK_TOKEN": req.CallbackToken,
 				},
-			},
-		},
+			}
+			logInfo("Claude: Added platform MCP server", zap.String("name", "isdp-memory"))
+		} else {
+			logInfo("Claude: WARNING - MCP server path not configured")
+		}
+	} else {
+		logInfo("Claude: Skipping platform MCP server - missing required fields",
+			zap.Bool("hasCallbackToken", req.CallbackToken != ""),
+			zap.Bool("hasAPIURL", req.APIURL != ""),
+			zap.Bool("hasInvocationID", req.InvocationID != uuid.Nil))
 	}
+
+	// 如果没有任何 MCP servers，返回空
+	if len(mcpServers) == 0 {
+		logInfo("Claude: No MCP servers to inject")
+		return ""
+	}
+
+	// 构建最终的 MCP 配置
+	mcpConfig := map[string]interface{}{
+		"mcpServers": mcpServers,
+	}
+
+	// 记录最终配置的 server 数量
+	logInfo("Claude: Final MCP config", zap.Int("serverCount", len(mcpServers)))
 
 	jsonBytes, err := json.Marshal(mcpConfig)
 	if err != nil {
