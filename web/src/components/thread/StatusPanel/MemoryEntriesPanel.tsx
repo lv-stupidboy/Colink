@@ -139,8 +139,8 @@ export const MemoryEntriesPanel: React.FC<Props> = ({ scope, refreshKey = 0 }) =
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<Record<MemoryGroupKey, boolean>>({
-    team: false,
-    project: false,
+    team: true,
+    project: true,
   });
   const [reloadKey, setReloadKey] = useState(0);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);

@@ -101,3 +101,6 @@ openspec/
 
 output/
 
+# 本地开发脚本（不提交）
+restart-services.ps1
+

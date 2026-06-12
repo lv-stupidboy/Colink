@@ -90,6 +90,12 @@ export const StatusPanel: React.FC<StatusPanelProps> = ({ width = 320, threadId,
       </div>
 
       {/* Agent 状态 */}
+      <AgentStatusCard activeAgents={activeAgents} agentUsage={agentUsage} />
+
+      {/* Agent 调用日志（合并历史参与） */}
+      <AgentInvocationLogPanel />
+
+      {/* 记忆模块 - 默认收起 */}
       <MemoryEntriesPanel
         refreshKey={memoryRefreshKey}
         scope={{
@@ -100,11 +106,6 @@ export const StatusPanel: React.FC<StatusPanelProps> = ({ width = 320, threadId,
           workspacePath: projectPath || currentProject?.localPath || debugProjectPath,
         }}
       />
-
-      <AgentStatusCard activeAgents={activeAgents} agentUsage={agentUsage} />
-
-      {/* Agent 调用日志（合并历史参与） */}
-      <AgentInvocationLogPanel />
 
       {/* 任务进度 - 仅在有任务时显示 */}
       {Object.keys(agentTaskProgress).length > 0 && (
