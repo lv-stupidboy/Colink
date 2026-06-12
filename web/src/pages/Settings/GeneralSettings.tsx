@@ -1,15 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Form, Switch, Typography, Space, Button, message, Alert, Tag, Input, Spin, Descriptions } from 'antd';
+import { Card, Form, Switch, Typography, Space, Button, message, Alert, Tag } from 'antd';
 import {
   SettingOutlined,
   AlertOutlined,
   DesktopOutlined,
   SoundOutlined,
-  SafetyCertificateOutlined,
-  SaveOutlined,
-  ReloadOutlined,
 } from '@ant-design/icons';
-import { api } from '@/api/client';
 import { useAppStore } from '@/store';
 import {
   isNotificationSupported,
@@ -21,7 +17,6 @@ import {
 } from '@/utils/systemNotification';
 
 const { Title, Text } = Typography;
-const { TextArea } = Input;
 
 const GeneralSettings: React.FC = () => {
   // 阻塞提醒开关状态
@@ -32,12 +27,6 @@ const GeneralSettings: React.FC = () => {
 
   // 系统通知权限状态
   const [notificationPermission, setNotificationPermission] = useState<'granted' | 'denied' | 'default' | 'unsupported'>('default');
-
-  // 治理摘要状态
-  const [governanceContent, setGovernanceContent] = useState('');
-  const [governanceStatus, setGovernanceStatus] = useState<Record<string, unknown>>({});
-  const [governanceLoading, setGovernanceLoading] = useState(false);
-  const [governanceSaving, setGovernanceSaving] = useState(false);
 
   // 从 Store 获取阻塞提醒相关 actions
   const setBlockingReminderEnabled = useAppStore((state) => state.setBlockingReminderEnabled);
@@ -57,42 +46,6 @@ const GeneralSettings: React.FC = () => {
       setNotificationPermission('unsupported');
     }
   }, []);
-
-  // 加载治理摘要
-  useEffect(() => {
-    loadGovernanceDigest();
-  }, []);
-
-  const loadGovernanceDigest = async () => {
-    setGovernanceLoading(true);
-    try {
-      const result = await api.governance.getDigest();
-      setGovernanceContent(result.content);
-      setGovernanceStatus(result.status);
-    } catch (error) {
-      message.error('加载治理摘要失败');
-    } finally {
-      setGovernanceLoading(false);
-    }
-  };
-
-  const saveGovernanceDigest = async () => {
-    if (!governanceContent.trim()) {
-      message.warning('治理摘要内容不能为空');
-      return;
-    }
-    setGovernanceSaving(true);
-    try {
-      const result = await api.governance.updateDigest(governanceContent);
-      setGovernanceStatus(result.status);
-      message.success('治理摘要已更新，无需重启服务即可生效');
-    } catch (error: any) {
-      const errMsg = error?.response?.data?.error || error?.message || '保存失败';
-      message.error(errMsg);
-    } finally {
-      setGovernanceSaving(false);
-    }
-  };
 
   // 实时保存阻塞提醒开关状态
   const handleReminderChange = (checked: boolean) => {
@@ -259,96 +212,6 @@ const GeneralSettings: React.FC = () => {
             </Space>
           </Form.Item>
         </Form>
-      </Card>
-
-      {/* 治理摘要编辑卡片 */}
-      <Card
-        title={
-          <Space>
-            <SafetyCertificateOutlined />
-            治理摘要配置
-          </Space>
-        }
-        style={{ marginBottom: 16 }}
-      >
-        <Spin spinning={governanceLoading}>
-          <Form layout="vertical">
-            <Form.Item
-              label="治理摘要内容"
-              tooltip="嵌入每个 Agent 调用的 L0 层强制规则，约 150 tokens，用于强化协作行为约束"
-            >
-              <TextArea
-                value={governanceContent}
-                onChange={(e) => setGovernanceContent(e.target.value)}
-                placeholder="输入治理摘要内容..."
-                rows={8}
-                style={{ fontFamily: 'monospace' }}
-              />
-            </Form.Item>
-
-            <Form.Item>
-              <Space>
-                <Button
-                  type="primary"
-                  icon={<SaveOutlined />}
-                  onClick={saveGovernanceDigest}
-                  loading={governanceSaving}
-                >
-                  保存并热更新
-                </Button>
-                <Button
-                  icon={<ReloadOutlined />}
-                  onClick={loadGovernanceDigest}
-                  loading={governanceLoading}
-                >
-                  重新加载
-                </Button>
-              </Space>
-            </Form.Item>
-
-            {/* 状态信息 */}
-            {governanceStatus && Object.keys(governanceStatus).length > 0 && (
-              <Descriptions
-                title="当前状态"
-                bordered
-                size="small"
-                column={2}
-                style={{ marginTop: 16 }}
-              >
-                <Descriptions.Item label="版本">
-                  {String(governanceStatus.version || '-')}
-                </Descriptions.Item>
-                <Descriptions.Item label="Token 数">
-                  {String(governanceStatus.tokens || '-')}
-                </Descriptions.Item>
-                <Descriptions.Item label="来源">
-                  {String(governanceStatus.source || '-')}
-                </Descriptions.Item>
-                <Descriptions.Item label="内容长度">
-                  {String(governanceStatus.contentLength || '-')} 字符
-                </Descriptions.Item>
-                {Boolean('configPath' in governanceStatus && governanceStatus.configPath) && (
-                  <Descriptions.Item label="配置文件路径" span={2}>
-                    {String(governanceStatus.configPath)}
-                  </Descriptions.Item>
-                )}
-                {Boolean('lastModTime' in governanceStatus && governanceStatus.lastModTime) && (
-                  <Descriptions.Item label="最后修改时间" span={2}>
-                    {String(governanceStatus.lastModTime)}
-                  </Descriptions.Item>
-                )}
-              </Descriptions>
-            )}
-
-            <Alert
-              type="info"
-              message="热更新说明"
-              description="修改后点击保存即可生效，无需重启服务。内容会持久化到 data/configs/governance_digest.yaml 配置文件。Token 数限制为 500 以内。"
-              showIcon
-              style={{ marginTop: 16 }}
-            />
-          </Form>
-        </Spin>
       </Card>
     </div>
   );

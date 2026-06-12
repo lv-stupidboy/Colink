@@ -929,16 +929,6 @@ class APIClient {
       this.request('/help/feedback', 'POST', data),
   };
 
-  // Governance API（治理规则热更新）
-  governance = {
-    getDigest: (): Promise<{ content: string; status: Record<string, unknown> }> =>
-      this.request('/governance/digest', 'GET'),
-    updateDigest: (content: string): Promise<{ message: string; status: Record<string, unknown> }> =>
-      this.request('/governance/digest', 'PUT', { content }),
-    getStatus: (): Promise<Record<string, unknown>> =>
-      this.request('/governance/digest/status', 'GET'),
-  };
-
   // Dashboard API（首页统计）
   dashboard = {
     getStats: (): Promise<{

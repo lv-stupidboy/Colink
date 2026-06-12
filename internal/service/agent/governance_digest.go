@@ -34,21 +34,15 @@ var GovernanceDigest = `## ⚠️ 强制规则（必须遵守）
 
 // BuildGovernanceDigest 编译治理规则摘要
 // 返回约 150 tokens 的精简版本，嵌入 Layer0
-// 参考 clowder-ai SystemPromptBuilder 中的 GOVERNANCE_L0_DIGEST
-// 支持热更新：优先从配置文件加载，否则使用默认值
 func BuildGovernanceDigest() string {
-	content := GetGovernanceDigestContent()
-	if content == "" {
-		return GovernanceDigest // 使用默认值
-	}
-	return content
+	return GovernanceDigest
 }
 
 // BuildGovernanceDigestWithVersion 带版本的治理摘要
 func BuildGovernanceDigestWithVersion() string {
 	var sb strings.Builder
 	sb.WriteString("<!-- GOVERNANCE_DIGEST_VERSION: ")
-	sb.WriteString(GetGovernanceDigestVersion())
+	sb.WriteString(GovernanceDigestVersion)
 	sb.WriteString(" -->\n\n")
 	sb.WriteString(BuildGovernanceDigest())
 	sb.WriteString("\n")
@@ -67,7 +61,7 @@ func ValidateGovernanceDigest() bool {
 	return tokens <= 200
 }
 
-// GetGovernanceRules 获取完整治理规则文件路径
+// GetGovernanceRulesPath 获取完整治理规则文件路径
 func GetGovernanceRulesPath() string {
 	return "docs/governance/shared-rules.md"
 }
