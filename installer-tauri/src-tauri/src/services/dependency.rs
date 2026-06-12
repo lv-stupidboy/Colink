@@ -28,7 +28,12 @@ pub fn check_dependency(key: &str) -> DependencyInfo {
         _ => ("Unknown", key),
     };
 
-    let version = get_tool_version(tool);
+    // claude-acp 不支持 --version，使用 npm list 检测
+    let version = if key == "claude-acp" {
+        check_npm_package("@agentclientprotocol/claude-agent-acp")
+    } else {
+        get_tool_version(tool)
+    };
 
     DependencyInfo {
         key: key.to_string(),
@@ -36,6 +41,67 @@ pub fn check_dependency(key: &str) -> DependencyInfo {
         installed: version.is_some(),
         version,
     }
+}
+
+/// Check if npm package is installed globally
+fn check_npm_package(package: &str) -> Option<String> {
+    #[cfg(target_os = "windows")]
+    {
+        let output = Command::new("cmd")
+            .args(["/C", &format!("npm list -g {} --depth=0", package)])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+
+        if let Ok(o) = output {
+            let stdout = String::from_utf8_lossy(&o.stdout).to_string();
+            // npm list 输出格式：`-- @agentclientprotocol/claude-agent-acp@0.44.0
+            // 如果包已安装，输出中会包含包名和版本
+            if stdout.contains(package) {
+                // 提取版本号
+                for line in stdout.lines() {
+                    if line.contains(package) && line.contains("@") {
+                        // 格式: `-- @agentclientprotocol/claude-agent-acp@0.44.0
+                        if let Some(pos) = line.rfind('@') {
+                            let version_part = &line[pos + 1..];
+                            // 去除可能的额外字符
+                            let version = version_part.split_whitespace().next();
+                            if let Some(v) = version {
+                                return Some(v.to_string());
+                            }
+                        }
+                    }
+                }
+                return Some("installed".to_string());
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let output = Command::new("npm")
+            .args(["list", "-g", package, "--depth=0"])
+            .output();
+
+        if let Ok(o) = output {
+            let stdout = String::from_utf8_lossy(&o.stdout).to_string();
+            if stdout.contains(package) {
+                for line in stdout.lines() {
+                    if line.contains(package) && line.contains("@") {
+                        if let Some(pos) = line.rfind('@') {
+                            let version_part = &line[pos + 1..];
+                            let version = version_part.split_whitespace().next();
+                            if let Some(v) = version {
+                                return Some(v.to_string());
+                            }
+                        }
+                    }
+                }
+                return Some("installed".to_string());
+            }
+        }
+    }
+
+    None
 }
 
 /// Get tool version string
