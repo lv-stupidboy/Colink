@@ -29,14 +29,20 @@ pub fn uninstall(install_dir: &str, keep_data: bool) -> Result<()> {
     // Step 2: Delete shortcuts
     delete_all_shortcuts()?;
 
-    // Step 3: Clean backup directory from previous upgrade
+    // Step 3: Uninstall Claude ACP (installed by Colink)
+    log::info!("Uninstalling Claude ACP...");
+    if let Err(e) = crate::services::dependency::uninstall_dependency("claude-acp") {
+        log::warn!("Failed to uninstall Claude ACP: {}", e);
+    }
+
+    // Step 4: Clean backup directory from previous upgrade
     // Use retry mechanism for Windows temporary file locks
     let backup_dir = dir.join("backup");
     if backup_dir.exists() {
         remove_dir_all_with_retry(&backup_dir, 3, 500)?;
     }
 
-    // Step 4: Handle data directory
+    // Step 5: Handle data directory
     if keep_data {
         // Whitelist: keep data only (old Electron resources are obsolete)
         let whitelist = ["data"];
@@ -47,7 +53,7 @@ pub fn uninstall(install_dir: &str, keep_data: bool) -> Result<()> {
         remove_dir_all_with_retry(dir, 3, 500)?;
     }
 
-    // Step 5: Delete registry entry
+    // Step 6: Delete registry entry
     delete_registry()?;
 
     Ok(())

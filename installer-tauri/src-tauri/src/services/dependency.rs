@@ -24,6 +24,7 @@ pub fn check_dependency(key: &str) -> DependencyInfo {
         "git" => ("Git", "git"),
         "claude" => ("Claude CLI", "claude"),
         "opencode" => ("OpenCode", "opencode"),
+        "claude-acp" => ("Claude ACP", "claude-agent-acp"),
         _ => ("Unknown", key),
     };
 
@@ -86,6 +87,7 @@ pub fn install_dependency(key: &str) -> Result<()> {
         let package = match key {
             "claude" => "@anthropic-ai/claude-code",
             "opencode" => "opencode",
+            "claude-acp" => "@agentclientprotocol/claude-agent-acp",
             _ => return Err(InstallerError::DependencyNotFound(key.to_string())),
         };
 
@@ -100,6 +102,39 @@ pub fn install_dependency(key: &str) -> Result<()> {
                     return Err(InstallerError::Process(
                         String::from_utf8_lossy(&o.stderr).to_string(),
                     ));
+                }
+                Ok(())
+            }
+            Err(e) => Err(InstallerError::Process(e.to_string())),
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Ok(())
+    }
+}
+
+/// Uninstall a dependency (npm package globally)
+pub fn uninstall_dependency(key: &str) -> Result<()> {
+    #[cfg(target_os = "windows")]
+    {
+        let package = match key {
+            "claude" => "@anthropic-ai/claude-code",
+            "opencode" => "opencode",
+            "claude-acp" => "@agentclientprotocol/claude-agent-acp",
+            _ => return Err(InstallerError::DependencyNotFound(key.to_string())),
+        };
+
+        let output = Command::new("npm")
+            .args(["uninstall", "-g", package])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+
+        match output {
+            Ok(o) => {
+                if !o.status.success() {
+                    log::warn!("Failed to uninstall {}: {}", key, String::from_utf8_lossy(&o.stderr));
                 }
                 Ok(())
             }

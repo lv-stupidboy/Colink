@@ -953,10 +953,58 @@ where
         emit_progress(&InstallProgress {
             step: "shortcut".to_string(),
             status: "success".to_string(),
-            progress: Some(95),
+            progress: Some(92),
             message: Some("快捷方式已创建".into()),
             details: None,
         });
+    }
+
+    // Step: Install Claude ACP (silent install)
+    emit_progress(&InstallProgress {
+        step: "acp".to_string(),
+        status: "running".to_string(),
+        progress: Some(92),
+        message: Some("安装 Claude ACP...".into()),
+        details: None,
+    });
+
+    // Check if claude-acp is already installed
+    let acp_check = crate::services::dependency::check_dependency("claude-acp");
+    if acp_check.installed {
+        log::info!("Claude ACP already installed: {:?}", acp_check.version);
+        emit_progress(&InstallProgress {
+            step: "acp".to_string(),
+            status: "success".to_string(),
+            progress: Some(94),
+            message: Some("Claude ACP 已安装".into()),
+            details: Some(format!("版本: {}", acp_check.version.unwrap_or_default())),
+        });
+    } else {
+        // Install claude-agent-acp globally
+        log::info!("Installing Claude ACP...");
+        match crate::services::dependency::install_dependency("claude-acp") {
+            Ok(_) => {
+                log::info!("Claude ACP installed successfully");
+                emit_progress(&InstallProgress {
+                    step: "acp".to_string(),
+                    status: "success".to_string(),
+                    progress: Some(94),
+                    message: Some("Claude ACP 已安装".into()),
+                    details: None,
+                });
+            }
+            Err(e) => {
+                log::warn!("Failed to install Claude ACP: {}", e);
+                // Don't fail the entire installation, just log warning
+                emit_progress(&InstallProgress {
+                    step: "acp".to_string(),
+                    status: "success".to_string(),  // Mark as success to not block installation
+                    progress: Some(94),
+                    message: Some("Claude ACP 安装失败（可选依赖）".into()),
+                    details: Some(e.to_string()),
+                });
+            }
+        }
     }
 
     // Step: Write registry

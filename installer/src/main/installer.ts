@@ -52,7 +52,6 @@ export async function checkDependency(key: string): Promise<DependencyCheckResul
   const commands: Record<string, string> = {
     claude: 'claude --version',
     opencode: 'opencode --version',
-    'claude-acp': 'claude-agent-acp --version',  // Claude ACP adapter
   }
 
   const cmd = commands[key]
@@ -1468,27 +1467,6 @@ export async function runInstallation(
     sendProgress('registry', 'running', 0, '写入注册表...', `版本: ${config.newVersion || '1.0.0'}`)
     await writeRegistry(config.installDir, config.newVersion || '1.0.0')
     sendProgress('registry', 'success', 100, '注册表已写入', `安装信息已注册到系统\n安装目录: ${config.installDir}`)
-
-    // Step 5: 静默安装 claude-agent-acp（用于 ACP 协议支持）
-    sendProgress('acp', 'running', 0, '安装 Claude ACP...', '检测并安装 ACP 协议组件')
-    try {
-      const acpCheck = await checkDependency('claude-acp')
-      if (acpCheck.installed) {
-        sendProgress('acp', 'success', 100, 'Claude ACP 已安装', `版本: ${acpCheck.version || '未知'}`)
-      } else {
-        // 静默安装 claude-agent-acp
-        const acpResult = await installNpmPackage('@agentclientprotocol/claude-agent-acp')
-        if (acpResult.success) {
-          sendProgress('acp', 'success', 100, 'Claude ACP 安装成功', 'ACP 协议组件已安装')
-        } else {
-          // 安装失败不影响主流程，只是警告
-          sendProgress('acp', 'warning', 100, 'Claude ACP 安装失败', acpResult.error || '请手动安装: npm install -g @agentclientprotocol/claude-agent-acp')
-        }
-      }
-    } catch (e) {
-      console.warn('[Install] Claude ACP check/install failed:', e)
-      sendProgress('acp', 'warning', 100, 'Claude ACP 安装跳过', '检测失败，不影响主流程')
-    }
 
     return { success: true, dbChanges }
   } catch (error) {
