@@ -238,11 +238,15 @@ func parseACPUsageUpdate(raw json.RawMessage) ([]agent.Chunk, error) {
 		return nil, fmt.Errorf("ACP: parse usage_update: %w", err)
 	}
 
+	LogInfo("ACP: usage_update parsed",
+		zap.Int64("used", usage.Used),
+		zap.Int64("size", usage.Size))
+
 	return []agent.Chunk{{
 		Type: agent.ChunkTypeUsage,
 		Usage: &agent.TokenUsage{
-			InputTokens:  usage.InputTokens,
-			OutputTokens: usage.OutputTokens,
+			ContextUsed: usage.Used,
+			ContextSize: usage.Size,
 		},
 	}}, nil
 }

@@ -77,6 +77,8 @@ type TokenUsage struct {
 	DurationMs          int64   `json:"durationMs,omitempty"`
 	DurationApiMs       int64   `json:"durationApiMs,omitempty"`
 	NumTurns            int     `json:"numTurns,omitempty"`
+	ContextUsed         int64   `json:"contextUsed,omitempty"`  // ACP: 已使用的 context tokens
+	ContextSize         int64   `json:"contextSize,omitempty"`  // ACP: context 总容量
 }
 
 // Chunk 流式输出块

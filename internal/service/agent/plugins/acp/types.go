@@ -180,9 +180,9 @@ type acpToolCallUpdate struct {
 
 type acpUsageUpdate struct {
 	SessionUpdate string          `json:"sessionUpdate"`
-	InputTokens   int64           `json:"inputTokens,omitempty"`
-	OutputTokens  int64           `json:"outputTokens,omitempty"`
-	Cost          json.RawMessage `json:"cost,omitempty"`
+	Used          int64           `json:"used"`              // 已使用的 context tokens（ACP 协议必需）
+	Size          int64           `json:"size"`              // context 总容量（ACP 协议必需）
+	Cost          json.RawMessage `json:"cost,omitempty"`    // 累计成本（可选）
 }
 
 type acpPlanUpdate struct {
