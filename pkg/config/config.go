@@ -36,7 +36,6 @@ type Config struct {
 	Market          MarketDefaultConfig   `mapstructure:"market"`
 	GitURLConversion GitURLConversionConfig `mapstructure:"git_url_conversion"`
 	Help            HelpConfig            `mapstructure:"help"`
-	Context         ContextConfig         `mapstructure:"context"`
 }
 
 type DeploymentType string
@@ -444,56 +443,6 @@ type HelpConfig struct {
 	FeedbackAPI     string `mapstructure:"feedback_api"`     // 问题反馈API地址
 }
 
-// ContextConfig 上下文管理配置（用于智能压缩）
-type ContextConfig struct {
-	// WarningThreshold 预警阈值（百分比），默认 0.80
-	WarningThreshold float64 `mapstructure:"warning_threshold"`
-	// CompactThreshold 压缩阈值（百分比），默认 0.95
-	CompactThreshold float64 `mapstructure:"compact_threshold"`
-	// ModelLimits 各模型的上下文限制（tokens）
-	ModelLimits map[string]int64 `mapstructure:"model_limits"`
-	// DefaultLimit 默认上下文限制（tokens），默认 200000
-	DefaultLimit int64 `mapstructure:"default_limit"`
-}
-
-// ApplyDefaults 设置上下文配置默认值
-func (c *ContextConfig) ApplyDefaults() {
-	if c.WarningThreshold == 0 {
-		c.WarningThreshold = 0.80
-	}
-	if c.CompactThreshold == 0 {
-		c.CompactThreshold = 0.95
-	}
-	if c.DefaultLimit == 0 {
-		c.DefaultLimit = 200000
-	}
-	// 如果未配置模型限制，使用默认值
-	if c.ModelLimits == nil {
-		c.ModelLimits = map[string]int64{
-			"claude-opus-4-7":   200000,
-			"claude-sonnet-4-6": 200000,
-			"claude-3-5-sonnet": 200000,
-			"gpt-4o":            128000,
-			"gemini-1.5-pro":    1000000,
-		}
-	}
-}
-
-// GetModelLimit 获取指定模型的上下文限制
-func (c *ContextConfig) GetModelLimit(model string) int64 {
-	// 精确匹配
-	if limit, ok := c.ModelLimits[model]; ok {
-		return limit
-	}
-	// 前缀匹配（处理带日期后缀的模型名）
-	for prefix, limit := range c.ModelLimits {
-		if strings.HasPrefix(model, prefix) {
-			return limit
-		}
-	}
-	return c.DefaultLimit
-}
-
 const (
 	EventModeWebhook  = "webhook"
 	EventModeListener = "listener"
@@ -681,7 +630,6 @@ func Load(configPath string) (*Config, error) {
 	// 应用团队包同步默认值
 	cfg.TeamPackageSync.ApplyDefaults()
 	cfg.Deployment.ApplyDefaults()
-	cfg.Context.ApplyDefaults()
 
 	// 验证必须的路径配置
 	if err := validateConfig(&cfg); err != nil {

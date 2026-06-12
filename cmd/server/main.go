@@ -20,7 +20,6 @@ import (
 	"github.com/anthropic/isdp/internal/reporter"
 	"github.com/anthropic/isdp/internal/service/a2a"
 	"github.com/anthropic/isdp/internal/service/agent"
-	"github.com/anthropic/isdp/internal/service/agent/plugins/acp"
 	"github.com/anthropic/isdp/internal/service/command"
 	"github.com/anthropic/isdp/internal/service/configgen"
 	"github.com/anthropic/isdp/internal/service/humantask"
@@ -130,14 +129,6 @@ func main() {
 
 	// 设置 SessionRecorder（用于记录 A2A 失败/成功会话）
 	agent.SetSessionRecorder(a2a.NewSessionRecorderImpl())
-
-	// 设置上下文配置（用于智能压缩）
-	acp.SetContextConfig(&acp.ContextConfig{
-		WarningThreshold: cfg.Context.WarningThreshold,
-		CompactThreshold: cfg.Context.CompactThreshold,
-		ModelLimits:      cfg.Context.ModelLimits,
-		DefaultLimit:     cfg.Context.DefaultLimit,
-	})
 
 	// 连接数据库（数据库表结构由安装器初始化，服务启动时不执行 schema 创建）
 	logger.Info("Connecting to database",

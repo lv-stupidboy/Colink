@@ -36,115 +36,6 @@ type AcpAdapterConfig struct {
 // 防止 stderr 输出过量导致内存问题
 const maxStderrSize = 64 * 1024
 
-// 默认上下文配置（当未通过 SetContextConfig 设置时使用）
-const defaultWarningThreshold = 0.80
-const defaultCompactThreshold = 0.95
-const defaultContextLimit = 200000
-
-// 上下文配置（可通过 SetContextConfig 设置）
-// 用于智能压缩功能，从配置文件读取
-var globalContextConfig *ContextConfig
-
-// ContextConfig 上下文管理配置
-type ContextConfig struct {
-	WarningThreshold float64           // 预警阈值（百分比）
-	CompactThreshold float64           // 压缩阈值（百分比）
-	ModelLimits       map[string]int64  // 各模型的上下文限制（tokens）
-	DefaultLimit      int64             // 默认上下文限制
-}
-
-// SetContextConfig 设置全局上下文配置（由 main.go 在启动时调用）
-func SetContextConfig(cfg *ContextConfig) {
-	globalContextConfig = cfg
-	LogInfo("ACP: context config set",
-		zap.Float64("warningThreshold", cfg.WarningThreshold),
-		zap.Float64("compactThreshold", cfg.CompactThreshold),
-		zap.Int64("defaultLimit", cfg.DefaultLimit),
-		zap.Int("modelLimitsCount", len(cfg.ModelLimits)))
-}
-
-// getContextConfig 获取上下文配置（返回配置值或默认值）
-func getContextConfig() *ContextConfig {
-	if globalContextConfig != nil {
-		return globalContextConfig
-	}
-	// 返回默认配置
-	return &ContextConfig{
-		WarningThreshold: defaultWarningThreshold,
-		CompactThreshold: defaultCompactThreshold,
-		DefaultLimit:     defaultContextLimit,
-		ModelLimits:      getDefaultModelLimits(),
-	}
-}
-
-// getDefaultModelLimits 返回默认的模型上下文限制
-func getDefaultModelLimits() map[string]int64 {
-	return map[string]int64{
-		// Claude 模型
-		"claude-opus-4-7":   200000,
-		"claude-opus-4-6":   200000,
-		"claude-sonnet-4-6": 200000,
-		"claude-3-5-sonnet": 200000,
-		// OpenAI 模型
-		"gpt-4o":      128000,
-		"gpt-4-turbo": 128000,
-		// Gemini 模型
-		"gemini-1.5-pro":   1000000,
-		"gemini-2.0-flash": 1000000,
-	}
-}
-
-// getModelContextLimit 根据模型名称获取上下文限制
-func getModelContextLimit(model string) int64 {
-	cfg := getContextConfig()
-	// 1. 精确匹配
-	if limit, ok := cfg.ModelLimits[model]; ok {
-		return limit
-	}
-	// 2. 提取模型后缀（处理 provider/model 格式）
-	// 例如：bailian-coding-plan/glm-5 → glm-5
-	modelSuffix := model
-	if idx := strings.LastIndex(model, "/"); idx >= 0 {
-		modelSuffix = model[idx+1:]
-	}
-	if limit, ok := cfg.ModelLimits[modelSuffix]; ok {
-		return limit
-	}
-	// 3. 下划线替代点匹配（配置文件中用下划线替代点，如 gemini-1.5-pro → gemini-1_5-pro）
-	// 这是因为 YAML 的 mapstructure 无法正确处理带点的键名
-	modelWithUnderscore := strings.ReplaceAll(model, ".", "_")
-	if limit, ok := cfg.ModelLimits[modelWithUnderscore]; ok {
-		return limit
-	}
-	suffixWithUnderscore := strings.ReplaceAll(modelSuffix, ".", "_")
-	if limit, ok := cfg.ModelLimits[suffixWithUnderscore]; ok {
-		return limit
-	}
-	// 4. 前缀匹配（优先匹配最长前缀，更精确的配置优先）
-	// 例如：glm-5.1-xxx 应匹配 glm-5_1 而非 glm-5
-	var bestPrefix string
-	var bestLimit int64
-	for prefix, limit := range cfg.ModelLimits {
-		// 检查完整模型名或后缀是否能匹配该前缀
-		// 同时支持下划线替代点的匹配
-		if strings.HasPrefix(model, prefix) ||
-			strings.HasPrefix(modelSuffix, prefix) ||
-			strings.HasPrefix(modelWithUnderscore, prefix) ||
-			strings.HasPrefix(suffixWithUnderscore, prefix) {
-			// 选择最长前缀（更精确）
-			if len(prefix) > len(bestPrefix) {
-				bestPrefix = prefix
-				bestLimit = limit
-			}
-		}
-	}
-	if bestPrefix != "" {
-		return bestLimit
-	}
-	// 5. 默认值
-	return cfg.DefaultLimit
-}
-
 type acpSession struct {
 	id                string
 	isdpID            string
@@ -165,13 +56,7 @@ type acpSession struct {
 	// 长连接模式输出同步信号
 	lastOutputLen       int        // 上次检查时的输出长度
 	outputUpdatedSignal chan struct{} // 输出更新信号（用于等待通知处理完成）
-	// 上下文使用量追踪（用于智能压缩）
-	cumulativeInputTokens  int64  // 累计输入 tokens（从 usage_update 通知获取）
-	cumulativeOutputTokens int64  // 累计输出 tokens
-	lastUsageInputTokens   int64  // 最近一次 usage_update 的输入 tokens
-	lastUsageOutputTokens  int64  // 最近一次 usage_update 的输出 tokens
-	contextLimit           int64  // 上下文限制（根据模型确定）
-	mu                     sync.Mutex
+	mu                  sync.Mutex
 }
 
 // BaseACPAdapter implements AgentAdapter using ACP (Agent Client Protocol) over stdio.
@@ -767,21 +652,6 @@ func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, 
 						zap.Int("chunkCount", session.thoughtChunkCount),
 						zap.Int("contentLen", len(chunk.Content)))
 				}
-			}
-			// 追踪 token 使用量（用于上下文监控）
-			if chunk.Type == agent.ChunkTypeUsage && chunk.Usage != nil {
-				session.lastUsageInputTokens = chunk.Usage.InputTokens
-				session.lastUsageOutputTokens = chunk.Usage.OutputTokens
-				// 累加（usage_update 通常包含当前请求的完整统计）
-				session.cumulativeInputTokens = chunk.Usage.InputTokens
-				session.cumulativeOutputTokens += chunk.Usage.OutputTokens
-				LogInfo("ACP: usage update",
-					zap.String("sessionId", session.id),
-					zap.Int64("inputTokens", chunk.Usage.InputTokens),
-					zap.Int64("outputTokens", chunk.Usage.OutputTokens),
-					zap.Int64("cumulativeInput", session.cumulativeInputTokens),
-					zap.Int64("cumulativeOutput", session.cumulativeOutputTokens),
-					zap.Float64("contextUsage", float64(session.cumulativeInputTokens)/float64(session.contextLimit)))
 			}
 			onChunk(chunk)
 		}
