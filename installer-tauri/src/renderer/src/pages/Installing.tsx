@@ -41,8 +41,10 @@ const UPGRADE_STEPS = [
   { key: 'launcher', label: '复制 Launcher', description: '复制启动器程序' },
   { key: 'dbcheck', label: '检测数据库变更', description: '检查是否需要执行数据库迁移' },
   { key: 'migration', label: '数据库迁移', description: '执行 SQLite 数据库迁移脚本' },
+  { key: 'skillstorage', label: 'Skill 存储割接', description: '割接 Skill 存储路径' },
   { key: 'config', label: '生成配置文件', description: '合并用户配置与模板配置' },
   { key: 'shortcut', label: '创建快捷方式', description: '创建桌面和开始菜单快捷方式' },
+  { key: 'acp', label: '安装 Claude ACP', description: '检测并安装 claude-agent-acp（可选依赖）' },
   { key: 'registry', label: '写入注册表', description: '注册安装信息到系统' },
 ];
 
@@ -55,8 +57,10 @@ const REINSTALL_STEPS = [
   { key: 'launcher', label: '复制 Launcher', description: '复制启动器程序' },
   { key: 'dbcheck', label: '检测数据库变更', description: '检查数据库迁移需求' },
   { key: 'migration', label: '数据库迁移', description: '执行数据库迁移（保留数据时执行差异迁移）' },
+  { key: 'skillstorage', label: 'Skill 存储割接', description: '割接 Skill 存储路径' },
   { key: 'config', label: '生成配置文件', description: '创建配置文件（保留数据时合并配置）' },
   { key: 'shortcut', label: '创建快捷方式', description: '创建桌面和开始菜单快捷方式' },
+  { key: 'acp', label: '安装 Claude ACP', description: '检测并安装 claude-agent-acp（可选依赖）' },
   { key: 'registry', label: '写入注册表', description: '注册安装信息到系统' },
 ];
 
@@ -67,8 +71,10 @@ const INSTALL_STEPS = [
   { key: 'launcher', label: '复制 Launcher', description: '复制启动器程序' },
   { key: 'dbcheck', label: '检测数据库变更', description: '检查数据库初始化脚本' },
   { key: 'migration', label: '数据库初始化', description: '执行数据库初始化脚本' },
+  { key: 'skillstorage', label: 'Skill 存储割接', description: '割接 Skill 存储路径' },
   { key: 'config', label: '生成配置文件', description: '创建默认配置文件' },
   { key: 'shortcut', label: '创建快捷方式', description: '创建桌面和开始菜单快捷方式' },
+  { key: 'acp', label: '安装 Claude ACP', description: '检测并安装 claude-agent-acp（可选依赖）' },
   { key: 'registry', label: '写入注册表', description: '注册安装信息到系统' },
 ];
 
