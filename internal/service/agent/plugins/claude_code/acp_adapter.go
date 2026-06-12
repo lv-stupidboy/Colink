@@ -16,10 +16,9 @@ type ClaudeACPAdapter struct {
 
 // NewClaudeACPAdapter 创建使用 ACP 协议的 Claude adapter
 func NewClaudeACPAdapter(baseAgent *model.BaseAgent) agent.AgentAdapter {
-	cliPath := baseAgent.CliPath
-	if cliPath == "" {
-		cliPath = "claude-agent-acp" // 默认使用 claude-agent-acp
-	}
+	// ACP 模式强制使用 claude-agent-acp，忽略数据库中的 cli_path
+	// 因为 claude CLI 不支持 ACP 协议，只有 claude-agent-acp 支持
+	cliPath := "claude-agent-acp"
 
 	config := acp.AcpAdapterConfig{
 		CliPath: cliPath,
