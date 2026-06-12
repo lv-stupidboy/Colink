@@ -20,6 +20,19 @@ func NewClaudeACPAdapter(baseAgent *model.BaseAgent) agent.AgentAdapter {
 	// 因为 claude CLI 不支持 ACP 协议，只有 claude-agent-acp 支持
 	cliPath := "claude-agent-acp"
 
+	// 构建 Gateway 配置（用于第三方 API）
+	// 如果 baseAgent.ApiURL 不为空，说明使用第三方 API（如阿里云百炼）
+	var gatewayBaseURL string
+	var gatewayHeaders map[string]string
+	if baseAgent.ApiURL != "" {
+		gatewayBaseURL = baseAgent.ApiURL
+		gatewayHeaders = map[string]string{}
+		if baseAgent.ApiToken != "" {
+			// 第三方 API 通常使用 x-api-key header
+			gatewayHeaders["x-api-key"] = baseAgent.ApiToken
+		}
+	}
+
 	config := acp.AcpAdapterConfig{
 		CliPath: cliPath,
 		BuildArgs: func(req *agent.ExecutionRequest) []string {
@@ -29,8 +42,9 @@ func NewClaudeACPAdapter(baseAgent *model.BaseAgent) agent.AgentAdapter {
 		BuildEnv: func(req *agent.ExecutionRequest) []string {
 			env := make([]string, 0, 4)
 
-			// Claude Agent SDK 使用 ANTHROPIC_API_KEY 环境变量
-			if baseAgent.ApiToken != "" {
+			// 如果使用第三方 API，不传递 ANTHROPIC_API_KEY（通过 gateway authenticate 传递）
+			// 如果使用 Anthropic 官方 API，需要传递 ANTHROPIC_API_KEY
+			if gatewayBaseURL == "" && baseAgent.ApiToken != "" {
 				env = append(env, "ANTHROPIC_API_KEY="+baseAgent.ApiToken)
 			}
 
@@ -50,6 +64,9 @@ func NewClaudeACPAdapter(baseAgent *model.BaseAgent) agent.AgentAdapter {
 		SkipModelConfig: func(req *agent.ExecutionRequest) bool {
 			return false
 		},
+		// Gateway 配置（用于第三方 API）
+		GatewayBaseURL: gatewayBaseURL,
+		GatewayHeaders: gatewayHeaders,
 	}
 
 	return &ClaudeACPAdapter{

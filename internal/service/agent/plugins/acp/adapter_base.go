@@ -30,6 +30,10 @@ type AcpAdapterConfig struct {
 	BuildEnv          func(req *agent.ExecutionRequest) []string
 	SkipModelConfig   func(req *agent.ExecutionRequest) bool // 如果返回 true，跳过默认模型配置
 	LegacyModelConfig bool                                   // 如果 true，使用 session/set_model 而非 configOptions
+	// Gateway 配置（用于第三方 API）
+	// 如果设置了 GatewayBaseURL，会在 initialize 后发送 authenticate 请求
+	GatewayBaseURL string            // 第三方 API 地址（如 https://coding.dashscope.aliyuncs.com/apps/anthropic/v1）
+	GatewayHeaders map[string]string // 自定义 headers（如 x-api-key: xxx）
 }
 
 // maxStderrSize 定义 stderr 缓冲的最大大小（64KB）
@@ -226,6 +230,16 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 	}
 	LogInfo("[PERF] ACP initialize handshake", zap.Duration("duration", time.Since(cliStartTime)),
 		zap.Int("protocolVersion", initResp.ProtocolVersion))
+
+	// 发送 gateway authenticate（如果配置了第三方 API）
+	if err := a.sendAuthenticate(transport); err != nil {
+		session.mu.Lock()
+		stderrContent := session.stderrOutput.String()
+		session.mu.Unlock()
+		a.cleanup(session)
+		wg.Wait()
+		return nil, fmt.Errorf("ACP: gateway authenticate failed: %w\nstderr: %s", err, stderrContent)
+	}
 
 	// 根据服务器实际支持的协议版本决定是否传递 MCP Servers
 	// ACP v1 不支持 mcpServers 字段，只有 v2025+ 支持
@@ -429,6 +443,17 @@ func (a *BaseACPAdapter) StartSession(ctx context.Context, sessionID string, req
 		transport.Close()
 		cmd.Process.Kill()
 		return fmt.Errorf("ACP: initialize handshake failed: %w\nstderr: %s", err, stderrContent)
+	}
+
+	// 发送 gateway authenticate（如果配置了第三方 API）
+	if err := a.sendAuthenticate(transport); err != nil {
+		session.mu.Lock()
+		stderrContent := session.stderrOutput.String()
+		session.mu.Unlock()
+		wg.Wait()
+		transport.Close()
+		cmd.Process.Kill()
+		return fmt.Errorf("ACP: gateway authenticate failed: %w\nstderr: %s", err, stderrContent)
 	}
 
 	// 根据服务器实际支持的协议版本决定是否传递 MCP Servers
@@ -1041,6 +1066,13 @@ func (a *BaseACPAdapter) SessionList(ctx context.Context, cwd string) ([]agent.S
 		LogWarn("ACP: initialize response parse warning", zap.Error(err))
 	}
 
+	// 发送 gateway authenticate（如果配置了第三方 API）
+	if err := a.sendAuthenticate(transport); err != nil {
+		transport.Close()
+		cmd.Process.Kill()
+		return nil, fmt.Errorf("ACP: gateway authenticate failed: %w", err)
+	}
+
 	// SessionList
 	listResult, err := transport.SendRequest("session/list", &acpSessionListParams{
 		CWD: cwd,
@@ -1174,6 +1206,16 @@ func (a *BaseACPAdapter) SessionResume(ctx context.Context, acpSessionID string,
 	var initResp acpInitializeResult
 	if err := json.Unmarshal(initResult, &initResp); err != nil {
 		LogWarn("ACP: initialize response parse warning", zap.Error(err))
+	}
+
+	// 发送 gateway authenticate（如果配置了第三方 API）
+	if err := a.sendAuthenticate(transport); err != nil {
+		session.mu.Lock()
+		stderrContent := session.stderrOutput.String()
+		session.mu.Unlock()
+		transport.Close()
+		cmd.Process.Kill()
+		return "", fmt.Errorf("ACP: gateway authenticate failed: %w\nstderr: %s", err, stderrContent)
 	}
 
 	// SessionResume
@@ -1387,6 +1429,20 @@ func (a *BaseACPAdapter) ExecuteWithResume(ctx context.Context, req *agent.Execu
 			LogWarn("ACP: initialize response parse warning", zap.Error(err))
 		}
 
+		// 发送 gateway authenticate（如果配置了第三方 API）
+		if err := a.sendAuthenticate(transport); err != nil {
+			session.mu.Lock()
+			stderrContent := session.stderrOutput.String()
+			session.mu.Unlock()
+			transport.Close()
+			cmd.Process.Kill()
+			cmd.Wait()
+			a.mu.Lock()
+			delete(a.sessions, internalSessionID)
+			a.mu.Unlock()
+			return nil, "", fmt.Errorf("ACP: gateway authenticate failed: %w\nstderr: %s", err, stderrContent)
+		}
+
 		// SessionResume - 历史回放通知会被正确处理（因为 handler 已设置）
 		mcpServers := []interface{}{}
 		resumeResult, err := transport.SendRequest("session/resume", &acpSessionResumeParams{
@@ -1492,4 +1548,42 @@ func (a *BaseACPAdapter) ExecuteWithResume(ctx context.Context, req *agent.Execu
 		zap.String("acpSessionId", acpSessID))
 
 	return result, acpSessID, nil
+}
+
+// sendAuthenticate 发送 gateway authenticate 请求
+// 用于配置第三方 API（如阿里云百炼）
+// 必须在 initialize 成功后调用
+func (a *BaseACPAdapter) sendAuthenticate(transport *acpTransport) error {
+	// 如果没有配置 gateway，跳过
+	if a.Config.GatewayBaseURL == "" {
+		return nil
+	}
+
+	LogInfo("ACP: sending gateway authenticate",
+		zap.String("baseUrl", a.Config.GatewayBaseURL))
+
+	// 构建 headers map
+	headers := a.Config.GatewayHeaders
+	if headers == nil {
+		headers = make(map[string]string)
+	}
+
+	// 发送 authenticate 请求
+	_, err := transport.SendRequest("authenticate", &acpAuthenticateParams{
+		MethodId: "gateway",
+		Meta: &acpGatewayMeta{
+			Gateway: acpGatewayConfig{
+				BaseURL: a.Config.GatewayBaseURL,
+				Headers: headers,
+			},
+		},
+	})
+
+	if err != nil {
+		LogError("ACP: gateway authenticate failed", zap.Error(err))
+		return fmt.Errorf("ACP: gateway authenticate failed: %w", err)
+	}
+
+	LogInfo("ACP: gateway authenticate success")
+	return nil
 }

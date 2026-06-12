@@ -257,3 +257,25 @@ type acpSessionLoadParams struct {
 type acpSessionCloseParams struct {
 	SessionID string `json:"sessionId"` // 要关闭的 session ID
 }
+
+// ========== ACP Gateway Authenticate API ==========
+
+// acpAuthenticateParams authenticate 请求参数
+// 用于配置第三方 API（如阿里云百炼）
+type acpAuthenticateParams struct {
+	MethodId string          `json:"methodId"` // "gateway" 或 "gateway-bedrock"
+	Meta     *acpGatewayMeta `json:"_meta,omitempty"`
+}
+
+// acpGatewayMeta gateway 认证元数据
+type acpGatewayMeta struct {
+	Gateway acpGatewayConfig `json:"gateway"`
+}
+
+// acpGatewayConfig gateway 配置
+// baseUrl: API 地址（如 https://coding.dashscope.aliyuncs.com/apps/anthropic/v1）
+// headers: 自定义 headers（如 x-api-key: xxx）
+type acpGatewayConfig struct {
+	BaseURL string            `json:"baseUrl"`
+	Headers map[string]string `json:"headers"`
+}
