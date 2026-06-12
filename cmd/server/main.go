@@ -130,6 +130,13 @@ func main() {
 	// 设置 SessionRecorder（用于记录 A2A 失败/成功会话）
 	agent.SetSessionRecorder(a2a.NewSessionRecorderImpl())
 
+	// 设置 Claude Code ACP 模式（根据 config.yaml 的 claude_code.use_acp 配置）
+	// 开启后 Claude Code adapter 使用 claude-agent-acp CLI（ACP 协议）
+	// 关闭后使用原生 claude CLI（Anthropic API streaming format）
+	agent.SetClaudeCodeUseACP(cfg.ClaudeCode.UseACP)
+	logger.Info("Claude Code ACP mode configured",
+		zap.Bool("useACP", cfg.ClaudeCode.UseACP))
+
 	// 连接数据库（数据库表结构由安装器初始化，服务启动时不执行 schema 创建）
 	logger.Info("Connecting to database",
 		zap.String("type", string(cfg.Database.Type)),

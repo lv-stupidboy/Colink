@@ -936,6 +936,8 @@ const ThreadView: React.FC = () => {
           durationMs?: number;
           durationApiMs?: number;
           numTurns?: number;
+          contextUsed?: number;   // ACP: session context 已使用量
+          contextSize?: number;   // ACP: session context 总容量
         };
         if (invocId && usage) {
           updateAgentUsage(invocId, usage);

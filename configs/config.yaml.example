@@ -193,3 +193,10 @@ help:
   doc_link: ""
   # 问题反馈API地址（可选）
   feedback_api: ""
+
+# Claude Code adapter 配置
+claude_code:
+  # 是否使用 ACP 协议（需要安装 claude-agent-acp）
+  # 开启后可获得 usage_update (context 使用量)、session/resume 等高级功能
+  # 安装器会自动安装 claude-agent-acp，无需手动操作
+  use_acp: true

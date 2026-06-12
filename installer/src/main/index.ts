@@ -495,6 +495,16 @@ ipcMain.handle('uninstall', async (_event, keepData: boolean) => {
     try { if (existsSync(oldDesktopPath)) rmSync(oldDesktopPath) } catch {}
     try { if (existsSync(oldStartMenuPath)) rmSync(oldStartMenuPath) } catch {}
 
+    // 卸载 Claude ACP（Colink 安装时自动安装的）
+    // 使用 npm uninstall 移除全局安装的包
+    try {
+      execSync('npm uninstall -g @agentclientprotocol/claude-agent-acp', { encoding: 'utf8', timeout: 60000 })
+      console.log('[Uninstall] Claude ACP uninstalled')
+    } catch (e) {
+      console.warn('[Uninstall] Claude ACP uninstall failed:', e)
+      // 卸载失败不影响主流程
+    }
+
     // 白名单模式删除目录（保留 data、resources、backup）
     const dir = installed.installDir
     const whitelist = keepData ? ['data', 'resources', 'backup'] : ['resources', 'backup']

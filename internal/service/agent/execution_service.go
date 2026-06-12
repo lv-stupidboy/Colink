@@ -3058,6 +3058,8 @@ broadcast:
 				zap.Int64("inputTokens", chunk.Usage.InputTokens),
 				zap.Int64("outputTokens", chunk.Usage.OutputTokens),
 				zap.Int64("cacheReadTokens", chunk.Usage.CacheReadTokens),
+				zap.Int64("contextUsed", chunk.Usage.ContextUsed),
+				zap.Int64("contextSize", chunk.Usage.ContextSize),
 				zap.Float64("costUsd", chunk.Usage.CostUsd))
 			es.wsHub.BroadcastToThread(threadID.String(), ws.WSMessage{
 				Type:      "usage_update",
@@ -3074,6 +3076,8 @@ broadcast:
 						"durationMs":          chunk.Usage.DurationMs,
 						"durationApiMs":       chunk.Usage.DurationApiMs,
 						"numTurns":            chunk.Usage.NumTurns,
+						"contextUsed":         chunk.Usage.ContextUsed,
+						"contextSize":         chunk.Usage.ContextSize,
 					},
 				},
 			})

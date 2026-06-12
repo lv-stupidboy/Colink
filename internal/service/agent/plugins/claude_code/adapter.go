@@ -20,8 +20,8 @@ import (
 	"go.uber.org/zap"
 )
 
-// ClaudeAdapter Claude CLI适配器
-type ClaudeAdapter struct {
+// ClaudeCLIAdapter Claude CLI 适配器（原生模式）
+type ClaudeCLIAdapter struct {
 	cliPath     string
 	apiURL      string
 	apiToken    string
@@ -52,8 +52,8 @@ type claudeSession struct {
 	status agent.SessionStatus
 }
 
-// NewClaudeAdapter 创建Claude适配器
-func NewClaudeAdapter(baseAgent *model.BaseAgent) agent.AgentAdapter {
+// NewClaudeCLIAdapter 创建 Claude CLI 适配器（原生模式）
+func NewClaudeCLIAdapter(baseAgent *model.BaseAgent) agent.AgentAdapter {
 	cliPath := baseAgent.CliPath
 	if cliPath == "" {
 		cliPath = "claude"
@@ -64,7 +64,7 @@ func NewClaudeAdapter(baseAgent *model.BaseAgent) agent.AgentAdapter {
 		timeout = 30 * time.Minute
 	}
 
-	return &ClaudeAdapter{
+	return &ClaudeCLIAdapter{
 		cliPath:     cliPath,
 		apiURL:      baseAgent.ApiURL,
 		apiToken:    baseAgent.ApiToken,
@@ -77,7 +77,7 @@ func NewClaudeAdapter(baseAgent *model.BaseAgent) agent.AgentAdapter {
 }
 
 // Execute 执行单次任务（无会话上下文）
-func (a *ClaudeAdapter) Execute(ctx context.Context, req *agent.ExecutionRequest) (*agent.ExecutionResult, error) {
+func (a *ClaudeCLIAdapter) Execute(ctx context.Context, req *agent.ExecutionRequest) (*agent.ExecutionResult, error) {
 	result, err := a.ExecuteWithStream(ctx, req, nil)
 	if err != nil {
 		return nil, err
@@ -86,14 +86,14 @@ func (a *ClaudeAdapter) Execute(ctx context.Context, req *agent.ExecutionRequest
 }
 
 // GetCurrentProcess 获取当前执行的进程（用于取消）
-func (a *ClaudeAdapter) GetCurrentProcess() *exec.Cmd {
+func (a *ClaudeCLIAdapter) GetCurrentProcess() *exec.Cmd {
 	a.currentCmdMu.RLock()
 	defer a.currentCmdMu.RUnlock()
 	return a.currentCmd
 }
 
 // ExecuteWithStream 流式执行
-func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *agent.ExecutionRequest, onChunk func(agent.Chunk)) (*agent.ExecutionResult, error) {
+func (a *ClaudeCLIAdapter) ExecuteWithStream(ctx context.Context, req *agent.ExecutionRequest, onChunk func(agent.Chunk)) (*agent.ExecutionResult, error) {
 	prompt := a.buildPromptFromRequest(req)
 
 	// 确定会话ID：复用已有或创建新的
@@ -437,7 +437,7 @@ func (a *ClaudeAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execut
 }
 
 // StartSession 启动交互式会话
-func (a *ClaudeAdapter) StartSession(ctx context.Context, sessionID string, req *agent.ExecutionRequest) error {
+func (a *ClaudeCLIAdapter) StartSession(ctx context.Context, sessionID string, req *agent.ExecutionRequest) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -459,7 +459,7 @@ func (a *ClaudeAdapter) StartSession(ctx context.Context, sessionID string, req 
 }
 
 // ResumeSession 恢复会话
-func (a *ClaudeAdapter) ResumeSession(ctx context.Context, sessionID string, input string, onChunk func(agent.Chunk)) error {
+func (a *ClaudeCLIAdapter) ResumeSession(ctx context.Context, sessionID string, input string, onChunk func(agent.Chunk)) error {
 	a.mu.RLock()
 	_, exists := a.sessions[sessionID]
 	a.mu.RUnlock()
@@ -478,7 +478,7 @@ func (a *ClaudeAdapter) ResumeSession(ctx context.Context, sessionID string, inp
 }
 
 // StopSession 停止会话
-func (a *ClaudeAdapter) StopSession(sessionID string) error {
+func (a *ClaudeCLIAdapter) StopSession(sessionID string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -500,7 +500,7 @@ func (a *ClaudeAdapter) StopSession(sessionID string) error {
 }
 
 // GetSessionStatus 获取会话状态
-func (a *ClaudeAdapter) GetSessionStatus(sessionID string) agent.SessionStatus {
+func (a *ClaudeCLIAdapter) GetSessionStatus(sessionID string) agent.SessionStatus {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 
@@ -512,7 +512,7 @@ func (a *ClaudeAdapter) GetSessionStatus(sessionID string) agent.SessionStatus {
 }
 
 // buildPromptFromRequest 从ExecutionRequest构建提示词
-func (a *ClaudeAdapter) buildPromptFromRequest(req *agent.ExecutionRequest) string {
+func (a *ClaudeCLIAdapter) buildPromptFromRequest(req *agent.ExecutionRequest) string {
 	// DEBUG: 记录 Input 详细信息，用于定位多行文本截断问题
 	inputLines := strings.Split(req.Input, "\n")
 	logInfo("buildPromptFromRequest: Input 详情",
@@ -526,7 +526,7 @@ func (a *ClaudeAdapter) buildPromptFromRequest(req *agent.ExecutionRequest) stri
 
 // loadUserMCPConfig 从用户级配置文件加载 MCP servers 配置
 // 读取 ~/.claude.json 文件中的顶层 mcpServers 字段
-func (a *ClaudeAdapter) loadUserMCPConfig() map[string]interface{} {
+func (a *ClaudeCLIAdapter) loadUserMCPConfig() map[string]interface{} {
 	// 获取用户主目录
 	userHomeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -582,7 +582,7 @@ func (a *ClaudeAdapter) loadUserMCPConfig() map[string]interface{} {
 
 // buildMCPConfig 构建 MCP 配置 JSON 字符串
 // 合并平台注入的 isdp-memory MCP server 和用户级的 MCP 配置
-func (a *ClaudeAdapter) buildMCPConfig(req *agent.ExecutionRequest) string {
+func (a *ClaudeCLIAdapter) buildMCPConfig(req *agent.ExecutionRequest) string {
 	// 直接打印到 stdout 确认函数被调用
 	fmt.Printf("[DEBUG] buildMCPConfig called: token=%s, apiURL=%s, invocationID=%s\n",
 		req.CallbackToken[:min(16, len(req.CallbackToken))], req.APIURL, req.InvocationID.String())
@@ -673,7 +673,7 @@ func (a *ClaudeAdapter) buildMCPConfig(req *agent.ExecutionRequest) string {
 
 // buildEnv 构建环境变量
 // 使用 map 去重，BaseAgent 配置的值会覆盖系统环境变量
-func (a *ClaudeAdapter) buildEnv(req *agent.ExecutionRequest) []string {
+func (a *ClaudeCLIAdapter) buildEnv(req *agent.ExecutionRequest) []string {
 	// 用 map 存储环境变量，后面的值会覆盖前面的
 	envMap := make(map[string]string)
 
@@ -712,7 +712,7 @@ func (a *ClaudeAdapter) buildEnv(req *agent.ExecutionRequest) []string {
 }
 
 // GetAvailableModels 获取可用模型列表
-func (a *ClaudeAdapter) GetAvailableModels(ctx context.Context) ([]string, error) {
+func (a *ClaudeCLIAdapter) GetAvailableModels(ctx context.Context) ([]string, error) {
 	cmd := exec.CommandContext(ctx, a.cliPath, "--list-models")
 	hideCommandLineWindow(cmd) // 隐藏命令行窗口（Windows）
 	output, err := cmd.Output()
@@ -732,7 +732,7 @@ func (a *ClaudeAdapter) GetAvailableModels(ctx context.Context) ([]string, error
 
 // CheckHealth 检查CLI健康状态，执行简单prompt验证API连接
 // 使用与正常执行相同的参数和环境变量构建逻辑，确保一致性
-func (a *ClaudeAdapter) CheckHealth(ctx context.Context) error {
+func (a *ClaudeCLIAdapter) CheckHealth(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
@@ -871,7 +871,7 @@ func logDebug(msg string, fields ...zap.Field) {
 
 // SendToolResult 发送工具结果给 CLI（用于 AskUserQuestion 等需要用户输入的工具）
 // CLI 使用 stdin 接收用户答案
-func (a *ClaudeAdapter) SendToolResult(invocationID uuid.UUID, toolCallID string, result string) error {
+func (a *ClaudeCLIAdapter) SendToolResult(invocationID uuid.UUID, toolCallID string, result string) error {
 	a.currentStdinMu.RLock()
 	stdin := a.currentStdin
 	a.currentStdinMu.RUnlock()

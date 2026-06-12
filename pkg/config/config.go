@@ -36,6 +36,7 @@ type Config struct {
 	Market          MarketDefaultConfig   `mapstructure:"market"`
 	GitURLConversion GitURLConversionConfig `mapstructure:"git_url_conversion"`
 	Help            HelpConfig            `mapstructure:"help"`
+	ClaudeCode      ClaudeCodeConfig      `mapstructure:"claude_code"` // Claude Code adapter 配置
 }
 
 type DeploymentType string
@@ -441,6 +442,11 @@ type HelpConfig struct {
 	OfficialWebsite string `mapstructure:"official_website"` // 官网链接
 	DocLink         string `mapstructure:"doc_link"`         // 指导文档链接
 	FeedbackAPI     string `mapstructure:"feedback_api"`     // 问题反馈API地址
+}
+
+// ClaudeCodeConfig Claude Code adapter 配置
+type ClaudeCodeConfig struct {
+	UseACP bool `mapstructure:"use_acp"` // 是否使用 ACP 协议（需要安装 claude-agent-acp）
 }
 
 const (

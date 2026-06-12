@@ -9,6 +9,8 @@ export interface TokenUsage {
   durationApiMs?: number;
   durationMs?: number;
   numTurns?: number;
+  contextUsed?: number;   // ACP: 已使用的 context tokens
+  contextSize?: number;   // ACP: context 总容量
 }
 
 export interface TaskProgress {

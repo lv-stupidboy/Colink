@@ -10,6 +10,8 @@ interface Props {
     output: number;
     cache: number;
     cost: number;
+    contextUsed?: number;
+    contextSize?: number;
   };
   defaultCollapsed?: boolean;
 }
@@ -50,12 +52,19 @@ export const TokenUsage: React.FC<Props> = ({ usage, totalUsage, defaultCollapse
       output: acc.output + (u.outputTokens || 0),
       cache: acc.cache + (u.cacheReadTokens || 0),
       cost: acc.cost + (u.costUsd || 0),
+      contextUsed: acc.contextUsed || u.contextUsed,
+      contextSize: acc.contextSize || u.contextSize,
     }),
-    { input: 0, output: 0, cache: 0, cost: 0 }
+    { input: 0, output: 0, cache: 0, cost: 0, contextUsed: undefined, contextSize: undefined }
   );
 
   const cacheRate = total.input > 0
     ? Math.round((total.cache / total.input) * 100)
+    : 0;
+
+  // Context 使用率（ACP 协议提供）
+  const contextRate = total.contextSize && total.contextSize > 0
+    ? Math.round(((total.contextUsed || 0) / total.contextSize) * 100)
     : 0;
 
   return (
@@ -66,6 +75,25 @@ export const TokenUsage: React.FC<Props> = ({ usage, totalUsage, defaultCollapse
       </div>
       {!collapsed && (
         <>
+          {/* Context 使用情况（ACP 协议提供） */}
+          {total.contextSize && total.contextSize > 0 && (
+            <div className="context-usage">
+              <div className="context-usage-header">
+                <span className="context-usage-label">Context 使用</span>
+                <span className="context-usage-value">
+                  {formatTokens(total.contextUsed || 0)} / {formatTokens(total.contextSize)}
+                  <span className="context-usage-percent"> ({contextRate}%)</span>
+                </span>
+              </div>
+              <Progress
+                percent={contextRate}
+                size="small"
+                showInfo={false}
+                strokeColor={contextRate > 80 ? '#ef4444' : contextRate > 60 ? '#f59e0b' : '#22c55e'}
+              />
+            </div>
+          )}
+
           <div className="token-grid">
             <div className="token-item">
               <span className="token-label">输入</span>

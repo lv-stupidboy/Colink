@@ -20,6 +20,26 @@ var globalRegistry = &AdapterRegistry{
 	plugins: make(map[model.BaseAgentType]PluginMeta),
 }
 
+// Claude Code ACP 模式配置
+// 通过 config.yaml 的 claude_code.use_acp 控制
+var claudeCodeUseACP bool
+var claudeCodeUseACPMu sync.RWMutex
+
+// SetClaudeCodeUseACP 设置 Claude Code 是否使用 ACP 协议
+// 由 main.go 在启动时根据配置调用
+func SetClaudeCodeUseACP(useACP bool) {
+	claudeCodeUseACPMu.Lock()
+	claudeCodeUseACP = useACP
+	claudeCodeUseACPMu.Unlock()
+}
+
+// GetClaudeCodeUseACP 获取 Claude Code 是否使用 ACP 协议
+func GetClaudeCodeUseACP() bool {
+	claudeCodeUseACPMu.RLock()
+	defer claudeCodeUseACPMu.RUnlock()
+	return claudeCodeUseACP
+}
+
 // RegisterPlugin 注册插件（插件 init() 调用）
 func RegisterPlugin(meta PluginMeta) {
 	globalRegistry.mu.Lock()
