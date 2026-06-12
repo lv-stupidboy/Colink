@@ -12,7 +12,6 @@
 #   -g, --gen           清理 Tauri schema 文件 (gen/)
 #   -s, --staging       清理资源同步中间目录
 #   -n, --node-modules  清理所有 node_modules
-#   -o, --old-installer 清理废弃的旧 Electron 安装器
 #   -w, --whatif        预览模式，只显示不执行
 #   -f, --force         跳过确认提示
 #   -h, --help          显示帮助信息
@@ -41,7 +40,6 @@ TARGET=false
 GEN=false
 STAGING=false
 NODE_MODULES=false
-OLD_INSTALLER=false
 WHATIF=false
 FORCE=false
 
@@ -76,10 +74,6 @@ while [[ $# -gt 0 ]]; do
             NODE_MODULES=true
             shift
             ;;
-        -o|--old-installer)
-            OLD_INSTALLER=true
-            shift
-            ;;
         -w|--whatif)
             WHATIF=true
             shift
@@ -101,7 +95,6 @@ while [[ $# -gt 0 ]]; do
             echo "  -g, --gen           清理 Tauri schema 文件 (gen/)"
             echo "  -s, --staging       清理资源同步中间目录"
             echo "  -n, --node-modules  清理所有 node_modules"
-            echo "  -o, --old-installer 清理废弃的旧 Electron 安装器"
             echo "  -w, --whatif        预览模式，只显示不执行"
             echo "  -f, --force         跳过确认提示"
             echo "  -h, --help          显示帮助信息"
@@ -117,7 +110,7 @@ done
 # 如果没有指定任何参数，默认清理构建产物
 if [[ "$ALL" == false && "$DIST" == false && "$BIN" == false && \
       "$TARGET" == false && "$GEN" == false && "$STAGING" == false && \
-      "$NODE_MODULES" == false && "$OLD_INSTALLER" == false ]]; then
+      "$NODE_MODULES" == false ]]; then
     ALL=true
 fi
 
@@ -152,10 +145,6 @@ fi
 if [[ "$NODE_MODULES" == true ]]; then
     DIRS_TO_CLEAN+=("$PROJECT_ROOT/web/node_modules:主项目前端依赖 (web/node_modules)")
     DIRS_TO_CLEAN+=("$INSTALLER_DIR/node_modules:Tauri 安装器依赖 (installer-tauri/node_modules)")
-fi
-
-if [[ "$OLD_INSTALLER" == true ]]; then
-    DIRS_TO_CLEAN+=("$PROJECT_ROOT/installer/node_modules:旧 Electron 安装器依赖 (installer/node_modules)")
 fi
 
 # 计算目录大小函数

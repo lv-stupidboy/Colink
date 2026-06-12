@@ -1,7 +1,0 @@
-node_modules/
-out/
-dist/
-resources/app/
-resources/web/
-*.log
-.DS_Store

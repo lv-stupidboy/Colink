@@ -26,9 +26,8 @@ cd apps/desktop && npm run package          # 打包当前平台
 cd apps/desktop && npm run package:all      # 打包所有平台
 
 # 安装器构建（完整发布）
-cd installer && ./build.ps1                 # Windows 完整构建（~115秒）
-cd installer && ./build-fast.ps1            # Windows 快速增量构建（~20-65秒）
-cd installer && ./build.sh                  # Unix/Linux/macOS
+pwsh -File scripts/build-release.ps1   # Windows 完整构建（7步）
+./scripts/build-mac.sh                 # macOS 构建
 
 # 测试
 make test-all                    # 运行所有测试（前端 + 后端）
@@ -160,33 +159,23 @@ cd web && npm run dev
 
 ## 开发工作流
 
-### 快速增量构建（推荐日常开发）
+### 完整发布构建
 
-使用 `build-fast.ps1` 实现智能增量构建，通过 hash 缓存避免重复构建：
+从主项目目录执行：
 
 ```powershell
-cd installer
-.\build-fast.ps1              # 标准增量构建（~20-65秒）
-$env:COLINK_DEV_BUILD = "true"; .\build-fast.ps1  # 开发模式（~30秒）
+pwsh -File scripts/build-release.ps1   # Windows 构建（7步）
 ```
 
-**增量检测机制**：
-- 后端源码 hash → 只在变化时重新编译
-- 前端源码 hash → 只在变化时重新构建
-- package-lock hash → 只在变化时重新安装依赖
-- 缓存位置：`.build-cache/*.hash`
-
-**构建时间对比**：
-| 场景 | build.ps1 | build-fast.ps1 | 提升 |
-|------|-----------|----------------|------|
-| 无修改重新构建 | 115秒 | ~20秒 | 83% ↓ |
-| 前端修改 | 115秒 | ~55秒 | 52% ↓ |
-| 后端修改 | 115秒 | ~35秒 | 70% ↓ |
-
-**清理缓存**（强制重新构建）：
-```powershell
-Remove-Item .build-cache -Force -Recurse
-```
+**构建步骤（7步）**：
+1. **ISDP 后端** - 编译 `bin/colink-server.exe` 和 `bin/migrate.exe`
+2. **ISDP 前端** - 构建 `web/dist/`
+3. **资源同步** - 复制到 `staging/resources/`
+4. **配置文件** - 复制 `VERSION` 和 `installer-config.json`
+5. **Installer 前端** - 构建 Tauri 前端 `dist/`
+5.5. **图标生成** - 从 `icon.png` 生成各平台图标
+6. **Tauri exe** - 编译 `Colink-Setup.exe` 和 `Colink.exe`
+7. **ZIP 打包** - 输出到 `target/release/dist/Colink-Setup-{VERSION}.zip`
 
 ### MCP Server
 
@@ -219,7 +208,7 @@ MCP Server 通过环境变量配置 API 地址、调用 ID 和回调 token，启
 | 修改 A2A 路由 | `internal/service/a2a/` | `EnqueueA2ATargets()` 在 `a2a_trigger.go` |
 | 修改飞书 IM | `internal/service/im/` | `FeishuBridgeService` → `LarkCLIClient` |
 | 新增 IM 平台 | `internal/service/im/` + `api/` | 参考 Feishu 模式：handler → bridge service → chunk forward |
-| 修改安装器 | `installer/src/main/` | `index.ts` = Setup，`launcher-entry.ts` = Launcher |
+| 修改安装器 | `installer-tauri/src-tauri/src/` | `services/installer.rs` 安装流程，`commands/` IPC 命令 |
 | 更新配置 | `pkg/config/config.go` + `configs/config.yaml.example` | 两文件必须同步 |
 
 ### 关键约束

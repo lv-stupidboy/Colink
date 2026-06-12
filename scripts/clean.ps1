@@ -7,7 +7,6 @@ param(
     [switch]$Gen,
     [switch]$Staging,
     [switch]$NodeModules,
-    [switch]$OldInstaller,
     [switch]$WhatIf,
     [switch]$NoConfirm
 )
@@ -18,7 +17,7 @@ $ScriptDir = Split-Path -Parent $PSScriptRoot
 $InstallerDir = Join-Path $ScriptDir 'installer-tauri'
 $SrcTauriDir = Join-Path $InstallerDir 'src-tauri'
 
-if (-not $All -and -not $Dist -and -not $Bin -and -not $Target -and -not $Gen -and -not $Staging -and -not $NodeModules -and -not $OldInstaller) {
+if (-not $All -and -not $Dist -and -not $Bin -and -not $Target -and -not $Gen -and -not $Staging -and -not $NodeModules) {
     $All = $true
 }
 
@@ -54,10 +53,6 @@ if ($Staging -and -not $All) {
 if ($NodeModules) {
     $DirsToClean += [PSCustomObject]@{ Path = Join-Path $ScriptDir 'web/node_modules'; Name = 'web/node_modules' }
     $DirsToClean += [PSCustomObject]@{ Path = Join-Path $InstallerDir 'node_modules'; Name = 'installer-tauri/node_modules' }
-}
-
-if ($OldInstaller) {
-    $DirsToClean += [PSCustomObject]@{ Path = Join-Path $ScriptDir 'installer/node_modules'; Name = 'installer/node_modules' }
 }
 
 Write-Host ''
