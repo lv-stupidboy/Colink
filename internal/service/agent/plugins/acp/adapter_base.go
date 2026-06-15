@@ -468,8 +468,7 @@ func (a *BaseACPAdapter) StartSession(ctx context.Context, sessionID string, req
 
 	// 根据服务器实际支持的协议版本决定是否传递 MCP Servers
 	// ACP v1 不支持 mcpServers 字段，只有 v2025+ 支持
-	// 由于 StartSession 不解析 init 响应，默认不传递 mcpServers（保守策略）
-	mcpServers := []interface{}{}
+	mcpServers := a.buildMCPServers(req)
 
 	sessionNewResult, err := transport.SendRequest("session/new", &acpNewSessionParams{
 		CWD:        req.WorkDir,
