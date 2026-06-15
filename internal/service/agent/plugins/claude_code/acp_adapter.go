@@ -20,7 +20,9 @@ type ClaudeACPAdapter struct {
 }
 
 // loadUserMCPConfigACP 从用户级配置文件加载 MCP servers 配置
-// 读取 ~/.claude.json 文件中的顶层 mcpServers 字段
+// 读取两个配置文件并合并：
+// 1. ~/.claude.json - 旧的用户配置文件
+// 2. ~/.claude/.claude.json - claude mcp add 命令保存的配置文件
 // 返回格式：{"serverName": {"command": "...", "args": [...], "env": {...}}}
 func loadUserMCPConfigACP() map[string]interface{} {
 	// 获取用户主目录
@@ -30,48 +32,79 @@ func loadUserMCPConfigACP() map[string]interface{} {
 		return nil
 	}
 
-	// 用户级配置文件路径
-	userConfigPath := filepath.Join(userHomeDir, ".claude.json")
+	// 合并后的 MCP servers 配置
+	result := make(map[string]interface{})
 
+	// 配置文件路径列表（按优先级顺序，后面的会覆盖前面的）
+	configPaths := []string{
+		filepath.Join(userHomeDir, ".claude.json"),               // 旧的用户配置文件
+		filepath.Join(userHomeDir, ".claude", ".claude.json"),     // claude mcp add 保存的配置
+	}
+
+	for _, configPath := range configPaths {
+		mcpServers := loadMCPConfigFromFile(configPath)
+		if mcpServers != nil {
+			for name, config := range mcpServers {
+				result[name] = config
+			}
+		}
+	}
+
+	if len(result) == 0 {
+		return nil
+	}
+
+	// 记录找到的 MCP servers
+	serverNames := make([]string, 0, len(result))
+	for name := range result {
+		serverNames = append(serverNames, name)
+	}
+	logInfo("Claude ACP: Loaded user MCP servers", zap.Strings("servers", serverNames))
+
+	return result
+}
+
+// loadMCPConfigFromFile 从单个配置文件加载 MCP servers 配置
+func loadMCPConfigFromFile(configPath string) map[string]interface{} {
 	// 检查文件是否存在
-	if _, err := os.Stat(userConfigPath); os.IsNotExist(err) {
-		logInfo("Claude ACP: User config file not found", zap.String("path", userConfigPath))
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		logInfo("Claude ACP: Config file not found", zap.String("path", configPath))
 		return nil
 	}
 
 	// 读取配置文件
-	configData, err := os.ReadFile(userConfigPath)
+	configData, err := os.ReadFile(configPath)
 	if err != nil {
-		logInfo("Claude ACP: Failed to read user config file", zap.Error(err), zap.String("path", userConfigPath))
+		logInfo("Claude ACP: Failed to read config file", zap.Error(err), zap.String("path", configPath))
 		return nil
 	}
 
 	// 解析 JSON
 	var userConfig map[string]interface{}
 	if err := json.Unmarshal(configData, &userConfig); err != nil {
-		logInfo("Claude ACP: Failed to parse user config JSON", zap.Error(err), zap.String("path", userConfigPath))
+		logInfo("Claude ACP: Failed to parse config JSON", zap.Error(err), zap.String("path", configPath))
 		return nil
 	}
 
 	// 获取 mcpServers 字段
 	mcpServers, ok := userConfig["mcpServers"]
 	if !ok || mcpServers == nil {
-		logInfo("Claude ACP: No mcpServers in user config", zap.String("path", userConfigPath))
+		logInfo("Claude ACP: No mcpServers in config", zap.String("path", configPath))
 		return nil
 	}
 
 	mcpServersMap, ok := mcpServers.(map[string]interface{})
 	if !ok {
-		logInfo("Claude ACP: mcpServers is not a map", zap.String("path", userConfigPath))
+		logInfo("Claude ACP: mcpServers is not a map", zap.String("path", configPath))
 		return nil
 	}
 
-	// 记录找到的 MCP servers
+	// 记录该文件中的 MCP servers
 	serverNames := make([]string, 0, len(mcpServersMap))
 	for name := range mcpServersMap {
 		serverNames = append(serverNames, name)
 	}
-	logInfo("Claude ACP: Loaded user MCP servers", zap.Strings("servers", serverNames), zap.String("path", userConfigPath))
+	logInfo("Claude ACP: Loaded MCP servers from file", zap.Strings("servers", serverNames), zap.String("path", configPath))
 
 	return mcpServersMap
 }
