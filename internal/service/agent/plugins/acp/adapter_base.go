@@ -309,6 +309,10 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 		zap.String("stopReason", promptResp.StopReason),
 		zap.String("promptResultRaw", string(promptResult)))
 
+	// 注意：不调用 session/close，因为它会释放资源并清理 session 数据
+	// SDK 会自动持久化 session 到磁盘，不需要显式调用 close
+	// 只有需要删除 session 时才调用 session/delete
+
 	// 执行完成后，从 sessions map 中移除（如果有）
 	if invocationIDStr != "" {
 		a.mu.Lock()
@@ -896,15 +900,15 @@ func (a *BaseACPAdapter) buildMCPServers(req *agent.ExecutionRequest) []interfac
 	LogInfo("ACP: MCP server path", zap.String("path", mcpServerPath))
 
 	// 3. 构建 memory MCP server 配置
+	// ACP 协议：stdio 类型不需要 type 字段，env 是数组格式 [{name, value}]
 	mcpServer := map[string]interface{}{
 		"name":    "isdp-memory",
-		"type":    "stdio",
 		"command": mcpServerPath,
 		"args":    []string{},
-		"env": map[string]string{
-			"ISDP_API_URL":        req.APIURL,
-			"ISDP_INVOCATION_ID":  req.InvocationID.String(),
-			"ISDP_CALLBACK_TOKEN": req.CallbackToken,
+		"env": []map[string]string{
+			{"name": "ISDP_API_URL", "value": req.APIURL},
+			{"name": "ISDP_INVOCATION_ID", "value": req.InvocationID.String()},
+			{"name": "ISDP_CALLBACK_TOKEN", "value": req.CallbackToken},
 		},
 	}
 
@@ -928,9 +932,11 @@ func convertUserMCPToACPFormat(userMCP map[string]interface{}) []interface{} {
 		}
 
 		// 构建 ACP 格式的 MCP server 配置
+		// 注意：claude-agent-acp 只接受没有 type 字段的 stdio server
+		// 有 type: "stdio" 的 server 会被跳过（只有 http/sse 才需要 type 字段）
 		acpServer := map[string]interface{}{
 			"name": name,
-			"type": "stdio",
+			// 不添加 "type" 字段，让 claude-agent-acp 自动识别为 stdio
 		}
 
 		// 复制各个字段
@@ -942,18 +948,27 @@ func convertUserMCPToACPFormat(userMCP map[string]interface{}) []interface{} {
 		} else if args, ok := configMap["args"].([]string); ok {
 			acpServer["args"] = args
 		}
+		// env 必须转换为数组格式 [{name, value}]，ACP 要求 env 字段必须存在
+		envArray := []map[string]string{}
 		if env, ok := configMap["env"].(map[string]interface{}); ok {
-			// 转换 env 为 map[string]string
-			envMap := make(map[string]string)
 			for k, v := range env {
 				if vs, ok := v.(string); ok {
-					envMap[k] = vs
+					envArray = append(envArray, map[string]string{
+						"name":  k,
+						"value": vs,
+					})
 				}
 			}
-			acpServer["env"] = envMap
 		} else if env, ok := configMap["env"].(map[string]string); ok {
-			acpServer["env"] = env
+			for k, v := range env {
+				envArray = append(envArray, map[string]string{
+					"name":  k,
+					"value": v,
+				})
+			}
 		}
+		// ACP 要求 env 字段必须存在，即使为空也要设置 []
+		acpServer["env"] = envArray
 
 		result = append(result, acpServer)
 	}
@@ -1568,6 +1583,10 @@ func (a *BaseACPAdapter) ExecuteWithResume(ctx context.Context, req *agent.Execu
 		cmd := exec.CommandContext(ctx, a.Config.CliPath, args...)
 		cmd.Dir = req.WorkDir
 
+		// 设置环境变量，继承系统环境变量（特别是 PATH）
+		// 并添加自定义环境变量（如 CLAUDE_CONFIG_DIR）
+		cmd.Env = append(os.Environ(), a.Config.BuildEnv(req)...)
+
 		stdinPipe, err := cmd.StdinPipe()
 		if err != nil {
 			return nil, "", fmt.Errorf("ACP: failed to create stdin pipe: %w", err)
@@ -1677,10 +1696,13 @@ func (a *BaseACPAdapter) ExecuteWithResume(ctx context.Context, req *agent.Execu
 			return nil, "", fmt.Errorf("ACP: gateway authenticate failed: %w\nstderr: %s", err, stderrContent)
 		}
 
-		// SessionLoad - 使用 session/load 回放历史（而非 session/resume）
-		// session/resume 不回放历史，session/load 会回放完整历史
+		// SessionResume - 使用 session/resume（不回放历史）
+		// session/resume 不回放历史消息，只继承上下文
+		// session/load 会回放完整历史消息给客户端
 		mcpServers := a.buildMCPServers(req)
-		loadResult, err := transport.SendRequest("session/load", &acpSessionLoadParams{
+		mcpServersJSON, _ := json.Marshal(mcpServers)
+		LogInfo("ACP: session/resume mcpServers", zap.String("mcpServers", string(mcpServersJSON)))
+		resumeResult, err := transport.SendRequest("session/resume", &acpSessionResumeParams{
 			SessionID:  acpSessionID,
 			CWD:        req.WorkDir,
 			MCPServers: mcpServers,
@@ -1695,15 +1717,15 @@ func (a *BaseACPAdapter) ExecuteWithResume(ctx context.Context, req *agent.Execu
 			a.mu.Lock()
 			delete(a.sessions, internalSessionID)
 			a.mu.Unlock()
-			return nil, "", fmt.Errorf("ACP: session/load failed: %w\nstderr: %s", err, stderrContent)
+			return nil, "", fmt.Errorf("ACP: session/resume failed: %w\nstderr: %s", err, stderrContent)
 		}
 
-		var loadResp acpSessionResumeResult // response structure is same
-		if err := json.Unmarshal(loadResult, &loadResp); err != nil {
-			LogWarn("ACP: session/load response parse warning", zap.Error(err))
+		var resumeResp acpSessionResumeResult // response structure is same
+		if err := json.Unmarshal(resumeResult, &resumeResp); err != nil {
+			LogWarn("ACP: session/resume response parse warning", zap.Error(err))
 		}
 
-		LogInfo("ACP: ExecuteWithResume session/load completed",
+		LogInfo("ACP: ExecuteWithResume session/resume completed",
 			zap.String("internalSessionId", internalSessionID),
 			zap.String("acpSessionId", acpSessionID),
 			zap.String("cwd", req.WorkDir))

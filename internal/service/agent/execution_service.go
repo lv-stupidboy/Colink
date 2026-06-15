@@ -613,6 +613,19 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 			logInfo("Session fallback succeeded, created new session",
 				zap.String("invocationId", invocation.ID.String()),
 				zap.String("newAcpSessionId", newACPSessionID))
+
+			// Fallback 成功后保存新的 session ID 到 session_records 表
+			if newACPSessionID != "" && es.sessionManager != nil {
+				saveErr := es.sessionManager.SaveACPSessionID(ctx, req.ThreadID.String(), config.ID.String(), newACPSessionID, baseAgent.Type)
+				if saveErr != nil {
+					logError("SaveACPSessionID after fallback failed", zap.Error(saveErr))
+				} else {
+					logInfo("Saved fallback session ID to session_records",
+						zap.String("threadId", req.ThreadID.String()),
+						zap.String("agentId", config.ID.String()),
+						zap.String("acpSessionId", newACPSessionID))
+				}
+			}
 		}
 	}
 
