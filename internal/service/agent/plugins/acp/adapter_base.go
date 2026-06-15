@@ -917,8 +917,11 @@ func (a *BaseACPAdapter) buildMCPServers(req *agent.ExecutionRequest) []interfac
 }
 
 // convertUserMCPToACPFormat 将用户级 MCP 配置（map 格式）转换为 ACP 的数组格式
-// 用户级配置格式：{"serverName": {"command": "...", "args": [...], "env": {...}}}
-// ACP 格式：[{"name": "serverName", "type": "stdio", "command": "...", "args": [...], "env": {...}}]
+// 用户级配置格式：{"serverName": {"type": "http/stdio/sse", "command/url": "...", ...}}
+// ACP 格式：
+// - stdio: {"name": "serverName", "command": "...", "args": [...], "env": [{name, value}]}
+// - http: {"type": "http", "name": "serverName", "url": "...", "headers": [{name, value}]}
+// - sse: {"type": "sse", "name": "serverName", "url": "...", "headers": [{name, value}]}
 func convertUserMCPToACPFormat(userMCP map[string]interface{}) []interface{} {
 	if userMCP == nil {
 		return []interface{}{}
@@ -931,44 +934,77 @@ func convertUserMCPToACPFormat(userMCP map[string]interface{}) []interface{} {
 			continue
 		}
 
-		// 构建 ACP 格式的 MCP server 配置
-		// 注意：claude-agent-acp 只接受没有 type 字段的 stdio server
-		// 有 type: "stdio" 的 server 会被跳过（只有 http/sse 才需要 type 字段）
-		acpServer := map[string]interface{}{
-			"name": name,
-			// 不添加 "type" 字段，让 claude-agent-acp 自动识别为 stdio
+		// 检查 transport 类型
+		transportType := ""
+		if t, ok := configMap["type"].(string); ok {
+			transportType = t
 		}
 
-		// 复制各个字段
-		if cmd, ok := configMap["command"].(string); ok {
-			acpServer["command"] = cmd
+		// 构建 ACP 格式的 MCP server 配置
+		acpServer := map[string]interface{}{
+			"name": name,
 		}
-		if args, ok := configMap["args"].([]interface{}); ok {
-			acpServer["args"] = args
-		} else if args, ok := configMap["args"].([]string); ok {
-			acpServer["args"] = args
-		}
-		// env 必须转换为数组格式 [{name, value}]，ACP 要求 env 字段必须存在
-		envArray := []map[string]string{}
-		if env, ok := configMap["env"].(map[string]interface{}); ok {
-			for k, v := range env {
-				if vs, ok := v.(string); ok {
-					envArray = append(envArray, map[string]string{
+
+		switch transportType {
+		case "http", "sse":
+			// HTTP/SSE transport: 需要 type 字段
+			acpServer["type"] = transportType
+			if url, ok := configMap["url"].(string); ok {
+				acpServer["url"] = url
+			}
+			// headers 必须转换为数组格式 [{name, value}]
+			headersArray := []map[string]string{}
+			if headers, ok := configMap["headers"].(map[string]interface{}); ok {
+				for k, v := range headers {
+					if vs, ok := v.(string); ok {
+						headersArray = append(headersArray, map[string]string{
+							"name":  k,
+							"value": vs,
+						})
+					}
+				}
+			} else if headers, ok := configMap["headers"].(map[string]string); ok {
+				for k, v := range headers {
+					headersArray = append(headersArray, map[string]string{
 						"name":  k,
-						"value": vs,
+						"value": v,
 					})
 				}
 			}
-		} else if env, ok := configMap["env"].(map[string]string); ok {
-			for k, v := range env {
-				envArray = append(envArray, map[string]string{
-					"name":  k,
-					"value": v,
-				})
+			acpServer["headers"] = headersArray
+
+		default:
+			// Stdio transport（默认）: 不需要 type 字段
+			// 复制各个字段
+			if cmd, ok := configMap["command"].(string); ok {
+				acpServer["command"] = cmd
 			}
+			if args, ok := configMap["args"].([]interface{}); ok {
+				acpServer["args"] = args
+			} else if args, ok := configMap["args"].([]string); ok {
+				acpServer["args"] = args
+			}
+			// env 必须转换为数组格式 [{name, value}]
+			envArray := []map[string]string{}
+			if env, ok := configMap["env"].(map[string]interface{}); ok {
+				for k, v := range env {
+					if vs, ok := v.(string); ok {
+						envArray = append(envArray, map[string]string{
+							"name":  k,
+							"value": vs,
+						})
+					}
+				}
+			} else if env, ok := configMap["env"].(map[string]string); ok {
+				for k, v := range env {
+					envArray = append(envArray, map[string]string{
+						"name":  k,
+						"value": v,
+					})
+				}
+			}
+			acpServer["env"] = envArray
 		}
-		// ACP 要求 env 字段必须存在，即使为空也要设置 []
-		acpServer["env"] = envArray
 
 		result = append(result, acpServer)
 	}
