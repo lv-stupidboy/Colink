@@ -150,6 +150,18 @@ func (sm *SessionManager) getOrCreateResumeSession(ctx context.Context, threadID
 
 	// 2. 检查是否有有效的 ACP session ID
 	if record != nil && record.AcpSessionID != "" {
+		// 检查 agent_type 是否匹配
+		if record.AgentType != agentType {
+			sessionManagerLogInfo("SessionManager: agent_type mismatch, creating new session",
+				zap.String("recordAgentType", string(record.AgentType)),
+				zap.String("currentAgentType", string(agentType)),
+				zap.String("threadId", threadID),
+				zap.String("agentId", agentID))
+			// agent_type 不匹配，删除旧记录并创建新 session
+			sm.repo.Delete(ctx, record.ID)
+			return sm.createNewResumeSession(ctx, threadID, agentID, agentType)
+		}
+
 		// 检查是否过期
 		if !record.IsExpired(strategy.ResumeExpiry) {
 			sessionManagerLogInfo("SessionManager: using existing resume session",
