@@ -157,8 +157,8 @@ pub fn install_dependency(key: &str) -> Result<()> {
             _ => return Err(InstallerError::DependencyNotFound(key.to_string())),
         };
 
-        let output = Command::new("npm")
-            .args(["install", "-g", package])
+        let output = Command::new("cmd")
+            .args(["/C", &format!("npm install -g {}", package)])
             .creation_flags(CREATE_NO_WINDOW)
             .output();
 
@@ -192,8 +192,8 @@ pub fn uninstall_dependency(key: &str) -> Result<()> {
             _ => return Err(InstallerError::DependencyNotFound(key.to_string())),
         };
 
-        let output = Command::new("npm")
-            .args(["uninstall", "-g", package])
+        let output = Command::new("cmd")
+            .args(["/C", &format!("npm uninstall -g {}", package)])
             .creation_flags(CREATE_NO_WINDOW)
             .output();
 
