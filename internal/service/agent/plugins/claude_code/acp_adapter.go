@@ -135,7 +135,7 @@ func NewClaudeACPAdapter(baseAgent *model.BaseAgent) agent.AgentAdapter {
 			return []string{}
 		},
 		BuildEnv: func(req *agent.ExecutionRequest) []string {
-			env := make([]string, 0, 5)
+			env := make([]string, 0, 6)
 
 			// 如果使用第三方 API，不传递 ANTHROPIC_API_KEY（通过 gateway authenticate 传递）
 			// 如果使用 Anthropic 官方 API，需要传递 ANTHROPIC_API_KEY
@@ -147,6 +147,20 @@ func NewClaudeACPAdapter(baseAgent *model.BaseAgent) agent.AgentAdapter {
 			// claude-agent-acp 不支持 session/set_model，configOptions 会验证模型列表
 			if baseAgent.DefaultModel != "" {
 				env = append(env, "ANTHROPIC_MODEL="+baseAgent.DefaultModel)
+			}
+
+			// 通过 ANTHROPIC_MCP 环境变量传递用户级 MCP 配置
+			// 这样 CLI 在启动时就加载 MCP 配置，无需在 RPC 请求中传递
+			userMCP := loadUserMCPConfigACP()
+			if userMCP != nil && len(userMCP) > 0 {
+				mcpConfig := map[string]interface{}{
+					"mcpServers": userMCP,
+				}
+				mcpJSON, err := json.Marshal(mcpConfig)
+				if err == nil {
+					env = append(env, "ANTHROPIC_MCP="+string(mcpJSON))
+					logInfo("Claude ACP: Set ANTHROPIC_MCP env", zap.Int("serverCount", len(userMCP)))
+				}
 			}
 
 			// Git Bash 路径（Windows）
@@ -166,8 +180,8 @@ func NewClaudeACPAdapter(baseAgent *model.BaseAgent) agent.AgentAdapter {
 		SkipModelConfig: func(req *agent.ExecutionRequest) bool {
 			return true
 		},
-		// 用户级 MCP 配置加载函数
-		LoadUserMCPConfig: loadUserMCPConfigACP,
+		// 不再通过 RPC 请求传递 MCP 配置，已通过 ANTHROPIC_MCP 环境变量设置
+		LoadUserMCPConfig: nil,
 		// Gateway 配置（用于第三方 API）
 		GatewayBaseURL: gatewayBaseURL,
 		GatewayHeaders: gatewayHeaders,
