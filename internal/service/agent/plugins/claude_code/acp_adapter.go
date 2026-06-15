@@ -122,10 +122,10 @@ func NewClaudeACPAdapter(baseAgent *model.BaseAgent) agent.AgentAdapter {
 
 			return env
 		},
-		// claude-agent-acp 使用 configOptions 设置模型
-		SkipModelConfig: func(req *agent.ExecutionRequest) bool {
-			return false
-		},
+		// claude-agent-acp 使用 legacy API (session/set_model) 设置模型
+		// configOptions API 会验证模型是否在 options 列表中，不支持自定义模型
+		// legacy API 更宽松，可以接受任何模型名称
+		LegacyModelConfig: true,
 		// 用户级 MCP 配置加载函数
 		LoadUserMCPConfig: loadUserMCPConfigACP,
 		// Gateway 配置（用于第三方 API）
