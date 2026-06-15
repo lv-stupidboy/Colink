@@ -1645,7 +1645,7 @@ const ThreadView: React.FC = () => {
       );
       if (agentByName) {
         await sendMessage(content, true, images);
-        await spawnAgent('agent', input, agentByName.id);
+        await spawnAgent('agent', input, agentByName.id, images);
         return;
       }
 

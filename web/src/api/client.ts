@@ -487,8 +487,13 @@ class APIClient {
     list: (threadId: string): Promise<AgentInvocation[]> =>
       this.request(`/threads/${threadId}/invocations`, 'GET'),
     get: (id: string): Promise<AgentInvocation> => this.request(`/invocations/${id}`, 'GET'),
-    spawn: (threadId: string, role: string, input: string, configId?: string): Promise<AgentInvocation> => {
-      const payload = { role, input, configId };
+    spawn: (threadId: string, role: string, input: string, configId?: string, images?: ImageAttachment[]): Promise<AgentInvocation> => {
+      // 转换 images 格式：前端 base64 → 后端 data
+      const apiImages = images?.map(img => ({
+        mimeType: img.mimeType,
+        data: img.base64,
+      }));
+      const payload = { role, input, configId, images: apiImages };
       return this.request(`/threads/${threadId}/invocations`, 'POST', payload);
     },
     cancel: (id: string): Promise<void> => this.request(`/invocations/${id}/cancel`, 'POST'),

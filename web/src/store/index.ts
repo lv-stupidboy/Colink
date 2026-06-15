@@ -107,7 +107,7 @@ interface AppActions {
   sendMessage: (content: string, skipAgentTrigger?: boolean, images?: ImageAttachment[]) => Promise<void>;
 
   // 触发Agent
-  spawnAgent: (role: AgentRole, input: string, configId?: string) => Promise<void>;
+  spawnAgent: (role: AgentRole, input: string, configId?: string, images?: ImageAttachment[]) => Promise<void>;
 
   // 取消Agent
   cancelAgent: (invocationId: string) => Promise<void>;
@@ -455,7 +455,7 @@ export const useAppStore = create<AppState & AppActions>()(
       }
     },
 
-    spawnAgent: async (role, input, configId) => {
+    spawnAgent: async (role, input, configId, images) => {
       const { currentThread, blockingItems } = get();
       if (!currentThread) return;
 
@@ -465,7 +465,7 @@ export const useAppStore = create<AppState & AppActions>()(
       }
 
       try {
-        await api.invocations.spawn(currentThread.id, role, input, configId);
+        await api.invocations.spawn(currentThread.id, role, input, configId, images);
       } catch (error) {
         set({ error: (error as Error).message });
       }

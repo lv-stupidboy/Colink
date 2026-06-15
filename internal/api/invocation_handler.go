@@ -1,7 +1,6 @@
 package api
 
 import (
-	"fmt"
 	"net/http"
 
 	"github.com/anthropic/isdp/internal/model"
@@ -51,21 +50,17 @@ func (h *InvocationHandler) Spawn(c *gin.Context) {
 		}
 	}
 
-	// Debug logging
-	fmt.Printf("[DEBUG] Spawn request: threadID=%s, role=%s, configID=%s, input=%s, projectPath=%s\n",
-		threadID, req.Role, req.ConfigID, req.Input, projectPath)
-
 	spawnReq := &agent.SpawnRequest{
 		ThreadID:    threadID,
 		Role:        req.Role,
 		Input:       req.Input,
 		ProjectPath: projectPath,
+		Images:      req.Images, // 传递图片
 	}
 
 	if req.ConfigID != "" {
 		configID, err := uuid.Parse(req.ConfigID)
 		if err != nil {
-			fmt.Printf("[DEBUG] Failed to parse configID: %v\n", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid config_id"})
 			return
 		}
@@ -74,7 +69,6 @@ func (h *InvocationHandler) Spawn(c *gin.Context) {
 
 	invocation, err := h.orchestrator.SpawnAgent(c.Request.Context(), spawnReq)
 	if err != nil {
-		fmt.Printf("[DEBUG] SpawnAgent failed: %v\n", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -160,9 +154,10 @@ func (h *InvocationHandler) ListRunning(c *gin.Context) {
 
 // SpawnRequest 启动请求
 type SpawnRequest struct {
-	ConfigID string          `json:"configId"`
-	Role     model.AgentRole `json:"role" binding:"required"`
-	Input    string          `json:"input" binding:"required"`
+	ConfigID string            `json:"configId"`
+	Role     model.AgentRole   `json:"role" binding:"required"`
+	Input    string            `json:"input" binding:"required"`
+	Images   []model.ImageContent `json:"images"` // 图片附件（多模态输入）
 }
 
 // RegisterRoutes 注册路由

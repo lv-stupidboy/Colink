@@ -96,6 +96,11 @@ func (a *ClaudeCLIAdapter) GetCurrentProcess() *exec.Cmd {
 func (a *ClaudeCLIAdapter) ExecuteWithStream(ctx context.Context, req *agent.ExecutionRequest, onChunk func(agent.Chunk)) (*agent.ExecutionResult, error) {
 	prompt := a.buildPromptFromRequest(req)
 
+	// 多模态输入：记录图片数量
+	if len(req.Images) > 0 {
+		logInfo("Claude: Multimodal input with images", zap.Int("imageCount", len(req.Images)))
+	}
+
 	// 确定会话ID：复用已有或创建新的
 	var sessionID string
 	args := []string{
@@ -135,9 +140,10 @@ func (a *ClaudeCLIAdapter) ExecuteWithStream(ctx context.Context, req *agent.Exe
 		logInfo("Claude: Injected MCP config", zap.String("mcpConfig", mcpConfig[:min(200, len(mcpConfig))]))
 	}
 
-	// 添加图片支持参数
+	// 多模态输入：stdin 写入的是 stream-json 格式的消息，必须告知 CLI 输入格式，
+	// 否则 JSON 会被当作纯文本 prompt，图片无法到达模型
 	if len(req.Images) > 0 {
-		args = append(args, "--allowedTools", "image_reader")
+		args = append(args, "--input-format", "stream-json")
 		logInfo("Claude: Image input enabled", zap.Int("imageCount", len(req.Images)))
 	}
 
