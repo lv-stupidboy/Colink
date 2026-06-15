@@ -102,12 +102,18 @@ func NewClaudeACPAdapter(baseAgent *model.BaseAgent) agent.AgentAdapter {
 			return []string{}
 		},
 		BuildEnv: func(req *agent.ExecutionRequest) []string {
-			env := make([]string, 0, 4)
+			env := make([]string, 0, 5)
 
 			// 如果使用第三方 API，不传递 ANTHROPIC_API_KEY（通过 gateway authenticate 传递）
 			// 如果使用 Anthropic 官方 API，需要传递 ANTHROPIC_API_KEY
 			if gatewayBaseURL == "" && baseAgent.ApiToken != "" {
 				env = append(env, "ANTHROPIC_API_KEY="+baseAgent.ApiToken)
+			}
+
+			// 通过环境变量设置模型（支持自定义模型）
+			// claude-agent-acp 不支持 session/set_model，configOptions 会验证模型列表
+			if baseAgent.DefaultModel != "" {
+				env = append(env, "ANTHROPIC_MODEL="+baseAgent.DefaultModel)
 			}
 
 			// Git Bash 路径（Windows）
@@ -122,10 +128,11 @@ func NewClaudeACPAdapter(baseAgent *model.BaseAgent) agent.AgentAdapter {
 
 			return env
 		},
-		// claude-agent-acp 使用 legacy API (session/set_model) 设置模型
-		// configOptions API 会验证模型是否在 options 列表中，不支持自定义模型
-		// legacy API 更宽松，可以接受任何模型名称
-		LegacyModelConfig: true,
+		// 跳过 session 级别的模型配置
+		// 模型已通过 ANTHROPIC_MODEL 环境变量在 CLI 启动时设置
+		SkipModelConfig: func(req *agent.ExecutionRequest) bool {
+			return true
+		},
 		// 用户级 MCP 配置加载函数
 		LoadUserMCPConfig: loadUserMCPConfigACP,
 		// Gateway 配置（用于第三方 API）
