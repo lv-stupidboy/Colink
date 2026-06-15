@@ -1363,11 +1363,135 @@ func (a *BaseACPAdapter) SessionResume(ctx context.Context, acpSessionID string,
 // 实现 agent.SessionResumeCapable 接口
 // 注意：会通过 session/update 通知回放所有历史消息
 func (a *BaseACPAdapter) SessionLoad(ctx context.Context, acpSessionID string, cwd string, mcpServers []interface{}) (string, error) {
-	// SessionLoad 的实现与 SessionResume 类似
-	// 主要区别是会回放历史消息（通过 session/update 通知）
-	// 这里暂时复用 SessionResume 的实现
-	// TODO: 如果需要处理历史回放，需要特殊处理 session/update 通知
-	return a.SessionResume(ctx, acpSessionID, cwd, mcpServers)
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	// 启动新进程
+	args := a.Config.BuildArgs(&agent.ExecutionRequest{WorkDir: cwd})
+	cmd := exec.CommandContext(ctx, a.Config.CliPath, args...)
+	hideCommandLineWindow(cmd)
+
+	if cwd != "" {
+		cmd.Dir = cwd
+	}
+
+	env := a.buildEnv(&agent.ExecutionRequest{WorkDir: cwd})
+	cmd.Env = env
+
+	stdinPipe, err := cmd.StdinPipe()
+	if err != nil {
+		return "", fmt.Errorf("ACP: failed to create stdin pipe: %w", err)
+	}
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return "", fmt.Errorf("ACP: failed to create stdout pipe: %w", err)
+	}
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return "", fmt.Errorf("ACP: failed to create stderr pipe: %w", err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return "", fmt.Errorf("ACP: failed to start CLI process: %w", err)
+	}
+
+	// 生成内部 session ID
+	internalSessionID := uuid.New().String()
+
+	// 创建 session context
+	sessionCtx, sessionCancel := context.WithCancel(context.Background())
+	session := &acpSession{
+		id:                 internalSessionID,
+		isdpID:             internalSessionID,
+		cmd:                cmd,
+		ctx:                sessionCtx,
+		cancel:             sessionCancel,
+		status:             agent.SessionStatusRunning,
+		stdinPipe:          stdinPipe,
+		outputUpdatedSignal: make(chan struct{}, 1),
+	}
+
+	// 启动 stderr 消费
+	go func() {
+		scanner := bufio.NewScanner(stderrPipe)
+		for scanner.Scan() {
+			line := scanner.Text()
+			LogInfo("ACP: stderr output (session/load)",
+				zap.String("sessionId", internalSessionID),
+				zap.String("line", line))
+			session.mu.Lock()
+			if session.stderrOutput.Len() < maxStderrSize {
+				session.stderrOutput.WriteString(line)
+				session.stderrOutput.WriteString("\n")
+			}
+			session.mu.Unlock()
+		}
+	}()
+
+	transport := newACPTransport(stdinPipe, stdoutPipe, func(method string, params json.RawMessage) {
+		a.handleNotification(session, method, params, nil)
+	})
+	session.transport = transport
+	transport.Start()
+
+	// Initialize
+	initResult, err := transport.SendRequest("initialize", &acpInitializeParams{
+		ProtocolVersion:    2025,
+		ClientCapabilities: acpClientCapabilities{},
+	})
+	if err != nil {
+		session.mu.Lock()
+		stderrContent := session.stderrOutput.String()
+		session.mu.Unlock()
+		transport.Close()
+		cmd.Process.Kill()
+		return "", fmt.Errorf("ACP: initialize handshake failed: %w\nstderr: %s", err, stderrContent)
+	}
+
+	var initResp acpInitializeResult
+	if err := json.Unmarshal(initResult, &initResp); err != nil {
+		LogWarn("ACP: initialize response parse warning", zap.Error(err))
+	}
+
+	// 发送 gateway authenticate（如果配置了第三方 API）
+	if err := a.sendAuthenticate(transport); err != nil {
+		session.mu.Lock()
+		stderrContent := session.stderrOutput.String()
+		session.mu.Unlock()
+		transport.Close()
+		cmd.Process.Kill()
+		return "", fmt.Errorf("ACP: gateway authenticate failed: %w\nstderr: %s", err, stderrContent)
+	}
+
+	// SessionLoad - 使用 session/load 而非 session/resume
+	loadResult, err := transport.SendRequest("session/load", &acpSessionLoadParams{
+		SessionID:  acpSessionID,
+		CWD:        cwd,
+		MCPServers: mcpServers,
+	})
+	if err != nil {
+		session.mu.Lock()
+		stderrContent := session.stderrOutput.String()
+		session.mu.Unlock()
+		transport.Close()
+		cmd.Process.Kill()
+		return "", fmt.Errorf("ACP: session/load failed: %w\nstderr: %s", err, stderrContent)
+	}
+
+	var loadResp acpSessionResumeResult // response structure is same
+	if err := json.Unmarshal(loadResult, &loadResp); err != nil {
+		LogWarn("ACP: session/load response parse warning", zap.Error(err))
+	}
+
+	// 保存 session 到 sessions map
+	a.sessions[internalSessionID] = session
+
+	LogInfo("ACP: session/load completed",
+		zap.String("internalSessionId", internalSessionID),
+		zap.String("acpSessionId", acpSessionID),
+		zap.String("cwd", cwd))
+
+	return internalSessionID, nil
 }
 
 // SessionClose 关闭会话
@@ -1553,9 +1677,10 @@ func (a *BaseACPAdapter) ExecuteWithResume(ctx context.Context, req *agent.Execu
 			return nil, "", fmt.Errorf("ACP: gateway authenticate failed: %w\nstderr: %s", err, stderrContent)
 		}
 
-		// SessionResume - 历史回放通知会被正确处理（因为 handler 已设置）
-		mcpServers := []interface{}{}
-		resumeResult, err := transport.SendRequest("session/resume", &acpSessionResumeParams{
+		// SessionLoad - 使用 session/load 回放历史（而非 session/resume）
+		// session/resume 不回放历史，session/load 会回放完整历史
+		mcpServers := a.buildMCPServers(req)
+		loadResult, err := transport.SendRequest("session/load", &acpSessionLoadParams{
 			SessionID:  acpSessionID,
 			CWD:        req.WorkDir,
 			MCPServers: mcpServers,
@@ -1570,15 +1695,15 @@ func (a *BaseACPAdapter) ExecuteWithResume(ctx context.Context, req *agent.Execu
 			a.mu.Lock()
 			delete(a.sessions, internalSessionID)
 			a.mu.Unlock()
-			return nil, "", fmt.Errorf("ACP: session/resume failed: %w\nstderr: %s", err, stderrContent)
+			return nil, "", fmt.Errorf("ACP: session/load failed: %w\nstderr: %s", err, stderrContent)
 		}
 
-		var resumeResp acpSessionResumeResult
-		if err := json.Unmarshal(resumeResult, &resumeResp); err != nil {
-			LogWarn("ACP: session/resume response parse warning", zap.Error(err))
+		var loadResp acpSessionResumeResult // response structure is same
+		if err := json.Unmarshal(loadResult, &loadResp); err != nil {
+			LogWarn("ACP: session/load response parse warning", zap.Error(err))
 		}
 
-		LogInfo("ACP: ExecuteWithResume session/resume completed",
+		LogInfo("ACP: ExecuteWithResume session/load completed",
 			zap.String("internalSessionId", internalSessionID),
 			zap.String("acpSessionId", acpSessionID),
 			zap.String("cwd", req.WorkDir))
