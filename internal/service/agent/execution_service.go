@@ -1194,6 +1194,7 @@ func isResumeFallbackError(err error) bool {
 		"invalid session",
 		"no such session",
 		"session corrupt",
+		"resource not found",    // ACP session/resume 找不到 session
 		"pipe is being closed", // 进程退出导致管道关闭
 		"broken pipe",          // 管道断裂
 		"process not alive",    // 进程已退出
