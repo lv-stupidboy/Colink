@@ -61,7 +61,7 @@ type acpSession struct {
 	duplicateUpdateCount int    // 连续重复通知计数
 	lastUpdateHash       string // 最后一次 session/update 的内容哈希（前16位）
 	// 长连接模式输出同步信号
-	lastOutputLen       int        // 上次检查时的输出长度
+	lastOutputLen       int           // 上次检查时的输出长度
 	outputUpdatedSignal chan struct{} // 输出更新信号（用于等待通知处理完成）
 	mu                  sync.Mutex
 }
@@ -250,6 +250,8 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 	if initResp.ProtocolVersion >= 2025 {
 		mcpServers = a.buildMCPServers(req)
 	}
+	mcpServersJSON, _ := json.Marshal(mcpServers)
+	LogInfo("ACP: session/new mcpServers", zap.String("mcpServers", string(mcpServersJSON)))
 
 	sessionNewResult, err := transport.SendRequest("session/new", &acpNewSessionParams{
 		CWD:        req.WorkDir,
@@ -469,6 +471,8 @@ func (a *BaseACPAdapter) StartSession(ctx context.Context, sessionID string, req
 	// 根据服务器实际支持的协议版本决定是否传递 MCP Servers
 	// ACP v1 不支持 mcpServers 字段，只有 v2025+ 支持
 	mcpServers := a.buildMCPServers(req)
+	mcpServersJSON, _ := json.Marshal(mcpServers)
+	LogInfo("ACP: StartSession session/new mcpServers", zap.String("sessionID", sessionID), zap.String("mcpServers", string(mcpServersJSON)))
 
 	sessionNewResult, err := transport.SendRequest("session/new", &acpNewSessionParams{
 		CWD:        req.WorkDir,
@@ -1154,7 +1158,6 @@ func (a *BaseACPAdapter) SendToolResult(invocationID uuid.UUID, toolCallID strin
 	return nil
 }
 
-
 // ========== ACP 原生 Session 管理 API ==========
 
 // SessionList 获取历史会话列表
@@ -1316,13 +1319,13 @@ func (a *BaseACPAdapter) SessionResume(ctx context.Context, acpSessionID string,
 	// 创建 session context
 	sessionCtx, sessionCancel := context.WithCancel(context.Background())
 	session := &acpSession{
-		id:                 internalSessionID,
-		isdpID:             internalSessionID,
-		cmd:                cmd,
-		ctx:                sessionCtx,
-		cancel:             sessionCancel,
-		status:             agent.SessionStatusRunning,
-	 stdinPipe:          stdinPipe,
+		id:                  internalSessionID,
+		isdpID:              internalSessionID,
+		cmd:                 cmd,
+		ctx:                 sessionCtx,
+		cancel:              sessionCancel,
+		status:              agent.SessionStatusRunning,
+		stdinPipe:           stdinPipe,
 		outputUpdatedSignal: make(chan struct{}, 1),
 	}
 
@@ -1451,13 +1454,13 @@ func (a *BaseACPAdapter) SessionLoad(ctx context.Context, acpSessionID string, c
 	// 创建 session context
 	sessionCtx, sessionCancel := context.WithCancel(context.Background())
 	session := &acpSession{
-		id:                 internalSessionID,
-		isdpID:             internalSessionID,
-		cmd:                cmd,
-		ctx:                sessionCtx,
-		cancel:             sessionCancel,
-		status:             agent.SessionStatusRunning,
-		stdinPipe:          stdinPipe,
+		id:                  internalSessionID,
+		isdpID:              internalSessionID,
+		cmd:                 cmd,
+		ctx:                 sessionCtx,
+		cancel:              sessionCancel,
+		status:              agent.SessionStatusRunning,
+		stdinPipe:           stdinPipe,
 		outputUpdatedSignal: make(chan struct{}, 1),
 	}
 
@@ -1734,9 +1737,14 @@ func (a *BaseACPAdapter) ExecuteWithResume(ctx context.Context, req *agent.Execu
 		// SessionResume - 使用 session/resume（不回放历史）
 		// session/resume 不回放历史消息，只继承上下文
 		// session/load 会回放完整历史消息给客户端
-		mcpServers := a.buildMCPServers(req)
+		// 根据服务器实际支持的协议版本决定是否传递 MCP Servers
+		// ACP v1 不支持 mcpServers 字段，只有 v2025+ 支持
+		mcpServers := []interface{}{}
+		if initResp.ProtocolVersion >= 2025 {
+			mcpServers = a.buildMCPServers(req)
+		}
 		mcpServersJSON, _ := json.Marshal(mcpServers)
-		LogInfo("ACP: session/resume mcpServers", zap.String("mcpServers", string(mcpServersJSON)))
+		LogInfo("ACP: session/resume mcpServers", zap.Int("protocolVersion", initResp.ProtocolVersion), zap.String("mcpServers", string(mcpServersJSON)))
 		resumeResult, err := transport.SendRequest("session/resume", &acpSessionResumeParams{
 			SessionID:  acpSessionID,
 			CWD:        req.WorkDir,
