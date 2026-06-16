@@ -194,7 +194,8 @@ func parseACPToolCallUpdate(raw json.RawMessage) ([]agent.Chunk, error) {
 		zap.String("toolCallId", update.ToolCallID),
 		zap.String("status", update.Status),
 		zap.Bool("isError", isError),
-		zap.Int("contentLen", len(content)))
+		zap.Int("contentLen", len(content)),
+		zap.String("contentPreview", content[:min(500, len(content))]))
 
 	return []agent.Chunk{{
 		Type:    agent.ChunkTypeToolResult,
@@ -283,8 +284,8 @@ func parseQuestionsFromInput(input map[string]interface{}) []agent.QuestionItem 
 		for _, q := range questionsArray {
 			if qMap, ok := q.(map[string]interface{}); ok {
 				question := agent.QuestionItem{
-					Header:     getStringFromMap(qMap, "header"),
-					Question:   getStringFromMap(qMap, "question"),
+					Header:      getStringFromMap(qMap, "header"),
+					Question:    getStringFromMap(qMap, "question"),
 					MultiSelect: getBoolFromMap(qMap, "multiSelect"),
 				}
 

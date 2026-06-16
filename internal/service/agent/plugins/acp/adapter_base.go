@@ -619,7 +619,8 @@ func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, 
 		// 高频通知（session/update 等）使用 Debug 级别
 		LogDebug("ACP: received notification",
 			zap.String("method", method),
-			zap.String("sessionId", session.id))
+			zap.String("sessionId", session.id),
+			zap.String("paramsPreview", string(params)[:min(200, len(params))]))
 	}
 
 	switch method {
