@@ -146,11 +146,24 @@ func parseACPToolCall(raw json.RawMessage, session *acpSession) ([]agent.Chunk, 
 }
 
 func parseACPToolCallUpdate(raw json.RawMessage) ([]agent.Chunk, error) {
+	// 首先打印完整的 raw JSON，便于调试
+	LogInfo("ACP: parseACPToolCallUpdate raw JSON",
+		zap.String("raw", string(raw)))
+
 	var update acpToolCallUpdate
 	if err := json.Unmarshal(raw, &update); err != nil {
 		LogError("ACP: failed to parse tool_call_update", zap.Error(err))
 		return nil, fmt.Errorf("ACP: parse tool_call_update: %w", err)
 	}
+
+	// 打印解析后的字段
+	LogInfo("ACP: parseACPToolCallUpdate parsed",
+		zap.String("toolCallId", update.ToolCallID),
+		zap.String("status", update.Status),
+		zap.String("title", update.Title),
+		zap.String("kind", update.Kind),
+		zap.Any("rawInput", update.RawInput),
+		zap.Int("contentBlocksCount", len(update.Content)))
 
 	status := strings.ToLower(update.Status)
 
