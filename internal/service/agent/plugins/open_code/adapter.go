@@ -10,6 +10,19 @@ import (
 	"github.com/anthropic/isdp/internal/service/agent/plugins/acp"
 )
 
+// openCodeProviderID 是注入到 OpenCode 配置中的自定义 provider 名。
+// 模型在配置和 ACP set_config_option 两处都必须以 "<provider>/<model>" 形式引用，
+// 否则 OpenCode 会把裸模型名当成 provider 解析（报 ProviderModelNotFoundError 或命中错误的能力配置）。
+const openCodeProviderID = "colink"
+
+// openCodeModelRef 返回带 provider 前缀的模型引用，如 "colink/qwen3.7-plus"。
+func openCodeModelRef(defaultModel string) string {
+	if defaultModel == "" {
+		return ""
+	}
+	return openCodeProviderID + "/" + defaultModel
+}
+
 // OpenCodeAdapter implements AgentAdapter using ACP protocol.
 // Renamed from OpenCodeACPAdapter (ACP suffix removed).
 type OpenCodeAdapter struct {
@@ -60,6 +73,10 @@ func NewOpenCodeAdapter(baseAgent *model.BaseAgent) agent.AgentAdapter {
 		SkipModelConfig: func(req *agent.ExecutionRequest) bool {
 			return false // 始终调用 session/set_model
 		},
+		// 设置模型时使用带 provider 前缀的引用，与注入配置中的 config.Model 保持一致
+		ModelRef: func() string {
+			return openCodeModelRef(baseAgent.DefaultModel)
+		},
 	}
 
 	return &OpenCodeAdapter{
@@ -83,7 +100,7 @@ func buildOpenCodeConfigContent(baseAgent *model.BaseAgent) string {
 	// 使用 "@ai-sdk/openai-compatible" 作为 npm 包，支持 OpenAI Compatible API
 	config := openCodeConfig{
 		Provider: map[string]openCodeProvider{
-			"colink": {
+			openCodeProviderID: {
 				Name: "Colink Provider",
 				Npm:  "@ai-sdk/openai-compatible",
 				Options: openCodeProviderOptions{
@@ -96,15 +113,23 @@ func buildOpenCodeConfigContent(baseAgent *model.BaseAgent) string {
 
 	// 如果指定了模型，配置模型和默认使用
 	if baseAgent.DefaultModel != "" {
-		provider := config.Provider["colink"]
+		provider := config.Provider[openCodeProviderID]
 		provider.Models = map[string]openCodeModel{
 			baseAgent.DefaultModel: {
 				ID:   baseAgent.DefaultModel,
 				Name: baseAgent.DefaultModel,
+				// 声明模型支持图片/文件附件，否则 OpenCode 默认 false 会拦截图片不发给模型
+				Attachment: true,
+				// 关键：必须声明 input modalities 含 image，OpenCode 才会把图片真正发给模型；
+				// 仅 attachment:true 不够（自定义 openai-compatible provider 不会从 models.dev 推断能力）
+				Modalities: &openCodeModalities{
+					Input:  []string{"text", "image"},
+					Output: []string{"text"},
+				},
 			},
 		}
-		config.Provider["colink"] = provider
-		config.Model = "colink/" + baseAgent.DefaultModel
+		config.Provider[openCodeProviderID] = provider
+		config.Model = openCodeModelRef(baseAgent.DefaultModel)
 	}
 
 	// 序列化为 JSON
@@ -124,10 +149,10 @@ type openCodeConfig struct {
 
 // openCodeProvider Provider 配置结构
 type openCodeProvider struct {
-	Name    string                  `json:"name,omitempty"`
-	Npm     string                  `json:"npm,omitempty"`  // npm 包名，如 "@ai-sdk/openai-compatible"
-	Env     []string                `json:"env,omitempty"`  // 环境变量列表
-	Options openCodeProviderOptions `json:"options,omitempty"`
+	Name    string                   `json:"name,omitempty"`
+	Npm     string                   `json:"npm,omitempty"` // npm 包名，如 "@ai-sdk/openai-compatible"
+	Env     []string                 `json:"env,omitempty"` // 环境变量列表
+	Options openCodeProviderOptions  `json:"options,omitempty"`
 	Models  map[string]openCodeModel `json:"models,omitempty"`
 }
 
@@ -139,6 +164,14 @@ type openCodeProviderOptions struct {
 
 // openCodeModel Model 配置
 type openCodeModel struct {
-	ID   string `json:"id,omitempty"`
-	Name string `json:"name,omitempty"`
+	ID         string              `json:"id,omitempty"`
+	Name       string              `json:"name,omitempty"`
+	Attachment bool                `json:"attachment,omitempty"` // 是否支持图片/文件附件
+	Modalities *openCodeModalities `json:"modalities,omitempty"` // 输入/输出模态（含 image 时才会发送图片）
+}
+
+// openCodeModalities 模型输入/输出模态
+type openCodeModalities struct {
+	Input  []string `json:"input,omitempty"`  // 如 ["text","image"]
+	Output []string `json:"output,omitempty"` // 如 ["text"]
 }

@@ -130,17 +130,9 @@ type acpPromptParams struct {
 type acpContentBlock struct {
 	Type     string          `json:"type"` // ACP: "text", "resource", "image", "content" (OpenCode nested)
 	Text     string          `json:"text,omitempty"`
-	MimeType string          `json:"mimeType,omitempty"`
-	Data     string          `json:"data,omitempty"`
-	Source   *acpImageSource `json:"source,omitempty"` // ACP image source format
-	Content  json.RawMessage `json:"content,omitempty"` // OpenCode nested content: {"type":"text","text":"..."}
-}
-
-// acpImageSource ACP 图片源格式
-type acpImageSource struct {
-	Type      string `json:"type"`       // "base64"
-	MediaType string `json:"media_type"` // "image/png", "image/jpeg"
-	Data      string `json:"data"`       // base64 data
+	MimeType string          `json:"mimeType,omitempty"` // ACP ImageContent: 顶层 mimeType
+	Data     string          `json:"data,omitempty"`     // ACP ImageContent: 顶层 base64 data
+	Content  json.RawMessage `json:"content,omitempty"`  // OpenCode nested content: {"type":"text","text":"..."}
 }
 
 type acpPromptResult struct {
@@ -188,9 +180,9 @@ type acpToolCallUpdate struct {
 
 type acpUsageUpdate struct {
 	SessionUpdate string          `json:"sessionUpdate"`
-	Used          int64           `json:"used"`              // 已使用的 context tokens（ACP 协议必需）
-	Size          int64           `json:"size"`              // context 总容量（ACP 协议必需）
-	Cost          json.RawMessage `json:"cost,omitempty"`    // 累计成本（可选）
+	Used          int64           `json:"used"`           // 已使用的 context tokens（ACP 协议必需）
+	Size          int64           `json:"size"`           // context 总容量（ACP 协议必需）
+	Cost          json.RawMessage `json:"cost,omitempty"` // 累计成本（可选）
 }
 
 type acpPlanUpdate struct {
@@ -241,9 +233,9 @@ type acpSessionInfo struct {
 // acpSessionResumeParams session/resume 请求参数
 // 恢复已有会话（不回放历史）
 type acpSessionResumeParams struct {
-	SessionID   string        `json:"sessionId"`   // 要恢复的 session ID
-	CWD         string        `json:"cwd"`         // 工作目录
-	MCPServers  []interface{} `json:"mcpServers"`  // MCP servers 配置
+	SessionID  string        `json:"sessionId"`  // 要恢复的 session ID
+	CWD        string        `json:"cwd"`        // 工作目录
+	MCPServers []interface{} `json:"mcpServers"` // MCP servers 配置
 }
 
 // acpSessionResumeResult session/resume 响应结果
@@ -256,9 +248,9 @@ type acpSessionResumeResult struct {
 // acpSessionLoadParams session/load 请求参数
 // 加载已有会话（回放完整历史）
 type acpSessionLoadParams struct {
-	SessionID   string        `json:"sessionId"`   // 要加载的 session ID
-	CWD         string        `json:"cwd"`         // 工作目录
-	MCPServers  []interface{} `json:"mcpServers"`  // MCP servers 配置
+	SessionID  string        `json:"sessionId"`  // 要加载的 session ID
+	CWD        string        `json:"cwd"`        // 工作目录
+	MCPServers []interface{} `json:"mcpServers"` // MCP servers 配置
 }
 
 // acpSessionCloseParams session/close 请求参数

@@ -30,6 +30,9 @@ type AcpAdapterConfig struct {
 	BuildEnv          func(req *agent.ExecutionRequest) []string
 	SkipModelConfig   func(req *agent.ExecutionRequest) bool // 如果返回 true，跳过默认模型配置
 	LegacyModelConfig bool                                   // 如果 true，使用 session/set_model 而非 configOptions
+	// ModelRef 返回设置模型时使用的引用字符串。某些 CLI（如 OpenCode）要求 "provider/model"
+	// 格式，与配置中注册的 provider 前缀一致。为 nil 时直接使用 baseAgent.DefaultModel。
+	ModelRef func() string
 	// Gateway 配置（用于第三方 API）
 	// 如果设置了 GatewayBaseURL，会在 initialize 后发送 authenticate 请求
 	GatewayBaseURL string            // 第三方 API 地址（如 https://coding.dashscope.aliyuncs.com/apps/anthropic/v1）
@@ -809,15 +812,13 @@ func (a *BaseACPAdapter) buildPromptFromRequest(req *agent.ExecutionRequest) str
 func (a *BaseACPAdapter) buildContentBlocks(text string, images []model.ImageContent) []acpContentBlock {
 	blocks := []acpContentBlock{{Type: "text", Text: text}}
 
-	// 添加图片内容块（使用 ACP source 格式）
+	// 添加图片内容块：ACP ImageContent 要求顶层 mimeType + data（base64），
+	// 不是 Anthropic Messages API 的嵌套 source 格式
 	for _, img := range images {
 		blocks = append(blocks, acpContentBlock{
-			Type: "image",
-			Source: &acpImageSource{
-				Type:      "base64",
-				MediaType: img.MimeType,
-				Data:      img.Data,
-			},
+			Type:     "image",
+			MimeType: img.MimeType,
+			Data:     img.Data,
 		})
 	}
 
@@ -1020,6 +1021,13 @@ func (a *BaseACPAdapter) configureSession(transport *acpTransport, session *acpS
 	}
 
 	desiredModel := a.baseAgent.DefaultModel
+	// 某些 CLI 要求带 provider 前缀的模型引用（如 OpenCode 的 "colink/qwen3.7-plus"），
+	// 否则会把裸模型名当成 provider 解析，导致 ProviderModelNotFoundError
+	if a.Config.ModelRef != nil {
+		if ref := a.Config.ModelRef(); ref != "" {
+			desiredModel = ref
+		}
+	}
 
 	// 如果插件指定使用 legacy API
 	if a.Config.LegacyModelConfig {
