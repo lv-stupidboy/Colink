@@ -794,8 +794,9 @@ const ThreadView: React.FC = () => {
       }
       case 'agent_message': {
         // Agent 完成消息：后端已保存到数据库并广播真实ID
-        // payload 包含: messageId（真实UUID）、agentId、content、contentBlocks、agentName、agentRole、metadata
+        // payload 包含: messageId（真实UUID）、invocationId、agentId、content、contentBlocks、agentName、agentRole、metadata
         const realMessageId = data.payload.messageId as string;
+        const invocationIdFromPayload = data.payload.invocationId as string;
         const agentId = data.payload.agentId as string;
         const content = data.payload.content as string;
         // 转换 contentBlocks 为 camelCase（后端返回 snake_case）
@@ -822,8 +823,9 @@ const ThreadView: React.FC = () => {
           // 同时更新 agentName 和 agentRole 以及 metadata
           useAppStore.getState().replaceMessageId(tempId, realMessageId, contentBlocks, agentName, agentRole, metadataFromPayload);
         } else {
-          // 非流式场景：检查是否已有临时消息（可能由 agent_status/completed 创建）
-          const tempId = `agent-${realMessageId}`;
+          // 非流式场景：检查是否已有临时消息
+          // 优先使用 payload 中的 invocationId（取消/中断场景下前端 invocationId 已被重置）
+          const tempId = invocationIdFromPayload ? `agent-${invocationIdFromPayload}` : `agent-${realMessageId}`;
           const existingTemp = state.messages.find(m => m.id === tempId);
           if (existingTemp) {
             // 替换临时ID为真实ID，同时替换contentBlocks和metadata

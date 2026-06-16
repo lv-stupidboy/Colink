@@ -704,9 +704,9 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 				}
 				outputForSave := outputBuilderForSave.String()
 
-				msgForSave := es.saveAgentMessageWithReturn(saveCtx, req.ThreadID, config, baseAgent, outputForSave, contentBlocksForSave)
+				msgForSave := es.saveAgentMessageWithReturn(saveCtx, req.ThreadID, invocation.ID, config, baseAgent, outputForSave, contentBlocksForSave)
 				if msgForSave != nil {
-					es.broadcastAgentMessage(req.ThreadID, msgForSave, config.Name, string(config.Role))
+					es.broadcastAgentMessage(req.ThreadID, invocation.ID, msgForSave, config.Name, string(config.Role))
 				}
 				logInfo("Interrupted: saved agent message to database",
 					zap.String("invocationID", invocation.ID.String()),
@@ -846,11 +846,11 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 	}
 
 	// 保存输出消息到数据库（包含内容块）
-	msg := es.saveAgentMessageWithReturn(ctx, req.ThreadID, config, baseAgent, output, contentBlocks)
+	msg := es.saveAgentMessageWithReturn(ctx, req.ThreadID, invocation.ID, config, baseAgent, output, contentBlocks)
 
 	// 广播消息（让前端用真实 ID 更新）
 	if msg != nil {
-		es.broadcastAgentMessage(req.ThreadID, msg, config.Name, string(config.Role))
+		es.broadcastAgentMessage(req.ThreadID, invocation.ID, msg, config.Name, string(config.Role))
 	}
 
 	// 广播完成状态
@@ -1024,10 +1024,12 @@ func (es *ExecutionService) saveAgentMessage(ctx context.Context, threadID uuid.
 }
 
 // saveAgentMessageWithReturn 保存Agent消息并返回消息对象（含真实ID）
-func (es *ExecutionService) saveAgentMessageWithReturn(ctx context.Context, threadID uuid.UUID, config *model.AgentRoleConfig, baseAgent *model.BaseAgent, output string, contentBlocks []ContentBlockData) *model.Message {
+// invocationID 用于前端关联临时消息和真实消息
+func (es *ExecutionService) saveAgentMessageWithReturn(ctx context.Context, threadID uuid.UUID, invocationID uuid.UUID, config *model.AgentRoleConfig, baseAgent *model.BaseAgent, output string, contentBlocks []ContentBlockData) *model.Message {
 	metadata := map[string]string{
-		"agentName": config.Name,
-		"agentRole": string(config.Role),
+		"agentName":    config.Name,
+		"agentRole":    string(config.Role),
+		"invocationId": invocationID.String(),
 	}
 	// 添加基础Agent信息
 	if baseAgent != nil {
@@ -1065,7 +1067,8 @@ func (es *ExecutionService) saveAgentMessageWithReturn(ctx context.Context, thre
 }
 
 // broadcastAgentMessage 广播Agent消息（让前端用真实ID更新）
-func (es *ExecutionService) broadcastAgentMessage(threadID uuid.UUID, msg *model.Message, agentName, agentRole string) {
+// invocationID 用于前端关联临时消息和真实消息
+func (es *ExecutionService) broadcastAgentMessage(threadID uuid.UUID, invocationID uuid.UUID, msg *model.Message, agentName, agentRole string) {
 	if es.wsHub != nil {
 		// 解析内容块
 		var contentBlocks []ContentBlockData
@@ -1085,6 +1088,7 @@ func (es *ExecutionService) broadcastAgentMessage(threadID uuid.UUID, msg *model
 			Timestamp: msg.CreatedAt.UnixMilli(),
 			Payload: map[string]interface{}{
 				"messageId":     msg.ID.String(),
+				"invocationId":  invocationID.String(),
 				"agentId":       msg.AgentID,
 				"content":       msg.Content,
 				"contentBlocks": contentBlocks,
@@ -2575,11 +2579,11 @@ func (es *ExecutionService) CancelAgent(ctx context.Context, invocationID uuid.U
 			if config != nil {
 				// 使用新的 context 保存消息（因为当前 ctx 可能已被取消）
 				saveCtx, saveCancel := context.WithTimeout(context.Background(), 5*time.Second)
-				msgForSave := es.saveAgentMessageWithReturn(saveCtx, invocation.ThreadID, config, baseAgent, outputForSave, contentBlocksForSave)
+				msgForSave := es.saveAgentMessageWithReturn(saveCtx, invocation.ThreadID, invocationID, config, baseAgent, outputForSave, contentBlocksForSave)
 				saveCancel()
 
 				if msgForSave != nil {
-					es.broadcastAgentMessage(invocation.ThreadID, msgForSave, config.Name, string(config.Role))
+					es.broadcastAgentMessage(invocation.ThreadID, invocationID, msgForSave, config.Name, string(config.Role))
 					logInfo("CancelAgent: saved agent message to database",
 						zap.String("invocationID", invocationID.String()),
 						zap.Int("contentBlocksCount", len(contentBlocksForSave)))
