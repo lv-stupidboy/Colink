@@ -33,7 +33,7 @@ type SkillScanner struct {
 	bindingRepo     *repo.AgentSkillBindingRepository // 角色-Skill 关联
 	agentConfigRepo *repo.AgentConfigRepository       // 角色配置
 	storagePath     string
-	agentConfigPath string                            // agent-configs 目录路径
+	agentConfigPath string // agent-configs 目录路径
 	logger          *zap.Logger
 	cloneTimeout    time.Duration // git clone 超时时间
 	scanPoolSize    int           // 扫描并发数
@@ -59,8 +59,8 @@ func NewSkillScanner(
 		agentConfigPath: agentConfigPath,
 		logger:          logger,
 		cloneTimeout:    120 * time.Second, // 默认120秒
-		scanPoolSize:    10,                 // 默认扫描并发数
-		importPoolSize:  5,                  // 默认导入并发数（导入较慢）
+		scanPoolSize:    10,                // 默认扫描并发数
+		importPoolSize:  5,                 // 默认导入并发数（导入较慢）
 	}
 }
 
@@ -172,20 +172,20 @@ func (s *SkillScanner) ScanRegistry(ctx context.Context, registryID uuid.UUID) (
 		existing, err := s.skillRepo.FindByName(ctx, skill.Name)
 		if err == nil && existing != nil {
 			skill.ExistsLocally = true
-				// 填充本地 Skill 详情
-				skill.LocalSkill = &model.LocalSkillInfo{
-					ID:          existing.ID,
-					SourceType:  string(existing.SourceType),
-					Description: existing.Description,
+			// 填充本地 Skill 详情
+			skill.LocalSkill = &model.LocalSkillInfo{
+				ID:          existing.ID,
+				SourceType:  string(existing.SourceType),
+				Description: existing.Description,
+			}
+			// 如果是 federated 类型，查询联邦源名称
+			if existing.SourceType == model.SkillSourceFederated && existing.SourceRegistryID != uuid.Nil {
+				registry, err := s.registryRepo.FindByID(ctx, existing.SourceRegistryID)
+				if err == nil && registry != nil {
+					skill.LocalSkill.SourceRegistryID = existing.SourceRegistryID
+					skill.LocalSkill.SourceRegistryName = registry.Name
 				}
-				// 如果是 federated 类型，查询联邦源名称
-				if existing.SourceType == model.SkillSourceFederated && existing.SourceRegistryID != uuid.Nil {
-					registry, err := s.registryRepo.FindByID(ctx, existing.SourceRegistryID)
-					if err == nil && registry != nil {
-						skill.LocalSkill.SourceRegistryID = existing.SourceRegistryID
-						skill.LocalSkill.SourceRegistryName = registry.Name
-					}
-				}
+			}
 		} else {
 			skill.ExistsLocally = false
 		}
@@ -450,7 +450,7 @@ func (s *SkillScanner) parseSkillMDContent(content string) (name string, descrip
 		// 找到结束的 ---
 		endIndex := strings.Index(content[3:], "---")
 		if endIndex != -1 {
-			frontMatter := content[3:endIndex+3]
+			frontMatter := content[3 : endIndex+3]
 			// 简单解析 YAML（不使用 yaml 库）
 			lines := strings.Split(frontMatter, "\n")
 			for _, line := range lines {
@@ -523,6 +523,9 @@ func (s *SkillScanner) cleanSkillName(name string) string {
 		return ""
 	}
 
+	// 保存原始名称作为备用
+	originalName := name
+
 	// 转小写
 	name = strings.ToLower(name)
 
@@ -534,6 +537,16 @@ func (s *SkillScanner) cleanSkillName(name string) string {
 
 	// 移除两端的连字符
 	name = strings.Trim(name, "-")
+
+	// 如果清理后为空，使用原始名称（去除空格，转小写）
+	if name == "" {
+		name = strings.ToLower(strings.ReplaceAll(originalName, " ", "-"))
+		name = strings.Trim(name, "-")
+		// 如果仍然为空，使用 "skill-" + UUID前8位
+		if name == "" {
+			name = "skill-" + uuid.New().String()[:8]
+		}
+	}
 
 	// 确保以字母开头
 	if len(name) > 0 && !startsWithLetterRegex.MatchString(name) {
@@ -579,7 +592,7 @@ func (s *SkillScanner) ImportSkills(ctx context.Context, req *model.BatchImportR
 
 	// 使用 goroutine pool 进行并发导入
 	imported := make([]*model.Skill, 0, len(req.Skills))
-	updated := make([]*model.Skill, 0, len(req.Skills))  // 更新的 Skill 列表
+	updated := make([]*model.Skill, 0, len(req.Skills)) // 更新的 Skill 列表
 	skipped := make([]model.SkippedSkillInfo, 0, len(req.Skills))
 
 	// 冲突统计
@@ -587,7 +600,7 @@ func (s *SkillScanner) ImportSkills(ctx context.Context, req *model.BatchImportR
 
 	// 创建通道收集结果
 	importChan := make(chan *model.Skill, len(req.Skills))
-	updateChan := make(chan *model.Skill, len(req.Skills))  // 更新结果通道
+	updateChan := make(chan *model.Skill, len(req.Skills)) // 更新结果通道
 	skipChan := make(chan model.SkippedSkillInfo, len(req.Skills))
 	errChan := make(chan error, len(req.Skills))
 	// 冲突统计通道
@@ -613,66 +626,66 @@ func (s *SkillScanner) ImportSkills(ctx context.Context, req *model.BatchImportR
 			// 加锁防止同批次目录复制冲突（仅用于目录操作）
 			nameMu.Lock()
 
-					// 确定导入模式（默认 create）
-					importMode := item.ImportMode
-					if importMode == "" {
-						importMode = "create"
-					}
+			// 确定导入模式（默认 create）
+			importMode := item.ImportMode
+			if importMode == "" {
+				importMode = "create"
+			}
 
-					if importMode == "update" {
-						// 更新模式：需要 targetSkillID
-						if item.TargetSkillID == uuid.Nil {
-							nameMu.Unlock()
-							errChan <- fmt.Errorf("更新模式需要指定 targetSkillId: %s", item.Name)
-							return
-						}
+			if importMode == "update" {
+				// 更新模式：需要 targetSkillID
+				if item.TargetSkillID == uuid.Nil {
+					nameMu.Unlock()
+					errChan <- fmt.Errorf("更新模式需要指定 targetSkillId: %s", item.Name)
+					return
+				}
 
-						// 获取现有 Skill
-						existing, err := s.skillRepo.FindByID(ctx, item.TargetSkillID)
-						if err != nil {
-							nameMu.Unlock()
-							errChan <- fmt.Errorf("找不到目标 Skill %s: %w", item.Name, err)
-							return
-						}
+				// 获取现有 Skill
+				existing, err := s.skillRepo.FindByID(ctx, item.TargetSkillID)
+				if err != nil {
+					nameMu.Unlock()
+					errChan <- fmt.Errorf("找不到目标 Skill %s: %w", item.Name, err)
+					return
+				}
 
-						// 更新元数据（替换策略）
-						existing.Description = item.Description
-						existing.Tags = item.Tags
-						existing.SupportedAgents = item.SupportedAgents
-						existing.SourceType = model.SkillSourceFederated
-						existing.SourceRegistryID = registry.ID
-						existing.SourcePath = item.Path // 联邦源仓库相对路径
-						existing.UpdatedAt = time.Now()
+				// 更新元数据（替换策略）
+				existing.Description = item.Description
+				existing.Tags = item.Tags
+				existing.SupportedAgents = item.SupportedAgents
+				existing.SourceType = model.SkillSourceFederated
+				existing.SourceRegistryID = registry.ID
+				existing.SourcePath = item.Path // 联邦源仓库相对路径
+				existing.UpdatedAt = time.Now()
 
-						// 更新文件目录
-						srcDir := filepath.Join(tempDir, item.Path)
-						dstDir := filepath.Join(s.storagePath, existing.ID.String())
-						if err := s.updateSkillFiles(srcDir, dstDir); err != nil {
-							nameMu.Unlock()
-							errChan <- fmt.Errorf("更新 Skill 文件 %s 失败: %w", item.Name, err)
-							return
-						}
+				// 更新文件目录
+				srcDir := filepath.Join(tempDir, item.Path)
+				dstDir := filepath.Join(s.storagePath, existing.ID.String())
+				if err := s.updateSkillFiles(srcDir, dstDir); err != nil {
+					nameMu.Unlock()
+					errChan <- fmt.Errorf("更新 Skill 文件 %s 失败: %w", item.Name, err)
+					return
+				}
 
-						// 保存更新
-						if err := s.skillRepo.Update(ctx, existing); err != nil {
-							nameMu.Unlock()
-							errChan <- fmt.Errorf("更新 Skill 记录 %s 失败: %w", item.Name, err)
-							return
-						}
+				// 保存更新
+				if err := s.skillRepo.Update(ctx, existing); err != nil {
+					nameMu.Unlock()
+					errChan <- fmt.Errorf("更新 Skill 记录 %s 失败: %w", item.Name, err)
+					return
+				}
 
-						// 刷新关联角色的配置目录
-						refreshErrors := s.RefreshAgentConfigsForSkill(ctx, existing.ID)
-						if len(refreshErrors) > 0 {
-							refreshErrChan <- refreshErrors
-						}
+				// 刷新关联角色的配置目录
+				refreshErrors := s.RefreshAgentConfigsForSkill(ctx, existing.ID)
+				if len(refreshErrors) > 0 {
+					refreshErrChan <- refreshErrors
+				}
 
-						nameMu.Unlock()
-						updateChan <- existing
-						userUpdateChan <- struct{}{}
-						return
-					}
+				nameMu.Unlock()
+				updateChan <- existing
+				userUpdateChan <- struct{}{}
+				return
+			}
 
-					// 创建模式：创建 Skill 记录
+			// 创建模式：创建 Skill 记录
 
 			// 创建 Skill 记录
 			skill := &model.Skill{
