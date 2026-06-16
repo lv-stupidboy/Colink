@@ -933,8 +933,9 @@ func (a *BaseACPAdapter) buildMCPServers(req *agent.ExecutionRequest) []interfac
 	LogInfo("ACP: MCP server path", zap.String("path", mcpServerPath))
 
 	// 3. 构建 memory MCP server 配置
-	// ACP 协议：stdio 类型不需要 type 字段，env 是数组格式 [{name, value}]
+	// ACP 协议：添加 type 字段以兼容 OpenCode
 	mcpServer := map[string]interface{}{
+		"type":    "stdio",
 		"name":    "isdp-memory",
 		"command": mcpServerPath,
 		"args":    []string{},
@@ -1007,7 +1008,8 @@ func convertUserMCPToACPFormat(userMCP map[string]interface{}) []interface{} {
 			acpServer["headers"] = headersArray
 
 		default:
-			// Stdio transport（默认）: 不需要 type 字段
+			// Stdio transport（默认）: 添加 type 字段以兼容 OpenCode
+			acpServer["type"] = "stdio"
 			// 复制各个字段
 			if cmd, ok := configMap["command"].(string); ok {
 				acpServer["command"] = cmd
