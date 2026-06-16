@@ -167,32 +167,27 @@ func parseACPToolCallUpdate(raw json.RawMessage) ([]agent.Chunk, error) {
 
 	status := strings.ToLower(update.Status)
 
-	// in_progress 状态：发送 tool_use chunk 更新 input（初始 tool_call 可能没有 input）
-	if status == "in_progress" || status == "pending" {
+	// 空状态 + 空内容：当作工具调用开始处理（发送 tool_use chunk）
+	// 只有 status 为 "completed" 或 "failed" 时才当作完成处理
+	if status == "" || status == "in_progress" || status == "pending" {
 		var toolInput map[string]interface{}
 		if m, ok := update.RawInput.(map[string]interface{}); ok {
 			toolInput = m
 		}
 
-		// 如果有 rawInput，发送更新
-		if len(toolInput) > 0 {
-			LogDebug("ACP: tool_call_update with input",
-				zap.String("toolCallId", update.ToolCallID),
-				zap.String("status", update.Status),
-				zap.Any("rawInput", toolInput))
-
-			return []agent.Chunk{{
-				Type:      agent.ChunkTypeToolUse,
-				ToolName:  update.Title,
-				ToolID:    update.ToolCallID,
-				ToolInput: toolInput,
-			}}, nil
-		}
-
-		LogDebug("ACP: skip tool_call_update without input",
+		// 发送 tool_use chunk（即使 input 为空，也通知前端工具调用开始）
+		LogInfo("ACP: tool_call_update as tool_use",
+			zap.String("toolCallId", update.ToolCallID),
 			zap.String("status", update.Status),
-			zap.String("toolCallId", update.ToolCallID))
-		return nil, nil
+			zap.String("title", update.Title),
+			zap.Any("rawInput", toolInput))
+
+		return []agent.Chunk{{
+			Type:      agent.ChunkTypeToolUse,
+			ToolName:  update.Title,
+			ToolID:    update.ToolCallID,
+			ToolInput: toolInput,
+		}}, nil
 	}
 
 	// completed/failed 状态：发送 tool_result
