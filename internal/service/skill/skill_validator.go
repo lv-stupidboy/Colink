@@ -8,9 +8,9 @@ import (
 
 // ValidationResult 校验结果
 type ValidationResult struct {
-	Valid       bool     `json:"valid"`        // 是否合规
-	Errors      []string `json:"errors"`       // 错误列表
-	Suggestions []string `json:"suggestions"`  // 补充建议
+	Valid       bool     `json:"valid"`       // 是否合规
+	Errors      []string `json:"errors"`      // 错误列表
+	Suggestions []string `json:"suggestions"` // 补充建议
 }
 
 // SkillValidator Skill 输出校验器
@@ -29,7 +29,7 @@ func NewSkillValidator(registry *SkillRegistry) *SkillValidator {
 // ValidateHandoff 校验 a2a-handoff 输出格式
 // 规则（参考 clowder-ai cross-cat-handoff）：
 // 1. 检测到 @mention 时必须存在 <a2a-handoff> 块
-// 2. 五件套字段必须完整（What/Why/Tradeoff/Open Questions/Next Action）
+// 2. 五件套字段必须完整（Goal/Context/Done/Constraints/Task）
 // 3. 每个部分至少一句话（内容长度 >= 10）
 // 注意：文件路径是场景相关的，不强制要求
 func (v *SkillValidator) ValidateHandoff(output string) ValidationResult {
@@ -118,11 +118,11 @@ func (v *SkillValidator) extractHandoffBlock(output string) (string, bool) {
 // validateFiveParts 校验五件套完整性
 func (v *SkillValidator) validateFiveParts(handoffContent string, result *ValidationResult) {
 	requiredParts := []string{
-		"### What",
-		"### Why",
-		"### Tradeoff",
-		"### Open Questions",
-		"### Next Action",
+		"### Goal",
+		"### Context",
+		"### Done",
+		"### Constraints",
+		"### Task",
 	}
 
 	for _, part := range requiredParts {
@@ -150,7 +150,7 @@ func (v *SkillValidator) validateFilePaths(handoffContent string, result *Valida
 // checkFilePathSuggestion 检查文件路径建议（不强制，只提示）
 // 参考 clowder-ai：交付件应落地，下游 Agent 才能看到详情
 func (v *SkillValidator) checkFilePathSuggestion(handoffContent string, result *ValidationResult) {
-	whatContent := v.extractPartContent(handoffContent, "### What")
+	doneContent := v.extractPartContent(handoffContent, "### Done")
 
 	// 文件路径正则：支持多种格式
 	filePatterns := []string{
@@ -164,7 +164,7 @@ func (v *SkillValidator) checkFilePathSuggestion(handoffContent string, result *
 	hasFilePath := false
 	for _, pattern := range filePatterns {
 		re := regexp.MustCompile(pattern)
-		if re.MatchString(whatContent) {
+		if re.MatchString(doneContent) {
 			hasFilePath = true
 			break
 		}

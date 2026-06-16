@@ -5,13 +5,14 @@ import (
 )
 
 // GovernanceDigestVersion 治理摘要版本
-const GovernanceDigestVersion = "v1.3.1"
+const GovernanceDigestVersion = "v1.3.3"
 
 // GovernanceDigest 治理规则摘要（嵌入每个 Agent 调用的 L0）
 // 参考 clowder-ai GOVERNANCE_L0_DIGEST 设计：编译后约 150 tokens
 // 单一真相源：docs/governance/shared-rules.md
 // v1.3.0: 合并协作规则，增加下游接力判断强制要求
 // v1.3.1: 强化 @mention 格式规则，增加正确/错误示例
+// v1.3.3: A2A 交接块改为 Goal/Context/Done/Constraints/Task 五字段
 var GovernanceDigest = `## ⚠️ 强制规则（必须遵守）
 
 **完成工作后必须判断是否需要下游接力：**
@@ -29,7 +30,21 @@ var GovernanceDigest = `## ⚠️ 强制规则（必须遵守）
 
 **交接块**（触发下游时必须）：
 <a2a-handoff>
-### What | ### Why | ### Next
+### Goal
+全局目标：用户最终要达成什么。
+局部目标：本次交给下游要完成什么。
+
+### Context
+用户原始意图、背景、关键决策、当前状态。
+
+### Done
+上游已经完成什么，产物/文件/结论在哪里。
+
+### Constraints
+下游必须遵守的限制、风险、不要做什么。
+
+### Task
+下游现在要执行的具体动作和验收标准。
 </a2a-handoff>`
 
 // BuildGovernanceDigest 编译治理规则摘要
@@ -55,10 +70,10 @@ func GovernanceDigestTokens() int {
 }
 
 // ValidateGovernanceDigest 验证摘要 Token 数是否符合约束
-// 目标：≤ 200 tokens（留有余量）
+// 目标：≤ 300 tokens（带字段说明的精简模板）
 func ValidateGovernanceDigest() bool {
 	tokens := GovernanceDigestTokens()
-	return tokens <= 200
+	return tokens <= 300
 }
 
 // GetGovernanceRulesPath 获取完整治理规则文件路径
