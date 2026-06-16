@@ -27,7 +27,7 @@ func parseACPSessionUpdate(raw json.RawMessage, session *acpSession) ([]agent.Ch
 	case "tool_call":
 		return parseACPToolCall(raw, session)
 	case "tool_call_update":
-		return parseACPToolCallUpdate(raw)
+		return parseACPToolCallUpdate(raw, session)
 	case "usage_update":
 		return parseACPUsageUpdate(raw)
 	case "plan":
@@ -137,6 +137,16 @@ func parseACPToolCall(raw json.RawMessage, session *acpSession) ([]agent.Chunk, 
 		return []agent.Chunk{chunk}, nil
 	}
 
+	// 存储工具调用名称到 session（用于后续 tool_call_update 查找）
+	if session != nil && tc.ToolCallID != "" && tc.Title != "" {
+		session.mu.Lock()
+		if session.toolCallNames == nil {
+			session.toolCallNames = make(map[string]string)
+		}
+		session.toolCallNames[tc.ToolCallID] = tc.Title
+		session.mu.Unlock()
+	}
+
 	return []agent.Chunk{{
 		Type:      agent.ChunkTypeToolUse,
 		ToolName:  tc.Title,
@@ -145,7 +155,7 @@ func parseACPToolCall(raw json.RawMessage, session *acpSession) ([]agent.Chunk, 
 	}}, nil
 }
 
-func parseACPToolCallUpdate(raw json.RawMessage) ([]agent.Chunk, error) {
+func parseACPToolCallUpdate(raw json.RawMessage, session *acpSession) ([]agent.Chunk, error) {
 	// 首先打印完整的 raw JSON，便于调试
 	LogInfo("ACP: parseACPToolCallUpdate raw JSON",
 		zap.String("raw", string(raw)))
@@ -165,6 +175,21 @@ func parseACPToolCallUpdate(raw json.RawMessage) ([]agent.Chunk, error) {
 		zap.Any("rawInput", update.RawInput),
 		zap.Int("contentBlocksCount", len(update.Content)))
 
+	// 如果 Title 为空，从 session 的工具名称映射中查找
+	toolName := update.Title
+	if toolName == "" && session != nil && update.ToolCallID != "" {
+		session.mu.Lock()
+		if session.toolCallNames != nil {
+			if name, ok := session.toolCallNames[update.ToolCallID]; ok {
+				toolName = name
+				LogDebug("ACP: tool_call_update found tool name from session",
+					zap.String("toolCallId", update.ToolCallID),
+					zap.String("toolName", toolName))
+			}
+		}
+		session.mu.Unlock()
+	}
+
 	status := strings.ToLower(update.Status)
 
 	// 空状态 + 空内容：当作工具调用开始处理（发送 tool_use chunk）
@@ -179,12 +204,12 @@ func parseACPToolCallUpdate(raw json.RawMessage) ([]agent.Chunk, error) {
 		LogInfo("ACP: tool_call_update as tool_use",
 			zap.String("toolCallId", update.ToolCallID),
 			zap.String("status", update.Status),
-			zap.String("title", update.Title),
+			zap.String("title", toolName),
 			zap.Any("rawInput", toolInput))
 
 		return []agent.Chunk{{
 			Type:      agent.ChunkTypeToolUse,
-			ToolName:  update.Title,
+			ToolName:  toolName,
 			ToolID:    update.ToolCallID,
 			ToolInput: toolInput,
 		}}, nil

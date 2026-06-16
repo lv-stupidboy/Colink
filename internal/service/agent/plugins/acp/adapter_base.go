@@ -58,6 +58,7 @@ type acpSession struct {
 	output            strings.Builder
 	stderrOutput      strings.Builder // stderr 输出缓冲（用于错误诊断）
 	pendingQuestion   *agent.Chunk    // 待处理的 AskUserQuestion（等待用户响应）
+	toolCallNames     map[string]string // 工具调用ID到名称的映射（用于tool_call_update时查找）
 	thoughtChunkCount int             // 流式思考内容计数器（用于采样打印）
 	// 诊断字段（info 级别可见，用于捕捉无限循环问题）
 	notificationCount    int    // 收到的通知总数
@@ -771,7 +772,7 @@ func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, 
 		if err := json.Unmarshal(params, &updateParams); err != nil {
 			// 可能直接是 tool_call_update 结构（不带 sessionId）
 			LogWarn("ACP: failed to parse session/tool_call_update params, trying direct parse", zap.Error(err))
-			chunks, err := parseACPToolCallUpdate(params)
+			chunks, err := parseACPToolCallUpdate(params, session)
 			if err != nil {
 				LogError("ACP: failed to parse tool_call_update directly", zap.Error(err))
 				return
@@ -784,7 +785,7 @@ func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, 
 
 		// 有 update 字段的情况
 		if len(updateParams.Update) > 0 {
-			chunks, err := parseACPToolCallUpdate(updateParams.Update)
+			chunks, err := parseACPToolCallUpdate(updateParams.Update, session)
 			if err != nil {
 				LogError("ACP: failed to parse tool_call_update from update field", zap.Error(err))
 				return
