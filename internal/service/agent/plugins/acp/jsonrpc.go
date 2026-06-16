@@ -14,16 +14,17 @@ import (
 )
 
 type acpTransport struct {
-	stdin          io.WriteCloser
-	stdout         io.ReadCloser
-	nextID         atomic.Uint64
-	pending        map[uint64]chan *jsonrpcResponse
-	pendingMu      sync.Mutex
-	onNotification func(method string, params json.RawMessage)
-	ctx            context.Context
-	cancel         context.CancelFunc
-	done           chan struct{}
-	writeMu        sync.Mutex
+	stdin           io.WriteCloser
+	stdout          io.ReadCloser
+	nextID          atomic.Uint64
+	pending         map[uint64]chan *jsonrpcResponse
+	pendingMu       sync.Mutex
+	onNotification  func(method string, params json.RawMessage)
+	onServerRequest func(id interface{}, method string, params json.RawMessage)
+	ctx             context.Context
+	cancel          context.CancelFunc
+	done            chan struct{}
+	writeMu         sync.Mutex
 }
 
 func newACPTransport(stdin io.WriteCloser, stdout io.ReadCloser, onNotification func(method string, params json.RawMessage)) *acpTransport {
@@ -104,6 +105,32 @@ func (t *acpTransport) SendRequest(method string, params interface{}) (json.RawM
 	}
 }
 
+func (t *acpTransport) SendResponse(id interface{}, result interface{}) error {
+	t.writeMu.Lock()
+	defer t.writeMu.Unlock()
+
+	response := struct {
+		JSONRPC string      `json:"jsonrpc"`
+		ID      interface{} `json:"id"`
+		Result  interface{} `json:"result,omitempty"`
+	}{
+		JSONRPC: "2.0",
+		ID:      id,
+		Result:  result,
+	}
+
+	payload, err := json.Marshal(response)
+	if err != nil {
+		return fmt.Errorf("ACP marshal response: %w", err)
+	}
+
+	if _, err := t.stdin.Write(append(payload, '\n')); err != nil {
+		return fmt.Errorf("ACP write response: %w", err)
+	}
+
+	return nil
+}
+
 func (t *acpTransport) SendNotification(method string, params interface{}) error {
 	t.writeMu.Lock()
 	defer t.writeMu.Unlock()
@@ -171,6 +198,14 @@ func (t *acpTransport) SetNotificationHandler(handler func(method string, params
 	t.pendingMu.Unlock()
 }
 
+// SetServerRequestHandler 设置服务端 request handler
+// 用于处理服务端发起的 request（如 session/request_permission）
+func (t *acpTransport) SetServerRequestHandler(handler func(id interface{}, method string, params json.RawMessage)) {
+	t.pendingMu.Lock()
+	t.onServerRequest = handler
+	t.pendingMu.Unlock()
+}
+
 func (t *acpTransport) readLoop() {
 	defer close(t.done)
 
@@ -190,6 +225,21 @@ func (t *acpTransport) readLoop() {
 			continue
 		}
 
+		// 有 ID + 有 method：服务端发起的 request，需要回复 response
+		if envelope.ID != nil && envelope.Method != "" {
+			// 解析 ID 为具体类型
+			var idValue interface{}
+			if err := json.Unmarshal(*envelope.ID, &idValue); err != nil {
+				continue
+			}
+			// 调用服务端 request handler
+			if t.onServerRequest != nil {
+				t.onServerRequest(idValue, envelope.Method, envelope.Params)
+			}
+			continue
+		}
+
+		// 有 ID + 无 method：客户端 request 的 response
 		if envelope.ID != nil {
 			var msg jsonrpcResponse
 			if err := json.Unmarshal(line, &msg); err != nil {
@@ -206,6 +256,7 @@ func (t *acpTransport) readLoop() {
 			continue
 		}
 
+		// 无 ID + 有 method：notification
 		if envelope.Method != "" && t.onNotification != nil {
 			t.onNotification(envelope.Method, envelope.Params)
 		}

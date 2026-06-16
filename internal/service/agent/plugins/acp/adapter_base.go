@@ -214,6 +214,9 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 	transport := newACPTransport(stdinPipe, stdoutPipe, func(method string, params json.RawMessage) {
 		a.handleNotification(session, method, params, onChunk)
 	})
+	transport.SetServerRequestHandler(func(id interface{}, method string, params json.RawMessage) {
+		a.handleServerRequest(session, id, method, params)
+	})
 	session.transport = transport
 	transport.Start()
 
@@ -438,6 +441,9 @@ func (a *BaseACPAdapter) StartSession(ctx context.Context, sessionID string, req
 
 	transport := newACPTransport(stdinPipe, stdoutPipe, func(method string, params json.RawMessage) {
 		a.handleNotification(session, method, params, nil)
+	})
+	transport.SetServerRequestHandler(func(id interface{}, method string, params json.RawMessage) {
+		a.handleServerRequest(session, id, method, params)
 	})
 	session.transport = transport
 	transport.Start()
@@ -703,14 +709,6 @@ func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, 
 			onChunk(chunk)
 		}
 
-	case "session/request_permission":
-		if session.transport != nil {
-			session.transport.SendNotification("session/resolve_permission", &acpPermissionResponse{
-				Allow: "allow_always",
-			})
-			LogDebug("ACP: permission auto-approved", zap.String("sessionId", session.id))
-		}
-
 	case "session/request_user_input":
 		// 处理 AskUserQuestion 工具的用户输入请求
 		if onChunk == nil {
@@ -801,6 +799,39 @@ func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, 
 		LogDebug("ACP: unknown notification method",
 			zap.String("method", method),
 			zap.String("params", string(params)))
+	}
+}
+
+// handleServerRequest 处理服务端发起的 request（如 session/request_permission）
+// 这是 ACP 协议中服务端向客户端发送的 request，客户端需要回复 response
+func (a *BaseACPAdapter) handleServerRequest(session *acpSession, id interface{}, method string, params json.RawMessage) {
+	LogInfo("ACP: received server request",
+		zap.Any("id", id),
+		zap.String("method", method),
+		zap.String("sessionId", session.id))
+
+	switch method {
+	case "session/request_permission":
+		// 按ACP协议规范，用 outcome 格式回复权限请求
+		// 自动选择 allow_always 选项
+		if session.transport != nil {
+			response := map[string]interface{}{
+				"outcome": map[string]interface{}{
+					"outcome":  "selected",
+					"optionId": "allow_always",
+				},
+			}
+			if err := session.transport.SendResponse(id, response); err != nil {
+				LogError("ACP: failed to send permission response", zap.Error(err))
+			} else {
+				LogInfo("ACP: permission auto-approved via response", zap.Any("requestId", id))
+			}
+		}
+
+	default:
+		LogWarn("ACP: unknown server request method",
+			zap.String("method", method),
+			zap.Any("id", id))
 	}
 }
 
