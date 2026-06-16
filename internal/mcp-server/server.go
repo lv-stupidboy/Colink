@@ -105,6 +105,7 @@ func (s *Server) Run() error {
 		var req JSONRPCRequest
 		if err := json.Unmarshal([]byte(line), &req); err != nil {
 			s.sendError(encoder, nil, -32700, "Parse error")
+			os.Stdout.Sync() // 确保错误响应立即发送
 			continue
 		}
 
@@ -112,6 +113,8 @@ func (s *Server) Run() error {
 		if err := encoder.Encode(resp); err != nil {
 			return fmt.Errorf("encode error: %w", err)
 		}
+		os.Stdout.Sync() // 确保响应立即发送给 CLI
+		fmt.Fprintf(os.Stderr, "MCP: response sent for request %v\n", req.ID)
 	}
 }
 
