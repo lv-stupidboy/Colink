@@ -1526,6 +1526,15 @@ func (es *ExecutionService) ClearThreadContext(threadID uuid.UUID) {
 }
 
 // buildContextLayers 构建上下文层
+// 根据场景决定注入哪些层，避免 Resume 场景下的重复注入：
+// - 单个角色 Resume：仅用户输入（CLI 内部已有完整上下文）
+// - 单个角色 New：Layer 0 + Layer 2-3 + MemoryContext + 用户输入
+// - A2A Resume：Layer 2-3 + ChainHistory + MemoryContext + 用户输入
+// - A2A New：Layer 0 + Layer 2-3 + ChainHistory + MemoryContext + 用户输入
+// Layer 1（Thread 历史）在任何场景都不注入：
+// - Resume 场景 CLI 内部已有历史
+// - New 场景没有历史
+// - A2A 场景 ChainHistory 已包含必要的上游信息
 func (es *ExecutionService) buildContextLayers(ctx context.Context, threadID uuid.UUID, config *model.AgentRoleConfig, req *SpawnRequest) (*ContextLayers, error) {
 	layers := &ContextLayers{}
 
@@ -1535,64 +1544,98 @@ func (es *ExecutionService) buildContextLayers(ctx context.Context, threadID uui
 		return nil, err
 	}
 
-	// Layer 0: 系统提示（使用缓存的上下文）
-	layers.Layer0 = es.buildDynamicSystemPromptFromContext(tc, config)
+	// 判断场景
+	isA2A := req != nil && req.ChainHistory != nil
+	isResume := req != nil && req.SessionStrategy == SessionStrategyResume
 
-	// Layer 1: Thread历史
-	// 有 ChainHistory 时：使用 BuildChainHistoryLayer 显示编号链路
-	// 无 ChainHistory 时：从数据库提取历史
-	if req != nil && req.ChainHistory != nil {
-		// 有 ChainHistory（人类触发或 A2A 触发）：使用链路历史格式（编号 + Agent 输出）
-		layers.Layer1 = BuildChainHistoryLayer(req.ChainHistory)
+	// 场景判断日志
+	if req != nil {
+		logInfo("buildContextLayers: 场景判断",
+			zap.Bool("isA2A", isA2A),
+			zap.Bool("isResume", isResume),
+			zap.String("sessionStrategy", string(req.SessionStrategy)))
 	} else {
-		// 无 ChainHistory：从数据库提取历史
-		messages, err := es.msgRepo.FindByThreadID(ctx, threadID, 100)
-		if err != nil {
-			return nil, err
-		}
-		layers.Layer1 = es.extractStructuredHistory(messages, 50)
+		logInfo("buildContextLayers: 场景判断",
+			zap.Bool("isA2A", isA2A),
+			zap.Bool("isResume", isResume),
+			zap.String("sessionStrategy", "nil"))
 	}
 
-	// Layer 2: 工作产物（使用缓存的 Thread）
-	layers.Layer2 = es.getArtifacts(tc.Thread)
+	// Layer 1（Thread 历史）不再注入
+	// 原因：Resume 场景 CLI 内部已有；New 场景没有历史；A2A 场景用 ChainHistory
+	layers.Layer1 = ""
 
-	// Layer 3: 环境信息（使用缓存的 Thread）
-	layers.Layer3 = es.getEnvironmentInfo(tc.Thread)
+	// 根据场景注入 Layer 0（角色定义）
+	// 规则：仅 New 场景注入（Resume 场景 CLI 内部已有）
+	if !isResume {
+		layers.Layer0 = es.buildDynamicSystemPromptFromContext(tc, config)
+		logInfo("buildContextLayers: 注入 Layer 0（角色定义）", zap.Int("length", len(layers.Layer0)))
+	} else {
+		layers.Layer0 = ""
+		logInfo("buildContextLayers: 跳过 Layer 0（Resume 场景 CLI 内部已有）")
+	}
 
-	// US-004 集成：记忆预取（参考 hermes-agent prefetch_all）
-	// 分层设计：只预取 team + project 级记忆
-	if es.memoryManager != nil {
-		threadIDStr := threadID.String()
-		agentIDStr := config.ID.String()
+	// 根据场景注入 ChainHistory（A2A 链路历史）
+	// 规则：仅 A2A 场景注入
+	if isA2A {
+		layers.ChainHistory = BuildChainHistoryLayer(req.ChainHistory)
+		logInfo("buildContextLayers: 注入 ChainHistory（A2A 链路历史）", zap.Int("length", len(layers.ChainHistory)))
+	} else {
+		layers.ChainHistory = ""
+	}
 
-		// Team 级记忆绑定 WorkflowTemplate.ID
-		teamIDStr := ""
-		if tc.WorkflowTemplate != nil {
-			teamIDStr = tc.WorkflowTemplate.ID.String()
+	// 根据场景注入 Layer 2-3（工作产物和环境信息）
+	// 规则：除"单个角色 Resume"外都注入（动态环境信息需要最新状态）
+	if isA2A || !isResume {
+		layers.Layer2 = es.getArtifacts(tc.Thread)
+		layers.Layer3 = es.getEnvironmentInfo(tc.Thread)
+		logInfo("buildContextLayers: 注入 Layer 2-3",
+			zap.Int("layer2Length", len(layers.Layer2)),
+			zap.Int("layer3Length", len(layers.Layer3)))
+	} else {
+		// 单个角色 Resume：CLI 内部已有，不需要注入
+		layers.Layer2 = ""
+		layers.Layer3 = ""
+		logInfo("buildContextLayers: 跳过 Layer 2-3（单个角色 Resume CLI 内部已有）")
+	}
+
+	// 根据场景注入 MemoryContext（记忆索引）
+	// 规则：除"单个角色 Resume"外都注入（记忆可能在对话中更新）
+	if isA2A || !isResume {
+		if es.memoryManager != nil {
+			threadIDStr := threadID.String()
+			agentIDStr := config.ID.String()
+
+			// Team 级记忆绑定 WorkflowTemplate.ID
+			teamIDStr := ""
+			if tc.WorkflowTemplate != nil {
+				teamIDStr = tc.WorkflowTemplate.ID.String()
+			}
+
+			// Project 级记忆绑定 Project.ID
+			projectIDStr := ""
+			workspacePath := ""
+			if tc.Project != nil {
+				projectIDStr = tc.Project.ID.String()
+				workspacePath = tc.Project.LocalPath
+			}
+
+			memoryIndex := es.memoryManager.BuildAutoMemoryIndexBlock(ctx, memory.MemoryScopeIdentity{
+				TeamID:        teamIDStr,
+				ProjectID:     projectIDStr,
+				WorkspacePath: workspacePath,
+			}, 30)
+			if memoryIndex != "" {
+				layers.MemoryContext = memoryIndex
+				logInfo("buildContextLayers: 注入 MemoryContext",
+					zap.String("threadID", threadIDStr),
+					zap.String("agentID", agentIDStr),
+					zap.Int("memoryLength", len(layers.MemoryContext)))
+			}
 		}
-
-		// Project 级记忆绑定 Project.ID
-		projectIDStr := ""
-		workspacePath := ""
-		if tc.Project != nil {
-			projectIDStr = tc.Project.ID.String()
-			workspacePath = tc.Project.LocalPath
-		}
-
-		memoryIndex := es.memoryManager.BuildAutoMemoryIndexBlock(ctx, memory.MemoryScopeIdentity{
-			TeamID:        teamIDStr,
-			ProjectID:     projectIDStr,
-			WorkspacePath: workspacePath,
-		}, 30)
-		if memoryIndex != "" {
-			layers.MemoryContext = memoryIndex
-			logInfo("Memory index injection completed",
-				zap.String("threadID", threadIDStr),
-				zap.String("agentID", agentIDStr),
-				zap.String("teamID", teamIDStr),
-				zap.String("projectID", projectIDStr),
-				zap.Int("memoryLength", len(layers.MemoryContext)))
-		}
+	} else {
+		// 单个角色 Resume：CLI 内部已有记忆索引
+		logInfo("buildContextLayers: 跳过 MemoryContext（单个角色 Resume CLI 内部已有）")
 	}
 
 	return layers, nil

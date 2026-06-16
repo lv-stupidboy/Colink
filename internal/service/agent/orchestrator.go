@@ -339,10 +339,11 @@ type SpawnRequest struct {
 
 // ContextLayers 上下文层
 type ContextLayers struct {
-	Layer0        string // 系统提示
-	Layer1        string // Thread历史
+	Layer0        string // 系统提示（角色定义）
+	Layer1        string // Thread历史（不再注入，保留字段用于兼容）
 	Layer2        string // 工作产物
 	Layer3        string // 环境信息
+	ChainHistory  string // A2A 链路历史（上游 Agent 交接信息）
 	MemoryContext string // US-004: 记忆上下文（团队+项目级记忆）
 }
 
