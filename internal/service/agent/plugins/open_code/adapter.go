@@ -69,14 +69,14 @@ func NewOpenCodeAdapter(baseAgent *model.BaseAgent) agent.AgentAdapter {
 			return env
 		},
 		// OpenCode ACP 模式不读取 OPENCODE_CONFIG_CONTENT 来设置模型
-		// 必须通过 session/set_model 设置，所以不跳过
+		// 必须通过 session/set_config_option 设置
+		// 关键：set_config_option 应使用裸模型名（不带 provider 前缀）
+		// 否则 OpenCode 无法正确匹配模型配置，导致返回空响应
 		SkipModelConfig: func(req *agent.ExecutionRequest) bool {
-			return false // 始终调用 session/set_model
+			return false // 始终调用 session/set_config_option
 		},
-		// 设置模型时使用带 provider 前缀的引用，与注入配置中的 config.Model 保持一致
-		ModelRef: func() string {
-			return openCodeModelRef(baseAgent.DefaultModel)
-		},
+		// 不设置 ModelRef，使用默认的 baseAgent.DefaultModel（裸模型名）
+		// 配置文件中的 model 字段使用 "colink/model" 格式，但 set_config_option 使用 "model" 格式
 	}
 
 	return &OpenCodeAdapter{
