@@ -244,14 +244,10 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 		return nil, fmt.Errorf("ACP: gateway authenticate failed: %w\nstderr: %s", err, stderrContent)
 	}
 
-	// 根据服务器实际支持的协议版本决定是否传递 MCP Servers
-	// ACP v1 不支持 mcpServers 字段，只有 v2025+ 支持
-	mcpServers := []interface{}{}
-	if initResp.ProtocolVersion >= 2025 {
-		mcpServers = a.buildMCPServers(req)
-	}
+	// 构建 MCP Servers 配置
+	mcpServers := a.buildMCPServers(req)
 	mcpServersJSON, _ := json.Marshal(mcpServers)
-	LogInfo("ACP: session/new mcpServers", zap.String("mcpServers", string(mcpServersJSON)))
+	LogInfo("ACP: session/new mcpServers", zap.Int("protocolVersion", initResp.ProtocolVersion), zap.String("mcpServers", string(mcpServersJSON)))
 
 	sessionNewResult, err := transport.SendRequest("session/new", &acpNewSessionParams{
 		CWD:        req.WorkDir,
@@ -1737,12 +1733,8 @@ func (a *BaseACPAdapter) ExecuteWithResume(ctx context.Context, req *agent.Execu
 		// SessionResume - 使用 session/resume（不回放历史）
 		// session/resume 不回放历史消息，只继承上下文
 		// session/load 会回放完整历史消息给客户端
-		// 根据服务器实际支持的协议版本决定是否传递 MCP Servers
-		// ACP v1 不支持 mcpServers 字段，只有 v2025+ 支持
-		mcpServers := []interface{}{}
-		if initResp.ProtocolVersion >= 2025 {
-			mcpServers = a.buildMCPServers(req)
-		}
+		// 构建 MCP Servers 配置
+		mcpServers := a.buildMCPServers(req)
 		mcpServersJSON, _ := json.Marshal(mcpServers)
 		LogInfo("ACP: session/resume mcpServers", zap.Int("protocolVersion", initResp.ProtocolVersion), zap.String("mcpServers", string(mcpServersJSON)))
 		resumeResult, err := transport.SendRequest("session/resume", &acpSessionResumeParams{
