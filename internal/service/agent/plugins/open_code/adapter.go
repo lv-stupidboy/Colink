@@ -109,6 +109,10 @@ func buildOpenCodeConfigContent(baseAgent *model.BaseAgent) string {
 				},
 			},
 		},
+		// OpenCode 全局放行：等价于 Claude CLI 的 --dangerously-skip-permissions。
+		// 让 OpenCode 自身跳过 session/request_permission，避免 read 工具访问
+		// workspace 外路径（external_directory 默认 ask）时挂死。
+		Permission: "allow",
 	}
 
 	// 如果指定了模型，配置模型和默认使用
@@ -145,6 +149,14 @@ func buildOpenCodeConfigContent(baseAgent *model.BaseAgent) string {
 type openCodeConfig struct {
 	Provider map[string]openCodeProvider `json:"provider,omitempty"`
 	Model    string                      `json:"model,omitempty"`
+	// Permission 走 OpenCode 官方的"全局放行"语法（详见 OpenCode permissions 文档）：
+	//   "permission": "allow"               // 等价于所有工具 *: allow
+	//   "permission": {"*": "allow"}        // 等价写法
+	// 我们在 ISDP 内通过 ACP 与 OpenCode 一起跑，并不需要 CLI 再向用户弹权限确认；
+	// 把这里设成 "allow" 之后 OpenCode 不会再发 session/request_permission，
+	// read 等工具读 workspace 外文件（external_directory 默认是 ask）也不会卡住。
+	// 客户端侧 handleServerRequest 仍然保留作为兜底（万一某些工具/配置仍触发请求）。
+	Permission interface{} `json:"permission,omitempty"`
 }
 
 // openCodeProvider Provider 配置结构
