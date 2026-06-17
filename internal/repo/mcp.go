@@ -34,8 +34,8 @@ func (r *MCPServerRepository) Create(ctx context.Context, server *model.MCPServe
 
 	_, err := r.DB().ExecContext(ctx, query,
 		server.ID.String(), server.Name, server.DisplayName, server.Description,
-		string(server.Transport), server.Command, argsJSON, envJSON, server.URL, headersJSON,
-		string(server.SourceType), supportedAgentsJSON, string(server.Status),
+		string(server.Transport), server.Command, string(argsJSON), string(envJSON), server.URL, string(headersJSON),
+		string(server.SourceType), string(supportedAgentsJSON), string(server.Status),
 		server.CreatedAt, server.UpdatedAt,
 	)
 	return err
@@ -202,8 +202,8 @@ func (r *MCPServerRepository) Update(ctx context.Context, server *model.MCPServe
 
 	_, err := r.DB().ExecContext(ctx, query,
 		server.DisplayName, server.Description, string(server.Transport), server.Command,
-		argsJSON, envJSON, server.URL, headersJSON, string(server.SourceType),
-		supportedAgentsJSON, string(server.Status), server.UpdatedAt, server.ID.String(),
+		string(argsJSON), string(envJSON), server.URL, string(headersJSON), string(server.SourceType),
+		string(supportedAgentsJSON), string(server.Status), server.UpdatedAt, server.ID.String(),
 	)
 	return err
 }
