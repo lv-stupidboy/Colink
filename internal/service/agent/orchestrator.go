@@ -98,10 +98,10 @@ type ContentBlockData struct {
 	Output    string                 `json:"output,omitempty"`
 	IsError   bool                   `json:"isError,omitempty"`
 	// AskUserQuestion 相关（字段名与前端 QuestionBlock 对齐）
-	Questions    []QuestionItem    `json:"questions,omitempty"`    // 问题列表
-	InvocationID string            `json:"invocationId,omitempty"` // 关联的 invocation ID
-	AgentID      string            `json:"agentId,omitempty"`      // 提出问题的 Agent ID（用于前端 resume）
-	AgentName    string            `json:"agentName,omitempty"`    // 提出问题的 Agent 名称（用于前端 @mention resume）
+	Questions    []QuestionItem `json:"questions,omitempty"`    // 问题列表
+	InvocationID string         `json:"invocationId,omitempty"` // 关联的 invocation ID
+	AgentID      string         `json:"agentId,omitempty"`      // 提出问题的 Agent ID（用于前端 resume）
+	AgentName    string         `json:"agentName,omitempty"`    // 提出问题的 Agent 名称（用于前端 @mention resume）
 	// 时间追踪
 	StartedAt   int64 `json:"startedAt,omitempty"`
 	CompletedAt int64 `json:"completedAt,omitempty"`
@@ -327,14 +327,14 @@ type SpawnRequest struct {
 	ThreadID        uuid.UUID
 	ConfigID        uuid.UUID
 	Role            model.AgentRole
-	RequiresHuman   bool             // 是否需要人工参与
+	RequiresHuman   bool // 是否需要人工参与
 	Input           string
 	Images          []model.ImageContent // 多模态输入：图片列表
-	ProjectPath     string           // 工作目录
-	SessionID       string           // 会话ID（用于 --resume 复用已有会话）
-	SessionStrategy SessionStrategy  // 会话策略：new 或 resume
-	ChainHistory    *A2AChainContext // A2A 链路历史（人类触发或 A2A 触发）
-	TriggeredBy     uuid.UUID        // 触发者 invocationID（A2A 触发时设置）
+	ProjectPath     string               // 工作目录
+	SessionID       string               // 会话ID（用于 --resume 复用已有会话）
+	SessionStrategy SessionStrategy      // 会话策略：new 或 resume
+	ChainHistory    *A2AChainContext     // A2A 链路历史（人类触发或 A2A 触发）
+	TriggeredBy     uuid.UUID            // 触发者 invocationID（A2A 触发时设置）
 }
 
 // ContextLayers 上下文层
@@ -377,6 +377,11 @@ func (o *Orchestrator) SetExecutionServiceAPIURL(url string) {
 // SetSessionManager 设置 Session 管理器（用于不同 CLI 类型的 session 策略）
 func (o *Orchestrator) SetSessionManager(sm *SessionManager) {
 	o.executionService.SetSessionManager(sm)
+}
+
+// SetMCPBindingRepository 设置 MCP Server 绑定仓库。
+func (o *Orchestrator) SetMCPBindingRepository(repo *repo.AgentMCPBindingRepository) {
+	o.executionService.SetMCPBindingRepository(repo)
 }
 
 // SpawnDebugAgent 调试模式启动Agent
@@ -532,17 +537,17 @@ func (o *Orchestrator) executeDebugAgent(
 		output = outputBuilder.String()
 	}
 
-		// 构建 metadata（保存基础Agent信息）
-		metadata := map[string]string{
-			"baseAgentType":  string(baseAgent.Type),
-			"baseAgentModel": baseAgent.DefaultModel,
-		}
-		// 从插件注册中心获取类型名称
-		pluginMeta := GetMeta(baseAgent.Type)
-		if pluginMeta != nil {
-			metadata["baseAgentTypeName"] = pluginMeta.Name
-		}
-		metadataJSON, _ := json.Marshal(metadata)
+	// 构建 metadata（保存基础Agent信息）
+	metadata := map[string]string{
+		"baseAgentType":  string(baseAgent.Type),
+		"baseAgentModel": baseAgent.DefaultModel,
+	}
+	// 从插件注册中心获取类型名称
+	pluginMeta := GetMeta(baseAgent.Type)
+	if pluginMeta != nil {
+		metadata["baseAgentTypeName"] = pluginMeta.Name
+	}
+	metadataJSON, _ := json.Marshal(metadata)
 
 	// 添加Agent消息到内存
 	agentMsg := &model.Message{
@@ -552,7 +557,7 @@ func (o *Orchestrator) executeDebugAgent(
 		AgentID:   config.ID.String(),
 		Content:   output,
 		CreatedAt: time.Now(),
-			Metadata:  metadataJSON,
+		Metadata:  metadataJSON,
 	}
 	o.debugThreadMgr.AddMessage(threadID, agentMsg)
 

@@ -140,6 +140,9 @@ type ExecutionService struct {
 
 	// Session 管理器（用于不同 CLI 类型的 session 策略）
 	sessionManager *SessionManager
+
+	// MCP Server 绑定仓库（显式 MCP 资产管理）
+	mcpBindingRepo *repo.AgentMCPBindingRepository
 }
 
 // NewExecutionService 创建统一执行服务
@@ -217,6 +220,11 @@ func (es *ExecutionService) SetAPIURL(url string) {
 // SetSessionManager 设置 Session 管理器（用于不同 CLI 类型的 session 策略）
 func (es *ExecutionService) SetSessionManager(sm *SessionManager) {
 	es.sessionManager = sm
+}
+
+// SetMCPBindingRepository 设置 MCP Server 绑定仓库。
+func (es *ExecutionService) SetMCPBindingRepository(repo *repo.AgentMCPBindingRepository) {
+	es.mcpBindingRepo = repo
 }
 
 // NotifyChunkListeners 通知所有外部 chunk 监听器
@@ -500,6 +508,7 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 
 	// 构建ExecutionRequest
 	execReqBuildStart := time.Now()
+	mcpServers := es.loadBoundMCPServers(ctx, config, baseAgent)
 
 	// 根据会话策略决定是否使用 --resume
 	// 跨角色调用（SessionStrategyNew）：不传递历史，使用新会话
@@ -535,6 +544,7 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 		Images:          req.Images,
 		WorkDir:         req.ProjectPath,
 		ConfigDir:       config.ConfigPath,
+		MCPServers:      mcpServers,
 		SessionID:       sessionID,
 		SessionStrategy: req.SessionStrategy,
 		InvocationID:    invocation.ID,            // 用于 AskUserQuestion 答案发送
@@ -988,6 +998,45 @@ func (es *ExecutionService) resolveConfigAndBaseAgent(ctx context.Context, req *
 	}
 
 	return config, baseAgent, nil
+}
+
+func (es *ExecutionService) loadBoundMCPServers(ctx context.Context, config *model.AgentRoleConfig, baseAgent *model.BaseAgent) []*model.MCPServer {
+	if es.mcpBindingRepo == nil || config == nil {
+		return nil
+	}
+	servers, err := es.mcpBindingRepo.FindServersByAgentRoleID(ctx, config.ID)
+	if err != nil {
+		logWarn("Failed to load bound MCP servers",
+			zap.String("agentConfigID", config.ID.String()),
+			zap.Error(err))
+		return nil
+	}
+	if baseAgent == nil {
+		return servers
+	}
+	filtered := make([]*model.MCPServer, 0, len(servers))
+	for _, server := range servers {
+		if matchesAgentTypeForRuntime(server.SupportedAgents, string(baseAgent.Type)) {
+			filtered = append(filtered, server)
+		}
+	}
+	logInfo("Loaded bound MCP servers",
+		zap.String("agentConfigID", config.ID.String()),
+		zap.String("baseAgentType", string(baseAgent.Type)),
+		zap.Int("count", len(filtered)))
+	return filtered
+}
+
+func matchesAgentTypeForRuntime(supportedAgents []string, agentType string) bool {
+	if len(supportedAgents) == 0 {
+		return agentType == "claude_code"
+	}
+	for _, supported := range supportedAgents {
+		if supported == agentType {
+			return true
+		}
+	}
+	return false
 }
 
 // saveAgentMessage 保存Agent消息

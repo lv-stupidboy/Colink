@@ -56,10 +56,10 @@ type acpSession struct {
 	cancel            context.CancelFunc
 	status            agent.SessionStatus
 	output            strings.Builder
-	stderrOutput      strings.Builder // stderr 输出缓冲（用于错误诊断）
-	pendingQuestion   *agent.Chunk    // 待处理的 AskUserQuestion（等待用户响应）
+	stderrOutput      strings.Builder   // stderr 输出缓冲（用于错误诊断）
+	pendingQuestion   *agent.Chunk      // 待处理的 AskUserQuestion（等待用户响应）
 	toolCallNames     map[string]string // 工具调用ID到名称的映射（用于tool_call_update时查找）
-	thoughtChunkCount int             // 流式思考内容计数器（用于采样打印）
+	thoughtChunkCount int               // 流式思考内容计数器（用于采样打印）
 	// 诊断字段（info 级别可见，用于捕捉无限循环问题）
 	notificationCount    int    // 收到的通知总数
 	duplicateUpdateCount int    // 连续重复通知计数
@@ -881,37 +881,20 @@ func (a *BaseACPAdapter) buildEnv(req *agent.ExecutionRequest) []string {
 	return env
 }
 
-// buildMCPServers 构建 MCP server 配置数组
-// 用于在 session/new 时注入 memory MCP server 和用户级 MCP 配置
+// buildMCPServers 构建 MCP server 配置数组。
+// 用于在 session/new 时注入显式绑定的 MCP servers 和 Colink memory MCP server。
 func (a *BaseACPAdapter) buildMCPServers(req *agent.ExecutionRequest) []interface{} {
-	// 如果没有必要的参数，不注入任何 MCP
-	if req.CallbackToken == "" || req.APIURL == "" || req.InvocationID == uuid.Nil {
-		// 但仍然尝试加载用户级 MCP
-		if a.Config.LoadUserMCPConfig != nil {
-			userMCP := a.Config.LoadUserMCPConfig()
-			return convertUserMCPToACPFormat(userMCP)
-		}
+	if req == nil {
 		return []interface{}{}
 	}
+	mcpServers := convertManagedMCPToACPFormat(req.MCPServers)
 
-	// 结果数组
-	mcpServers := []interface{}{}
-
-	// 1. 加载用户级 MCP 配置（如果有）
-	if a.Config.LoadUserMCPConfig != nil {
-		userMCP := a.Config.LoadUserMCPConfig()
-		if userMCP != nil && len(userMCP) > 0 {
-			userServers := convertUserMCPToACPFormat(userMCP)
-			mcpServers = append(mcpServers, userServers...)
-			serverNames := make([]string, 0, len(userMCP))
-			for name := range userMCP {
-				serverNames = append(serverNames, name)
-			}
-			LogInfo("ACP: Loaded user MCP servers", zap.Strings("servers", serverNames))
-		}
+	// 如果没有必要的参数，不注入任何 MCP
+	if req.CallbackToken == "" || req.APIURL == "" || req.InvocationID == uuid.Nil {
+		return mcpServers
 	}
 
-	// 2. 获取平台 MCP server 可执行文件路径
+	// 获取平台 MCP server 可执行文件路径
 	// 服务启动时已设置 ISDP_MCP_SERVER_PATH 环境变量（支持开发模式和安装模式）
 	mcpServerPath := os.Getenv("ISDP_MCP_SERVER_PATH")
 	if mcpServerPath == "" {
@@ -932,7 +915,7 @@ func (a *BaseACPAdapter) buildMCPServers(req *agent.ExecutionRequest) []interfac
 
 	LogInfo("ACP: MCP server path", zap.String("path", mcpServerPath))
 
-	// 3. 构建 memory MCP server 配置
+	// 构建 memory MCP server 配置
 	// ACP 协议：stdio 类型不需要 type 字段，env 是数组格式 [{name, value}]
 	mcpServer := map[string]interface{}{
 		"name":    "isdp-memory",
@@ -947,6 +930,47 @@ func (a *BaseACPAdapter) buildMCPServers(req *agent.ExecutionRequest) []interfac
 
 	mcpServers = append(mcpServers, mcpServer)
 	return mcpServers
+}
+
+func convertManagedMCPToACPFormat(servers []*model.MCPServer) []interface{} {
+	if len(servers) == 0 {
+		return []interface{}{}
+	}
+	result := make([]interface{}, 0, len(servers))
+	for _, server := range servers {
+		if server == nil || server.Status == model.MCPStatusDisabled {
+			continue
+		}
+		acpServer := map[string]interface{}{
+			"name": server.Name,
+		}
+		switch server.Transport {
+		case model.MCPTransportHTTP, model.MCPTransportSSE:
+			acpServer["type"] = string(server.Transport)
+			acpServer["url"] = server.URL
+			acpServer["headers"] = mapToACPNameValueArray(server.Headers)
+		default:
+			acpServer["command"] = server.Command
+			acpServer["args"] = server.Args
+			acpServer["env"] = mapToACPNameValueArray(server.Env)
+		}
+		result = append(result, acpServer)
+	}
+	return result
+}
+
+func mapToACPNameValueArray(values map[string]string) []map[string]string {
+	if len(values) == 0 {
+		return []map[string]string{}
+	}
+	result := make([]map[string]string, 0, len(values))
+	for name, value := range values {
+		result = append(result, map[string]string{
+			"name":  name,
+			"value": value,
+		})
+	}
+	return result
 }
 
 // convertUserMCPToACPFormat 将用户级 MCP 配置（map 格式）转换为 ACP 的数组格式

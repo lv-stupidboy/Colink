@@ -449,6 +449,7 @@ func main() {
 	})
 	// 将 SessionManager 注入到 ExecutionService
 	orchestrator.SetSessionManager(sessionManager)
+	orchestrator.SetMCPBindingRepository(agentMCPBindingRepo)
 	logger.Info("SessionManager initialized and injected into Orchestrator")
 
 	// 设置 MCP server 路径（用于 Agent 记忆工具调用）
