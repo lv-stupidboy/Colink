@@ -543,56 +543,58 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 	}
 	logInfo("[PERF] buildExecutionRequest", zap.Duration("duration", time.Since(execReqBuildStart)), zap.String("sessionID", sessionID), zap.String("sessionStrategy", string(req.SessionStrategy)))
 
-		// === ACP 原生 session/resume 模式 ===
-		var acpSessionID string
-		var newACPSessionID string
-		if es.sessionManager != nil {
-			threadUUID, _ := uuid.Parse(req.ThreadID.String())
-			configUUID := config.ID
-			sessionHandle, handleErr := es.sessionManager.GetOrCreateSession(ctx, threadUUID, configUUID, baseAgent)
-			if handleErr != nil {
-				logError("GetOrCreateSession failed", zap.Error(handleErr))
-			} else if sessionHandle != nil {
-				acpSessionID = sessionHandle.GetACPSessionID()
-				logInfo("SessionManager: got session handle",
-					zap.String("acpSessionId", acpSessionID),
-					zap.String("strategy", string(sessionHandle.GetStrategy())))
-			}
+	// === ACP 原生 session/resume 模式 ===
+	var acpSessionID string
+	var newACPSessionID string
+	if es.sessionManager != nil {
+		threadUUID, _ := uuid.Parse(req.ThreadID.String())
+		configUUID := config.ID
+		sessionHandle, handleErr := es.sessionManager.GetOrCreateSession(ctx, threadUUID, configUUID, baseAgent)
+		if handleErr != nil {
+			logError("GetOrCreateSession failed", zap.Error(handleErr))
+		} else if sessionHandle != nil {
+			acpSessionID = sessionHandle.GetACPSessionID()
+			logInfo("SessionManager: got session handle",
+				zap.String("acpSessionId", acpSessionID),
+				zap.String("strategy", string(sessionHandle.GetStrategy())))
 		}
+	}
 
-		var outputBuilder strings.Builder
-		var result *ExecutionResult
+	var outputBuilder strings.Builder
+	var result *ExecutionResult
 
-		cliStart := time.Now()
-		logInfo("[PERF] CLI execution starting", zap.String("invocationID", invocation.ID.String()))
+	cliStart := time.Now()
+	logInfo("[PERF] CLI execution starting", zap.String("invocationID", invocation.ID.String()))
 
-		// 检查 adapter 是否支持 ACP 原生 session/resume
-		resumeCapable, ok := adapter.(SessionResumeCapable)
-		if ok && acpSessionID != "" {
-			// 使用 ACP 原生 session/resume 执行
-			logInfo("Using ACP native session/resume",
-				zap.String("invocationID", invocation.ID.String()),
-				zap.String("acpSessionId", acpSessionID))
-			result, newACPSessionID, err = resumeCapable.ExecuteWithResume(ctx, execReq, acpSessionID, func(chunk Chunk) {
-				outputBuilder.WriteString(chunk.Content)
-				es.broadcastChunk(req.ThreadID, invocation.ID, chunk, config.ID.String(), config.Name)
-			})
-		} else {
-			// 普通执行（新 session）
-			result, err = adapter.ExecuteWithStream(ctx, execReq, func(chunk Chunk) {
-				outputBuilder.WriteString(chunk.Content)
-				es.broadcastChunk(req.ThreadID, invocation.ID, chunk, config.ID.String(), config.Name)
-			})
+	// 检查 adapter 是否支持 ACP 原生 session/resume
+	resumeCapable, ok := adapter.(SessionResumeCapable)
+	if ok && acpSessionID != "" {
+		// 使用 ACP 原生 session/resume 执行
+		logInfo("Using ACP native session/resume",
+			zap.String("invocationID", invocation.ID.String()),
+			zap.String("acpSessionId", acpSessionID))
+		result, newACPSessionID, err = resumeCapable.ExecuteWithResume(ctx, execReq, acpSessionID, func(chunk Chunk) {
+			outputBuilder.WriteString(chunk.Content)
+			es.broadcastChunk(req.ThreadID, invocation.ID, chunk, config.ID.String(), config.Name)
+		})
+	} else {
+		// 普通执行（新 session）
+		result, err = adapter.ExecuteWithStream(ctx, execReq, func(chunk Chunk) {
+			outputBuilder.WriteString(chunk.Content)
+			es.broadcastChunk(req.ThreadID, invocation.ID, chunk, config.ID.String(), config.Name)
+		})
+		if result != nil {
 			newACPSessionID = result.SessionID
 		}
+	}
 
-		// 保存 ACP session ID 到数据库
-		if newACPSessionID != "" && es.sessionManager != nil {
-			saveErr := es.sessionManager.SaveACPSessionID(ctx, req.ThreadID.String(), config.ID.String(), newACPSessionID, baseAgent.Type)
-			if saveErr != nil {
-				logError("SaveACPSessionID failed", zap.Error(saveErr))
-			}
+	// 保存 ACP session ID 到数据库
+	if newACPSessionID != "" && es.sessionManager != nil {
+		saveErr := es.sessionManager.SaveACPSessionID(ctx, req.ThreadID.String(), config.ID.String(), newACPSessionID, baseAgent.Type)
+		if saveErr != nil {
+			logError("SaveACPSessionID failed", zap.Error(saveErr))
 		}
+	}
 
 	// 会话恢复失败降级机制
 	if err != nil && acpSessionID != "" && isResumeFallbackError(err) {
@@ -607,7 +609,11 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 			outputBuilder.WriteString(chunk.Content)
 			es.broadcastChunk(req.ThreadID, invocation.ID, chunk, config.ID.String(), config.Name)
 		})
-		newACPSessionID = result.SessionID
+		if result != nil {
+			newACPSessionID = result.SessionID
+		} else {
+			newACPSessionID = ""
+		}
 
 		if err == nil {
 			logInfo("Session fallback succeeded, created new session",
@@ -1212,7 +1218,7 @@ func isResumeFallbackError(err error) bool {
 		"invalid session",
 		"no such session",
 		"session corrupt",
-		"resource not found",    // ACP session/resume 找不到 session
+		"resource not found",   // ACP session/resume 找不到 session
 		"pipe is being closed", // 进程退出导致管道关闭
 		"broken pipe",          // 管道断裂
 		"process not alive",    // 进程已退出
@@ -4215,7 +4221,7 @@ func (es *ExecutionService) extractSimplifiedAgentBlocks(blocks []ContentBlockDa
 				if len(content) > 300 {
 					content = content[:300] + "...(思考内容已省略)"
 				}
-				parts = append(parts, "[思考] " + content)
+				parts = append(parts, "[思考] "+content)
 			}
 		case "tool_use":
 			// tool_use：只记录工具名，不保留完整 input
