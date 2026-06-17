@@ -1471,6 +1471,7 @@ const ThreadView: React.FC = () => {
 
       const agentName = (questionBlock as any)?.agentName || '';
       const invocationIdFromBlock = (questionBlock as any)?.invocationId || invocationId;
+      const toolId = (questionBlock as any)?.toolId || '';
 
       // 将答案转换为自然语言消息格式
       // 对于多选，将多个答案合并为一个字符串
@@ -1482,52 +1483,73 @@ const ThreadView: React.FC = () => {
           answerStrings.push(value as string);
         }
       });
-
-      // 生成自然语言消息（而非技术性 tool_result）
-      // 这样 Agent 可以通过 --resume 恢复会话并继续执行
       const userResponseContent = answerStrings.join('\n');
 
-      // 关键：在答案前加上 @AgentName 前缀
-      // 这样后端 SpawnAgentForUserMessage 会解析 @mention
-      // shouldUseResumeStrategy 会判断用户 @ 的是同一个 Agent（与最后一个完成的相同）
-      // 从而使用 resume 会话策略，调用正确的 Agent
-      const userResponseMessage = agentName
-        ? `@${agentName} ${userResponseContent}`
-        : userResponseContent;
+      // === 提交路径分流 ===
+      // ACP elicitation 模式：agent 仍 running（isStreaming=true），CLI 在同一 prompt turn
+      // 内异步等 elicitation/create 的 SendResponse(accept, content)。这条路径走
+      // submitQuestionAnswer API，后端会调 SendToolResult → SDK 内置 AskUserQuestion 工具
+      // 在 updatedInput 上拿到答案后继续推 chunk，**不启动新的 invocation**。
+      //
+      // native CLI 模式：AskUserQuestion 触发 stdin 关闭 → CLI 进程被 cancel →
+      // invocation interrupted（isStreaming=false）。这条路径靠"前端发一条 @AgentName
+      // 新消息 → SpawnAgentForUserMessage → resume"重启来续上对话。
+      const isAgentStillRunning = useAppStore.getState().isStreaming;
 
-      console.log('[handleInlineQuestionSubmit] Sending message with @mention:', {
-        agentName,
-        originalAnswer: userResponseContent,
-        finalMessage: userResponseMessage,
-        blockId,
-        invocationId
-      });
-
-      // 更新内容块状态为 success（用户已响应，Agent 正在处理）
-      // 注意：output 显示完整的消息（包含 @AgentName），这样对话展示也带上 @mention
+      // 更新内容块状态为 success（用户已响应，UI 立刻反馈）
+      // 显示用户原始选择内容（不带 @mention 前缀，因为 ACP 路径下我们不发 @mention）
       updateContentBlock(invocationId, blockId, {
         status: 'success',
-        output: userResponseMessage,  // 显示完整消息，包含 @AgentName
+        output: userResponseContent,
         completedAt: Date.now(),
       });
 
-      // 注意：不再调用 markQuestionSubmitted
-      // 因为 question block 在 success 状态下仍然需要显示（显示用户的选择）
-      // MessageContentRenderer 会根据 status === 'success' 自动保留渲染
+      if (isAgentStillRunning && toolId) {
+        // === ACP elicitation 路径 ===
+        console.log('[handleInlineQuestionSubmit] ACP elicitation path', { toolId, invocationIdFromBlock, answer: userResponseContent });
+        try {
+          await api.agents.submitQuestionAnswer(threadId, toolId, userResponseContent);
+          message.success('答案已提交');
+        } catch (e) {
+          console.error('[handleInlineQuestionSubmit] submitQuestionAnswer failed', e);
+          message.error('答案提交失败：' + (e as Error).message);
+          return;
+        }
+      } else {
+        // === native CLI 路径（保留原有 @mention 重启逻辑） ===
+        // 关键：在答案前加上 @AgentName 前缀
+        // 这样后端 SpawnAgentForUserMessage 会解析 @mention
+        // shouldUseResumeStrategy 会判断用户 @ 的是同一个 Agent（与最后一个完成的相同）
+        // 从而使用 resume 会话策略，调用正确的 Agent
+        const userResponseMessage = agentName
+          ? `@${agentName} ${userResponseContent}`
+          : userResponseContent;
 
-      // 发送用户消息（通过 WebSocket），这会触发 SpawnAgentForUserMessage
-      // 后端会解析 @mention，使用 resume 筢略调用正确的 Agent
-      await sendMessage(userResponseMessage);
+        console.log('[handleInlineQuestionSubmit] native @mention path', {
+          agentName,
+          finalMessage: userResponseMessage,
+          blockId,
+          invocationId
+        });
 
-      // 调用 API 关闭待办任务（使用 invocationId）
+        // native 路径下展示带 @mention 的完整消息
+        updateContentBlock(invocationId, blockId, {
+          status: 'success',
+          output: userResponseMessage,
+          completedAt: Date.now(),
+        });
+
+        await sendMessage(userResponseMessage);
+        message.success('答案已提交，Agent 正在处理...');
+      }
+
+      // 调用 API 关闭待办任务（两条路径都要做）
       try {
         await api.humanTasks.completeByInvocation(invocationIdFromBlock);
         console.log('[handleInlineQuestionSubmit] 待办任务已关闭, invocationId:', invocationIdFromBlock);
       } catch (e) {
         console.warn('[handleInlineQuestionSubmit] 关闭待办任务失败:', e);
       }
-
-      message.success('答案已提交，Agent 正在处理...');
     } catch (error) {
       console.error('提交答案失败:', error);
       message.error('提交答案失败，请重试');

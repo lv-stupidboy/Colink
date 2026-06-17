@@ -105,15 +105,18 @@ const MessageContentRenderer: React.FC<MessageContentRendererProps> = memo(({
             const effectiveInvocationId = qb.invocationId || messageInvocationId;
 
             // 交互启用逻辑：
-            // 1. status 为 success/failed（已提交）：禁用，显示用户选择
-            // 2. status 为 waiting_user_input 且 Agent 已完成：可点击
-            // 3. status 为 waiting_user_input 且 Agent 正在执行：禁用，显示提示
+            // - status 为 success/failed（已提交）：禁用，显示用户选择
+            // - status 为 waiting_user_input：可点击
+            //
+            // 注意：不再依赖 isStreaming（agent 是否在跑）来判断按钮可点性。
+            // ACP elicitation 模式下 agent 仍 running 是协议本意（异步等用户答），
+            // 而 native CLI 模式下 agent 已 interrupted。两种模式下只要
+            // status==='waiting_user_input' 就允许点击；具体走哪条提交路径由
+            // handleInlineQuestionSubmit 内部按 isStreaming 分流。
             const isSubmitted = qb.status === 'success' || qb.status === 'failed';
-            // 从 store 获取 Agent 执行状态
-            const agentRunning = useAppStore.getState().isStreaming;
-            const isInteractionEnabled = qb.status === 'waiting_user_input' && !agentRunning;
+            const isInteractionEnabled = qb.status === 'waiting_user_input';
 
-            console.log('[MessageContentRenderer] question block:', { id: block.id, invocationId: qb.invocationId, messageInvocationId, effectiveInvocationId, status: qb.status, isInteractionEnabled, isSubmitted, agentRunning, hasOnQuestionSubmit: !!onQuestionSubmit });
+            console.log('[MessageContentRenderer] question block:', { id: block.id, invocationId: qb.invocationId, messageInvocationId, effectiveInvocationId, status: qb.status, isInteractionEnabled, isSubmitted, hasOnQuestionSubmit: !!onQuestionSubmit });
             return (
               <QuestionBlockComponent
                 key={block.id || `question-${index}`}
