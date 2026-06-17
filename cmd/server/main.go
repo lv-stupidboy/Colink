@@ -27,6 +27,7 @@ import (
 	"github.com/anthropic/isdp/internal/service/knowledge"
 	"github.com/anthropic/isdp/internal/service/local_repo"
 	"github.com/anthropic/isdp/internal/service/market"
+	mcpasset "github.com/anthropic/isdp/internal/service/mcp"
 	"github.com/anthropic/isdp/internal/service/memory"
 	"github.com/anthropic/isdp/internal/service/mention"
 	"github.com/anthropic/isdp/internal/service/merge"
@@ -205,6 +206,9 @@ func main() {
 	// Settings 相关 Repositories
 	settingsRepo := repo.NewSettingsRepository(db, dbType)
 	agentSettingsBindingRepo := repo.NewAgentSettingsBindingRepository(db, dbType)
+	// MCP Server 相关 Repositories
+	mcpServerRepo := repo.NewMCPServerRepository(db, dbType)
+	agentMCPBindingRepo := repo.NewAgentMCPBindingRepository(db, dbType)
 	// 后台执行支持：内容块持久化
 	contentBlockRepo := repo.NewContentBlockRepository(db, dbType)
 	// HumanTask Repository
@@ -308,6 +312,12 @@ func main() {
 	settingsSvc := settings.NewService(
 		settingsRepo, agentSettingsBindingRepo, agentConfigRepo,
 		cfg.GetSettingsStoragePath(),
+		logger,
+	)
+
+	// 创建 MCP Server Service
+	mcpSvc := mcpasset.NewService(
+		mcpServerRepo, agentMCPBindingRepo, agentConfigRepo,
 		logger,
 	)
 
@@ -434,8 +444,8 @@ func main() {
 	// 2. OpenCode/CodeAgent: 使用 ACP 原生 session/resume
 	sessionRecordRepo := repo.NewSessionRecordRepository(db)
 	sessionManager := agent.NewSessionManager(sessionRecordRepo, agent.SessionManagerConfig{
-		ResumeExpiry:     168,  // 7 天
-		CleanupInterval:  30,   // 30 分钟
+		ResumeExpiry:    168, // 7 天
+		CleanupInterval: 30,  // 30 分钟
 	})
 	// 将 SessionManager 注入到 ExecutionService
 	orchestrator.SetSessionManager(sessionManager)
@@ -676,6 +686,10 @@ func main() {
 	// Settings Handler
 	settingsHandler := api.NewSettingsHandler(settingsSvc, cfg.GetSettingsStoragePath(), autoGenerator, agentConfigRepo)
 	settingsHandler.RegisterRoutes(v1)
+
+	// MCP Server Handler
+	mcpHandler := api.NewMCPHandler(mcpSvc)
+	mcpHandler.RegisterRoutes(v1)
 
 	// TeamPackage Handler
 	teamPackageHandler := api.NewTeamPackageHandler(teamPackageSvc)
