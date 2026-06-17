@@ -37,6 +37,9 @@ type AcpAdapterConfig struct {
 	// 如果设置了 GatewayBaseURL，会在 initialize 后发送 authenticate 请求
 	GatewayBaseURL string            // 第三方 API 地址（如 https://coding.dashscope.aliyuncs.com/apps/anthropic/v1）
 	GatewayHeaders map[string]string // 自定义 headers（如 x-api-key: xxx）
+	// 用户级 MCP 配置加载函数（可选）
+	// 返回用户级 MCP servers 配置（map 格式），会被转换为 ACP 的 mcpServers 数组格式
+	LoadUserMCPConfig func() map[string]interface{}
 }
 
 // maxStderrSize 定义 stderr 缓冲的最大大小（64KB）
@@ -905,7 +908,7 @@ func (a *BaseACPAdapter) buildMCPServers(req *agent.ExecutionRequest) []interfac
 	if mcpServerPath == "" {
 		LogInfo("ACP: WARNING - MCP server path not configured")
 		if len(mcpServers) > 0 {
-			return mcpServers // 至少返回显式绑定的 MCP
+			return mcpServers // 至少返回用户级 MCP
 		}
 		return []interface{}{}
 	}
@@ -967,6 +970,102 @@ func mapToACPNameValueArray(values map[string]string) []map[string]string {
 			"value": value,
 		})
 	}
+	return result
+}
+
+// convertUserMCPToACPFormat 将用户级 MCP 配置（map 格式）转换为 ACP 的数组格式
+// 用户级配置格式：{"serverName": {"type": "http/stdio/sse", "command/url": "...", ...}}
+// ACP 格式：
+// - stdio: {"name": "serverName", "command": "...", "args": [...], "env": [{name, value}]}
+// - http: {"type": "http", "name": "serverName", "url": "...", "headers": [{name, value}]}
+// - sse: {"type": "sse", "name": "serverName", "url": "...", "headers": [{name, value}]}
+func convertUserMCPToACPFormat(userMCP map[string]interface{}) []interface{} {
+	if userMCP == nil {
+		return []interface{}{}
+	}
+
+	result := []interface{}{}
+	for name, config := range userMCP {
+		configMap, ok := config.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		// 检查 transport 类型
+		transportType := ""
+		if t, ok := configMap["type"].(string); ok {
+			transportType = t
+		}
+
+		// 构建 ACP 格式的 MCP server 配置
+		acpServer := map[string]interface{}{
+			"name": name,
+		}
+
+		switch transportType {
+		case "http", "sse":
+			// HTTP/SSE transport: 需要 type 字段
+			acpServer["type"] = transportType
+			if url, ok := configMap["url"].(string); ok {
+				acpServer["url"] = url
+			}
+			// headers 必须转换为数组格式 [{name, value}]
+			headersArray := []map[string]string{}
+			if headers, ok := configMap["headers"].(map[string]interface{}); ok {
+				for k, v := range headers {
+					if vs, ok := v.(string); ok {
+						headersArray = append(headersArray, map[string]string{
+							"name":  k,
+							"value": vs,
+						})
+					}
+				}
+			} else if headers, ok := configMap["headers"].(map[string]string); ok {
+				for k, v := range headers {
+					headersArray = append(headersArray, map[string]string{
+						"name":  k,
+						"value": v,
+					})
+				}
+			}
+			acpServer["headers"] = headersArray
+
+		default:
+			// Stdio transport（默认）: 不需要 type 字段
+			// 复制各个字段
+			if cmd, ok := configMap["command"].(string); ok {
+				acpServer["command"] = cmd
+			}
+			if args, ok := configMap["args"].([]interface{}); ok {
+				acpServer["args"] = args
+			} else if args, ok := configMap["args"].([]string); ok {
+				acpServer["args"] = args
+			}
+			// env 必须转换为数组格式 [{name, value}]
+			envArray := []map[string]string{}
+			if env, ok := configMap["env"].(map[string]interface{}); ok {
+				for k, v := range env {
+					if vs, ok := v.(string); ok {
+						envArray = append(envArray, map[string]string{
+							"name":  k,
+							"value": vs,
+						})
+					}
+				}
+			} else if env, ok := configMap["env"].(map[string]string); ok {
+				for k, v := range env {
+					envArray = append(envArray, map[string]string{
+						"name":  k,
+						"value": v,
+					})
+				}
+			}
+			acpServer["env"] = envArray
+		}
+
+		result = append(result, acpServer)
+	}
+
 	return result
 }
 
