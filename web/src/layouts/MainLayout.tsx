@@ -53,7 +53,7 @@ const MainLayout: React.FC = () => {
     // 对话页面路径：/threads/:id, /projects/:projectId/threads/:threadId, /agents/:agentId
     const isThreadPage = path.startsWith('/threads') ||
                          path.includes('/threads/') ||
-                         (path.startsWith('/agents/') && !path.includes('/commands') && !path.includes('/subagents') &&
+                         (path.startsWith('/agents/') && !path.includes('/commands') && !path.includes('/mcp') && !path.includes('/subagents') &&
                           !path.includes('/skills') && !path.includes('/rules') && !path.includes('/settings') &&
                           !path.includes('/plugins') && !path.includes('/team-packages') &&
                           !path.includes('/roles') && !path.includes('/knowledge'));
@@ -74,6 +74,7 @@ const MainLayout: React.FC = () => {
     } else if (path.startsWith('/agents')) {
       // Agent团队下的路径，需要展开到三级菜单
       if (path.startsWith('/agents/commands') || path.startsWith('/agents/subagents') ||
+          path.startsWith('/agents/mcp') ||
           path.startsWith('/agents/skills') || path.startsWith('/agents/rules') ||
           path.startsWith('/agents/settings') ||
           path.startsWith('/agents/plugins')) {
@@ -130,6 +131,11 @@ const MainLayout: React.FC = () => {
               key: '/agents/commands',
               icon: <CodeOutlined />,
               label: 'Commands',
+            },
+            {
+              key: '/agents/mcp',
+              icon: <ApiOutlined />,
+              label: 'MCP Servers',
             },
             {
               key: '/agents/subagents',
@@ -237,6 +243,7 @@ const MainLayout: React.FC = () => {
     if (path.startsWith('/agents/team-packages')) return '/agents/team-packages';
     if (path.startsWith('/agents/roles')) return '/agents/roles';
     if (path.startsWith('/agents/commands')) return '/agents/commands';
+    if (path.startsWith('/agents/mcp')) return '/agents/mcp';
     if (path.startsWith('/agents/subagents')) return '/agents/subagents';
     if (path.startsWith('/agents/skills')) return '/agents/skills';
     if (path.startsWith('/agents/rules')) return '/agents/rules';

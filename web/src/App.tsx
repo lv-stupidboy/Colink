@@ -23,6 +23,7 @@ import RegistryManagement from '@/pages/RegistryManagement';
 import KnowledgeManagement from '@/pages/KnowledgeManagement';
 import SubagentList from '@/pages/SubagentList';
 import CommandList from '@/pages/CommandList';
+import MCPServerList from '@/pages/MCPServerList';
 import RuleList from '@/pages/RuleList';
 import SettingsManagement from '@/pages/SettingsManagement';
 import PlaceholderPage from '@/pages/PlaceholderPage';
@@ -146,6 +147,7 @@ const App: React.FC = () => {
               <Route path="agents" element={<Navigate to="/agents/roles" replace />} />
               <Route path="agents/roles" element={<AgentRoleList />} />
               <Route path="agents/commands" element={<CommandList />} />
+              <Route path="agents/mcp" element={<MCPServerList />} />
               <Route path="agents/subagents" element={<SubagentList />} />
               <Route path="agents/skills" element={<SkillLibrary />} />
               <Route path="agents/rules" element={<RuleList />} />

@@ -1176,6 +1176,78 @@ export interface AgentSettingsResponse {
   count: number;
 }
 
+// ========== MCP Server 相关类型 ==========
+
+export type MCPTransport = 'stdio' | 'http' | 'sse';
+export type MCPSourceType = 'platform' | 'personal' | 'team_package' | 'federated';
+export type MCPStatus = 'active' | 'disabled';
+
+export interface MCPServer {
+  id: string;
+  name: string;
+  displayName?: string;
+  description?: string;
+  transport: MCPTransport;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+  sourceType: MCPSourceType;
+  supportedAgents?: string[];
+  status: MCPStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateMCPServerRequest {
+  name: string;
+  displayName?: string;
+  description?: string;
+  transport: MCPTransport;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+  sourceType?: MCPSourceType;
+  supportedAgents?: string[];
+  status?: MCPStatus;
+}
+
+export interface UpdateMCPServerRequest {
+  displayName?: string;
+  description?: string;
+  transport?: MCPTransport;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+  sourceType?: MCPSourceType;
+  supportedAgents?: string[];
+  status?: MCPStatus;
+}
+
+export interface MCPServerListQuery {
+  search?: string;
+  agentType?: string;
+  status?: MCPStatus;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface MCPServerListResponse {
+  data: MCPServer[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface AgentMCPServersResponse {
+  data: MCPServer[];
+}
+
 // ImportResult 导入结果（简化版）
 export interface ImportResult {
   success: number;

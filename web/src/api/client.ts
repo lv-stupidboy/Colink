@@ -61,6 +61,12 @@ import type {
   SettingsListQuery,
   SettingsListResponse,
   AgentSettingsResponse,
+  MCPServer,
+  CreateMCPServerRequest,
+  UpdateMCPServerRequest,
+  MCPServerListQuery,
+  MCPServerListResponse,
+  AgentMCPServersResponse,
   HumanTask,
   HumanTaskStatus,
   SubmitHumanTaskRequest,
@@ -919,6 +925,33 @@ class APIClient {
       this.request(`/agent-roles/${agentId}/settings`, 'POST', { settingsIds }),
     unbindFromAgent: (agentId: string, settingsId: string): Promise<void> =>
       this.request(`/agent-roles/${agentId}/settings/${settingsId}`, 'DELETE'),
+  };
+
+  // MCP Server API
+  mcpServers = {
+    list: (query?: MCPServerListQuery): Promise<MCPServerListResponse> => {
+      const params = new URLSearchParams();
+      if (query?.search) params.append('search', query.search);
+      if (query?.agentType) params.append('agent_type', query.agentType);
+      if (query?.status) params.append('status', query.status);
+      if (query?.page) params.append('page', query.page.toString());
+      if (query?.pageSize) params.append('page_size', query.pageSize.toString());
+
+      const url = params.toString() ? `/mcp-servers?${params.toString()}` : '/mcp-servers';
+      return this.request(url, 'GET');
+    },
+    get: (id: string): Promise<MCPServer> =>
+      this.request(`/mcp-servers/${id}`, 'GET'),
+    create: (data: CreateMCPServerRequest): Promise<MCPServer> =>
+      this.request('/mcp-servers', 'POST', data),
+    update: (id: string, data: UpdateMCPServerRequest): Promise<MCPServer> =>
+      this.request(`/mcp-servers/${id}`, 'PUT', data),
+    delete: (id: string): Promise<void> =>
+      this.request(`/mcp-servers/${id}`, 'DELETE'),
+    getAgentMCPServers: (agentId: string): Promise<AgentMCPServersResponse> =>
+      this.request(`/agents/${agentId}/mcp-servers`, 'GET'),
+    bindToAgent: (agentId: string, mcpServerIds: string[]): Promise<{ message: string }> =>
+      this.request(`/agents/${agentId}/mcp-servers`, 'PUT', { mcpServerIds }),
   };
 
   // System API

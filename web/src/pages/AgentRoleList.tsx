@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import api from '@/api/client';
 import { getTypeColorByIndex } from '@/config/agentTypeColors';
 import AgentTypeIcon from '@/components/AgentTypeIcon';
-import type { AgentConfig, BaseAgent, Skill, Subagent, Command, Rule, Settings, BatchGenerateResult, BatchUpdateResult, GenerateResultItem, WorkflowTemplate, BaseAgentTypeInfo } from '@/types';
+import type { AgentConfig, BaseAgent, Skill, Subagent, Command, Rule, Settings, MCPServer, BatchGenerateResult, BatchUpdateResult, GenerateResultItem, WorkflowTemplate, BaseAgentTypeInfo } from '@/types';
 
 const { Title, Text } = Typography;
 
@@ -54,6 +54,8 @@ const AgentRoleList: React.FC = () => {
   const [selectedRuleIds, setSelectedRuleIds] = useState<string[]>([]);
   const [settings, setSettings] = useState<Settings[]>([]);
   const [selectedSettingsIds, setSelectedSettingsIds] = useState<string[]>([]);
+  const [mcpServers, setMCPServers] = useState<MCPServer[]>([]);
+  const [selectedMCPServerIds, setSelectedMCPServerIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingConfig, setEditingConfig] = useState<AgentConfig | null>(null);
@@ -93,6 +95,7 @@ const AgentRoleList: React.FC = () => {
     loadCommands();
     loadRules();
     loadSettings();
+    loadMCPServers();
     loadWorkflows();
     api.baseAgents.getTypes().then(setAgentTypes).catch(() => {});
   }, []);
@@ -227,6 +230,26 @@ const AgentRoleList: React.FC = () => {
     }
   };
 
+  const loadMCPServers = async () => {
+    try {
+      const result = await api.mcpServers.list({ pageSize: 100, status: 'active' });
+      setMCPServers(result.data || []);
+    } catch (error) {
+      console.error('加载 MCP Server 列表失败', error);
+      setMCPServers([]);
+    }
+  };
+
+  const loadAgentMCPServers = async (agentId: string) => {
+    try {
+      const result = await api.mcpServers.getAgentMCPServers(agentId);
+      setSelectedMCPServerIds(result.data?.map(s => s.id) || []);
+    } catch (error) {
+      console.error('加载Agent绑定的 MCP Server 失败', error);
+      setSelectedMCPServerIds([]);
+    }
+  };
+
   const handleCreate = () => {
     setEditingConfig(null);
     form.resetFields();
@@ -235,6 +258,7 @@ const AgentRoleList: React.FC = () => {
     setSelectedCommandIds([]);
     setSelectedSettingsIds([]);
     setSelectedRuleIds([]);
+    setSelectedMCPServerIds([]);
     setModalVisible(true);
   };
 
@@ -247,6 +271,7 @@ const AgentRoleList: React.FC = () => {
       loadAgentCommands(record.id),
       loadAgentRules(record.id),
       loadAgentSettings(record.id),
+      loadAgentMCPServers(record.id),
     ]);
     setModalVisible(true);
   };
@@ -530,6 +555,8 @@ const AgentRoleList: React.FC = () => {
         await api.rules.bindRulesToAgent(editingConfig.id, selectedRuleIds);
         // 更新配置绑定 - 无论是否为空都调用，以支持清空绑定
         await api.settings.bindToAgent(editingConfig.id, selectedSettingsIds);
+        // 更新 MCP Server 绑定 - 无论是否为空都调用，以支持清空绑定
+        await api.mcpServers.bindToAgent(editingConfig.id, selectedMCPServerIds);
         // 刷新配置（自动检测类型，只调用一次）
         await api.agents.refreshConfig(editingConfig.id);
         // 确保 loading 效果至少显示 1500ms
@@ -571,6 +598,10 @@ const AgentRoleList: React.FC = () => {
         // 为新创建的Agent绑定配置
         if (selectedSettingsIds.length > 0) {
           await api.settings.bindToAgent(newAgent.id, selectedSettingsIds);
+        }
+        // 为新创建的Agent绑定 MCP Server
+        if (selectedMCPServerIds.length > 0) {
+          await api.mcpServers.bindToAgent(newAgent.id, selectedMCPServerIds);
         }
         // 刷新配置（自动检测类型，只调用一次）
         await api.agents.refreshConfig(newAgent.id);
@@ -1185,6 +1216,35 @@ const AgentRoleList: React.FC = () => {
                 label: s.name,
                 value: s.id,
                 desc: s.description || '暂无描述',
+              }))}
+              optionRender={(option) => (
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <span style={{ fontWeight: 500 }}>{option.label}</span>
+                  <span style={{ fontSize: 12, color: '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 400 }}>
+                    {option.data?.desc}
+                  </span>
+                </div>
+              )}
+            />
+          </Form.Item>
+
+          <Form.Item label="绑定 MCP Servers">
+            <Select
+              mode="multiple"
+              placeholder="选择要绑定的 MCP Server"
+              value={selectedMCPServerIds}
+              onChange={setSelectedMCPServerIds}
+              style={{ width: '100%' }}
+              optionLabelProp="label"
+              showSearch
+              filterOption={(input, option) =>
+                (option?.label as string)?.toLowerCase().includes(input.toLowerCase()) ||
+                (option?.desc as string)?.toLowerCase().includes(input.toLowerCase())
+              }
+              options={mcpServers.map(server => ({
+                label: server.displayName || server.name,
+                value: server.id,
+                desc: `${server.transport} · ${server.description || '暂无描述'}`,
               }))}
               optionRender={(option) => (
                 <div style={{ display: 'flex', flexDirection: 'column' }}>
