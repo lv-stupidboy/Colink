@@ -236,6 +236,7 @@ const MCPServerList: React.FC = () => {
         onOk={() => form.submit()}
         confirmLoading={submitLoading}
         destroyOnClose
+        forceRender
       >
         <Form form={form} layout="vertical" onFinish={handleSubmit}>
           <Form.Item name="name" label="名称" rules={[{ required: true }]} extra="只能包含小写字母、数字和中划线">
