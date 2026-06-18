@@ -68,8 +68,6 @@ const MCPServerList: React.FC = () => {
     form.resetFields();
     form.setFieldsValue({
       transport: 'stdio',
-      sourceType: 'personal',
-      status: 'active',
       supportedAgents: [],
     });
     setModalVisible(true);
@@ -102,7 +100,6 @@ const MCPServerList: React.FC = () => {
     try {
       const payload = {
         name: values.name,
-        displayName: values.displayName,
         description: values.description,
         transport: values.transport,
         command: values.command,
@@ -110,9 +107,7 @@ const MCPServerList: React.FC = () => {
         env: parseJSONMap(values.envText),
         url: values.url,
         headers: parseJSONMap(values.headersText),
-        sourceType: values.sourceType,
         supportedAgents: values.supportedAgents || [],
-        status: values.status,
       };
       if (editing) {
         const { name, ...updatePayload } = payload;
@@ -176,8 +171,7 @@ const MCPServerList: React.FC = () => {
               <Space direction="vertical" size={0}>
                 <Space>
                   <ApiOutlined />
-                  <Text strong>{record.displayName || record.name}</Text>
-                  <Tag>{record.name}</Tag>
+                  <Text strong>{record.name}</Text>
                 </Space>
                 <Text type="secondary">{record.description || '暂无描述'}</Text>
               </Space>
@@ -208,12 +202,6 @@ const MCPServerList: React.FC = () => {
             ),
           },
           {
-            title: '状态',
-            dataIndex: 'status',
-            width: 100,
-            render: (value: string) => <Tag color={value === 'active' ? 'green' : 'default'}>{value}</Tag>,
-          },
-          {
             title: '操作',
             width: 140,
             render: (_, record) => (
@@ -241,9 +229,6 @@ const MCPServerList: React.FC = () => {
         <Form form={form} layout="vertical" onFinish={handleSubmit}>
           <Form.Item name="name" label="名称" rules={[{ required: true }]} extra="只能包含小写字母、数字和中划线">
             <Input disabled={!!editing} placeholder="github-tools" />
-          </Form.Item>
-          <Form.Item name="displayName" label="显示名称">
-            <Input placeholder="GitHub Tools" />
           </Form.Item>
           <Form.Item name="description" label="描述">
             <Input />
@@ -288,24 +273,6 @@ const MCPServerList: React.FC = () => {
                 label: type.name || type.type,
                 value: type.type,
               }))}
-            />
-          </Form.Item>
-          <Form.Item name="sourceType" label="来源">
-            <Select
-              options={[
-                { label: 'personal', value: 'personal' },
-                { label: 'platform', value: 'platform' },
-                { label: 'team_package', value: 'team_package' },
-                { label: 'federated', value: 'federated' },
-              ]}
-            />
-          </Form.Item>
-          <Form.Item name="status" label="状态">
-            <Select
-              options={[
-                { label: 'active', value: 'active' },
-                { label: 'disabled', value: 'disabled' },
-              ]}
             />
           </Form.Item>
         </Form>
