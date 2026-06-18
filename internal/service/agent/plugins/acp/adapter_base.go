@@ -1485,15 +1485,21 @@ func (a *BaseACPAdapter) SendToolResult(invocationID uuid.UUID, toolCallID strin
 	}
 
 	// === 路径 2：session/resolve_tool_call 兼容 OpenCode 等 ===
+	// 前端 ACP 路径下统一发 JSON `{"question_<n>": ...}`（为 claude-agent-acp
+	// 的 elicitation/create 设计）。但 OpenCode 走的是 session/resolve_tool_call —
+	// response 字段被它当作"用户答案纯文本"原样塞给模型，不解析结构。
+	// 单题场景下值就是 label，问题不大；多题场景模型看到的就是一段裸 JSON。
+	// 这里把 JSON 还原为换行分隔的人类可读文本（与原 native 路径行为对齐）。
+	plainResponse := flattenJSONAnswerForLegacy(result)
 	resolveParams := map[string]interface{}{
 		"toolCallId": toolCallID,
-		"response":   result,
+		"response":   plainResponse,
 	}
 
 	LogInfo("ACP: sending tool result via session/resolve_tool_call",
 		zap.String("invocationID", invocationID.String()),
 		zap.String("toolCallId", toolCallID),
-		zap.String("response", result))
+		zap.String("response", plainResponse))
 
 	_, err := session.transport.SendRequest("session/resolve_tool_call", resolveParams)
 	if err != nil {
@@ -1502,7 +1508,7 @@ func (a *BaseACPAdapter) SendToolResult(invocationID uuid.UUID, toolCallID strin
 
 		err = session.transport.SendNotification("session/resolve_user_input", &acpUserInputResponse{
 			ToolCallID: toolCallID,
-			Response:   result,
+			Response:   plainResponse,
 		})
 		if err != nil {
 			return fmt.Errorf("ACP: failed to send user input response: %w", err)
@@ -1512,6 +1518,83 @@ func (a *BaseACPAdapter) SendToolResult(invocationID uuid.UUID, toolCallID strin
 	LogInfo("ACP: tool result sent successfully",
 		zap.String("toolCallId", toolCallID))
 	return nil
+}
+
+// flattenJSONAnswerForLegacy 把前端为 elicitation/create 路径准备的
+// `{"question_<n>": ...}` JSON 字符串展平为换行分隔的纯文本，供 OpenCode 等
+// session/resolve_tool_call 路径使用——那条协议把 response 字段当作"用户答案
+// 纯文本"直接塞给模型，不做结构解析。
+//
+// 规则：
+//   - 不是 JSON 对象 → 原样返回（兼容真正的纯文本答案）
+//   - JSON 对象 → 按 question_0、question_1 ... 顺序展平
+//   - 字符串值直接拼；数组（多选）用顿号拼接；其它类型 fmt.Sprint
+//   - 多题用换行连接
+func flattenJSONAnswerForLegacy(answer string) string {
+	trimmed := strings.TrimSpace(answer)
+	if !strings.HasPrefix(trimmed, "{") || !strings.HasSuffix(trimmed, "}") {
+		return answer
+	}
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(trimmed), &parsed); err != nil || parsed == nil {
+		return answer
+	}
+
+	// 收集 question_<n> 索引；忽略 question_<n>_custom 等带后缀的字段（虽然
+	// 现在前端不再发 _custom，保留容错）和其它非约定 key。
+	indices := make([]int, 0, len(parsed))
+	for k := range parsed {
+		var idx int
+		if _, err := fmt.Sscanf(k, "question_%d", &idx); err != nil {
+			continue
+		}
+		if k != fmt.Sprintf("question_%d", idx) {
+			continue
+		}
+		indices = append(indices, idx)
+	}
+	if len(indices) == 0 {
+		return answer
+	}
+	// 插入排序（题数一般 ≤ 4）
+	for i := 1; i < len(indices); i++ {
+		for j := i; j > 0 && indices[j-1] > indices[j]; j-- {
+			indices[j-1], indices[j] = indices[j], indices[j-1]
+		}
+	}
+
+	parts := make([]string, 0, len(indices))
+	for _, idx := range indices {
+		v := parsed[fmt.Sprintf("question_%d", idx)]
+		switch x := v.(type) {
+		case string:
+			if s := strings.TrimSpace(x); s != "" {
+				parts = append(parts, s)
+			}
+		case []interface{}:
+			ss := make([]string, 0, len(x))
+			for _, e := range x {
+				if s, ok := e.(string); ok {
+					if t := strings.TrimSpace(s); t != "" {
+						ss = append(ss, t)
+					}
+				} else if e != nil {
+					ss = append(ss, fmt.Sprint(e))
+				}
+			}
+			if len(ss) > 0 {
+				parts = append(parts, strings.Join(ss, "、"))
+			}
+		case nil:
+			// 该题用户未作答，skip
+		default:
+			parts = append(parts, fmt.Sprint(v))
+		}
+	}
+	if len(parts) == 0 {
+		return answer
+	}
+	return strings.Join(parts, "\n")
 }
 
 // buildElicitationContent 把前端提交的答案字符串还原为 elicitation 的 content map。
