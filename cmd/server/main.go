@@ -1023,6 +1023,8 @@ func checkDatabaseTables(db *sql.DB, logger *zap.Logger) {
 		"v1.1.0": {"projects", "threads", "messages", "agent_configs", "base_agents", "agent_invocations", "artifacts", "sandboxes", "workflow_templates"},
 		"v1.2.0": {"skills", "commands", "subagents", "rules", "settings"},
 		"v1.2.2": {"markets", "team_package_versions"},
+		"v1.2.8": {"local_repos"},
+		"v1.3.1": {"session_records", "mcp_servers", "agent_mcp_bindings"},
 	}
 
 	// 查询现有表
