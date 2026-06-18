@@ -13,7 +13,6 @@ import {
   CodeOutlined,
   ApiOutlined,
   SafetyCertificateOutlined,
-  ControlOutlined,
   TeamOutlined,
   FileTextOutlined,
   ShopOutlined,
@@ -133,11 +132,6 @@ const MainLayout: React.FC = () => {
               label: 'Commands',
             },
             {
-              key: '/agents/mcp',
-              icon: <ApiOutlined />,
-              label: 'MCP Servers',
-            },
-            {
               key: '/agents/subagents',
               icon: <ApiOutlined />,
               label: 'Subagents',
@@ -153,14 +147,14 @@ const MainLayout: React.FC = () => {
               label: 'Rules',
             },
             {
+              key: '/agents/mcp',
+              icon: <ApiOutlined />,
+              label: 'MCP Servers',
+            },
+            {
               key: '/agents/settings',
               icon: <SettingOutlined />,
               label: 'Settings',
-            },
-            {
-              key: '/agents/plugins',
-              icon: <ControlOutlined />,
-              label: 'Plugins',
             },
           ],
         },
