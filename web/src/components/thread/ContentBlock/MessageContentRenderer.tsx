@@ -61,13 +61,14 @@ const MessageContentRenderer: React.FC<MessageContentRendererProps> = memo(({
   const filteredBlocks = filterWaitingQuestions
     ? blocks.filter((block) => {
         if (block.type === 'question') {
-          // 已提交的 question block 直接过滤掉（避免重复渲染）
-          if (submittedQuestionBlockIds.has(block.id)) {
+          // 仅过滤 waiting_user_input 状态且已提交的 question block（避免在
+          // 历史消息中重复渲染一个仍在等待用户输入的"活"问题——它应该已经在
+          // StreamingMessage 中渲染过了）。success/failed 状态的问题永远保留，
+          // 因为它们已落成"用户回答了的问题"记录，需要在实际对话中可视化展示。
+          if (submittedQuestionBlockIds.has(block.id) && block.status === 'waiting_user_input') {
             console.log('[MessageContentRenderer] Filtering submitted question block:', block.id);
             return false;
           }
-          // success/failed 状态的保留（显示用户答案）
-          // waiting_user_input 状态的也保留（让用户可以选择）
         }
         return true;
       })
