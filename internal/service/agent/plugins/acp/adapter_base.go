@@ -1521,10 +1521,12 @@ func (a *BaseACPAdapter) SendToolResult(invocationID uuid.UUID, toolCallID strin
 //
 // 支持两种输入：
 //   - JSON 对象（多题场景）：直接当 content（{"question_0":"a","question_1":"b"}）
-//   - 普通字符串（单题场景）：根据是否匹配某个原始 enum option 分流：
-//     - 匹配 → 填到 question_<n>（CLI 端按 enum const 解析）
-//     - 不匹配（包括用户在"其他"占位项里写的自定义文本） → 填到 question_<n>_custom
-//       （claude-agent-acp 的 applyAskElicitationResponse 优先读这个字段作为 updatedInput）
+//   - 普通字符串（单题场景）：塞到 question_0
+//
+// 注意 claude-agent-acp 的 applyAskElicitationResponse 只读 question_<n>（用
+// String(value) 转文字写到 answers，不校验 enum），所以无论用户选的是 enum 选项还是
+// 填了自定义文本，都直接塞 question_<n>。SDK 端的 form-level "customAnswer" 字段会
+// 写到工具的 response 字段而非某题的 answer，无法表达"对第 N 题的自定义答案"的语义。
 func buildElicitationContent(answer string, questions []agent.QuestionItem) map[string]interface{} {
 	trimmed := strings.TrimSpace(answer)
 	if strings.HasPrefix(trimmed, "{") && strings.HasSuffix(trimmed, "}") {
@@ -1533,27 +1535,6 @@ func buildElicitationContent(answer string, questions []agent.QuestionItem) map[
 			return parsed
 		}
 	}
-
-	// 单题场景：判断 answer 是否匹配第一个问题的某个原始 enum label（不含我们注入的占位）
-	if len(questions) >= 1 {
-		matched := false
-		for _, opt := range questions[0].Options {
-			if opt.Label == elicitationCustomOptionLabel {
-				continue // 跳过占位选项
-			}
-			if opt.Label == answer {
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			// 用户填了自定义文本（要么手动输入、要么先选"其他"再填文本）
-			return map[string]interface{}{
-				"question_0_custom": answer,
-			}
-		}
-	}
-
 	return map[string]interface{}{
 		"question_0": answer,
 	}

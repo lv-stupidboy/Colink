@@ -67,6 +67,27 @@ func parseACPAgentThoughtChunk(raw json.RawMessage) ([]agent.Chunk, error) {
 }
 
 func parseACPToolCall(raw json.RawMessage, session *acpSession) ([]agent.Chunk, error) {
+	// claude-agent-acp 在触发 elicitation/create 前会先发一条 sessionUpdate=tool_call
+	// 初始通知，title 是 "Asking for your input"、rawInput 还是空（questions 还没填进去）。
+	// 紧接着才会发 tool_call_update + elicitation/create 反向请求。
+	// 如果按普通工具走 ChunkTypeToolUse 路径，前端会先创建 "Asking for your input" 这个
+	// tool block，等 elicitation 进来再加一个 question block——双重展示，且第一个 tool
+	// block 永远不会变成 completed（后续 tool_call_update 已被我们 skip），就一直停在
+	// streaming 状态显示"进行中"。
+	// 检测 _meta.claudeCode.toolName == "AskUserQuestion" 直接 skip，让 elicitation 独占 UI。
+	var metaCheck struct {
+		Meta struct {
+			ClaudeCode struct {
+				ToolName string `json:"toolName"`
+			} `json:"claudeCode"`
+		} `json:"_meta"`
+	}
+	_ = json.Unmarshal(raw, &metaCheck)
+	if metaCheck.Meta.ClaudeCode.ToolName == "AskUserQuestion" {
+		LogInfo("ACP: skip AskUserQuestion tool_call (UI handled by elicitation/create)")
+		return nil, nil
+	}
+
 	var tc acpToolCall
 	if err := json.Unmarshal(raw, &tc); err != nil {
 		LogError("ACP: failed to parse tool_call", zap.Error(err))
@@ -159,6 +180,28 @@ func parseACPToolCallUpdate(raw json.RawMessage, session *acpSession) ([]agent.C
 	// 首先打印完整的 raw JSON，便于调试
 	LogInfo("ACP: parseACPToolCallUpdate raw JSON",
 		zap.String("raw", string(raw)))
+
+	// claude-agent-acp 在触发 elicitation/create 反向请求的同时也会通过 tool_call_update
+	// 通知 AskUserQuestion 工具的状态（in_progress / completed / 含 toolResponse 的中间态）。
+	// 我们已经在 handleServerRequest 的 elicitation/create 分支把 question chunk 推给前端了，
+	// 这里再把这个工具的 tool_call_update 转成 ToolUse / ToolResult 会形成"同一调用同时
+	// 显示 question 卡片 + INPUT/OUTPUT 块"的双重展示。提交答案后 OUTPUT 还会覆盖掉
+	// question 卡片的视觉重点。直接把 AskUserQuestion 的 tool_call_update 静默吞掉，
+	// 让 elicitation 路径独占 UI。
+	var metaCheck struct {
+		Meta struct {
+			ClaudeCode struct {
+				ToolName string `json:"toolName"`
+			} `json:"claudeCode"`
+		} `json:"_meta"`
+	}
+	_ = json.Unmarshal(raw, &metaCheck)
+	LogInfo("ACP: tool_call_update meta probe",
+		zap.String("metaToolName", metaCheck.Meta.ClaudeCode.ToolName))
+	if metaCheck.Meta.ClaudeCode.ToolName == "AskUserQuestion" {
+		LogInfo("ACP: skip AskUserQuestion tool_call_update (UI handled by elicitation/create)")
+		return nil, nil
+	}
 
 	var update acpToolCallUpdate
 	if err := json.Unmarshal(raw, &update); err != nil {
