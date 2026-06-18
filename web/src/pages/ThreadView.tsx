@@ -1496,19 +1496,60 @@ const ThreadView: React.FC = () => {
       // 新消息 → SpawnAgentForUserMessage → resume"重启来续上对话。
       const isAgentStillRunning = useAppStore.getState().isStreaming;
 
-      // 更新内容块状态为 success（用户已响应，UI 立刻反馈）
-      // 显示用户原始选择内容（不带 @mention 前缀，因为 ACP 路径下我们不发 @mention）
-      updateContentBlock(invocationId, blockId, {
-        status: 'success',
-        output: userResponseContent,
-        completedAt: Date.now(),
-      });
+      // 注：updateContentBlock 把 question block 的 status 改成 success / 写入 output —— 但
+      // ACP 路径下 output 必须是 elicitJson（JSON 编码的 {question_<n>: ...}），跟后端
+      // SubmitQuestionAnswer 持久化到 question_block.Output 的格式一致；这样提交瞬间和
+      // 刷新页面后 parseOutputAnswers 的解析路径相同（JSON 路径精准还原每题答案）。
+      // native 路径继续用 @AgentName 拼接的自然语言。两条路径里分别在自己分支末尾调用
+      // updateContentBlock，避免提交瞬间的 output 与刷新后的 output 不一致导致渲染错乱。
 
       if (isAgentStillRunning && toolId) {
         // === ACP elicitation 路径 ===
-        console.log('[handleInlineQuestionSubmit] ACP elicitation path', { toolId, invocationIdFromBlock, answer: userResponseContent });
+        // 按 ACP elicitation 协议逐题编码成 JSON：每题答案放到 question_<n>。
+        // 注意：claude-agent-acp 的 applyAskElicitationResponse 只读 question_<n>，
+        // 把值通过 String(value) 转成文字就当作 answer——**不校验是否在 enum 里**。
+        // 所以"自定义文本"也直接塞 question_<n>，SDK 端会原样作为 answers[问题文本]。
+        // （SDK 端虽然有 form-level "customAnswer" 字段写到 updatedInput.response，
+        //  但那是工具级 response，不是对应到具体某题的 answer，无法表达"我对第 N 题填了
+        //  自定义文本"的意图——逐题塞 question_<n> 是唯一可靠传递方式。）
+        const questionItems: Array<{ options: Array<{ label: string }> }> =
+          (questionBlock as any)?.questions || [];
+        const elicitContent: Record<string, unknown> = {};
+
+        Object.entries(answers).forEach(([idxStr, value]) => {
+          const idx = Number(idxStr);
+          const q = questionItems[idx];
+          if (!q) return;
+
+          if (Array.isArray(value)) {
+            // 多选：直接塞数组（含选项 label 与自定义文本，SDK 端 join(", ") 输出）
+            const cleaned = value.filter((v) => typeof v === 'string' && v.trim());
+            if (cleaned.length > 0) elicitContent[`question_${idx}`] = cleaned;
+          } else if (typeof value === 'string' && value.trim()) {
+            elicitContent[`question_${idx}`] = value;
+          }
+        });
+
+        const elicitJson = JSON.stringify(elicitContent);
+        console.log('[handleInlineQuestionSubmit] ACP elicitation path', {
+          toolId,
+          invocationIdFromBlock,
+          rawAnswers: answers,
+          encoded: elicitContent,
+        });
+
+        // 提交瞬间立即把 question block 改成 success + output=elicitJson，UI 第一时间反馈。
+        // output 跟后端 SubmitQuestionAnswer 持久化 question_block.Output 的内容完全一致，
+        // 这样无论"立即更新"还是"刷新后从后端拉"都走 parseOutputAnswers 的 JSON 路径，
+        // 不会出现"提交瞬间显示 ok / 刷新后变 JSON 字符串"或反之的不一致问题。
+        updateContentBlock(invocationId, blockId, {
+          status: 'success',
+          output: elicitJson,
+          completedAt: Date.now(),
+        });
+
         try {
-          await api.agents.submitQuestionAnswer(threadId, toolId, userResponseContent);
+          await api.agents.submitQuestionAnswer(threadId, toolId, elicitJson);
           message.success('答案已提交');
         } catch (e) {
           console.error('[handleInlineQuestionSubmit] submitQuestionAnswer failed', e);

@@ -43,15 +43,22 @@ export const StreamingMessage: React.FC<StreamingMessageProps> = memo(({
   // 自动滚动 ref
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // 过滤 streamingContentBlocks：
-  // - question 类型：只保留 waiting_user_input 状态的
-  //   - waiting_user_input：等待用户输入，需要渲染选项（由 StreamingMessage 渲染）
-  //   - success/failed：已提交或失败，由历史消息渲染（filterWaitingQuestions=true 不会过滤这些）
-  // - 其他类型：全部保留
+  // streaming 阶段对 question block 不再做状态过滤，直接全量保留：
+  //   - waiting_user_input：用户交互中，渲染选项卡片
+  //   - success / failed：用户已提交答案，渲染"已回答"卡片显示用户选择
+  //
+  // 注意：原先这里只保留 waiting_user_input、把 success/failed 让"历史消息渲染"，是按
+  // native CLI 模式假设——提交答案 == invocation 收尾 == streamingContentBlocks 被
+  // finalizeStreamingMessage 移到 messages。但 ACP elicitation 模式下用户提交后
+  // invocation 仍 running（同一 prompt turn 内异步等答案），question block 仍在
+  // streamingContentBlocks 中，过滤掉的话用户提交完会"卡片直接消失"，看不到自己的
+  // 答案。
+  // 已提交的 question block 不会被重复渲染——agent_message 事件触发的
+  // finalizeStreamingMessage 会把它的 ID 加进 submittedQuestionBlockIds，历史消息
+  // 渲染时再用 submittedQuestionBlockIds 跳过。
   const filteredContentBlocks = streamingContentBlocks.filter((block: MessageContentBlock) => {
     if (block.type === 'question') {
-      // 只保留 waiting_user_input 状态的（需要用户交互）
-      return block.status === 'waiting_user_input';
+      return true;
     }
     return true;
   });
