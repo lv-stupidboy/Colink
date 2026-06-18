@@ -40,7 +40,9 @@ func NewOpenCodeAdapter(baseAgent *model.BaseAgent) agent.AgentAdapter {
 	config := acp.AcpAdapterConfig{
 		CliPath: cliPath,
 		BuildArgs: func(req *agent.ExecutionRequest) []string {
-			return []string{"acp"}
+			// --port 26307 固定 HTTP API 端口，让 ISDP 能通过 localhost 调用
+			// OpenCode 的 /question REST API 来 reply question 工具的用户答案
+			return []string{"acp", "--port", "26307"}
 		},
 		BuildEnv: func(req *agent.ExecutionRequest) []string {
 			env := make([]string, 0, 4)

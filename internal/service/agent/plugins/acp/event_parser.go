@@ -107,32 +107,27 @@ func parseACPToolCall(raw json.RawMessage, session *acpSession) ([]agent.Chunk, 
 		toolInput = m
 	}
 
-	// 检测 AskUserQuestion 工具（更精确的匹配）
-	// 工具名可能是 "AskUserQuestion" 或 "ask_user_question" 或类似的
-	isAskUserQuestion := false
-
-	// 方法1：检查 title 是否包含关键关键词（大小写不敏感）
-	titleLower := strings.ToLower(tc.Title)
-	if strings.Contains(titleLower, "askuserquestion") ||
-		strings.Contains(titleLower, "ask user") ||
-		strings.Contains(titleLower, "user question") {
-		isAskUserQuestion = true
-	}
-
-	// 方法2：检查 kind 字段（如果存在）
-	if tc.Kind == "ask_user" || tc.Kind == "user_input" || tc.Kind == "question" {
-		isAskUserQuestion = true
-	}
-
-	// 方法3：检查 rawInput 是否包含 questions 数组（特征识别）
-	if toolInput != nil {
-		if _, hasQuestions := toolInput["questions"]; hasQuestions {
-			// 如果输入包含 questions 数组，很可能是 AskUserQuestion 工具
-			isAskUserQuestion = true
+	// 检测 question / AskUserQuestion 一类工具，统一走 ChunkTypeQuestion 路径渲染选项卡片，
+	// 而不是普通 ChunkTypeToolUse 的 INPUT/OUTPUT 块。
+	if detectQuestionTool(tc.Title, tc.Kind, toolInput) {
+		// 早期 tool_call 初始通知里 rawInput 经常还是空（questions 数组还没填）。
+		// 这种情况下抑制本通知——后续 tool_call_update 会带完整 rawInput.questions，
+		// 由 parseACPToolCallUpdate 那边的 detectQuestionTool 路径产生 ChunkTypeQuestion。
+		// 如果这里就发一个空 questions 的卡片，会同时出现"执行: question"普通块 +
+		// "AskUserQuestion"选项卡片两个块（截图里圈出来的红框就是这种）。
+		if toolInput == nil {
+			LogInfo("ACP: suppress question tool's empty initial tool_call (waiting for tool_call_update)",
+				zap.String("toolCallId", tc.ToolCallID),
+				zap.String("title", tc.Title))
+			return nil, nil
 		}
-	}
+		if _, hasQuestions := toolInput["questions"]; !hasQuestions {
+			LogInfo("ACP: suppress question tool's tool_call without questions (waiting for tool_call_update)",
+				zap.String("toolCallId", tc.ToolCallID),
+				zap.String("title", tc.Title))
+			return nil, nil
+		}
 
-	if isAskUserQuestion {
 		LogInfo("ACP: detected AskUserQuestion tool",
 			zap.String("toolCallId", tc.ToolCallID),
 			zap.String("title", tc.Title),
@@ -144,7 +139,7 @@ func parseACPToolCall(raw json.RawMessage, session *acpSession) ([]agent.Chunk, 
 
 		chunk := agent.Chunk{
 			Type:      agent.ChunkTypeQuestion,
-			ToolName:  tc.Title,
+			ToolName:  "AskUserQuestion",
 			ToolID:    tc.ToolCallID,
 			ToolInput: toolInput,
 			Questions: questions,
@@ -174,6 +169,34 @@ func parseACPToolCall(raw json.RawMessage, session *acpSession) ([]agent.Chunk, 
 		ToolID:    tc.ToolCallID,
 		ToolInput: toolInput,
 	}}, nil
+}
+
+// detectQuestionTool 判断一次工具调用是否是"询问用户"类工具（AskUserQuestion / question 等）。
+// 用于 parseACPToolCall 与 parseACPToolCallUpdate 共用：识别后转成 ChunkTypeQuestion 推给前端
+// 渲染选项卡片，而不是当成普通工具走 INPUT/OUTPUT 块。
+//
+// 命中条件（任一）：
+//   - title 含 askuserquestion / ask user / user question
+//   - title 直接等于 "question"（OpenCode question 工具）
+//   - kind 是 ask_user / user_input / question
+//   - rawInput 含 questions 数组（最强信号——AskUserQuestion / OpenCode question 都用这个 schema）
+func detectQuestionTool(title, kind string, rawInput map[string]interface{}) bool {
+	titleLower := strings.ToLower(title)
+	if strings.Contains(titleLower, "askuserquestion") ||
+		strings.Contains(titleLower, "ask user") ||
+		strings.Contains(titleLower, "user question") ||
+		titleLower == "question" {
+		return true
+	}
+	if kind == "ask_user" || kind == "user_input" || kind == "question" {
+		return true
+	}
+	if rawInput != nil {
+		if _, hasQuestions := rawInput["questions"]; hasQuestions {
+			return true
+		}
+	}
+	return false
 }
 
 func parseACPToolCallUpdate(raw json.RawMessage, session *acpSession) ([]agent.Chunk, error) {
@@ -241,6 +264,35 @@ func parseACPToolCallUpdate(raw json.RawMessage, session *acpSession) ([]agent.C
 		var toolInput map[string]interface{}
 		if m, ok := update.RawInput.(map[string]interface{}); ok {
 			toolInput = m
+		}
+
+		// OpenCode 的 question 工具走 tool_call_update 通知（不发 tool_call 初始通知，
+		// 也不走 elicitation/create 反向请求），rawInput.questions 是数组形态。这里识别后
+		// 转 ChunkTypeQuestion，让前端渲染选项卡片而不是普通 INPUT/OUTPUT 块。
+		// 仅在非 completed/failed 状态识别——completed 状态下 rawInput 还是同一份带
+		// questions 数组的 input，但这时是工具结束通知，不应再创建 question 卡片。
+		if detectQuestionTool(toolName, update.Kind, toolInput) {
+			LogInfo("ACP: detected question tool via tool_call_update",
+				zap.String("toolCallId", update.ToolCallID),
+				zap.String("status", update.Status),
+				zap.String("title", toolName),
+				zap.String("kind", update.Kind))
+
+			questions := parseQuestionsFromInput(toolInput)
+
+			chunk := agent.Chunk{
+				Type:      agent.ChunkTypeQuestion,
+				ToolName:  "AskUserQuestion", // 统一标题，让前端 question 卡片识别一致
+				ToolID:    update.ToolCallID,
+				ToolInput: toolInput,
+				Questions: questions,
+			}
+			if session != nil {
+				session.mu.Lock()
+				session.pendingQuestion = &chunk
+				session.mu.Unlock()
+			}
+			return []agent.Chunk{chunk}, nil
 		}
 
 		// 发送 tool_use chunk（即使 input 为空，也通知前端工具调用开始）
@@ -359,10 +411,14 @@ func parseQuestionsFromInput(input map[string]interface{}) []agent.QuestionItem 
 	if questionsArray, ok := input["questions"].([]interface{}); ok {
 		for _, q := range questionsArray {
 			if qMap, ok := q.(map[string]interface{}); ok {
+				// 多选字段：Claude AskUserQuestion 用 "multiSelect"，OpenCode question
+				// 工具用 "multiple"（packages/opencode/src/question/index.ts:Prompt.multiple）。
+				// 两者择一命中即可。
+				multi := getBoolFromMap(qMap, "multiSelect") || getBoolFromMap(qMap, "multiple")
 				question := agent.QuestionItem{
 					Header:      getStringFromMap(qMap, "header"),
 					Question:    getStringFromMap(qMap, "question"),
-					MultiSelect: getBoolFromMap(qMap, "multiSelect"),
+					MultiSelect: multi,
 				}
 
 				// 解析选项
@@ -377,6 +433,12 @@ func parseQuestionsFromInput(input map[string]interface{}) []agent.QuestionItem 
 						}
 					}
 				}
+
+				// 追加"自定义答案"占位选项：前端识别 label 含"其他"后会自动渲染输入框。
+				question.Options = append(question.Options, agent.QuestionOption{
+					Label:       elicitationCustomOptionLabel,
+					Description: "上面选项都不合适？请填写你自己的答案。",
+				})
 
 				questions = append(questions, question)
 			}

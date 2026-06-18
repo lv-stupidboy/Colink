@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -55,6 +57,7 @@ type acpSession struct {
 	ctx               context.Context
 	cancel            context.CancelFunc
 	status            agent.SessionStatus
+	cwd               string          // 工作目录（用于 OpenCode HTTP API 调用等）
 	output            strings.Builder
 	stderrOutput      strings.Builder // stderr 输出缓冲（用于错误诊断）
 	pendingQuestion   *agent.Chunk    // 待处理的 AskUserQuestion（等待用户响应）
@@ -184,6 +187,7 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 		ctx:    ctx,
 		status: agent.SessionStatusRunning,
 		isdpID: invocationIDStr,
+		cwd:    req.WorkDir,
 	}
 
 	// 启动 stderr 消费 goroutine（在 session 创建之后）
@@ -421,6 +425,7 @@ func (a *BaseACPAdapter) StartSession(ctx context.Context, sessionID string, req
 		ctx:    sessionCtx,
 		cancel: sessionCancel,
 		status: agent.SessionStatusRunning,
+		cwd:    req.WorkDir,
 	}
 
 	// 启动 stderr 消费 goroutine（添加 wg 以防止 goroutine leak）
@@ -1485,11 +1490,28 @@ func (a *BaseACPAdapter) SendToolResult(invocationID uuid.UUID, toolCallID strin
 	}
 
 	// === 路径 2：session/resolve_tool_call 兼容 OpenCode 等 ===
-	// 前端 ACP 路径下统一发 JSON `{"question_<n>": ...}`（为 claude-agent-acp
-	// 的 elicitation/create 设计）。但 OpenCode 走的是 session/resolve_tool_call —
-	// response 字段被它当作"用户答案纯文本"原样塞给模型，不解析结构。
-	// 单题场景下值就是 label，问题不大；多题场景模型看到的就是一段裸 JSON。
-	// 这里把 JSON 还原为换行分隔的人类可读文本（与原 native 路径行为对齐）。
+	//
+	// 如果是 JSON 格式（前端 ACP 路径的 question 编码），尝试先通过 OpenCode HTTP
+	// API 直接 reply question 工具。OpenCode ACP 模式下 question.asked 事件没有
+	// 桥接到 ACP——question.ask() 创建 Deferred 后永远等不到 reply()，session/resolve_tool_call
+	// 发给 ACP 也是被静默丢弃。而 OpenCode 的 HTTP API 端口 26307 完整暴露了
+	// /question REPL API（启动时 --port 固定）。
+	//
+	// 如果 HTTP API 不可用（非 OpenCode 或端口不通），自动回退到原有 session/resolve_tool_call
+	// 兼容路径。
+	if strings.HasPrefix(result, "{") && session.cwd != "" {
+		if err := openCodeQuestionReply(session.cwd, toolCallID, result); err != nil {
+			LogWarn("ACP: OpenCode question reply via HTTP failed, falling back to resolve_tool_call",
+				zap.Error(err),
+				zap.String("cwd", session.cwd),
+				zap.String("toolCallId", toolCallID))
+		} else {
+			LogInfo("ACP: OpenCode question reply via HTTP succeeded",
+				zap.String("toolCallId", toolCallID))
+			return nil
+		}
+	}
+
 	plainResponse := flattenJSONAnswerForLegacy(result)
 	resolveParams := map[string]interface{}{
 		"toolCallId": toolCallID,
@@ -1620,6 +1642,128 @@ func buildElicitationContent(answer string, questions []agent.QuestionItem) map[
 	}
 }
 
+// openCodeQuestionReply 通过 OpenCode HTTP API (端口 26307) 回复 question 工具的用户答案。
+//
+// OpenCode 在 ACP 模式下，question.asked 事件没有被桥接——question.ask() 内部创建一个
+// Deferred 阻塞等待 reply()，但 ACP event handler 不监听 question.asked。唯一的解锁途径是
+// 调 OpenCode HTTP API 的 POST /question/{requestID}/reply。
+//
+// 流程：
+//  1. GET  /question?directory={cwd} → 列出所有 pending question，找到 tool.callID 匹配项
+//  2. 将 JSON {"question_0":"a","question_1":["b","c"]} 转为 OpenCode reply 格式的
+//     {"answers":[["a"],["b","c"]]}
+//  3. POST /question/{requestID}/reply?directory={cwd}
+func openCodeQuestionReply(cwd, toolCallID, jsonAnswer string) error {
+	baseURL := "http://127.0.0.1:26307"
+	dirParam := url.QueryEscape(cwd)
+
+	// 1. GET /question?directory={cwd} — 列出 pending questions
+	listURL := fmt.Sprintf("%s/question?directory=%s", baseURL, dirParam)
+	resp, err := http.Get(listURL)
+	if err != nil {
+		return fmt.Errorf("GET /question: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("GET /question returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	var pendingQuestions []struct {
+		ID        string `json:"id"`
+		SessionID string `json:"sessionID"`
+		Tool      *struct {
+			CallID string `json:"callID"`
+		} `json:"tool"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&pendingQuestions); err != nil {
+		return fmt.Errorf("parse /question response: %w", err)
+	}
+
+	var requestID string
+	for _, q := range pendingQuestions {
+		if q.Tool != nil && q.Tool.CallID == toolCallID {
+			requestID = q.ID
+			break
+		}
+	}
+	if requestID == "" {
+		return fmt.Errorf("no pending question found with tool.callID=%s (total %d pending)", toolCallID, len(pendingQuestions))
+	}
+
+	// 2. JSON → OpenCode reply answers 格式: [[...], [...], ...]
+	answers, err := buildOpenCodeReplyAnswers(jsonAnswer)
+	if err != nil {
+		return fmt.Errorf("build reply answers: %w", err)
+	}
+	replyBody, _ := json.Marshal(map[string]interface{}{
+		"answers": answers,
+	})
+
+	// 3. POST /question/{requestID}/reply?directory={cwd}
+	replyURL := fmt.Sprintf("%s/question/%s/reply?directory=%s", baseURL, requestID, dirParam)
+	replyResp, err := http.Post(replyURL, "application/json", strings.NewReader(string(replyBody)))
+	if err != nil {
+		return fmt.Errorf("POST /question/%s/reply: %w", requestID, err)
+	}
+	defer replyResp.Body.Close()
+
+	if replyResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(replyResp.Body, 512))
+		return fmt.Errorf("POST /question/%s/reply returned %d: %s", requestID, replyResp.StatusCode, string(body))
+	}
+
+	LogInfo("ACP: OpenCode question replied via HTTP",
+		zap.String("requestID", requestID),
+		zap.String("toolCallID", toolCallID))
+
+	return nil
+}
+
+// buildOpenCodeReplyAnswers 将 {"question_0":"a","question_1":["b","c"]} 转为
+// OpenCode HTTP reply 所需的 [["a"],["b","c"]] (Array<Array<string>>)。
+func buildOpenCodeReplyAnswers(jsonAnswer string) ([]interface{}, error) {
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonAnswer), &parsed); err != nil {
+		return nil, err
+	}
+
+	// 按 question_<n> 升序排列
+	indices := make([]int, 0, len(parsed))
+	for k := range parsed {
+		var idx int
+		if _, err := fmt.Sscanf(k, "question_%d", &idx); err != nil {
+			continue
+		}
+		if k != fmt.Sprintf("question_%d", idx) {
+			continue
+		}
+		indices = append(indices, idx)
+	}
+	for i := 1; i < len(indices); i++ {
+		for j := i; j > 0 && indices[j-1] > indices[j]; j-- {
+			indices[j-1], indices[j] = indices[j], indices[j-1]
+		}
+	}
+
+	out := make([]interface{}, len(indices))
+	for i, idx := range indices {
+		v := parsed[fmt.Sprintf("question_%d", idx)]
+		switch x := v.(type) {
+		case string:
+			out[i] = []interface{}{x}
+		case []interface{}:
+			out[i] = x
+		case nil:
+			out[i] = []interface{}{}
+		default:
+			out[i] = []interface{}{fmt.Sprint(x)}
+		}
+	}
+	return out, nil
+}
+
 // ========== ACP 原生 Session 管理 API ==========
 
 // SessionList 获取历史会话列表
@@ -1659,6 +1803,7 @@ func (a *BaseACPAdapter) SessionList(ctx context.Context, cwd string) ([]agent.S
 		cmd:    cmd,
 		ctx:    ctx,
 		status: agent.SessionStatusRunning,
+		cwd:    cwd,
 	}
 
 	// 启动 stderr 消费
@@ -2141,6 +2286,7 @@ func (a *BaseACPAdapter) ExecuteWithResume(ctx context.Context, req *agent.Execu
 			cancel:              sessionCancel,
 			status:              agent.SessionStatusRunning,
 			stdinPipe:           stdinPipe,
+			cwd:                 req.WorkDir,
 			// 进入 ExecuteWithResume 即处于"回放阶段"：从 session/resume 发送之后到
 			// session/prompt 发送之前，CLI 推回来的所有 session/update 都属于历史
 			// 重放（用于让模型 KV 缓存恢复上下文），不应当作本轮新输出。
