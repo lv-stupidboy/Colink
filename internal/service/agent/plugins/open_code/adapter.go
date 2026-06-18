@@ -66,6 +66,14 @@ func NewOpenCodeAdapter(baseAgent *model.BaseAgent) agent.AgentAdapter {
 			// 阻止用户级插件加载，确保隔离
 			env = append(env, "OPENCODE_PURE=1")
 
+			// 显式开启 question 工具：OpenCode 在 ACP 模式下会把 process.env.OPENCODE_CLIENT
+			// 设成 "acp"（cli/cmd/acp.ts:23），而 tool/registry.ts:196 里
+			//   questionEnabled = ["app","cli","desktop"].includes(flags.client) || flags.enableQuestionTool
+			// "acp" 不在白名单里，question 工具默认不注册——LLM 看不到这个工具，
+			// 用户问"用 question 工具问我"时模型只能回 "我没有 question 工具"。
+			// 这个标志就是 OpenCode 给"非 cli 客户端但仍想用 question"留的口子。
+			env = append(env, "OPENCODE_ENABLE_QUESTION_TOOL=1")
+
 			return env
 		},
 		// OpenCode ACP 模式不读取 OPENCODE_CONFIG_CONTENT 来设置模型
