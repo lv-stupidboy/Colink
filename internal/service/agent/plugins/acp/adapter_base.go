@@ -68,9 +68,6 @@ type acpSession struct {
 	notificationCount    int    // 收到的通知总数
 	duplicateUpdateCount int    // 连续重复通知计数
 	lastUpdateHash       string // 最后一次 session/update 的内容哈希（前16位）
-	// 长连接模式输出同步信号
-	lastOutputLen       int           // 上次检查时的输出长度
-	outputUpdatedSignal chan struct{} // 输出更新信号（用于等待通知处理完成）
 	// replayPhase 标记当前是否处在 session/resume 之后、session/prompt 之前的"历史回放"阶段。
 	// OpenCode 的 ACP 协议在 resume 时会用普通 session/update 通知把整段历史 chunk 重推一遍
 	// （没有 isHistory 标志），唯一可靠的区分手段就是阶段：resume 完成后的所有通知都视为
@@ -1710,7 +1707,6 @@ func (a *BaseACPAdapter) SessionResume(ctx context.Context, acpSessionID string,
 		cancel:              sessionCancel,
 		status:              agent.SessionStatusRunning,
 		stdinPipe:           stdinPipe,
-		outputUpdatedSignal: make(chan struct{}, 1),
 	}
 
 	// 启动 stderr 消费
@@ -1852,7 +1848,6 @@ func (a *BaseACPAdapter) SessionLoad(ctx context.Context, acpSessionID string, c
 		cancel:              sessionCancel,
 		status:              agent.SessionStatusRunning,
 		stdinPipe:           stdinPipe,
-		outputUpdatedSignal: make(chan struct{}, 1),
 	}
 
 	// 启动 stderr 消费
@@ -2063,15 +2058,18 @@ func (a *BaseACPAdapter) ExecuteWithResume(ctx context.Context, req *agent.Execu
 			cancel:              sessionCancel,
 			status:              agent.SessionStatusRunning,
 			stdinPipe:           stdinPipe,
-			outputUpdatedSignal: make(chan struct{}, 1),
 			// 进入 ExecuteWithResume 即处于"回放阶段"：从 session/resume 发送之后到
 			// session/prompt 发送之前，CLI 推回来的所有 session/update 都属于历史
 			// 重放（用于让模型 KV 缓存恢复上下文），不应当作本轮新输出。
 			replayPhase: true,
 		}
 
-		// 启动 stderr 消费
+		// 启动 stderr 消费（用 wg 保证 ExecuteWithResume 返回前 goroutine 能正常退出，
+		// 避免 stderr goroutine 泄漏 + 让 cleanup 可靠）
+		var wg sync.WaitGroup
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			scanner := bufio.NewScanner(stderrPipe)
 			for scanner.Scan() {
 				line := scanner.Text()
@@ -2091,15 +2089,6 @@ func (a *BaseACPAdapter) ExecuteWithResume(ctx context.Context, req *agent.Execu
 		// 这样 session/resume 的历史回放通知会被正确处理
 		transport := newACPTransport(stdinPipe, stdoutPipe, func(method string, params json.RawMessage) {
 			a.handleNotification(session, method, params, onChunk)
-			// Signal output update
-			session.mu.Lock()
-			if session.outputUpdatedSignal != nil {
-				select {
-				case session.outputUpdatedSignal <- struct{}{}:
-				default:
-				}
-			}
-			session.mu.Unlock()
 		})
 		// 关键：必须注册服务端 request handler，否则 CLI 在 resume 路径下发起的反向 request
 		// （如 session/request_permission 让客户端确认读取 workspace 外文件的权限、
@@ -2199,56 +2188,50 @@ func (a *BaseACPAdapter) ExecuteWithResume(ctx context.Context, req *agent.Execu
 		session.mu.Unlock()
 
 		// Send prompt to resumed session
+		// transport.SendRequest 是同步 JSON-RPC 请求：jsonrpc.go: readLoop 单线程顺序解析
+		// stdout，每个 notification 同步派发到 handleNotification 处理完才能轮到下一行；
+		// CLI 端必然先 emit 所有 session/update notification 再返回 prompt 的 response。
+		// 所以 SendRequest 解锁时 session.output 里所有本轮 chunk 都已落入，**不需要**任何
+		// "等 signal" 的兜底循环。
 		prompt := a.buildPromptFromRequest(req)
-		_, promptErr := transport.SendRequest("session/prompt", &acpPromptParams{
+		promptResult, promptErr := transport.SendRequest("session/prompt", &acpPromptParams{
 			SessionID: acpSessionID,
 			Prompt:    []acpContentBlock{{Type: "text", Text: prompt}},
 		})
+
+		// 与 ExecuteWithStream 对齐：从 sessions map 移除、cleanup CLI 进程 + transport、
+		// wg.Wait 等 stderr goroutine 退出。之前缺这套清理，导致每次 ExecuteWithResume 都
+		// 泄漏一个 CLI 子进程 + stderr goroutine + transport 资源。
+		// 二次/三次对话时新进程通过 session/resume 复用同一 ACP sessionId，会与上一轮
+		// 残留的进程并发访问磁盘上同一份 OpenCode session storage，读到不完整 session
+		// → 模型上下文残缺 → 秒返空内容（症状："首次正常、第二次起一直空"）。
+		if isdpIDStr != "" {
+			a.mu.Lock()
+			delete(a.sessions, isdpIDStr)
+			a.mu.Unlock()
+		}
+
 		if promptErr != nil {
-			return nil, acpSessID, fmt.Errorf("ACP: session/prompt failed: %w", promptErr)
+			session.mu.Lock()
+			stderrContent := session.stderrOutput.String()
+			session.mu.Unlock()
+			a.cleanup(session)
+			wg.Wait()
+			return nil, acpSessID, fmt.Errorf("ACP: session/prompt failed: %w\nstderr: %s", promptErr, stderrContent)
 		}
 
-		// Wait for notifications to be processed
-		session.mu.Lock()
-		signal := session.outputUpdatedSignal
-		currentOutputLen := session.output.Len()
-		session.mu.Unlock()
-
-		if signal != nil && currentOutputLen == 0 {
-			select {
-			case <-signal:
-				// Wait for more updates with backoff
-				noUpdateCount := 0
-				for noUpdateCount < 3 {
-					session.mu.Lock()
-					newLen := session.output.Len()
-					session.mu.Unlock()
-					if newLen > currentOutputLen {
-						currentOutputLen = newLen
-						noUpdateCount = 0
-					} else {
-						noUpdateCount++
-					}
-					select {
-					case <-signal:
-					case <-time.After(100 * time.Millisecond):
-						break
-					}
-				}
-			case <-time.After(500 * time.Millisecond):
-				LogWarn("ACP: timeout waiting for output updates (ExecuteWithResume)",
-					zap.String("acpSessionId", acpSessionID))
-			}
-		} else if signal != nil {
-			select {
-			case <-signal:
-			case <-time.After(300 * time.Millisecond):
-			}
+		var promptResp acpPromptResult
+		if err := json.Unmarshal(promptResult, &promptResp); err != nil {
+			LogWarn("ACP: prompt response parse warning", zap.Error(err))
 		}
+		LogInfo("[PERF] ACP ExecuteWithResume execution",
+			zap.String("acpSessionId", acpSessionID),
+			zap.String("stopReason", promptResp.StopReason))
 
-		// Clean up signal
+		a.cleanup(session)
+		wg.Wait()
+
 		session.mu.Lock()
-		session.outputUpdatedSignal = nil
 		output := session.output.String()
 		session.mu.Unlock()
 
