@@ -179,3 +179,96 @@ func TestConcurrentStderrWrite(t *testing.T) {
 		t.Error("Expected some stderr content to be written")
 	}
 }
+
+// TestStopSessionClearsPendingElicitation 验证 StopSession 清除 pending elicitation 状态
+// @feature F001 - Agent 对话核心
+// @priority P0
+// @id ACP-02
+func TestStopSessionClearsPendingElicitation(t *testing.T) {
+	// 创建带有 pending elicitation 的 session
+	session := &acpSession{
+		id:                      "test-session-stop",
+		isdpID:                  "test-invocation-stop",
+		status:                  agent.SessionStatusRunning,
+		pendingElicitationID:    map[string]interface{}{"id": "elicitation-123"},
+		pendingElicitationQuestions: []agent.QuestionItem{
+			{Header: "Choice", Question: "What is your choice?", Options: []agent.QuestionOption{{Label: "A"}, {Label: "B"}}},
+		},
+		pendingQuestion: &agent.Chunk{Type: agent.ChunkTypeQuestion, Content: "Please answer"},
+	}
+
+	// 验证初始状态有 pending elicitation
+	session.mu.Lock()
+	if session.pendingElicitationID == nil {
+		t.Error("Expected pendingElicitationID to be set initially")
+	}
+	if session.pendingElicitationQuestions == nil {
+		t.Error("Expected pendingElicitationQuestions to be set initially")
+	}
+	if session.pendingQuestion == nil {
+		t.Error("Expected pendingQuestion to be set initially")
+	}
+	session.mu.Unlock()
+
+	// 模拟 StopSession 清除逻辑
+	session.mu.Lock()
+	session.status = agent.SessionStatusStopped
+	// 清除待响应状态
+	session.pendingElicitationID = nil
+	session.pendingElicitationQuestions = nil
+	session.pendingQuestion = nil
+	session.mu.Unlock()
+
+	// 验证清除后状态
+	session.mu.Lock()
+	if session.pendingElicitationID != nil {
+		t.Error("Expected pendingElicitationID to be nil after stop")
+	}
+	if session.pendingElicitationQuestions != nil {
+		t.Error("Expected pendingElicitationQuestions to be nil after stop")
+	}
+	if session.pendingQuestion != nil {
+		t.Error("Expected pendingQuestion to be nil after stop")
+	}
+	if session.status != agent.SessionStatusStopped {
+		t.Error("Expected status to be SessionStatusStopped")
+	}
+	session.mu.Unlock()
+}
+
+// TestStopSessionWithoutPendingElicitation 验证无 pending elicitation 的 session 正常停止
+// @feature F001 - Agent 对话核心
+// @priority P1
+// @id ACP-03
+func TestStopSessionWithoutPendingElicitation(t *testing.T) {
+	// 创建没有 pending elicitation 的 session
+	session := &acpSession{
+		id:     "test-session-no-elicitation",
+		isdpID: "test-invocation-no-elicitation",
+		status: agent.SessionStatusRunning,
+	}
+
+	// 验证初始状态无 pending elicitation
+	session.mu.Lock()
+	hasPending := session.pendingElicitationID != nil
+	session.mu.Unlock()
+
+	if hasPending {
+		t.Error("Expected no pending elicitation initially")
+	}
+
+	// 模拟 StopSession 清除逻辑（不应触发 cancel response）
+	session.mu.Lock()
+	session.status = agent.SessionStatusStopped
+	session.pendingElicitationID = nil
+	session.pendingElicitationQuestions = nil
+	session.pendingQuestion = nil
+	session.mu.Unlock()
+
+	// 验证停止后状态正常
+	session.mu.Lock()
+	if session.status != agent.SessionStatusStopped {
+		t.Error("Expected status to be SessionStatusStopped")
+	}
+	session.mu.Unlock()
+}

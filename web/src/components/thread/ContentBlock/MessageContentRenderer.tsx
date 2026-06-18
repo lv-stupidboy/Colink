@@ -61,13 +61,14 @@ const MessageContentRenderer: React.FC<MessageContentRendererProps> = memo(({
   const filteredBlocks = filterWaitingQuestions
     ? blocks.filter((block) => {
         if (block.type === 'question') {
-          // 已提交的 question block 直接过滤掉（避免重复渲染）
-          if (submittedQuestionBlockIds.has(block.id)) {
+          // 仅过滤 waiting_user_input 状态且已提交的 question block（避免在
+          // 历史消息中重复渲染一个仍在等待用户输入的"活"问题——它应该已经在
+          // StreamingMessage 中渲染过了）。success/failed 状态的问题永远保留，
+          // 因为它们已落成"用户回答了的问题"记录，需要在实际对话中可视化展示。
+          if (submittedQuestionBlockIds.has(block.id) && block.status === 'waiting_user_input') {
             console.log('[MessageContentRenderer] Filtering submitted question block:', block.id);
             return false;
           }
-          // success/failed 状态的保留（显示用户答案）
-          // waiting_user_input 状态的也保留（让用户可以选择）
         }
         return true;
       })
@@ -105,15 +106,18 @@ const MessageContentRenderer: React.FC<MessageContentRendererProps> = memo(({
             const effectiveInvocationId = qb.invocationId || messageInvocationId;
 
             // 交互启用逻辑：
-            // 1. status 为 success/failed（已提交）：禁用，显示用户选择
-            // 2. status 为 waiting_user_input 且 Agent 已完成：可点击
-            // 3. status 为 waiting_user_input 且 Agent 正在执行：禁用，显示提示
+            // - status 为 success/failed（已提交）：禁用，显示用户选择
+            // - status 为 waiting_user_input：可点击
+            //
+            // 注意：不再依赖 isStreaming（agent 是否在跑）来判断按钮可点性。
+            // ACP elicitation 模式下 agent 仍 running 是协议本意（异步等用户答），
+            // 而 native CLI 模式下 agent 已 interrupted。两种模式下只要
+            // status==='waiting_user_input' 就允许点击；具体走哪条提交路径由
+            // handleInlineQuestionSubmit 内部按 isStreaming 分流。
             const isSubmitted = qb.status === 'success' || qb.status === 'failed';
-            // 从 store 获取 Agent 执行状态
-            const agentRunning = useAppStore.getState().isStreaming;
-            const isInteractionEnabled = qb.status === 'waiting_user_input' && !agentRunning;
+            const isInteractionEnabled = qb.status === 'waiting_user_input';
 
-            console.log('[MessageContentRenderer] question block:', { id: block.id, invocationId: qb.invocationId, messageInvocationId, effectiveInvocationId, status: qb.status, isInteractionEnabled, isSubmitted, agentRunning, hasOnQuestionSubmit: !!onQuestionSubmit });
+            console.log('[MessageContentRenderer] question block:', { id: block.id, invocationId: qb.invocationId, messageInvocationId, effectiveInvocationId, status: qb.status, isInteractionEnabled, isSubmitted, hasOnQuestionSubmit: !!onQuestionSubmit });
             return (
               <QuestionBlockComponent
                 key={block.id || `question-${index}`}

@@ -23,7 +23,18 @@ type acpInitializeParams struct {
 }
 
 type acpClientCapabilities struct {
-	PromptCapabilities acpPromptCapabilities `json:"promptCapabilities"`
+	PromptCapabilities acpPromptCapabilities     `json:"promptCapabilities"`
+	// Elicitation 是 ACP unstable 能力（claude-agent-acp 等 CLI 用 elicitation/create
+	// 反向请求来呈现 AskUserQuestion 一类的结构化追问）。**必须声明** form 才会让
+	// Claude ACP CLI 把 AskUserQuestion 工具暴露给模型；不声明 CLI 会主动禁用该工具。
+	// 详见 ACP RFD：docs/rfds/elicitation.mdx 与 claude-agent-acp src/elicitation.ts。
+	Elicitation *acpElicitationCapabilities `json:"elicitation,omitempty"`
+}
+
+// acpElicitationCapabilities 见 ACP src/v1/elicitation.rs 的 ElicitationCapabilities。
+// 我们只声明 form（结构化表单）；url（OAuth 等带外流程）暂不支持。
+type acpElicitationCapabilities struct {
+	Form *struct{} `json:"form,omitempty"`
 }
 
 type acpPromptCapabilities struct {

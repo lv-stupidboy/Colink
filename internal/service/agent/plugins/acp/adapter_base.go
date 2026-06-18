@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -47,27 +49,34 @@ type AcpAdapterConfig struct {
 const maxStderrSize = 64 * 1024
 
 type acpSession struct {
-	id                string
-	isdpID            string
-	transport         *acpTransport
-	stdinPipe         io.WriteCloser // stdin 管道引用（用于检测断开）
-	cmd               *exec.Cmd
-	ctx               context.Context
-	cancel            context.CancelFunc
-	status            agent.SessionStatus
-	output            strings.Builder
-	stderrOutput      strings.Builder   // stderr 输出缓冲（用于错误诊断）
-	pendingQuestion   *agent.Chunk      // 待处理的 AskUserQuestion（等待用户响应）
-	toolCallNames     map[string]string // 工具调用ID到名称的映射（用于tool_call_update时查找）
-	thoughtChunkCount int               // 流式思考内容计数器（用于采样打印）
+	id              string
+	isdpID          string
+	transport       *acpTransport
+	stdinPipe       io.WriteCloser // stdin 管道引用（用于检测断开）
+	cmd             *exec.Cmd
+	ctx             context.Context
+	cancel          context.CancelFunc
+	status          agent.SessionStatus
+	cwd             string // 工作目录（用于 OpenCode HTTP API 调用等）
+	output          strings.Builder
+	stderrOutput    strings.Builder // stderr 输出缓冲（用于错误诊断）
+	pendingQuestion *agent.Chunk    // 待处理的 AskUserQuestion（等待用户响应）
+	// pendingElicitationID 是 ACP unstable elicitation/create 反向请求的 RPC id，
+	// 收到请求后我们暂存它，等前端回答后再用 SendResponse 把 elicitation 结果回给 CLI。
+	pendingElicitationID        interface{}
+	pendingElicitationQuestions []agent.QuestionItem // 与请求中 question_<n> 一一对应，按下标回填
+	toolCallNames               map[string]string    // 工具调用ID到名称的映射（用于tool_call_update时查找）
+	thoughtChunkCount           int                  // 流式思考内容计数器（用于采样打印）
 	// 诊断字段（info 级别可见，用于捕捉无限循环问题）
 	notificationCount    int    // 收到的通知总数
 	duplicateUpdateCount int    // 连续重复通知计数
 	lastUpdateHash       string // 最后一次 session/update 的内容哈希（前16位）
-	// 长连接模式输出同步信号
-	lastOutputLen       int           // 上次检查时的输出长度
-	outputUpdatedSignal chan struct{} // 输出更新信号（用于等待通知处理完成）
-	mu                  sync.Mutex
+	// replayPhase 标记当前是否处在 session/resume 之后、session/prompt 之前的"历史回放"阶段。
+	// OpenCode 的 ACP 协议在 resume 时会用普通 session/update 通知把整段历史 chunk 重推一遍
+	// （没有 isHistory 标志），唯一可靠的区分手段就是阶段：resume 完成后的所有通知都视为
+	// 历史回放，发送 session/prompt 时切换为 false，之后的通知才是真正的新输出。
+	replayPhase bool
+	mu          sync.Mutex
 }
 
 // BaseACPAdapter implements AgentAdapter using ACP (Agent Client Protocol) over stdio.
@@ -178,6 +187,7 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 		ctx:    ctx,
 		status: agent.SessionStatusRunning,
 		isdpID: invocationIDStr,
+		cwd:    req.WorkDir,
 	}
 
 	// 启动 stderr 消费 goroutine（在 session 创建之后）
@@ -216,14 +226,16 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 		a.handleNotification(session, method, params, onChunk)
 	})
 	transport.SetServerRequestHandler(func(id interface{}, method string, params json.RawMessage) {
-		a.handleServerRequest(session, id, method, params)
+		a.handleServerRequest(session, id, method, params, onChunk)
 	})
 	session.transport = transport
 	transport.Start()
 
 	initResult, err := transport.SendRequest("initialize", &acpInitializeParams{
-		ProtocolVersion:    2025,
-		ClientCapabilities: acpClientCapabilities{},
+		ProtocolVersion: 2025,
+		ClientCapabilities: acpClientCapabilities{
+			Elicitation: &acpElicitationCapabilities{Form: &struct{}{}},
+		},
 	})
 	if err != nil {
 		session.mu.Lock()
@@ -413,6 +425,7 @@ func (a *BaseACPAdapter) StartSession(ctx context.Context, sessionID string, req
 		ctx:    sessionCtx,
 		cancel: sessionCancel,
 		status: agent.SessionStatusRunning,
+		cwd:    req.WorkDir,
 	}
 
 	// 启动 stderr 消费 goroutine（添加 wg 以防止 goroutine leak）
@@ -444,14 +457,16 @@ func (a *BaseACPAdapter) StartSession(ctx context.Context, sessionID string, req
 		a.handleNotification(session, method, params, nil)
 	})
 	transport.SetServerRequestHandler(func(id interface{}, method string, params json.RawMessage) {
-		a.handleServerRequest(session, id, method, params)
+		a.handleServerRequest(session, id, method, params, nil)
 	})
 	session.transport = transport
 	transport.Start()
 
 	_, err = transport.SendRequest("initialize", &acpInitializeParams{
-		ProtocolVersion:    2025,
-		ClientCapabilities: acpClientCapabilities{},
+		ProtocolVersion: 2025,
+		ClientCapabilities: acpClientCapabilities{
+			Elicitation: &acpElicitationCapabilities{Form: &struct{}{}},
+		},
 	})
 	if err != nil {
 		session.mu.Lock()
@@ -603,8 +618,10 @@ func (a *BaseACPAdapter) CheckHealth(ctx context.Context) error {
 	defer transport.Close()
 
 	_, err = transport.SendRequest("initialize", &acpInitializeParams{
-		ProtocolVersion:    2025,
-		ClientCapabilities: acpClientCapabilities{},
+		ProtocolVersion: 2025,
+		ClientCapabilities: acpClientCapabilities{
+			Elicitation: &acpElicitationCapabilities{Form: &struct{}{}},
+		},
 	})
 	if err != nil {
 		cmd.Process.Kill()
@@ -636,6 +653,21 @@ func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, 
 	switch method {
 	case "session/update":
 		if onChunk == nil {
+			return
+		}
+
+		// 历史回放过滤：session/resume 触发的回放在协议中没有任何标志位，
+		// 但它们必然出现在 session/prompt 发出之前。replayPhase 由 ExecuteWithResume
+		// 在 resume 完成后置 true、prompt 发出前置 false 来标记这段窗口。
+		// 这段窗口内的 chunk 是 CLI 内部上下文（用于让模型 KV 缓存恢复），
+		// 既不能写到我们的 output buffer（会污染本轮回答），
+		// 也不能 onChunk 广播（前端会重复显示历史）。
+		session.mu.Lock()
+		isReplay := session.replayPhase
+		session.mu.Unlock()
+		if isReplay {
+			LogDebug("ACP: skip replay-phase session/update",
+				zap.String("sessionId", session.id))
 			return
 		}
 
@@ -761,6 +793,15 @@ func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, 
 		if onChunk == nil {
 			return
 		}
+		// 同 session/update：回放阶段的工具调用通知吞掉，避免历史工具调用重复展示
+		session.mu.Lock()
+		isReplay := session.replayPhase
+		session.mu.Unlock()
+		if isReplay {
+			LogDebug("ACP: skip replay-phase session/tool_call_update",
+				zap.String("sessionId", session.id))
+			return
+		}
 		// 工具调用更新日志降级为 Debug（高频）
 		LogDebug("ACP: received session/tool_call_update notification", zap.String("params", string(params)))
 
@@ -803,37 +844,281 @@ func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, 
 	}
 }
 
-// handleServerRequest 处理服务端发起的 request（如 session/request_permission）
-// 这是 ACP 协议中服务端向客户端发送的 request，客户端需要回复 response
-func (a *BaseACPAdapter) handleServerRequest(session *acpSession, id interface{}, method string, params json.RawMessage) {
+// handleServerRequest 处理服务端发起的 request（如 session/request_permission、
+// elicitation/create）。这是 ACP 协议中服务端向客户端发送的 request，客户端必须回 response。
+//
+// onChunk 用于把 elicitation 转换成 question chunk 推给前端；nil 时跳过 elicitation 处理。
+func (a *BaseACPAdapter) handleServerRequest(session *acpSession, id interface{}, method string, params json.RawMessage, onChunk func(agent.Chunk)) {
 	LogInfo("ACP: received server request",
 		zap.Any("id", id),
 		zap.String("method", method),
-		zap.String("sessionId", session.id))
+		zap.String("sessionId", session.id),
+		zap.String("params", string(params)))
 
 	switch method {
 	case "session/request_permission":
-		// 按ACP协议规范，用 outcome 格式回复权限请求
-		// 自动选择 allow_always 选项
-		if session.transport != nil {
-			response := map[string]interface{}{
-				"outcome": map[string]interface{}{
-					"outcome":  "selected",
-					"optionId": "allow_always",
-				},
-			}
-			if err := session.transport.SendResponse(id, response); err != nil {
-				LogError("ACP: failed to send permission response", zap.Error(err))
-			} else {
-				LogInfo("ACP: permission auto-approved via response", zap.Any("requestId", id))
+		// ACP 协议：params 中带 options 数组，每项形如
+		//   {"optionId": "...", "name": "...", "kind": "allow_always|allow_once|reject_once|reject_always"}
+		// optionId 的字面值由 CLI 自定（OpenCode 用连字符 "allow-always"，
+		// Claude CLI 可能不一样），所以必须从 params 里拿真实 optionId，
+		// 不能再硬编码字符串。这里按 kind 优先级 allow_always > allow_once 选取。
+		if session.transport == nil {
+			return
+		}
+
+		var perm struct {
+			Options []struct {
+				OptionID string `json:"optionId"`
+				Kind     string `json:"kind"`
+				Name     string `json:"name"`
+			} `json:"options"`
+		}
+		_ = json.Unmarshal(params, &perm)
+
+		var chosenID string
+		for _, opt := range perm.Options {
+			if opt.Kind == "allow_always" {
+				chosenID = opt.OptionID
+				break
 			}
 		}
+		if chosenID == "" {
+			for _, opt := range perm.Options {
+				if opt.Kind == "allow_once" {
+					chosenID = opt.OptionID
+					break
+				}
+			}
+		}
+		if chosenID == "" {
+			chosenID = "allow_always"
+			LogWarn("ACP: request_permission has no allow option, falling back",
+				zap.Int("optionsCount", len(perm.Options)))
+		}
+
+		response := map[string]interface{}{
+			"outcome": map[string]interface{}{
+				"outcome":  "selected",
+				"optionId": chosenID,
+			},
+		}
+		if err := session.transport.SendResponse(id, response); err != nil {
+			LogError("ACP: failed to send permission response", zap.Error(err))
+		} else {
+			LogInfo("ACP: permission auto-approved via response",
+				zap.Any("requestId", id),
+				zap.String("chosenOptionId", chosenID))
+		}
+
+	case "elicitation/create":
+		// ACP unstable elicitation 协议（form 模式）。claude-agent-acp 把 AskUserQuestion
+		// 工具翻译成此请求；params 形如：
+		//   {
+		//     "mode": "form",
+		//     "sessionId": "...",
+		//     "toolCallId": "...",        // optional
+		//     "message": "...",
+		//     "requestedSchema": { "type":"object","properties": { "question_<n>": {...} } }
+		//   }
+		//
+		// **设计：异步等待用户答案**（贴合 ACP 协议本意）
+		//
+		// 1. 推 question chunk 给前端展示选择框；
+		// 2. 缓存 RPC id 与 questions 到 session，**不立即 SendResponse**；
+		// 3. invocation goroutine 继续阻塞在 SendRequest("session/prompt") 上；
+		// 4. 用户答完 → SendToolResult 用 {action:"accept", content:{...}} 把答案
+		//    SendResponse 给 CLI，CLI 端 AskUserQuestion 工具收到 updatedInput 后继续
+		//    在同一 prompt turn 内推后续 chunk。
+		//
+		// 期间 invocation 状态保持 running、isStreaming=true；前端按钮可点性由
+		// question block 自身 status='waiting_user_input' 决定（已去掉 !agentRunning 限制）。
+		if session.transport == nil || onChunk == nil {
+			if session.transport != nil {
+				_ = session.transport.SendResponse(id, map[string]interface{}{"action": "cancel"})
+			}
+			return
+		}
+
+		var elicit struct {
+			Mode            string `json:"mode"`
+			Message         string `json:"message"`
+			ToolCallID      string `json:"toolCallId"`
+			RequestedSchema struct {
+				Properties map[string]json.RawMessage `json:"properties"`
+			} `json:"requestedSchema"`
+		}
+		if err := json.Unmarshal(params, &elicit); err != nil {
+			LogError("ACP: failed to parse elicitation/create params", zap.Error(err))
+			_ = session.transport.SendResponse(id, map[string]interface{}{"action": "cancel"})
+			return
+		}
+		if elicit.Mode != "form" {
+			LogWarn("ACP: elicitation mode not supported, declining",
+				zap.String("mode", elicit.Mode))
+			_ = session.transport.SendResponse(id, map[string]interface{}{"action": "decline"})
+			return
+		}
+
+		questions := parseElicitationQuestions(elicit.RequestedSchema.Properties, elicit.Message)
+		if len(questions) == 0 {
+			LogWarn("ACP: elicitation has no questions, declining")
+			_ = session.transport.SendResponse(id, map[string]interface{}{"action": "decline"})
+			return
+		}
+
+		toolCallID := elicit.ToolCallID
+		if toolCallID == "" {
+			toolCallID = fmt.Sprintf("elicit-%v", id)
+		}
+
+		session.mu.Lock()
+		session.pendingElicitationID = id
+		session.pendingElicitationQuestions = questions
+		session.mu.Unlock()
+		// 注册到 sessions map 让 SubmitQuestionAnswer → SendToolResult 找得到
+		if session.isdpID != "" {
+			a.mu.Lock()
+			a.sessions[session.isdpID] = session
+			a.mu.Unlock()
+		}
+
+		chunk := agent.Chunk{
+			Type:      agent.ChunkTypeQuestion,
+			ToolName:  "AskUserQuestion",
+			ToolID:    toolCallID,
+			Questions: questions,
+		}
+		session.mu.Lock()
+		session.pendingQuestion = &chunk
+		session.mu.Unlock()
+		onChunk(chunk)
+
+		LogInfo("ACP: elicitation/create dispatched, awaiting async answer",
+			zap.Any("requestId", id),
+			zap.String("toolCallId", toolCallID),
+			zap.Int("questionsCount", len(questions)))
 
 	default:
 		LogWarn("ACP: unknown server request method",
 			zap.String("method", method),
 			zap.Any("id", id))
 	}
+}
+
+// elicitationCustomOptionLabel 是我们注入到每个问题 options 末尾的"自定义答案"占位项。
+//
+// 前端 QuestionBlock.tsx 的 `optionNeedsCustomInput` 检测 label 是否含 "其他"/"自定义"，
+// 命中就额外渲染一个文本框让用户填自定义答案。claude-agent-acp 的 AskUserQuestion 不会把
+// "Other" 当 enum 选项放进 oneOf——它单独存到 question_<n>_custom 字段——所以我们必须在
+// 前端可见的 options 里手动追加这个占位选项。
+//
+// SendToolResult 收到答案时再用此常量识别"用户选了占位项还填了文本框"，把答案塞进
+// question_<n>_custom（claude-agent-acp 的 elicitation.applyAskElicitationResponse 优先
+// 读 _custom 字段）。
+const elicitationCustomOptionLabel = "其他（请填写自定义答案）"
+
+// parseElicitationQuestions 把 elicitation/create 的 requestedSchema.properties 还原为
+// agent.QuestionItem[]。仅识别形如 question_<n> 的字段（同时跳过 question_<n>_custom）。
+// 每个问题的 options 末尾会被追加一个 elicitationCustomOptionLabel 占位项。
+func parseElicitationQuestions(props map[string]json.RawMessage, fallbackMessage string) []agent.QuestionItem {
+	type enumOption struct {
+		Const string                 `json:"const"`
+		Title string                 `json:"title"`
+		Meta  map[string]interface{} `json:"_meta"`
+	}
+	type fieldSchema struct {
+		Type        string       `json:"type"`        // "string" 单选 / "array" 多选
+		Title       string       `json:"title"`       // QuestionItem.Header
+		Description string       `json:"description"` // QuestionItem.Question（多问题时）
+		OneOf       []enumOption `json:"oneOf"`
+		Items       *struct {
+			AnyOf []enumOption `json:"anyOf"`
+		} `json:"items"`
+	}
+
+	indices := make([]int, 0, len(props))
+	for k := range props {
+		var idx int
+		if _, err := fmt.Sscanf(k, "question_%d", &idx); err != nil {
+			continue
+		}
+		// 排除 question_<n>_custom 等带后缀的字段
+		if k != fmt.Sprintf("question_%d", idx) {
+			continue
+		}
+		indices = append(indices, idx)
+	}
+	for i := 1; i < len(indices); i++ {
+		for j := i; j > 0 && indices[j-1] > indices[j]; j-- {
+			indices[j-1], indices[j] = indices[j], indices[j-1]
+		}
+	}
+
+	out := make([]agent.QuestionItem, 0, len(indices))
+	for _, idx := range indices {
+		raw := props[fmt.Sprintf("question_%d", idx)]
+		var f fieldSchema
+		if err := json.Unmarshal(raw, &f); err != nil {
+			continue
+		}
+
+		var enumOpts []enumOption
+		multi := false
+		switch f.Type {
+		case "array":
+			multi = true
+			if f.Items != nil {
+				enumOpts = f.Items.AnyOf
+			}
+		default:
+			enumOpts = f.OneOf
+		}
+
+		options := make([]agent.QuestionOption, 0, len(enumOpts))
+		for _, eo := range enumOpts {
+			opt := agent.QuestionOption{
+				Label: eo.Const,
+			}
+			// _meta 里 claude-agent-acp 用 _claude/askUserQuestionOption key 携带结构化 description / preview
+			if detailRaw, ok := eo.Meta["_claude/askUserQuestionOption"]; ok {
+				if detail, ok := detailRaw.(map[string]interface{}); ok {
+					if d, _ := detail["description"].(string); d != "" {
+						opt.Description = d
+					}
+					if p, _ := detail["preview"].(string); p != "" {
+						opt.Preview = p
+					}
+				}
+			}
+			// fallback：从 title "label — description" 拆出 description
+			if opt.Description == "" && eo.Title != "" && eo.Title != opt.Label {
+				if sep := " — "; len(eo.Title) > len(opt.Label)+len(sep) && eo.Title[:len(opt.Label)] == opt.Label {
+					opt.Description = eo.Title[len(opt.Label)+len(sep):]
+				}
+			}
+			options = append(options, opt)
+		}
+
+		// 追加"自定义答案"占位选项 —— 前端识别 label 含"其他"后会自动渲染输入框，
+		// 让用户填一段自定义文本。SendToolResult 端会把这段文本写到 question_<n>_custom。
+		options = append(options, agent.QuestionOption{
+			Label:       elicitationCustomOptionLabel,
+			Description: "上面选项都不合适？请填写你自己的答案。",
+		})
+
+		question := f.Description
+		if question == "" {
+			// 单问题场景下 description 为空，问题文本由 elicitation.message 承载
+			question = fallbackMessage
+		}
+		out = append(out, agent.QuestionItem{
+			Header:      f.Title,
+			Question:    question,
+			MultiSelect: multi,
+			Options:     options,
+		})
+	}
+	return out
 }
 
 func (a *BaseACPAdapter) buildPromptFromRequest(req *agent.ExecutionRequest) string {
@@ -882,12 +1167,24 @@ func (a *BaseACPAdapter) buildEnv(req *agent.ExecutionRequest) []string {
 }
 
 // buildMCPServers 构建 MCP server 配置数组。
-// 用于在 session/new 时注入显式绑定的 MCP servers 和 Colink memory MCP server。
+// 用于在 session/new 时注入显式绑定的 MCP servers、用户级 MCP 配置和 Colink memory MCP server。
 func (a *BaseACPAdapter) buildMCPServers(req *agent.ExecutionRequest) []interface{} {
 	if req == nil {
 		return []interface{}{}
 	}
 	mcpServers := convertManagedMCPToACPFormat(req.MCPServers)
+
+	if a.Config.LoadUserMCPConfig != nil {
+		userMCP := a.Config.LoadUserMCPConfig()
+		if len(userMCP) > 0 {
+			mcpServers = append(mcpServers, convertUserMCPToACPFormat(userMCP)...)
+			serverNames := make([]string, 0, len(userMCP))
+			for name := range userMCP {
+				serverNames = append(serverNames, name)
+			}
+			LogInfo("ACP: Loaded user MCP servers", zap.Strings("servers", serverNames))
+		}
+	}
 
 	// 如果没有必要的参数，不注入任何 MCP
 	if req.CallbackToken == "" || req.APIURL == "" || req.InvocationID == uuid.Nil {
@@ -908,7 +1205,7 @@ func (a *BaseACPAdapter) buildMCPServers(req *agent.ExecutionRequest) []interfac
 	if mcpServerPath == "" {
 		LogInfo("ACP: WARNING - MCP server path not configured")
 		if len(mcpServers) > 0 {
-			return mcpServers // 至少返回用户级 MCP
+			return mcpServers
 		}
 		return []interface{}{}
 	}
@@ -1169,10 +1466,18 @@ func (a *BaseACPAdapter) cleanup(session *acpSession) {
 	}
 }
 
-// SendToolResult 发送工具结果给 CLI（用于 AskUserQuestion 等需要用户输入的工具）
-// ACP 协议说明：
-// - 使用 session/resolve_tool_call 请求方法（而非通知）
-// - 参数包含 toolCallId 和 response
+// SendToolResult 把用户答案回传给 CLI。两条路径自动切换：
+//
+//  1. **Elicitation 路径**（claude-agent-acp 等用 elicitation/create 反向请求实现 AskUserQuestion）：
+//     session 上有 pendingElicitationID 时，按 ACP elicitation 协议构造
+//     {action:"accept", content:{question_<n>: label}} 并 SendResponse 给那个待响应的 RPC id；
+//     CLI 端 SDK 会把 content 当作 AskUserQuestion 工具的 updatedInput 继续推进 prompt turn。
+//  2. **Resolve tool call 路径**（OpenCode 等通过 session/request_user_input 通知触发的工具回调）：
+//     调用 session/resolve_tool_call 把答案带 toolCallId 发回去；失败再降级为
+//     session/resolve_user_input 通知。
+//
+// `result` 一般是单个 label 字符串；多题场景前端可传 JSON 对象（`{"question_0":"a","question_1":"b"}`），
+// 内部会原样作为 elicitation content 透传。
 func (a *BaseACPAdapter) SendToolResult(invocationID uuid.UUID, toolCallID string, result string) error {
 	a.mu.RLock()
 	session, exists := a.sessions[invocationID.String()]
@@ -1186,28 +1491,82 @@ func (a *BaseACPAdapter) SendToolResult(invocationID uuid.UUID, toolCallID strin
 		return fmt.Errorf("ACP: session transport not available")
 	}
 
-	// 使用请求方法 session/resolve_tool_call（而非通知）
-	// 这确保 CLI 正确处理响应并继续执行
+	// === 路径 1：elicitation/create 待响应 ===
+	session.mu.Lock()
+	pendingID := session.pendingElicitationID
+	pendingQs := session.pendingElicitationQuestions
+	session.mu.Unlock()
+
+	if pendingID != nil {
+		content := buildElicitationContent(result, pendingQs)
+		response := map[string]interface{}{
+			"action":  "accept",
+			"content": content,
+		}
+
+		LogInfo("ACP: sending elicitation response",
+			zap.String("invocationID", invocationID.String()),
+			zap.Any("requestId", pendingID),
+			zap.Any("content", content))
+
+		if err := session.transport.SendResponse(pendingID, response); err != nil {
+			return fmt.Errorf("ACP: failed to send elicitation response: %w", err)
+		}
+
+		// 清除待响应状态，避免下一次答案误触
+		session.mu.Lock()
+		session.pendingElicitationID = nil
+		session.pendingElicitationQuestions = nil
+		session.pendingQuestion = nil
+		session.mu.Unlock()
+
+		LogInfo("ACP: elicitation response sent successfully",
+			zap.Any("requestId", pendingID))
+		return nil
+	}
+
+	// === 路径 2：session/resolve_tool_call 兼容 OpenCode 等 ===
+	//
+	// 如果是 JSON 格式（前端 ACP 路径的 question 编码），尝试先通过 OpenCode HTTP
+	// API 直接 reply question 工具。OpenCode ACP 模式下 question.asked 事件没有
+	// 桥接到 ACP——question.ask() 创建 Deferred 后永远等不到 reply()，session/resolve_tool_call
+	// 发给 ACP 也是被静默丢弃。而 OpenCode 的 HTTP API 端口 26307 完整暴露了
+	// /question REPL API（启动时 --port 固定）。
+	//
+	// 如果 HTTP API 不可用（非 OpenCode 或端口不通），自动回退到原有 session/resolve_tool_call
+	// 兼容路径。
+	if strings.HasPrefix(result, "{") && session.cwd != "" {
+		if err := openCodeQuestionReply(session.cwd, toolCallID, result); err != nil {
+			LogWarn("ACP: OpenCode question reply via HTTP failed, falling back to resolve_tool_call",
+				zap.Error(err),
+				zap.String("cwd", session.cwd),
+				zap.String("toolCallId", toolCallID))
+		} else {
+			LogInfo("ACP: OpenCode question reply via HTTP succeeded",
+				zap.String("toolCallId", toolCallID))
+			return nil
+		}
+	}
+
+	plainResponse := flattenJSONAnswerForLegacy(result)
 	resolveParams := map[string]interface{}{
 		"toolCallId": toolCallID,
-		"response":   result,
+		"response":   plainResponse,
 	}
 
 	LogInfo("ACP: sending tool result via session/resolve_tool_call",
 		zap.String("invocationID", invocationID.String()),
 		zap.String("toolCallId", toolCallID),
-		zap.String("response", result))
+		zap.String("response", plainResponse))
 
-	// 发送请求而非通知，等待 CLI 确认
 	_, err := session.transport.SendRequest("session/resolve_tool_call", resolveParams)
 	if err != nil {
-		// 如果请求方法失败，尝试使用通知方法作为备选
 		LogWarn("ACP: session/resolve_tool_call request failed, trying notification",
 			zap.Error(err))
 
 		err = session.transport.SendNotification("session/resolve_user_input", &acpUserInputResponse{
 			ToolCallID: toolCallID,
-			Response:   result,
+			Response:   plainResponse,
 		})
 		if err != nil {
 			return fmt.Errorf("ACP: failed to send user input response: %w", err)
@@ -1217,6 +1576,228 @@ func (a *BaseACPAdapter) SendToolResult(invocationID uuid.UUID, toolCallID strin
 	LogInfo("ACP: tool result sent successfully",
 		zap.String("toolCallId", toolCallID))
 	return nil
+}
+
+// flattenJSONAnswerForLegacy 把前端为 elicitation/create 路径准备的
+// `{"question_<n>": ...}` JSON 字符串展平为换行分隔的纯文本，供 OpenCode 等
+// session/resolve_tool_call 路径使用——那条协议把 response 字段当作"用户答案
+// 纯文本"直接塞给模型，不做结构解析。
+//
+// 规则：
+//   - 不是 JSON 对象 → 原样返回（兼容真正的纯文本答案）
+//   - JSON 对象 → 按 question_0、question_1 ... 顺序展平
+//   - 字符串值直接拼；数组（多选）用顿号拼接；其它类型 fmt.Sprint
+//   - 多题用换行连接
+func flattenJSONAnswerForLegacy(answer string) string {
+	trimmed := strings.TrimSpace(answer)
+	if !strings.HasPrefix(trimmed, "{") || !strings.HasSuffix(trimmed, "}") {
+		return answer
+	}
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(trimmed), &parsed); err != nil || parsed == nil {
+		return answer
+	}
+
+	// 收集 question_<n> 索引；忽略 question_<n>_custom 等带后缀的字段（虽然
+	// 现在前端不再发 _custom，保留容错）和其它非约定 key。
+	indices := make([]int, 0, len(parsed))
+	for k := range parsed {
+		var idx int
+		if _, err := fmt.Sscanf(k, "question_%d", &idx); err != nil {
+			continue
+		}
+		if k != fmt.Sprintf("question_%d", idx) {
+			continue
+		}
+		indices = append(indices, idx)
+	}
+	if len(indices) == 0 {
+		return answer
+	}
+	// 插入排序（题数一般 ≤ 4）
+	for i := 1; i < len(indices); i++ {
+		for j := i; j > 0 && indices[j-1] > indices[j]; j-- {
+			indices[j-1], indices[j] = indices[j], indices[j-1]
+		}
+	}
+
+	parts := make([]string, 0, len(indices))
+	for _, idx := range indices {
+		v := parsed[fmt.Sprintf("question_%d", idx)]
+		switch x := v.(type) {
+		case string:
+			if s := strings.TrimSpace(x); s != "" {
+				parts = append(parts, s)
+			}
+		case []interface{}:
+			ss := make([]string, 0, len(x))
+			for _, e := range x {
+				if s, ok := e.(string); ok {
+					if t := strings.TrimSpace(s); t != "" {
+						ss = append(ss, t)
+					}
+				} else if e != nil {
+					ss = append(ss, fmt.Sprint(e))
+				}
+			}
+			if len(ss) > 0 {
+				parts = append(parts, strings.Join(ss, "、"))
+			}
+		case nil:
+			// 该题用户未作答，skip
+		default:
+			parts = append(parts, fmt.Sprint(v))
+		}
+	}
+	if len(parts) == 0 {
+		return answer
+	}
+	return strings.Join(parts, "\n")
+}
+
+// buildElicitationContent 把前端提交的答案字符串还原为 elicitation 的 content map。
+//
+// 支持两种输入：
+//   - JSON 对象（多题场景）：直接当 content（{"question_0":"a","question_1":"b"}）
+//   - 普通字符串（单题场景）：塞到 question_0
+//
+// 注意 claude-agent-acp 的 applyAskElicitationResponse 只读 question_<n>（用
+// String(value) 转文字写到 answers，不校验 enum），所以无论用户选的是 enum 选项还是
+// 填了自定义文本，都直接塞 question_<n>。SDK 端的 form-level "customAnswer" 字段会
+// 写到工具的 response 字段而非某题的 answer，无法表达"对第 N 题的自定义答案"的语义。
+func buildElicitationContent(answer string, questions []agent.QuestionItem) map[string]interface{} {
+	trimmed := strings.TrimSpace(answer)
+	if strings.HasPrefix(trimmed, "{") && strings.HasSuffix(trimmed, "}") {
+		var parsed map[string]interface{}
+		if err := json.Unmarshal([]byte(trimmed), &parsed); err == nil && parsed != nil {
+			return parsed
+		}
+	}
+	return map[string]interface{}{
+		"question_0": answer,
+	}
+}
+
+// openCodeQuestionReply 通过 OpenCode HTTP API (端口 26307) 回复 question 工具的用户答案。
+//
+// OpenCode 在 ACP 模式下，question.asked 事件没有被桥接——question.ask() 内部创建一个
+// Deferred 阻塞等待 reply()，但 ACP event handler 不监听 question.asked。唯一的解锁途径是
+// 调 OpenCode HTTP API 的 POST /question/{requestID}/reply。
+//
+// 流程：
+//  1. GET  /question?directory={cwd} → 列出所有 pending question，找到 tool.callID 匹配项
+//  2. 将 JSON {"question_0":"a","question_1":["b","c"]} 转为 OpenCode reply 格式的
+//     {"answers":[["a"],["b","c"]]}
+//  3. POST /question/{requestID}/reply?directory={cwd}
+func openCodeQuestionReply(cwd, toolCallID, jsonAnswer string) error {
+	baseURL := "http://127.0.0.1:26307"
+	dirParam := url.QueryEscape(cwd)
+
+	// 1. GET /question?directory={cwd} — 列出 pending questions
+	listURL := fmt.Sprintf("%s/question?directory=%s", baseURL, dirParam)
+	resp, err := http.Get(listURL)
+	if err != nil {
+		return fmt.Errorf("GET /question: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return fmt.Errorf("GET /question returned %d: %s", resp.StatusCode, string(body))
+	}
+
+	var pendingQuestions []struct {
+		ID        string `json:"id"`
+		SessionID string `json:"sessionID"`
+		Tool      *struct {
+			CallID string `json:"callID"`
+		} `json:"tool"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&pendingQuestions); err != nil {
+		return fmt.Errorf("parse /question response: %w", err)
+	}
+
+	var requestID string
+	for _, q := range pendingQuestions {
+		if q.Tool != nil && q.Tool.CallID == toolCallID {
+			requestID = q.ID
+			break
+		}
+	}
+	if requestID == "" {
+		return fmt.Errorf("no pending question found with tool.callID=%s (total %d pending)", toolCallID, len(pendingQuestions))
+	}
+
+	// 2. JSON → OpenCode reply answers 格式: [[...], [...], ...]
+	answers, err := buildOpenCodeReplyAnswers(jsonAnswer)
+	if err != nil {
+		return fmt.Errorf("build reply answers: %w", err)
+	}
+	replyBody, _ := json.Marshal(map[string]interface{}{
+		"answers": answers,
+	})
+
+	// 3. POST /question/{requestID}/reply?directory={cwd}
+	replyURL := fmt.Sprintf("%s/question/%s/reply?directory=%s", baseURL, requestID, dirParam)
+	replyResp, err := http.Post(replyURL, "application/json", strings.NewReader(string(replyBody)))
+	if err != nil {
+		return fmt.Errorf("POST /question/%s/reply: %w", requestID, err)
+	}
+	defer replyResp.Body.Close()
+
+	if replyResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(replyResp.Body, 512))
+		return fmt.Errorf("POST /question/%s/reply returned %d: %s", requestID, replyResp.StatusCode, string(body))
+	}
+
+	LogInfo("ACP: OpenCode question replied via HTTP",
+		zap.String("requestID", requestID),
+		zap.String("toolCallID", toolCallID))
+
+	return nil
+}
+
+// buildOpenCodeReplyAnswers 将 {"question_0":"a","question_1":["b","c"]} 转为
+// OpenCode HTTP reply 所需的 [["a"],["b","c"]] (Array<Array<string>>)。
+func buildOpenCodeReplyAnswers(jsonAnswer string) ([]interface{}, error) {
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonAnswer), &parsed); err != nil {
+		return nil, err
+	}
+
+	// 按 question_<n> 升序排列
+	indices := make([]int, 0, len(parsed))
+	for k := range parsed {
+		var idx int
+		if _, err := fmt.Sscanf(k, "question_%d", &idx); err != nil {
+			continue
+		}
+		if k != fmt.Sprintf("question_%d", idx) {
+			continue
+		}
+		indices = append(indices, idx)
+	}
+	for i := 1; i < len(indices); i++ {
+		for j := i; j > 0 && indices[j-1] > indices[j]; j-- {
+			indices[j-1], indices[j] = indices[j], indices[j-1]
+		}
+	}
+
+	out := make([]interface{}, len(indices))
+	for i, idx := range indices {
+		v := parsed[fmt.Sprintf("question_%d", idx)]
+		switch x := v.(type) {
+		case string:
+			out[i] = []interface{}{x}
+		case []interface{}:
+			out[i] = x
+		case nil:
+			out[i] = []interface{}{}
+		default:
+			out[i] = []interface{}{fmt.Sprint(x)}
+		}
+	}
+	return out, nil
 }
 
 // ========== ACP 原生 Session 管理 API ==========
@@ -1258,6 +1839,7 @@ func (a *BaseACPAdapter) SessionList(ctx context.Context, cwd string) ([]agent.S
 		cmd:    cmd,
 		ctx:    ctx,
 		status: agent.SessionStatusRunning,
+		cwd:    cwd,
 	}
 
 	// 启动 stderr 消费
@@ -1276,8 +1858,10 @@ func (a *BaseACPAdapter) SessionList(ctx context.Context, cwd string) ([]agent.S
 
 	// Initialize
 	initResult, err := transport.SendRequest("initialize", &acpInitializeParams{
-		ProtocolVersion:    2025,
-		ClientCapabilities: acpClientCapabilities{},
+		ProtocolVersion: 2025,
+		ClientCapabilities: acpClientCapabilities{
+			Elicitation: &acpElicitationCapabilities{Form: &struct{}{}},
+		},
 	})
 	if err != nil {
 		transport.Close()
@@ -1380,14 +1964,13 @@ func (a *BaseACPAdapter) SessionResume(ctx context.Context, acpSessionID string,
 	// 创建 session context
 	sessionCtx, sessionCancel := context.WithCancel(context.Background())
 	session := &acpSession{
-		id:                  internalSessionID,
-		isdpID:              internalSessionID,
-		cmd:                 cmd,
-		ctx:                 sessionCtx,
-		cancel:              sessionCancel,
-		status:              agent.SessionStatusRunning,
-		stdinPipe:           stdinPipe,
-		outputUpdatedSignal: make(chan struct{}, 1),
+		id:        internalSessionID,
+		isdpID:    internalSessionID,
+		cmd:       cmd,
+		ctx:       sessionCtx,
+		cancel:    sessionCancel,
+		status:    agent.SessionStatusRunning,
+		stdinPipe: stdinPipe,
 	}
 
 	// 启动 stderr 消费
@@ -1410,13 +1993,20 @@ func (a *BaseACPAdapter) SessionResume(ctx context.Context, acpSessionID string,
 	transport := newACPTransport(stdinPipe, stdoutPipe, func(method string, params json.RawMessage) {
 		a.handleNotification(session, method, params, nil)
 	})
+	// 注册服务端 request handler，确保 CLI 反向请求（如 session/request_permission）
+	// 不会被静默丢弃，避免工具调用挂死。
+	transport.SetServerRequestHandler(func(id interface{}, method string, params json.RawMessage) {
+		a.handleServerRequest(session, id, method, params, nil)
+	})
 	session.transport = transport
 	transport.Start()
 
 	// Initialize
 	initResult, err := transport.SendRequest("initialize", &acpInitializeParams{
-		ProtocolVersion:    2025,
-		ClientCapabilities: acpClientCapabilities{},
+		ProtocolVersion: 2025,
+		ClientCapabilities: acpClientCapabilities{
+			Elicitation: &acpElicitationCapabilities{Form: &struct{}{}},
+		},
 	})
 	if err != nil {
 		session.mu.Lock()
@@ -1515,14 +2105,13 @@ func (a *BaseACPAdapter) SessionLoad(ctx context.Context, acpSessionID string, c
 	// 创建 session context
 	sessionCtx, sessionCancel := context.WithCancel(context.Background())
 	session := &acpSession{
-		id:                  internalSessionID,
-		isdpID:              internalSessionID,
-		cmd:                 cmd,
-		ctx:                 sessionCtx,
-		cancel:              sessionCancel,
-		status:              agent.SessionStatusRunning,
-		stdinPipe:           stdinPipe,
-		outputUpdatedSignal: make(chan struct{}, 1),
+		id:        internalSessionID,
+		isdpID:    internalSessionID,
+		cmd:       cmd,
+		ctx:       sessionCtx,
+		cancel:    sessionCancel,
+		status:    agent.SessionStatusRunning,
+		stdinPipe: stdinPipe,
 	}
 
 	// 启动 stderr 消费
@@ -1545,13 +2134,20 @@ func (a *BaseACPAdapter) SessionLoad(ctx context.Context, acpSessionID string, c
 	transport := newACPTransport(stdinPipe, stdoutPipe, func(method string, params json.RawMessage) {
 		a.handleNotification(session, method, params, nil)
 	})
+	// 注册服务端 request handler，确保 CLI 反向请求（如 session/request_permission）
+	// 不会被静默丢弃，避免工具调用挂死。
+	transport.SetServerRequestHandler(func(id interface{}, method string, params json.RawMessage) {
+		a.handleServerRequest(session, id, method, params, nil)
+	})
 	session.transport = transport
 	transport.Start()
 
 	// Initialize
 	initResult, err := transport.SendRequest("initialize", &acpInitializeParams{
-		ProtocolVersion:    2025,
-		ClientCapabilities: acpClientCapabilities{},
+		ProtocolVersion: 2025,
+		ClientCapabilities: acpClientCapabilities{
+			Elicitation: &acpElicitationCapabilities{Form: &struct{}{}},
+		},
 	})
 	if err != nil {
 		session.mu.Lock()
@@ -1637,8 +2233,10 @@ func (a *BaseACPAdapter) SessionClose(ctx context.Context, acpSessionID string) 
 
 	// Initialize
 	_, err = transport.SendRequest("initialize", &acpInitializeParams{
-		ProtocolVersion:    2025,
-		ClientCapabilities: acpClientCapabilities{},
+		ProtocolVersion: 2025,
+		ClientCapabilities: acpClientCapabilities{
+			Elicitation: &acpElicitationCapabilities{Form: &struct{}{}},
+		},
 	})
 	if err != nil {
 		transport.Close()
@@ -1706,21 +2304,37 @@ func (a *BaseACPAdapter) ExecuteWithResume(ctx context.Context, req *agent.Execu
 		// 生成内部 session ID
 		internalSessionID := uuid.New().String()
 
+		// isdpID 用 invocation ID（与 ExecuteWithStream 一致），SubmitQuestionAnswer →
+		// SendToolResult 才能用 invocationID 在 a.sessions map 里找回这个 session 来回 elicitation
+		// 响应。fallback 到 internalSessionID 仅为防止 InvocationID 偶发为空时崩溃。
+		isdpIDStr := internalSessionID
+		if req != nil && req.InvocationID != uuid.Nil {
+			isdpIDStr = req.InvocationID.String()
+		}
+
 		// 创建 session context
 		sessionCtx, sessionCancel := context.WithCancel(context.Background())
 		session := &acpSession{
-			id:                  internalSessionID,
-			isdpID:              internalSessionID,
-			cmd:                 cmd,
-			ctx:                 sessionCtx,
-			cancel:              sessionCancel,
-			status:              agent.SessionStatusRunning,
-			stdinPipe:           stdinPipe,
-			outputUpdatedSignal: make(chan struct{}, 1),
+			id:        internalSessionID,
+			isdpID:    isdpIDStr,
+			cmd:       cmd,
+			ctx:       sessionCtx,
+			cancel:    sessionCancel,
+			status:    agent.SessionStatusRunning,
+			stdinPipe: stdinPipe,
+			cwd:       req.WorkDir,
+			// 进入 ExecuteWithResume 即处于"回放阶段"：从 session/resume 发送之后到
+			// session/prompt 发送之前，CLI 推回来的所有 session/update 都属于历史
+			// 重放（用于让模型 KV 缓存恢复上下文），不应当作本轮新输出。
+			replayPhase: true,
 		}
 
-		// 启动 stderr 消费
+		// 启动 stderr 消费（用 wg 保证 ExecuteWithResume 返回前 goroutine 能正常退出，
+		// 避免 stderr goroutine 泄漏 + 让 cleanup 可靠）
+		var wg sync.WaitGroup
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			scanner := bufio.NewScanner(stderrPipe)
 			for scanner.Scan() {
 				line := scanner.Text()
@@ -1740,28 +2354,29 @@ func (a *BaseACPAdapter) ExecuteWithResume(ctx context.Context, req *agent.Execu
 		// 这样 session/resume 的历史回放通知会被正确处理
 		transport := newACPTransport(stdinPipe, stdoutPipe, func(method string, params json.RawMessage) {
 			a.handleNotification(session, method, params, onChunk)
-			// Signal output update
-			session.mu.Lock()
-			if session.outputUpdatedSignal != nil {
-				select {
-				case session.outputUpdatedSignal <- struct{}{}:
-				default:
-				}
-			}
-			session.mu.Unlock()
+		})
+		// 关键：必须注册服务端 request handler，否则 CLI 在 resume 路径下发起的反向 request
+		// （如 session/request_permission 让客户端确认读取 workspace 外文件的权限、
+		// elicitation/create 让客户端展示 AskUserQuestion 选择框）会被静默丢弃，
+		// CLI 永远等不到 response，工具调用就一直停在 in_progress，整轮对话挂死。
+		// 这里传 onChunk 让 elicitation 能转换为 question chunk 推给前端。
+		transport.SetServerRequestHandler(func(id interface{}, method string, params json.RawMessage) {
+			a.handleServerRequest(session, id, method, params, onChunk)
 		})
 		session.transport = transport
 		transport.Start()
 
 		// 保存 session 到 sessions map
 		a.mu.Lock()
-		a.sessions[internalSessionID] = session
+		a.sessions[isdpIDStr] = session
 		a.mu.Unlock()
 
 		// Initialize
 		initResult, err := transport.SendRequest("initialize", &acpInitializeParams{
-			ProtocolVersion:    2025,
-			ClientCapabilities: acpClientCapabilities{},
+			ProtocolVersion: 2025,
+			ClientCapabilities: acpClientCapabilities{
+				Elicitation: &acpElicitationCapabilities{Form: &struct{}{}},
+			},
 		})
 		if err != nil {
 			session.mu.Lock()
@@ -1771,7 +2386,7 @@ func (a *BaseACPAdapter) ExecuteWithResume(ctx context.Context, req *agent.Execu
 			cmd.Process.Kill()
 			cmd.Wait()
 			a.mu.Lock()
-			delete(a.sessions, internalSessionID)
+			delete(a.sessions, isdpIDStr)
 			a.mu.Unlock()
 			return nil, "", fmt.Errorf("ACP: initialize handshake failed: %w\nstderr: %s", err, stderrContent)
 		}
@@ -1790,7 +2405,7 @@ func (a *BaseACPAdapter) ExecuteWithResume(ctx context.Context, req *agent.Execu
 			cmd.Process.Kill()
 			cmd.Wait()
 			a.mu.Lock()
-			delete(a.sessions, internalSessionID)
+			delete(a.sessions, isdpIDStr)
 			a.mu.Unlock()
 			return nil, "", fmt.Errorf("ACP: gateway authenticate failed: %w\nstderr: %s", err, stderrContent)
 		}
@@ -1815,7 +2430,7 @@ func (a *BaseACPAdapter) ExecuteWithResume(ctx context.Context, req *agent.Execu
 			cmd.Process.Kill()
 			cmd.Wait()
 			a.mu.Lock()
-			delete(a.sessions, internalSessionID)
+			delete(a.sessions, isdpIDStr)
 			a.mu.Unlock()
 			return nil, "", fmt.Errorf("ACP: session/resume failed: %w\nstderr: %s", err, stderrContent)
 		}
@@ -1832,57 +2447,56 @@ func (a *BaseACPAdapter) ExecuteWithResume(ctx context.Context, req *agent.Execu
 
 		acpSessID = acpSessionID
 
+		// 回放窗口结束：session/resume 同步响应已到，后续 session/update 都是真正的本轮输出
+		session.mu.Lock()
+		session.replayPhase = false
+		session.mu.Unlock()
+
 		// Send prompt to resumed session
+		// transport.SendRequest 是同步 JSON-RPC 请求：jsonrpc.go: readLoop 单线程顺序解析
+		// stdout，每个 notification 同步派发到 handleNotification 处理完才能轮到下一行；
+		// CLI 端必然先 emit 所有 session/update notification 再返回 prompt 的 response。
+		// 所以 SendRequest 解锁时 session.output 里所有本轮 chunk 都已落入，**不需要**任何
+		// "等 signal" 的兜底循环。
 		prompt := a.buildPromptFromRequest(req)
-		_, promptErr := transport.SendRequest("session/prompt", &acpPromptParams{
+		promptResult, promptErr := transport.SendRequest("session/prompt", &acpPromptParams{
 			SessionID: acpSessionID,
 			Prompt:    []acpContentBlock{{Type: "text", Text: prompt}},
 		})
+
+		// 与 ExecuteWithStream 对齐：从 sessions map 移除、cleanup CLI 进程 + transport、
+		// wg.Wait 等 stderr goroutine 退出。之前缺这套清理，导致每次 ExecuteWithResume 都
+		// 泄漏一个 CLI 子进程 + stderr goroutine + transport 资源。
+		// 二次/三次对话时新进程通过 session/resume 复用同一 ACP sessionId，会与上一轮
+		// 残留的进程并发访问磁盘上同一份 OpenCode session storage，读到不完整 session
+		// → 模型上下文残缺 → 秒返空内容（症状："首次正常、第二次起一直空"）。
+		if isdpIDStr != "" {
+			a.mu.Lock()
+			delete(a.sessions, isdpIDStr)
+			a.mu.Unlock()
+		}
+
 		if promptErr != nil {
-			return nil, acpSessID, fmt.Errorf("ACP: session/prompt failed: %w", promptErr)
+			session.mu.Lock()
+			stderrContent := session.stderrOutput.String()
+			session.mu.Unlock()
+			a.cleanup(session)
+			wg.Wait()
+			return nil, acpSessID, fmt.Errorf("ACP: session/prompt failed: %w\nstderr: %s", promptErr, stderrContent)
 		}
 
-		// Wait for notifications to be processed
-		session.mu.Lock()
-		signal := session.outputUpdatedSignal
-		currentOutputLen := session.output.Len()
-		session.mu.Unlock()
-
-		if signal != nil && currentOutputLen == 0 {
-			select {
-			case <-signal:
-				// Wait for more updates with backoff
-				noUpdateCount := 0
-				for noUpdateCount < 3 {
-					session.mu.Lock()
-					newLen := session.output.Len()
-					session.mu.Unlock()
-					if newLen > currentOutputLen {
-						currentOutputLen = newLen
-						noUpdateCount = 0
-					} else {
-						noUpdateCount++
-					}
-					select {
-					case <-signal:
-					case <-time.After(100 * time.Millisecond):
-						break
-					}
-				}
-			case <-time.After(500 * time.Millisecond):
-				LogWarn("ACP: timeout waiting for output updates (ExecuteWithResume)",
-					zap.String("acpSessionId", acpSessionID))
-			}
-		} else if signal != nil {
-			select {
-			case <-signal:
-			case <-time.After(300 * time.Millisecond):
-			}
+		var promptResp acpPromptResult
+		if err := json.Unmarshal(promptResult, &promptResp); err != nil {
+			LogWarn("ACP: prompt response parse warning", zap.Error(err))
 		}
+		LogInfo("[PERF] ACP ExecuteWithResume execution",
+			zap.String("acpSessionId", acpSessionID),
+			zap.String("stopReason", promptResp.StopReason))
 
-		// Clean up signal
+		a.cleanup(session)
+		wg.Wait()
+
 		session.mu.Lock()
-		session.outputUpdatedSignal = nil
 		output := session.output.String()
 		session.mu.Unlock()
 

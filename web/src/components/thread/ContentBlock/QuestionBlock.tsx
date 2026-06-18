@@ -189,9 +189,32 @@ const QuestionBlockComponent: React.FC<QuestionBlockComponentProps> = memo(({ bl
     const question = safeQuestions[questionIndex];
     if (!question) return undefined;
 
-    // 去除 @AgentName 前缀（格式：@AgentName 内容）
-    // 正则匹配 @ 开头后面跟非空白字符，然后空格，剩余的是实际答案
     let actualOutput = output.trim();
+
+    // 优先尝试 JSON 解析：ACP elicitation 路径下，handleInlineQuestionSubmit 提交的是
+    // `{"question_0":"a","question_1":["b","c"], ...}` 这样的 JSON 字符串，后端原样写到
+    // question block.Output。每题答案严格按 question_<n> 索引存放，不需要靠 label 字面
+    // 匹配回扫，能精准还原选中项 + 自定义文本（含 SDK 端不校验 enum 的自定义值）。
+    if (actualOutput.startsWith('{') && actualOutput.endsWith('}')) {
+      try {
+        const parsed = JSON.parse(actualOutput);
+        if (parsed && typeof parsed === 'object') {
+          const v = (parsed as Record<string, unknown>)[`question_${questionIndex}`];
+          if (v !== undefined && v !== null) {
+            if (multiSelect) {
+              return Array.isArray(v) ? (v as string[]) : [String(v)];
+            }
+            return Array.isArray(v) ? (v as string[]).join('、') : String(v);
+          }
+          // 该题没回答（用户跳过）
+          return undefined;
+        }
+      } catch {
+        // 不是合法 JSON，落入下方字符串路径
+      }
+    }
+
+    // 去除 @AgentName 前缀（native CLI 路径用 sendMessage("@Agent 答案") 走 resume）
     const mentionMatch = actualOutput.match(/^@\S+\s+(.+)$/);
     if (mentionMatch) {
       actualOutput = mentionMatch[1].trim();
@@ -276,8 +299,10 @@ const QuestionBlockComponent: React.FC<QuestionBlockComponentProps> = memo(({ bl
   // 计算耗时
   const duration = completedAt ? completedAt - startedAt : 0;
 
-  // 检查问题是否已回答
+  // 检查问题是否已回答（含 customInputs）
+  // 自定义文本非空也算已答，无需另外勾选选项
   const isQuestionAnswered = (index: number, multiSelect: boolean) => {
+    if (customInputs[index]?.trim()) return true;
     const answer = answers[index];
     if (multiSelect) {
       return Array.isArray(answer) && answer.length > 0;
@@ -344,12 +369,22 @@ const QuestionBlockComponent: React.FC<QuestionBlockComponentProps> = memo(({ bl
   }, [customInputs, isInteractionDisabled, onSubmit]);
 
   // 处理多选确认提交
+  // 合并 customInputs：自定义文本非空时优先（覆盖该题的选项答案），
+  // 与 ACP elicitation 的 question_<n>_custom 优先于 question_<n> 的语义一致。
   const handleMultiSelectSubmit = useCallback(() => {
     if (isInteractionDisabled || !onSubmit || !allQuestionsAnswered) return;
-    // 设置提交中状态以禁用后续点击
     setIsSubmitting(true);
-    onSubmit(answers);
-  }, [answers, allQuestionsAnswered, isInteractionDisabled, onSubmit]);
+    const merged: Record<number, string | string[]> = {};
+    safeQuestions.forEach((q, i) => {
+      const custom = customInputs[i]?.trim();
+      if (custom) {
+        merged[i] = custom;
+      } else if (answers[i] !== undefined) {
+        merged[i] = answers[i];
+      }
+    });
+    onSubmit(merged);
+  }, [answers, customInputs, allQuestionsAnswered, isInteractionDisabled, onSubmit, safeQuestions]);
 
   // 检查选项是否需要自定义输入
   const optionNeedsCustomInput = (label: string) => {
@@ -409,9 +444,13 @@ const QuestionBlockComponent: React.FC<QuestionBlockComponentProps> = memo(({ bl
           border: `1px solid var(--border-color)`,
         }}>
           {safeQuestions.map((question, questionIndex) => {
-            const currentAnswer = answers[questionIndex];
-            const hasCustomInput = typeof currentAnswer === 'string' && optionNeedsCustomInput(currentAnswer);
             const customInputValue = customInputs[questionIndex] || '';
+            // 是否有"其他"占位选项 —— 后端 parseElicitationQuestions 会给每个问题
+            // 末尾追加这种占位，前端据此渲染常驻自定义输入框。
+            const hasCustomOption = question.options.some(o => optionNeedsCustomInput(o.label));
+            // 内嵌"提交"按钮（输入框旁边）只在"单题 + 单选"时显示，跟单题选项点击即提交保持一致。
+            // 多题或多选场景下统一走底部"确认提交"按钮，避免两条提交路径并存。
+            const showInlineSubmit = safeQuestions.length === 1 && !question.multiSelect;
 
             return (
               <div key={questionIndex} style={{ marginBottom: questionIndex < safeQuestions.length - 1 ? 16 : 0 }}>
@@ -558,17 +597,21 @@ const QuestionBlockComponent: React.FC<QuestionBlockComponentProps> = memo(({ bl
                     </Radio.Group>
                   )}
 
-                  {/* 单选自定义输入场景：选中自定义选项后显示输入框（仅未提交时） */}
-                  {!isSubmitted && !question.multiSelect && hasCustomInput && (
-                    <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
-                      <Input
-                        placeholder="请输入自定义内容..."
-                        value={customInputValue}
-                        onChange={(e) => handleCustomInputChange(questionIndex, e.target.value)}
-                        style={{ flex: 1 }}
-                        autoFocus
-                        disabled={disabled}
-                      />
+                  {/* 自定义答案输入框（常驻显示，不依赖勾选状态） */}
+                {/* 后端 elicitation/create 解析时会给每个问题的 options 末尾追加"其他"占位项；
+                    前端只要识别到这个占位就常驻渲染输入框，让用户随时可填自定义答案。
+                    内嵌"提交"按钮仅在单题单选场景显示；多题或含多选时由底部"确认提交"统一处理，
+                    自定义文本会在 handleMultiSelectSubmit 里覆盖该题的选项答案。 */}
+                {!isSubmitted && hasCustomOption && (
+                  <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+                    <Input
+                      placeholder="如果上面选项都不合适，请在此填写自定义答案..."
+                      value={customInputValue}
+                      onChange={(e) => handleCustomInputChange(questionIndex, e.target.value)}
+                      style={{ flex: 1 }}
+                      disabled={disabled}
+                    />
+                    {showInlineSubmit && (
                       <Button
                         type="primary"
                         icon={<SendOutlined />}
@@ -577,11 +620,12 @@ const QuestionBlockComponent: React.FC<QuestionBlockComponentProps> = memo(({ bl
                       >
                         提交
                       </Button>
-                    </div>
-                  )}
+                    )}
+                  </div>
+                )}
 
-                  {/* 已提交时的自定义答案显示 */}
-                  {isSubmitted && !question.multiSelect && answers[questionIndex] && !question.options.some(o => o.label === answers[questionIndex]) && (
+                {/* 已提交时的自定义答案显示 */}
+                {isSubmitted && answers[questionIndex] && !question.options.some(o => o.label === answers[questionIndex]) && typeof answers[questionIndex] === 'string' && (
                     <div style={{
                       marginTop: 8,
                       padding: '8px 12px',
