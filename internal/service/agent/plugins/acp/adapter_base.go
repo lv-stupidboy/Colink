@@ -35,6 +35,11 @@ type AcpAdapterConfig struct {
 	// ModelRef 返回设置模型时使用的引用字符串。某些 CLI（如 OpenCode）要求 "provider/model"
 	// 格式，与配置中注册的 provider 前缀一致。为 nil 时直接使用 baseAgent.DefaultModel。
 	ModelRef func() string
+	// ModelRefForSetModel 返回 session/set_model 调用时使用的模型引用（provider/model 格式）。
+	// 1.3.3 等旧版 OpenCode 只有 session/set_model 没有 session/set_config_option，
+	// 而 set_model 的 parseModelSelection 需要 provider/model 格式才能正确解析。
+	// 为 nil 时回退到 ModelRef → baseAgent.DefaultModel。
+	ModelRefForSetModel func() string
 	// Gateway 配置（用于第三方 API）
 	// 如果设置了 GatewayBaseURL，会在 initialize 后发送 authenticate 请求
 	GatewayBaseURL string            // 第三方 API 地址（如 https://coding.dashscope.aliyuncs.com/apps/anthropic/v1）
@@ -2446,6 +2451,54 @@ func (a *BaseACPAdapter) ExecuteWithResume(ctx context.Context, req *agent.Execu
 			zap.String("cwd", req.WorkDir))
 
 		acpSessID = acpSessionID
+
+		// 高低版本兼容：OpenCode 1.3.3 的 session/resume 不加载对话历史
+		// （ACPSession 源码 line 779-808: 无 sdk.session.messages() 调用），
+		// 导致 session/prompt 时模型没有上下文、output=0。
+		// 而 1.3.3 的 session/load（line 604-667）会完整拉取历史上并重放——
+		// 包括从 history 恢复 model / agent 配置。
+		//
+		// 检测方式：生产版 resumeResp 含 ConfigOptions；1.3.3 不含。
+		// - 有 ConfigOptions（生产版）→ 正常 session/resume + configureSession
+		// - 无 ConfigOptions（1.3.3）  → 改用 session/load（带历史重放），
+		//   replayPhase=true 期间的历史 chunk 被过滤不广播到前端
+		if len(resumeResp.ConfigOptions) > 0 {
+			// 生产版：标准 configureSession 路径
+			newSessionResp := &acpNewSessionResult{
+				SessionID:     resumeResp.SessionID,
+				ConfigOptions: resumeResp.ConfigOptions,
+			}
+			if err := a.configureSession(transport, session, newSessionResp, req); err != nil {
+				LogWarn("ACP: session configure after resume failed", zap.Error(err))
+			}
+		} else {
+			// 1.3.3 兼容：用 session/load 替代 session/resume
+			// session/load 会通过 processMessage 把全部历史消息作为
+			// session/update 通知重放；replayPhase=true 期间这些 chunk
+			// 会被 handleNotification 吞掉，模型内部拿到上下文但前端不重复展示。
+			LogInfo("ACP: no ConfigOptions in resume response, retrying with session/load for 1.3.3 compatibility",
+				zap.String("acpSessionId", acpSessionID))
+			loadResult, loadErr := transport.SendRequest("session/load", &acpSessionLoadParams{
+				SessionID:  acpSessionID,
+				CWD:        req.WorkDir,
+				MCPServers: mcpServers,
+			})
+			if loadErr != nil {
+				a.cleanup(session)
+				wg.Wait()
+				a.mu.Lock()
+				delete(a.sessions, internalSessionID)
+				a.mu.Unlock()
+				return nil, "", fmt.Errorf("resource not found: session/load fallback for old CLI failed: %w", loadErr)
+			}
+			var loadResp acpSessionResumeResult // response structure is same
+			if err := json.Unmarshal(loadResult, &loadResp); err != nil {
+				LogWarn("ACP: session/load response parse warning", zap.Error(err))
+			}
+			LogInfo("ACP: session/load completed for 1.3.3 compatibility",
+				zap.String("acpSessionId", acpSessionID),
+				zap.Bool("hasConfigOptions", len(loadResp.ConfigOptions) > 0))
+		}
 
 		// 回放窗口结束：session/resume 同步响应已到，后续 session/update 都是真正的本轮输出
 		session.mu.Lock()

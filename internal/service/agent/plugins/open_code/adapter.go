@@ -87,6 +87,11 @@ func NewOpenCodeAdapter(baseAgent *model.BaseAgent) agent.AgentAdapter {
 		},
 		// 不设置 ModelRef，使用默认的 baseAgent.DefaultModel（裸模型名）
 		// 配置文件中的 model 字段使用 "colink/model" 格式，但 set_config_option 使用 "model" 格式
+		// ModelRefForSetModel 用于 1.3.3 等旧版 OpenCode：它们只有 session/set_model
+		// 没有 set_config_option，而 set_model 的 parseModelSelection 需要 providerID/modelID 拆分。
+		ModelRefForSetModel: func() string {
+			return openCodeModelRef(baseAgent.DefaultModel)
+		},
 	}
 
 	return &OpenCodeAdapter{
