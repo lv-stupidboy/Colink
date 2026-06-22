@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Button, Table, Typography, Tag, Spin, message } from 'antd';
+import { Button, Table, Typography, Tag, Spin, message, Tooltip } from 'antd';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { dependencyApi } from '../../../lib/api';
 import type { DependencyInfo } from '../../../lib/api/types';
 
@@ -64,6 +65,15 @@ const DependencyCheck: React.FC<DependencyCheckProps> = ({
     }
   };
 
+  const handleOpenDownload = async (url: string) => {
+    try {
+      await openUrl(url);
+    } catch (err) {
+      console.error('open download url failed:', err);
+      message.error('打开下载页失败，请手动复制链接到浏览器');
+    }
+  };
+
   const columns = [
     {
       title: '名称',
@@ -74,25 +84,62 @@ const DependencyCheck: React.FC<DependencyCheckProps> = ({
       title: '状态',
       dataIndex: 'installed',
       key: 'installed',
-      render: (installed: boolean) => (
-        <Tag color={installed ? 'green' : 'red'}>
-          {installed ? '已安装' : '未安装'}
-        </Tag>
-      ),
+      render: (_: boolean, record: DependencyInfo) => {
+        if (record.installed) {
+          return <Tag color="green">已安装</Tag>;
+        }
+        // 有 detectError 说明尝试了所有兜底策略仍失败，显示"检测失败"
+        if (record.detectError) {
+          return (
+            <Tooltip title={record.detectError} color="orange">
+              <Tag color="orange">检测失败</Tag>
+            </Tooltip>
+          );
+        }
+        return <Tag color="red">未安装</Tag>;
+      },
     },
     {
       title: '版本',
       dataIndex: 'version',
       key: 'version',
-      render: (version?: string) => version || '-',
+      render: (version: string | undefined, record: DependencyInfo) => {
+        if (!version && record.detectError) {
+          return (
+            <Tooltip title={record.detectError} color="orange">
+              <span style={{ color: '#fa8c16', cursor: 'help' }}>检测失败</span>
+            </Tooltip>
+          );
+        }
+        return version || '-';
+      },
     },
     {
       title: '操作',
       key: 'action',
-      render: (_: unknown, record: DependencyInfo) =>
-        record.installed ? (
-          <Tag color="green">✓</Tag>
-        ) : (
+      render: (_: unknown, record: DependencyInfo) => {
+        if (record.installed) {
+          return <Tag color="green">✓</Tag>;
+        }
+        // code-agent 等只能手动下载的依赖：有 download_url 显示"前往下载"，否则提示去 config.yaml 配置
+        if (record.key === 'code-agent') {
+          if (record.downloadUrl) {
+            return (
+              <Tooltip title={record.downloadUrl}>
+                <Button size="small" onClick={() => handleOpenDownload(record.downloadUrl!)}>
+                  前往下载
+                </Button>
+              </Tooltip>
+            );
+          }
+          return (
+            <Tooltip title="请在 config.yaml 的 code_agent.download_url 中配置下载页地址">
+              <Tag color="default">未配置下载地址</Tag>
+            </Tooltip>
+          );
+        }
+        // claude / opencode 走 npm 自动安装
+        return (
           <Button
             size="small"
             onClick={() => handleInstall(record.key)}
@@ -100,7 +147,8 @@ const DependencyCheck: React.FC<DependencyCheckProps> = ({
           >
             安装
           </Button>
-        ),
+        );
+      },
     },
   ];
 

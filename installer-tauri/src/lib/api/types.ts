@@ -56,6 +56,11 @@ export interface DependencyInfo {
   name: string;
   installed: boolean;
   version?: string;
+  /** 检测失败时的诊断信息（PATH、exit code、stderr 摘要等）。安装成功/未安装都不会有。 */
+  detectError?: string;
+  /** 下载页面 URL（仅 code-agent 等只能手动下载的依赖）。
+   *  非空时 UI 显示"前往下载"按钮，点击在外部浏览器打开。 */
+  downloadUrl?: string;
 }
 
 export interface RunningAgentInstance {

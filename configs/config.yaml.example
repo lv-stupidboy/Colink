@@ -200,3 +200,12 @@ claude_code:
   # 开启后可获得 usage_update (context 使用量)、session/resume 等高级功能
   # 安装器会自动安装 claude-agent-acp，无需手动操作
   use_acp: false
+
+# CodeAgent (nga) 配置
+# CodeAgent 是公司内部基于 OpenCode 定制的 CLI 工具，启动命令为 nga。
+# 由于安装包只在公司内网分发，安装器不会自动下载，而是引导用户到下载页面。
+code_agent:
+  # 下载页面 URL（公司内网地址）
+  # 检测页面在 CodeAgent 未安装时显示"前往下载"按钮，点击在外部浏览器打开此 URL
+  # 留空：UI 只显示"未安装"状态，不提供跳转按钮
+  download_url: ""

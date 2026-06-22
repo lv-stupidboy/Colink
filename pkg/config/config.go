@@ -37,6 +37,7 @@ type Config struct {
 	GitURLConversion GitURLConversionConfig `mapstructure:"git_url_conversion"`
 	Help            HelpConfig            `mapstructure:"help"`
 	ClaudeCode      ClaudeCodeConfig      `mapstructure:"claude_code"` // Claude Code adapter 配置
+	CodeAgent       CodeAgentConfig       `mapstructure:"code_agent"`  // CodeAgent (nga) 配置
 }
 
 type DeploymentType string
@@ -447,6 +448,16 @@ type HelpConfig struct {
 // ClaudeCodeConfig Claude Code adapter 配置
 type ClaudeCodeConfig struct {
 	UseACP bool `mapstructure:"use_acp"` // 是否使用 ACP 协议（需要安装 claude-agent-acp）
+}
+
+// CodeAgentConfig CodeAgent (nga) 配置
+// 启动命令为 nga，是公司内部基于 OpenCode 定制的 CLI。
+// 由于安装包只在公司内网分发，安装器不自动下载，仅提供下载页面链接。
+type CodeAgentConfig struct {
+	// DownloadURL 下载页面 URL（公司内网地址）。
+	// 检测页面在 CodeAgent 未安装时显示"前往下载"按钮跳转到此 URL。
+	// 留空：UI 只显示状态，不提供跳转按钮。
+	DownloadURL string `mapstructure:"download_url"`
 }
 
 const (
