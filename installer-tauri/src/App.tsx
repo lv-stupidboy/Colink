@@ -51,7 +51,7 @@ function App() {
   const [installedVersion, setInstalledVersion] = useState<InstalledVersion | null>(null);
   const [installType, setInstallType] = useState<InstallType>('fresh');
   const [config, setConfig] = useState<InstallConfig>({
-    installDir: 'C:\\Program Files\\Colink',
+    installDir: 'D:\\Colink',
     createShortcut: true,
     launchNow: true,
     keepData: true,
