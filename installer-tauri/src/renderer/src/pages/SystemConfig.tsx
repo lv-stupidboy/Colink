@@ -7,6 +7,29 @@ import { installApi } from '../../../lib/api';
 const { Text } = Typography;
 const { TextArea } = Input;
 
+/** 在已有 YAML 文本上把 server: 块下的 port: 替换为新值，保留其它行。
+ *  仅做"定位 server: 顶层键 → 改其下首个 port:"的轻量文本替换，避免引入 YAML 库。 */
+function patchServerPort(yaml: string, port: number): string {
+  const lines = yaml.split('\n');
+  let inServer = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    // 顶层键（无缩进，以 : 结尾）切换 section
+    const isTopLevelKey = /^[A-Za-z_][\w-]*:\s*(#.*)?$/.test(line);
+    if (isTopLevelKey) {
+      inServer = trimmed.startsWith('server:');
+      continue;
+    }
+    if (inServer && /^\s+port:\s*/.test(line)) {
+      const indent = line.match(/^\s*/)?.[0] ?? '  ';
+      lines[i] = `${indent}port: ${port}`;
+      break;
+    }
+  }
+  return lines.join('\n');
+}
+
 interface InstallConfig {
   installDir: string;
   createShortcut: boolean;
@@ -43,6 +66,8 @@ const SystemConfig: React.FC<SystemConfigProps> = ({
   const [editingYaml, setEditingYaml] = useState(false);
   const [yamlError, setYamlError] = useState<string | null>(null);
   const [configMerged, setConfigMerged] = useState(false);
+  // 用户手动编辑并保存过 YAML 后置为 true，避免被 useEffect 用模板重新生成的内容覆盖
+  const [userEditedYaml, setUserEditedYaml] = useState(false);
 
   // 升级模式或安装目录已有配置时读取已有配置
   useEffect(() => {
@@ -87,6 +112,18 @@ const SystemConfig: React.FC<SystemConfigProps> = ({
   useEffect(() => {
     if (editingYaml) return;
 
+    // 用户已手动编辑过：不再用模板覆盖，只对 server.port 做定点替换，保留其它自定义内容
+    if (userEditedYaml) {
+      if (!mergedConfigYaml) return;
+      const targetPort = config.serverPort || 26305;
+      const patched = patchServerPort(mergedConfigYaml, targetPort);
+      if (patched !== mergedConfigYaml) {
+        setMergedConfigYaml(patched);
+        onConfigUpdate({ configYaml: patched });
+      }
+      return;
+    }
+
     const generatePreview = async () => {
       try {
         const result = await installApi.generateConfigPreview({
@@ -125,6 +162,7 @@ const SystemConfig: React.FC<SystemConfigProps> = ({
       }
       setEditingYaml(false);
       setYamlError(null);
+      setUserEditedYaml(true);
       onConfigUpdate({ configYaml: mergedConfigYaml });
       message.success('配置已更新');
     } catch (e) {
@@ -192,7 +230,9 @@ const SystemConfig: React.FC<SystemConfigProps> = ({
           <Text type="secondary">
             {isUpgrade && configMerged
               ? '升级时将自动合并您的配置与新模板（您的值优先）'
-              : '以下是将生成的完整配置文件内容'
+              : userEditedYaml
+                ? '已使用自定义内容，仅服务端口会随上方表单同步'
+                : '以下是将生成的完整配置文件内容'
             }
           </Text>
           <div style={{ display: 'flex', gap: 8 }}>

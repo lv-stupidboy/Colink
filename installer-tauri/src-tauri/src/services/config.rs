@@ -2,6 +2,26 @@ use crate::error::{InstallerError, Result};
 use crate::services::file_ops::atomic_write;
 use std::path::Path;
 
+/// 查找一行中 YAML 行内注释的起始位置。
+/// 规则：# 必须前置空白字符（或位于行首），并且不在引号内才视为注释分隔符。
+/// 返回 None 表示整行都是有效内容（如 URL fragment 或引号内的 # 都不算注释）。
+fn find_inline_comment(line: &str) -> Option<usize> {
+    let bytes = line.as_bytes();
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut prev_is_space = true; // 行首视为前置空白
+    for (i, &b) in bytes.iter().enumerate() {
+        match b {
+            b'\'' if !in_double => in_single = !in_single,
+            b'"' if !in_single => in_double = !in_double,
+            b'#' if !in_single && !in_double && prev_is_space => return Some(i),
+            _ => {}
+        }
+        prev_is_space = b == b' ' || b == b'\t';
+    }
+    None
+}
+
 /// Generate config preview for production deployment
 /// Removes web section and all comments for clean release config
 pub fn generate_config_preview(
@@ -92,8 +112,9 @@ pub fn generate_config_preview(
         } else if !trimmed.is_empty() {
             // Keep other non-empty, non-comment lines (remove inline comments if any)
             // For lines with inline comments like "key: value # comment", keep only "key: value"
-            if let Some(comment_pos) = line.find('#') {
-                // Has inline comment - strip it
+            // YAML 规则：# 只有在前面是空白字符且不在引号内时才是注释分隔符；
+            // URL fragment（http://x/page#frag）或引号内的 # 都应保留。
+            if let Some(comment_pos) = find_inline_comment(line) {
                 let without_comment = &line[..comment_pos].trim_end();
                 new_lines.push(without_comment.to_string());
             } else {
