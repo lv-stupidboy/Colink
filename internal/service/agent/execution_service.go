@@ -827,39 +827,10 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 	}
 	es.mu.Unlock()
 
-	// 如果使用 resume 策略，从数据库继承上一个 invocation 的已回答 question blocks
-	if req.SessionStrategy == SessionStrategyResume {
-		// 查询上一个 invocation 的 agent 消息
-		prevMessages, err := es.msgRepo.FindByThreadID(ctx, req.ThreadID, 10)
-		if err == nil && len(prevMessages) > 0 {
-			// 找到上一个 agent 消息（包含已回答的 question blocks）
-			for i := len(prevMessages) - 1; i >= 0; i-- {
-				msg := prevMessages[i]
-				if msg.Role == model.MessageRoleAgent && len(msg.ContentBlocks) > 0 {
-					var prevBlocks []ContentBlockData
-					if json.Unmarshal(msg.ContentBlocks, &prevBlocks) == nil {
-						// 合并已回答的 question blocks（status=success）
-						for _, pb := range prevBlocks {
-							if pb.Type == "question" && pb.Status == "success" {
-								// 检查是否已在当前 contentBlocks 中（避免重复）
-								found := false
-								for _, cb := range contentBlocks {
-									if cb.ID == pb.ID {
-										found = true
-										break
-									}
-								}
-								if !found {
-									contentBlocks = append(contentBlocks, pb)
-								}
-							}
-						}
-					}
-					break // 只继承最近一条 agent 消息
-				}
-			}
-		}
-	}
+	// 注：以前这里有"从上一条 agent message 继承已回答的 question blocks"的逻辑，
+	// 目的是想让 question 卡片在刷新页面后仍能展示。但这会导致每条新 assistant
+	// message 都"挂"着同一个 question block，前端就在后续每个对话末尾都看到一次。
+	// 现在删掉——前端会从原始消息（首次出现 question 的那条）自然渲染，历史里只渲染一次。
 
 	// 保存输出消息到数据库（包含内容块）
 	msg := es.saveAgentMessageWithReturn(ctx, req.ThreadID, invocation.ID, config, baseAgent, output, contentBlocks)
@@ -3168,7 +3139,7 @@ func (es *ExecutionService) broadcastChunk(threadID, invocationID uuid.UUID, chu
 broadcast:
 
 	if es.wsHub != nil {
-		// 处理 Usage 类型的 Chunk
+		// 处理 Usage 类型的 Chunk - 注：前端已移除 Token 统计展示，不再推送 usage_update WebSocket 事件
 		if chunk.Type == ChunkTypeUsage && chunk.Usage != nil {
 			logInfo("broadcastChunk: usage chunk received",
 				zap.String("threadId", threadID.String()),
@@ -3178,26 +3149,27 @@ broadcast:
 				zap.Int64("contextUsed", chunk.Usage.ContextUsed),
 				zap.Int64("contextSize", chunk.Usage.ContextSize),
 				zap.Float64("costUsd", chunk.Usage.CostUsd))
-			es.wsHub.BroadcastToThread(threadID.String(), ws.WSMessage{
-				Type:      "usage_update",
-				ThreadID:  threadID.String(),
-				Timestamp: time.Now().UnixMilli(),
-				Payload: map[string]interface{}{
-					"invocationId": invocationID.String(),
-					"usage": map[string]interface{}{
-						"inputTokens":         chunk.Usage.InputTokens,
-						"outputTokens":        chunk.Usage.OutputTokens,
-						"cacheReadTokens":     chunk.Usage.CacheReadTokens,
-						"cacheCreationTokens": chunk.Usage.CacheCreationTokens,
-						"costUsd":             chunk.Usage.CostUsd,
-						"durationMs":          chunk.Usage.DurationMs,
-						"durationApiMs":       chunk.Usage.DurationApiMs,
-						"numTurns":            chunk.Usage.NumTurns,
-						"contextUsed":         chunk.Usage.ContextUsed,
-						"contextSize":         chunk.Usage.ContextSize,
-					},
-				},
-			})
+			// 注：不再广播 usage_update WebSocket 事件，前端已移除 TOKEN 统计显示
+			// es.wsHub.BroadcastToThread(threadID.String(), ws.WSMessage{
+			// 	Type:      "usage_update",
+			// 	ThreadID:  threadID.String(),
+			// 	Timestamp: time.Now().UnixMilli(),
+			// 	Payload: map[string]interface{}{
+			// 		"invocationId": invocationID.String(),
+			// 		"usage": map[string]interface{}{
+			// 			"inputTokens":         chunk.Usage.InputTokens,
+			// 			"outputTokens":        chunk.Usage.OutputTokens,
+			// 			"cacheReadTokens":     chunk.Usage.CacheReadTokens,
+			// 			"cacheCreationTokens": chunk.Usage.CacheCreationTokens,
+			// 			"costUsd":             chunk.Usage.CostUsd,
+			// 			"durationMs":          chunk.Usage.DurationMs,
+			// 			"durationApiMs":       chunk.Usage.DurationApiMs,
+			// 			"numTurns":            chunk.Usage.NumTurns,
+			// 			"contextUsed":         chunk.Usage.ContextUsed,
+			// 			"contextSize":         chunk.Usage.ContextSize,
+			// 		},
+			// 	},
+			// })
 			// 通知外部 chunk 监听器（包括 usage chunks）
 			es.NotifyChunkListeners(threadID, invocationID, chunk, agentID, agentName)
 			return
