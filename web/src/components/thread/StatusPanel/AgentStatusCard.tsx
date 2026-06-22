@@ -1,13 +1,11 @@
 import React from 'react';
 import { RobotOutlined, StopOutlined } from '@ant-design/icons';
 import type { AgentInvocation } from '@/types';
-import type { TokenUsage } from '@/types/status';
 import { DurationDisplay } from './DurationDisplay';
 import { useAppStore } from '@/store';
 
 interface Props {
   activeAgents: AgentInvocation[];
-  agentUsage: Record<string, TokenUsage>;
 }
 
 const statusLabels: Record<string, string> = {
@@ -20,13 +18,7 @@ const statusLabels: Record<string, string> = {
   interrupted: '完成', // AskUserQuestion 等待用户输入，显示为完成
 };
 
-const formatTokens = (n: number): string => {
-  if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
-  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
-  return String(n);
-};
-
-export const AgentStatusCard: React.FC<Props> = ({ activeAgents, agentUsage }) => {
+export const AgentStatusCard: React.FC<Props> = ({ activeAgents }) => {
   const { cancelAgent } = useAppStore();
 
   const handleCancel = async (agentId: string) => {
@@ -71,12 +63,6 @@ export const AgentStatusCard: React.FC<Props> = ({ activeAgents, agentUsage }) =
                   completedAt={agent.completedAt}
                   isRunning={agent.status === 'running' || agent.status === 'streaming'}
                 />
-                {agentUsage[agent.id] && (
-                  <div className="agent-usage">
-                    <span>{formatTokens(agentUsage[agent.id].inputTokens || 0)}↓</span>
-                    <span>{formatTokens(agentUsage[agent.id].outputTokens || 0)}↑</span>
-                  </div>
-                )}
               </div>
             </div>
           ))}

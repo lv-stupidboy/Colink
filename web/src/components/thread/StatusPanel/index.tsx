@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { useAppStore } from '@/store';
 import { AgentStatusCard } from './AgentStatusCard';
-import { TokenUsage } from './TokenUsage';
 import { AgentInvocationLogPanel } from './AgentInvocationLogPanel';
 import { TaskProgressPanel } from './TaskProgressPanel';
 import { MemoryEntriesPanel } from './MemoryEntriesPanel';
@@ -18,7 +17,6 @@ interface StatusPanelProps {
 export const StatusPanel: React.FC<StatusPanelProps> = ({ width = 320, threadId, projectPath, memoryRefreshKey = 0 }) => {
   const {
     activeAgents,
-    agentUsage,
     completedAgents,
     agentTaskProgress,
     currentProject,
@@ -34,17 +32,6 @@ export const StatusPanel: React.FC<StatusPanelProps> = ({ width = 320, threadId,
     completed: completedAgents.filter(a => a.status === 'completed').length,
     failed: completedAgents.filter(a => a.status === 'failed').length,
   };
-
-  // 计算 Token 总计
-  const totalUsage = Object.values(agentUsage).reduce(
-    (acc, u) => ({
-      input: acc.input + (u.inputTokens || 0),
-      output: acc.output + (u.outputTokens || 0),
-      cache: acc.cache + (u.cacheReadTokens || 0),
-      cost: acc.cost + (u.costUsd || 0),
-    }),
-    { input: 0, output: 0, cache: 0, cost: 0 }
-  );
 
   const copyThreadId = () => {
     if (threadId) {
@@ -90,7 +77,7 @@ export const StatusPanel: React.FC<StatusPanelProps> = ({ width = 320, threadId,
       </div>
 
       {/* Agent 状态 */}
-      <AgentStatusCard activeAgents={activeAgents} agentUsage={agentUsage} />
+      <AgentStatusCard activeAgents={activeAgents} />
 
       {/* Agent 调用日志（合并历史参与） */}
       <AgentInvocationLogPanel />
@@ -111,9 +98,6 @@ export const StatusPanel: React.FC<StatusPanelProps> = ({ width = 320, threadId,
       {Object.keys(agentTaskProgress).length > 0 && (
         <TaskProgressPanel progress={agentTaskProgress} />
       )}
-
-      {/* Token 统计 - 默认收起 */}
-      <TokenUsage usage={agentUsage} totalUsage={totalUsage} defaultCollapsed />
     </aside>
   );
 };

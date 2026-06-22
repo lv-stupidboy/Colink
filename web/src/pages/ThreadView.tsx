@@ -120,7 +120,6 @@ const ThreadView: React.FC = () => {
   const setSandboxServer = useAppStore((s) => s.setSandboxServer);
   const setSandboxLoading = useAppStore((s) => s.setSandboxLoading);
   const setDockerAvailable = useAppStore((s) => s.setDockerAvailable);
-  const updateAgentUsage = useAppStore((s) => s.updateAgentUsage);
   const updateInvocationFullPrompt = useAppStore((s) => s.updateInvocationFullPrompt);
   const appendContentBlock = useAppStore((s) => s.appendContentBlock);
   const updateContentBlock = useAppStore((s) => s.updateContentBlock);
@@ -923,26 +922,6 @@ const ThreadView: React.FC = () => {
               console.log('[blockingCheck] Skipped: activeAgents > 0 or reminder disabled');
             }
           }, 2000);
-        }
-        break;
-      }
-      case 'usage_update': {
-        // Token 使用更新
-        const invocId = data.payload.invocationId as string;
-        const usage = data.payload.usage as {
-          inputTokens?: number;
-          outputTokens?: number;
-          cacheReadTokens?: number;
-          cacheCreationTokens?: number;
-          costUsd?: number;
-          durationMs?: number;
-          durationApiMs?: number;
-          numTurns?: number;
-          contextUsed?: number;   // ACP: session context 已使用量
-          contextSize?: number;   // ACP: session context 总容量
-        };
-        if (invocId && usage) {
-          updateAgentUsage(invocId, usage);
         }
         break;
       }
