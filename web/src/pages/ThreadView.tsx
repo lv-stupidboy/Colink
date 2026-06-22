@@ -73,6 +73,9 @@ const ThreadView: React.FC = () => {
   const wsRef = useRef<WebSocket | null>(null);
   const threadIdRef = useRef<string | null>(null);
   const wsConnectedRef = useRef(false);
+  const wsReconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wsReconnectAttemptsRef = useRef(0);
+  const wsManualCloseRef = useRef(false);
 
   // 判断是否为调试模式
   const isDebugMode = Boolean(agentId);
@@ -255,6 +258,12 @@ const ThreadView: React.FC = () => {
       oldWs.close();
       wsRef.current = null;
     }
+    if (wsReconnectTimerRef.current) {
+      clearTimeout(wsReconnectTimerRef.current);
+      wsReconnectTimerRef.current = null;
+    }
+    wsManualCloseRef.current = false;
+    threadIdRef.current = id;
 
     const wsUrl = `ws://${window.location.host}/api/v1/ws?threadId=${id}`;
     console.log('[WebSocket-Debug] Connecting to:', wsUrl);
@@ -265,6 +274,7 @@ const ThreadView: React.FC = () => {
       if (wsRef.current === ws) {
         console.log('[WebSocket-Debug] Connected successfully');
         wsConnectedRef.current = true;
+        wsReconnectAttemptsRef.current = 0;
         setDebugWsConnected(true);
       }
     };
@@ -274,6 +284,10 @@ const ThreadView: React.FC = () => {
         console.log('[WebSocket-Debug] Disconnected, code:', event.code, 'reason:', event.reason);
         wsConnectedRef.current = false;
         setDebugWsConnected(false);
+        // 非主动关闭则自动重连，避免 Agent 运行中长期显示"未连接"
+        if (!wsManualCloseRef.current) {
+          scheduleDebugReconnect(id);
+        }
       }
     };
 
@@ -289,6 +303,23 @@ const ThreadView: React.FC = () => {
     ws.onerror = (error) => {
       console.error('[WebSocket-Debug] Error:', error);
     };
+  };
+
+  // 调试模式重连调度（指数退避，封顶 10s）
+  const scheduleDebugReconnect = (id: string) => {
+    if (wsReconnectTimerRef.current) {
+      clearTimeout(wsReconnectTimerRef.current);
+    }
+    const attempt = wsReconnectAttemptsRef.current;
+    const delay = Math.min(1000 * Math.pow(2, attempt), 10000);
+    wsReconnectAttemptsRef.current = attempt + 1;
+    console.log(`[WebSocket-Debug] Reconnecting in ${delay}ms (attempt ${attempt + 1})`);
+    wsReconnectTimerRef.current = setTimeout(() => {
+      wsReconnectTimerRef.current = null;
+      if (!wsManualCloseRef.current && threadIdRef.current === id) {
+        connectDebugWebSocket(id);
+      }
+    }, delay);
   };
 
   // 调试模式的 WebSocket 消息处理
@@ -400,6 +431,11 @@ const ThreadView: React.FC = () => {
 
     return () => {
       // 清理：关闭 WebSocket 连接
+      wsManualCloseRef.current = true;
+      if (wsReconnectTimerRef.current) {
+        clearTimeout(wsReconnectTimerRef.current);
+        wsReconnectTimerRef.current = null;
+      }
       if (wsRef.current) {
         wsRef.current.onopen = null;
         wsRef.current.onclose = null;
@@ -452,7 +488,13 @@ const ThreadView: React.FC = () => {
         clearDebugAll();
         setDebugMode(true, agentId);
         // 重置 WebSocket 状态
+        wsManualCloseRef.current = true;
+        if (wsReconnectTimerRef.current) {
+          clearTimeout(wsReconnectTimerRef.current);
+          wsReconnectTimerRef.current = null;
+        }
         if (wsRef.current) {
+          wsRef.current.onclose = null;
           wsRef.current.close();
           wsRef.current = null;
         }
@@ -480,7 +522,13 @@ const ThreadView: React.FC = () => {
 
     return () => {
       // 组件卸载时清理 WebSocket
+      wsManualCloseRef.current = true;
+      if (wsReconnectTimerRef.current) {
+        clearTimeout(wsReconnectTimerRef.current);
+        wsReconnectTimerRef.current = null;
+      }
       if (wsRef.current) {
+        wsRef.current.onclose = null;
         wsRef.current.close();
         wsRef.current = null;
       }
@@ -562,6 +610,12 @@ const ThreadView: React.FC = () => {
       oldWs.close();
       wsRef.current = null;
     }
+    if (wsReconnectTimerRef.current) {
+      clearTimeout(wsReconnectTimerRef.current);
+      wsReconnectTimerRef.current = null;
+    }
+    wsManualCloseRef.current = false;
+    threadIdRef.current = id;
 
     const wsUrl = `ws://${window.location.host}/api/v1/ws?threadId=${id}`;
     console.log('[WebSocket-Team] Connecting to:', wsUrl);
@@ -572,6 +626,7 @@ const ThreadView: React.FC = () => {
       if (wsRef.current === ws) {
         console.log('[WebSocket-Team] Connected successfully');
         wsConnectedRef.current = true;
+        wsReconnectAttemptsRef.current = 0;
         setWsConnected(true);
       }
     };
@@ -581,6 +636,10 @@ const ThreadView: React.FC = () => {
         console.log('[WebSocket-Team] Disconnected, code:', event.code, 'reason:', event.reason);
         wsConnectedRef.current = false;
         setWsConnected(false);
+        // 非主动关闭则自动重连，避免 Agent 运行中长期显示"未连接"
+        if (!wsManualCloseRef.current) {
+          scheduleTeamReconnect(id);
+        }
       }
     };
 
@@ -596,6 +655,23 @@ const ThreadView: React.FC = () => {
     ws.onerror = (error) => {
       console.error('[WebSocket-Team] Error:', error);
     };
+  };
+
+  // 团队模式重连调度（指数退避，封顶 10s）
+  const scheduleTeamReconnect = (id: string) => {
+    if (wsReconnectTimerRef.current) {
+      clearTimeout(wsReconnectTimerRef.current);
+    }
+    const attempt = wsReconnectAttemptsRef.current;
+    const delay = Math.min(1000 * Math.pow(2, attempt), 10000);
+    wsReconnectAttemptsRef.current = attempt + 1;
+    console.log(`[WebSocket-Team] Reconnecting in ${delay}ms (attempt ${attempt + 1})`);
+    wsReconnectTimerRef.current = setTimeout(() => {
+      wsReconnectTimerRef.current = null;
+      if (!wsManualCloseRef.current && threadIdRef.current === id) {
+        connectWebSocket(id);
+      }
+    }, delay);
   };
 
   const handleWsMessage = (data: { type: string; threadId?: string; payload: Record<string, unknown> }) => {
@@ -1110,7 +1186,13 @@ const ThreadView: React.FC = () => {
       } else {
         // 新会话：创建 thread -> 连接 WebSocket -> 调用 debug
         // 先关闭旧连接
+        wsManualCloseRef.current = true;
+        if (wsReconnectTimerRef.current) {
+          clearTimeout(wsReconnectTimerRef.current);
+          wsReconnectTimerRef.current = null;
+        }
         if (wsRef.current) {
+          wsRef.current.onclose = null;
           wsRef.current.close();
           wsRef.current = null;
         }
