@@ -49,8 +49,7 @@ Write-Host "`n[0/7] Checking dependencies..." -ForegroundColor Yellow
 $WebNodeModules = Join-Path $ProjectRoot "web/node_modules"
 if (-not (Test-Path $WebNodeModules)) {
     Write-Host "Installing web dependencies..." -ForegroundColor Cyan
-    Set-Location "$ProjectRoot/web"
-    & npm install
+    & npm --prefix "$ProjectRoot/web" install
     if (-not $?) {
         Write-Host "Web dependencies install failed" -ForegroundColor Red
         exit 1
@@ -64,8 +63,7 @@ if (-not (Test-Path $WebNodeModules)) {
 $InstallerNodeModules = Join-Path $InstallerDir "node_modules"
 if (-not (Test-Path $InstallerNodeModules)) {
     Write-Host "Installing installer-tauri dependencies..." -ForegroundColor Cyan
-    Set-Location $InstallerDir
-    & pnpm install
+    & pnpm "-C=$InstallerDir" install
     if (-not $?) {
         Write-Host "Installer dependencies install failed" -ForegroundColor Red
         exit 1
@@ -77,10 +75,9 @@ if (-not (Test-Path $InstallerNodeModules)) {
 
 # Step 1: Build ISDP backend (server + migrate)
 Write-Host "`n[1/7] Building ISDP backend..." -ForegroundColor Yellow
-Set-Location $ProjectRoot
 
-# Build server
-& go build -ldflags "-X main.Version=v$VERSION-$BUILD_TIME" -o bin/colink-server.exe ./cmd/server
+# Build server (go -C executes in target dir; -o is resolved relative to that dir)
+& go -C $ProjectRoot build -ldflags "-X main.Version=v$VERSION-$BUILD_TIME" -o bin/colink-server.exe ./cmd/server
 if (-not $?) {
     Write-Host "Server build failed" -ForegroundColor Red
     exit 1
@@ -88,7 +85,7 @@ if (-not $?) {
 Write-Host "Server built: bin/colink-server.exe" -ForegroundColor Green
 
 # Build migrate
-& go build -o bin/migrate.exe ./cmd/migrate
+& go -C $ProjectRoot build -o bin/migrate.exe ./cmd/migrate
 if (-not $?) {
     Write-Host "Migrate build failed" -ForegroundColor Red
     exit 1
@@ -97,8 +94,7 @@ Write-Host "Migrate built: bin/migrate.exe" -ForegroundColor Green
 
 # Step 2: Build ISDP frontend
 Write-Host "`n[2/7] Building ISDP frontend..." -ForegroundColor Yellow
-Set-Location "$ProjectRoot/web"
-& npm run build
+& npm --prefix "$ProjectRoot/web" run build
 if (-not $?) {
     Write-Host "ISDP frontend build failed" -ForegroundColor Red
     exit 1
@@ -107,9 +103,8 @@ Write-Host "ISDP frontend built: web/dist/" -ForegroundColor Green
 
 # Step 3: Sync resources to staging
 Write-Host "`n[3/7] Syncing resources to staging..." -ForegroundColor Yellow
-Set-Location $ProjectRoot
 $StagingResources = Join-Path $SrcTauriDir "target/release/staging/resources"
-& node scripts/sync-resources.js $StagingResources
+& node (Join-Path $ProjectRoot "scripts/sync-resources.js") $StagingResources
 Write-Host "Resources synced to staging" -ForegroundColor Green
 
 # Step 4: Copy VERSION file
@@ -119,8 +114,7 @@ Write-Host "VERSION copied" -ForegroundColor Green
 
 # Step 5: Build installer-tauri frontend renderer
 Write-Host "`n[5/7] Building installer frontend..." -ForegroundColor Yellow
-Set-Location $InstallerDir
-& pnpm build:renderer
+& pnpm "-C=$InstallerDir" build:renderer
 if (-not $?) {
     Write-Host "Installer frontend build failed" -ForegroundColor Red
     exit 1
@@ -129,7 +123,6 @@ Write-Host "Installer frontend built" -ForegroundColor Green
 
 # Step 5.5: Generate icons from source image
 Write-Host "`n[5.5/7] Generating icons..." -ForegroundColor Yellow
-Set-Location $InstallerDir
 $IconSource = Join-Path $SrcTauriDir "icons/icon.png"
 $IconsDir = Join-Path $SrcTauriDir "icons"
 $IconsCacheDir = Join-Path $SrcTauriDir "target/release/icons-cache"
@@ -155,7 +148,7 @@ if (Test-Path $IconSource) {
     # tauri icon outputs progress to stderr, temporarily disable error stop
     $PrevErrorAction = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
-    $output = & pnpm tauri icon $IconSource 2>&1 | Out-Null
+    $output = & pnpm "-C=$InstallerDir" exec tauri icon $IconSource 2>&1 | Out-Null
     $ErrorActionPreference = $PrevErrorAction
     if ($LASTEXITCODE -eq 0) {
         Write-Host "Icons generated" -ForegroundColor Green
@@ -168,10 +161,9 @@ if (Test-Path $IconSource) {
 
 # Step 6: Build exe (both Setup and Launcher use same binary)
 Write-Host "`n[6/7] Building exe..." -ForegroundColor Yellow
-Set-Location $SrcTauriDir
 
 # Build release exe
-& cargo build --release
+& cargo build --manifest-path (Join-Path $SrcTauriDir "Cargo.toml") --release
 if (-not $?) {
     Write-Host "Build failed" -ForegroundColor Red
     exit 1
@@ -312,8 +304,3 @@ if (Test-Path $IconsDir) {
     }
     Write-Host "Icons cleaned (moved to target/release/icons-cache)" -ForegroundColor Green
 }
-
-# Return to scripts directory
-$ScriptsDir = if ($PSScriptRoot) { $PSScriptRoot } else { Join-Path $ProjectRoot "scripts" }
-Set-Location $ScriptsDir
-Write-Host "Returned to: $ScriptsDir" -ForegroundColor Green
