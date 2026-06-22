@@ -2423,14 +2423,15 @@ func (a *BaseACPAdapter) ExecuteWithResume(ctx context.Context, req *agent.Execu
 			return nil, "", fmt.Errorf("ACP: gateway authenticate failed: %w\nstderr: %s", err, stderrContent)
 		}
 
-		// SessionResume - 使用 session/resume（不回放历史）
-		// session/resume 不回放历史消息，只继承上下文
-		// session/load 会回放完整历史消息给客户端
-		// 构建 MCP Servers 配置
+		// 统一走 session/load：session/resume 在 OpenCode 1.17.x 上会因为新版严格的
+		// 内存态 session 校验返回 "session not found"，而 session/load 从磁盘加载持久化
+		// session 并完整回放历史。两个版本（1.3.3 / 1.17.x）行为一致，且 replayPhase=true
+		// 期间的历史 chunk 在 handleNotification 中被早返回过滤，不污染本轮 output 也
+		// 不广播到前端——回放只用于让模型 KV 缓存恢复上下文。
 		mcpServers := a.buildMCPServers(req)
 		mcpServersJSON, _ := json.Marshal(mcpServers)
-		LogInfo("ACP: session/resume mcpServers", zap.Int("protocolVersion", initResp.ProtocolVersion), zap.String("mcpServers", string(mcpServersJSON)))
-		resumeResult, err := transport.SendRequest("session/resume", &acpSessionResumeParams{
+		LogInfo("ACP: session/load mcpServers", zap.Int("protocolVersion", initResp.ProtocolVersion), zap.String("mcpServers", string(mcpServersJSON)))
+		loadResult, err := transport.SendRequest("session/load", &acpSessionLoadParams{
 			SessionID:  acpSessionID,
 			CWD:        req.WorkDir,
 			MCPServers: mcpServers,
@@ -2445,67 +2446,39 @@ func (a *BaseACPAdapter) ExecuteWithResume(ctx context.Context, req *agent.Execu
 			a.mu.Lock()
 			delete(a.sessions, isdpIDStr)
 			a.mu.Unlock()
-			return nil, "", fmt.Errorf("ACP: session/resume failed: %w\nstderr: %s", err, stderrContent)
+			return nil, "", fmt.Errorf("ACP: session/load failed: %w\nstderr: %s", err, stderrContent)
 		}
 
-		var resumeResp acpSessionResumeResult // response structure is same
-		if err := json.Unmarshal(resumeResult, &resumeResp); err != nil {
-			LogWarn("ACP: session/resume response parse warning", zap.Error(err))
+		var loadResp acpSessionResumeResult // response structure is same
+		if err := json.Unmarshal(loadResult, &loadResp); err != nil {
+			LogWarn("ACP: session/load response parse warning", zap.Error(err))
 		}
 
-		LogInfo("ACP: ExecuteWithResume session/resume completed",
+		LogInfo("ACP: ExecuteWithResume session/load completed",
 			zap.String("internalSessionId", internalSessionID),
 			zap.String("acpSessionId", acpSessionID),
-			zap.String("cwd", req.WorkDir))
+			zap.String("cwd", req.WorkDir),
+			zap.Bool("hasConfigOptions", len(loadResp.ConfigOptions) > 0))
 
 		acpSessID = acpSessionID
 
-		// 高低版本兼容：OpenCode 1.3.3 的 session/resume 不加载对话历史
-		// （ACPSession 源码 line 779-808: 无 sdk.session.messages() 调用），
-		// 导致 session/prompt 时模型没有上下文、output=0。
-		// 而 1.3.3 的 session/load（line 604-667）会完整拉取历史上并重放——
-		// 包括从 history 恢复 model / agent 配置。
-		//
-		// 检测方式：生产版 resumeResp 含 ConfigOptions；1.3.3 不含。
-		// - 有 ConfigOptions（生产版）→ 正常 session/resume + configureSession
-		// - 无 ConfigOptions（1.3.3）  → 改用 session/load（带历史重放），
-		//   replayPhase=true 期间的历史 chunk 被过滤不广播到前端
-		if len(resumeResp.ConfigOptions) > 0 {
-			// 生产版：标准 configureSession 路径
+		// 把 session.id 同步成真正的 ACP sessionId，后续 configureSession / session/prompt
+		// 等所有 RPC 才能用正确的 sessionId（否则 CLI 会报 "session not found"）。
+		// 与 ExecuteWithStream 在 session/new 后覆盖 session.id 的行为对齐。
+		session.mu.Lock()
+		session.id = acpSessionID
+		session.mu.Unlock()
+
+		// session/load 在 1.3.3 通过历史回放恢复 model/agent，不需要 configureSession。
+		// 1.17.x 若返回 ConfigOptions 则补一次 configureSession（与 set_config_option 对齐）。
+		if len(loadResp.ConfigOptions) > 0 {
 			newSessionResp := &acpNewSessionResult{
-				SessionID:     resumeResp.SessionID,
-				ConfigOptions: resumeResp.ConfigOptions,
+				SessionID:     loadResp.SessionID,
+				ConfigOptions: loadResp.ConfigOptions,
 			}
 			if err := a.configureSession(transport, session, newSessionResp, req); err != nil {
-				LogWarn("ACP: session configure after resume failed", zap.Error(err))
+				LogWarn("ACP: session configure after load failed", zap.Error(err))
 			}
-		} else {
-			// 1.3.3 兼容：用 session/load 替代 session/resume
-			// session/load 会通过 processMessage 把全部历史消息作为
-			// session/update 通知重放；replayPhase=true 期间这些 chunk
-			// 会被 handleNotification 吞掉，模型内部拿到上下文但前端不重复展示。
-			LogInfo("ACP: no ConfigOptions in resume response, retrying with session/load for 1.3.3 compatibility",
-				zap.String("acpSessionId", acpSessionID))
-			loadResult, loadErr := transport.SendRequest("session/load", &acpSessionLoadParams{
-				SessionID:  acpSessionID,
-				CWD:        req.WorkDir,
-				MCPServers: mcpServers,
-			})
-			if loadErr != nil {
-				a.cleanup(session)
-				wg.Wait()
-				a.mu.Lock()
-				delete(a.sessions, internalSessionID)
-				a.mu.Unlock()
-				return nil, "", fmt.Errorf("resource not found: session/load fallback for old CLI failed: %w", loadErr)
-			}
-			var loadResp acpSessionResumeResult // response structure is same
-			if err := json.Unmarshal(loadResult, &loadResp); err != nil {
-				LogWarn("ACP: session/load response parse warning", zap.Error(err))
-			}
-			LogInfo("ACP: session/load completed for 1.3.3 compatibility",
-				zap.String("acpSessionId", acpSessionID),
-				zap.Bool("hasConfigOptions", len(loadResp.ConfigOptions) > 0))
 		}
 
 		// 回放窗口结束：session/resume 同步响应已到，后续 session/update 都是真正的本轮输出
