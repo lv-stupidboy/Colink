@@ -7,6 +7,7 @@ import type { ProgressInfo } from './ChatMessage';
 
 interface StreamingMessageProps {
   agentConfigs: AgentConfig[];
+  agentTypes?: { type: string }[];
   projectPath?: string;
   toolEvents: Record<string, ToolEvent[]>;
   onStop?: (invocationId: string) => void;
@@ -22,6 +23,7 @@ interface StreamingMessageProps {
  */
 export const StreamingMessage: React.FC<StreamingMessageProps> = memo(({
   agentConfigs,
+  agentTypes,
   projectPath,
   toolEvents,
   onStop,
@@ -120,6 +122,7 @@ export const StreamingMessage: React.FC<StreamingMessageProps> = memo(({
         message={tempMessage}
         agentConfig={agentConfig}
         agentConfigs={agentConfigs}
+        agentTypes={agentTypes}
         projectPath={projectPath}
         isStreaming={true}
         progress={progress}

@@ -236,6 +236,7 @@ export const ChatMessageList = forwardRef<HTMLDivElement, ChatMessageListProps>(
       {/* 流式消息 - 隔离组件，高频更新不影响已完成消息 */}
       <StreamingMessage
         agentConfigs={agentConfigs}
+        agentTypes={agentTypes}
         projectPath={projectPath}
         toolEvents={toolEvents}
         onStop={onStopAgent}
