@@ -212,6 +212,10 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 				session.stderrOutput.WriteString("\n")
 			}
 			session.mu.Unlock()
+			// 推送用户可感知的 stderr（限流、重试等）到前端，做瞬时状态展示
+			if onChunk != nil && agent.ShouldNotifyStderr(line) {
+				onChunk(agent.Chunk{Type: agent.ChunkTypeError, Content: line})
+			}
 		}
 		if err := scanner.Err(); err != nil {
 			LogError("ACP: stderr scanner error", zap.Error(err))
@@ -2352,6 +2356,10 @@ func (a *BaseACPAdapter) ExecuteWithResume(ctx context.Context, req *agent.Execu
 					session.stderrOutput.WriteString("\n")
 				}
 				session.mu.Unlock()
+				// 推送用户可感知的 stderr（限流、重试等）到前端
+				if onChunk != nil && agent.ShouldNotifyStderr(line) {
+					onChunk(agent.Chunk{Type: agent.ChunkTypeError, Content: line})
+				}
 			}
 		}()
 

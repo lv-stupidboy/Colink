@@ -36,6 +36,10 @@ interface AppState {
   progressToolName: string | null;
   progressToolInput: Record<string, unknown> | null;
 
+  // 瞬时错误提示（CLI stderr 中识别到的限流/重试等，绑定到当前 streaming invocation）
+  // 收到下一个非 error chunk 时自动清除；invocation 失败时附加到失败提示中作为兜底
+  transientError: { invocationId: string; content: string; updatedAt: number } | null;
+
   // 运行中的Agent
   activeAgents: AgentInvocation[];
 
@@ -184,6 +188,10 @@ interface AppActions {
   // 清除进度状态
   clearProgress: (invocationId: string) => void;
 
+  // 瞬时错误提示
+  setTransientError: (invocationId: string, content: string) => void;
+  clearTransientError: () => void;
+
   // 调试模式 actions
   setDebugMode: (isDebug: boolean, agentId?: string) => void;
   setDebugAgentConfig: (config: AgentConfig | null) => void;
@@ -224,6 +232,8 @@ const initialState: AppState = {
   streamingAgentName: null,
   streamingInvocationId: null,
   streamingContentBlocks: [],
+  // 瞬时错误提示（CLI stderr 识别到的限流/重试等，收到下一个非 error chunk 时清除）
+  transientError: null,
   // 简化的进度状态
   progressStatus: 'idle',
   progressToolName: null,
@@ -291,6 +301,7 @@ export const useAppStore = create<AppState & AppActions>()(
         progressStatus: 'idle',
         progressToolName: null,
         progressToolInput: null,
+        transientError: null,
         currentThread: null,
         // 不清除 currentWorkflowTemplate，因为马上会设置新的
         // 不清除 currentProject，loadProjectContext 会加载新的
@@ -791,6 +802,7 @@ export const useAppStore = create<AppState & AppActions>()(
         progressStatus: 'idle',
         progressToolName: null,
         progressToolInput: null,
+        transientError: null,
         currentThread: null,
         activeAgents: [],
       });
@@ -1060,6 +1072,16 @@ export const useAppStore = create<AppState & AppActions>()(
         progressToolName: null,
         progressToolInput: null,
       });
+    },
+
+    setTransientError: (invocationId, content) => {
+      set({
+        transientError: { invocationId, content, updatedAt: Date.now() },
+      });
+    },
+
+    clearTransientError: () => {
+      set({ transientError: null });
     },
 
     replaceMessageId: (tempId, realId, realContentBlocks, agentName, agentRole, metadata) => {

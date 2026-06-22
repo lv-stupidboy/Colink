@@ -39,6 +39,8 @@ export const StreamingMessage: React.FC<StreamingMessageProps> = memo(({
   const progressStatus = useAppStore((s) => s.progressStatus);
   const progressToolName = useAppStore((s) => s.progressToolName);
   const progressToolInput = useAppStore((s) => s.progressToolInput);
+  // 瞬时错误提示（绑定到当前 invocation 才显示）
+  const transientError = useAppStore((s) => s.transientError);
 
   // 自动滚动 ref
   const containerRef = useRef<HTMLDivElement>(null);
@@ -125,6 +127,11 @@ export const StreamingMessage: React.FC<StreamingMessageProps> = memo(({
         onStop={onStop && streamingInvocationId ? () => onStop(streamingInvocationId) : undefined}
         onQuestionSubmit={onQuestionSubmit}
         onInteractiveAction={onInteractiveAction}
+        transientError={
+          transientError && streamingInvocationId && transientError.invocationId === streamingInvocationId
+            ? { content: transientError.content, updatedAt: transientError.updatedAt }
+            : null
+        }
       />
     </div>
   );

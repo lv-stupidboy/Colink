@@ -46,6 +46,7 @@ interface ChatMessageProps {
   onQuestionSubmit?: (blockId: string, answers: Record<number, string | string[]>, invocationId: string) => void;  // AskUserQuestion 答案提交
   onInteractiveAction?: (blockId: string, action: string, value?: string | string[]) => void;  // Rich block 交互动作
   onAgentClick?: (agentName: string) => void;  // 点击 Agent 头像/名称的回调
+  transientError?: { content: string; updatedAt: number } | null;  // 瞬时 CLI stderr 提示（限流/重试等）
 }
 
 /**
@@ -155,6 +156,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
   onQuestionSubmit,
   onInteractiveAction,
   onAgentClick,
+  transientError,
 }) => {
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
@@ -402,6 +404,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
             border: `1px solid var(--color-primary-border)`,
             padding: '12px 16px',
             wordBreak: 'break-word',
+            position: 'relative',
             ...(styleConfig.font ? { fontFamily: 'monospace' } : {}),
           }}
         >
@@ -441,6 +444,32 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
                 animation: 'pulse 1s infinite',
               }}
             />
+          )}
+          {/* 瞬时 CLI 错误提示（限流/重试等，绑定当前 streaming 消息） */}
+          {isStreaming && transientError && transientError.content && (
+            <div
+              style={{
+                position: 'absolute',
+                right: 8,
+                bottom: 6,
+                maxWidth: '70%',
+                padding: '4px 10px',
+                background: 'rgba(255, 247, 230, 0.95)',
+                color: '#d46b08',
+                border: '1px solid #ffd591',
+                borderRadius: 12,
+                fontSize: 12,
+                lineHeight: 1.4,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                boxShadow: '0 2px 6px rgba(0,0,0,0.06)',
+                pointerEvents: 'none',
+              }}
+              title={transientError.content}
+            >
+              ⚠ {transientError.content}
+            </div>
           )}
         </div>
 

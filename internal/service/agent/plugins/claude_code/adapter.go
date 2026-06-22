@@ -261,8 +261,13 @@ func (a *ClaudeCLIAdapter) ExecuteWithStream(ctx context.Context, req *agent.Exe
 		defer wg.Done()
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
-			stderrOutput.WriteString(scanner.Text())
+			line := scanner.Text()
+			stderrOutput.WriteString(line)
 			stderrOutput.WriteString("\n")
+			// 推送用户可感知的 stderr（限流、API error/retrying 等）到前端
+			if onChunk != nil && agent.ShouldNotifyStderr(line) {
+				onChunk(agent.Chunk{Type: agent.ChunkTypeError, Content: line})
+			}
 		}
 	}()
 

@@ -126,6 +126,8 @@ const ThreadView: React.FC = () => {
   const updateInvocationFullPrompt = useAppStore((s) => s.updateInvocationFullPrompt);
   const appendContentBlock = useAppStore((s) => s.appendContentBlock);
   const updateContentBlock = useAppStore((s) => s.updateContentBlock);
+  const setTransientError = useAppStore((s) => s.setTransientError);
+  const clearTransientError = useAppStore((s) => s.clearTransientError);
 
   // 阻塞提醒相关 - 使用 notification 自动显示
   const blockingItems = useAppStore((s) => s.blockingItems);
@@ -691,6 +693,17 @@ const ThreadView: React.FC = () => {
         const chunkType = data.payload.chunkType as string || 'text';
         const invocId = data.payload.invocationId as string;
 
+        // 瞬时错误提示：展示 CLI 的限流/重试等信息，遇到下一个非 error chunk 自动消失
+        if (chunkType === 'error') {
+          const errorContent = data.payload.chunk as string;
+          if (errorContent) {
+            setTransientError(invocId, errorContent);
+          }
+          break; // error chunk 不流向后续渲染
+        }
+        // 非 error chunk → 清除瞬时错误（限流/重试已结束）
+        clearTransientError();
+
         if (chunkType === 'thinking') {
           // 思考块 - Store 会智能累积
           const thinkingText = data.payload.chunk as string;
@@ -960,7 +973,20 @@ const ThreadView: React.FC = () => {
         const agentId = data.payload.agentId as string || '';
         const input = data.payload.input as string | undefined;
         // failed 状态时获取详细错误信息
-        const errorDetails = status === 'failed' ? (data.payload.errorDetails as string | undefined) : undefined;
+        let errorDetails = status === 'failed' ? (data.payload.errorDetails as string | undefined) : undefined;
+        // 失败兜底：把绑定到该 invocation 的最近一条 CLI stderr 提示也附加进去
+        if (status === 'failed') {
+          const te = useAppStore.getState().transientError;
+          if (te && te.invocationId === invocId && te.content) {
+            errorDetails = errorDetails
+              ? `${errorDetails}\n[CLI] ${te.content}`
+              : `[CLI] ${te.content}`;
+          }
+        }
+        // 任何终态都应当清除 transientError，避免遗留到下次会话
+        if (status === 'completed' || status === 'failed' || status === 'cancelled' || status === 'interrupted') {
+          clearTransientError();
+        }
         console.log('[agent_status] Received:', { status, invocId, agentName, agentId, hasErrorDetails: !!errorDetails });
         // failed 状态时传递 errorDetails 作为 input（用于保存错误信息）
         updateAgentStatus(invocId, status, agentName, errorDetails || input);
