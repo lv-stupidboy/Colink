@@ -240,7 +240,7 @@ func (r *AgentInvocationRepository) FindRecentlyCompletedByThread(ctx context.Co
 		       input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, cost_usd, duration_ms, duration_api_ms, callback_token, triggered_by
 		FROM agent_invocations
 		WHERE thread_id = ?
-			AND status IN ('completed', 'failed', 'interrupted')
+			AND status IN ('completed', 'failed', 'interrupted', 'cancelled')
 			AND completed_at >= ?
 		ORDER BY completed_at DESC
 	`
