@@ -250,7 +250,7 @@ type SkillConfig struct {
 	// 格式示例: "1h", "30m", "2h30m"
 	UseCountUpdateInterval string `mapstructure:"use_count_update_interval"`
 
-	// UploadMaxSize 技能包上传最大大小，单位 MB，默认 5
+	// UploadMaxSize 技能包上传最大大小，单位 MB，默认 10
 	UploadMaxSize int `mapstructure:"upload_max_size"`
 }
 
@@ -559,7 +559,7 @@ func (c *SkillConfig) GetUseCountUpdateInterval() time.Duration {
 // GetUploadMaxSize 获取上传文件最大大小（字节）
 func (c *SkillConfig) GetUploadMaxSize() int64 {
 	if c.UploadMaxSize <= 0 {
-		return 5 * 1024 * 1024 // 默认 5MB
+		return 10 * 1024 * 1024 // 默认 10MB
 	}
 	return int64(c.UploadMaxSize) * 1024 * 1024
 }
@@ -735,7 +735,7 @@ func setDefaults() {
 	viper.SetDefault("mcp.base_url", "http://localhost:26305/api/v1/mcp")
 	viper.SetDefault("mcp.token_ttl", "30m")
 	viper.SetDefault("skill.use_count_update_interval", "1h")
-	viper.SetDefault("skill.upload_max_size", 5)
+	viper.SetDefault("skill.upload_max_size", 10)
 	viper.SetDefault("subagent.upload_max_size", 2)
 	viper.SetDefault("command.upload_max_size", 2)
 	viper.SetDefault("rule.upload_max_size", 2)
