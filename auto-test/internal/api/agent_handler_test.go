@@ -264,7 +264,7 @@ func TestAgentHandler_ParamValidation(t *testing.T) {
 
 	// 测试缺少必填字段
 	invalidBodies := []map[string]interface{}{
-		{"name": ""}, // 空名称
+		{"name": ""},     // 空名称
 		{"name": "Test"}, // 缺少 systemPrompt
 	}
 
@@ -335,4 +335,159 @@ func TestAgentHandler_GetByRole(t *testing.T) {
 	for _, config := range response {
 		assert.Equal(t, model.AgentRoleAgent, config.Role)
 	}
+
+	// Human 角色也应能独立筛选，避免前端团队列表混入 CLI Agent。
+	humanReqHTTP := httptest.NewRequest(http.MethodGet, "/api/v1/agents/role/human", nil)
+	humanW := httptest.NewRecorder()
+	router.ServeHTTP(humanW, humanReqHTTP)
+
+	assert.Equal(t, http.StatusOK, humanW.Code)
+
+	var humanResponse []*model.AgentRoleConfig
+	err = json.Unmarshal(humanW.Body.Bytes(), &humanResponse)
+	require.NoError(t, err)
+	require.NotEmpty(t, humanResponse)
+	for _, config := range humanResponse {
+		assert.Equal(t, model.AgentRoleHuman, config.Role)
+	}
+}
+
+// @feature F001 - Agent 对话核心
+// @priority P1
+// @id API-01-07
+func TestAgentHandler_Copy_CreatesEditableDuplicate(t *testing.T) {
+	router, configSvc := setupTestHandler(t)
+	ctx := testutil.TestContext()
+
+	original, err := configSvc.Create(ctx, &model.CreateAgentRequest{
+		Name:            "Copy Source",
+		Role:            model.AgentRoleAgent,
+		Description:     "source description",
+		SystemPrompt:    "source prompt",
+		MaxTokens:       4096,
+		Temperature:     0.2,
+		MentionPatterns: []string{"@copy-source"},
+	})
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/agents/"+original.ID.String()+"/copy", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusCreated, w.Code)
+
+	var copied model.AgentRoleConfig
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &copied))
+	assert.NotEqual(t, original.ID, copied.ID)
+	assert.Equal(t, "Copy Source (副本)", copied.Name)
+	assert.Equal(t, original.Role, copied.Role)
+	assert.Equal(t, original.SystemPrompt, copied.SystemPrompt)
+	assert.Equal(t, original.MentionPatterns, copied.MentionPatterns)
+	assert.False(t, copied.IsDefault)
+}
+
+// @feature F001 - Agent 对话核心
+// @priority P1
+// @id API-01-08
+func TestAgentHandler_BatchDelete_ValidationAndSuccess(t *testing.T) {
+	router, configSvc := setupTestHandler(t)
+	ctx := testutil.TestContext()
+
+	emptyBody, _ := json.Marshal(map[string]interface{}{"ids": []string{}})
+	emptyReq := httptest.NewRequest(http.MethodPost, "/api/v1/agents/batch-delete", bytes.NewReader(emptyBody))
+	emptyReq.Header.Set("Content-Type", "application/json")
+	emptyW := httptest.NewRecorder()
+	router.ServeHTTP(emptyW, emptyReq)
+	assert.Equal(t, http.StatusBadRequest, emptyW.Code)
+
+	deletable, err := configSvc.Create(ctx, &model.CreateAgentRequest{
+		Name:         "Batch Delete Agent",
+		Role:         model.AgentRoleAgent,
+		SystemPrompt: "delete me",
+	})
+	require.NoError(t, err)
+
+	deleteBody, _ := json.Marshal(map[string]interface{}{"ids": []string{deletable.ID.String(), "not-a-uuid"}})
+	deleteReq := httptest.NewRequest(http.MethodPost, "/api/v1/agents/batch-delete", bytes.NewReader(deleteBody))
+	deleteReq.Header.Set("Content-Type", "application/json")
+	deleteW := httptest.NewRecorder()
+	router.ServeHTTP(deleteW, deleteReq)
+
+	require.Equal(t, http.StatusNoContent, deleteW.Code)
+
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/agents/"+deletable.ID.String(), nil)
+	getW := httptest.NewRecorder()
+	router.ServeHTTP(getW, getReq)
+	assert.Equal(t, http.StatusNotFound, getW.Code)
+}
+
+// @feature F001 - Agent 对话核心
+// @priority P1
+// @id API-01-09
+func TestAgentHandler_ReferenceAndConfigValidation(t *testing.T) {
+	router, configSvc := setupTestHandler(t)
+	ctx := testutil.TestContext()
+
+	config, err := configSvc.Create(ctx, &model.CreateAgentRequest{
+		Name:         "Reference Check Agent",
+		Role:         model.AgentRoleAgent,
+		SystemPrompt: "reference prompt",
+	})
+	require.NoError(t, err)
+
+	refsReq := httptest.NewRequest(http.MethodPost, "/api/v1/agents/"+config.ID.String()+"/refs", nil)
+	refsW := httptest.NewRecorder()
+	router.ServeHTTP(refsW, refsReq)
+	require.Equal(t, http.StatusOK, refsW.Code)
+	assert.Contains(t, refsW.Body.String(), `"referenced":false`)
+	assert.Contains(t, refsW.Body.String(), `"referenceCount":0`)
+
+	invalidRefsReq := httptest.NewRequest(http.MethodPost, "/api/v1/agents/not-a-uuid/refs", nil)
+	invalidRefsW := httptest.NewRecorder()
+	router.ServeHTTP(invalidRefsW, invalidRefsReq)
+	assert.Equal(t, http.StatusBadRequest, invalidRefsW.Code)
+
+	refreshReq := httptest.NewRequest(http.MethodPost, "/api/v1/agents/"+config.ID.String()+"/refresh", nil)
+	refreshW := httptest.NewRecorder()
+	router.ServeHTTP(refreshW, refreshReq)
+	assert.Equal(t, http.StatusInternalServerError, refreshW.Code)
+
+	batchGenerateInvalidIDBody, _ := json.Marshal(map[string]interface{}{
+		"agentIds": []string{"not-a-uuid"},
+		"cliType":  "claude_code",
+	})
+	batchGenerateInvalidIDReq := httptest.NewRequest(http.MethodPost, "/api/v1/agents/batch-generate-config", bytes.NewReader(batchGenerateInvalidIDBody))
+	batchGenerateInvalidIDReq.Header.Set("Content-Type", "application/json")
+	batchGenerateInvalidIDW := httptest.NewRecorder()
+	router.ServeHTTP(batchGenerateInvalidIDW, batchGenerateInvalidIDReq)
+	assert.Equal(t, http.StatusBadRequest, batchGenerateInvalidIDW.Code)
+
+	batchGenerateMissingTypeBody, _ := json.Marshal(map[string]interface{}{
+		"agentIds": []string{config.ID.String()},
+	})
+	batchGenerateMissingTypeReq := httptest.NewRequest(http.MethodPost, "/api/v1/agents/batch-generate-config", bytes.NewReader(batchGenerateMissingTypeBody))
+	batchGenerateMissingTypeReq.Header.Set("Content-Type", "application/json")
+	batchGenerateMissingTypeW := httptest.NewRecorder()
+	router.ServeHTTP(batchGenerateMissingTypeW, batchGenerateMissingTypeReq)
+	assert.Equal(t, http.StatusBadRequest, batchGenerateMissingTypeW.Code)
+
+	batchUpdateInvalidAgentBody, _ := json.Marshal(map[string]interface{}{
+		"agentIds":    []string{"not-a-uuid"},
+		"baseAgentId": uuid.New().String(),
+	})
+	batchUpdateInvalidAgentReq := httptest.NewRequest(http.MethodPost, "/api/v1/agents/batch-update-base-agent", bytes.NewReader(batchUpdateInvalidAgentBody))
+	batchUpdateInvalidAgentReq.Header.Set("Content-Type", "application/json")
+	batchUpdateInvalidAgentW := httptest.NewRecorder()
+	router.ServeHTTP(batchUpdateInvalidAgentW, batchUpdateInvalidAgentReq)
+	assert.Equal(t, http.StatusBadRequest, batchUpdateInvalidAgentW.Code)
+
+	batchUpdateInvalidBaseBody, _ := json.Marshal(map[string]interface{}{
+		"agentIds":    []string{config.ID.String()},
+		"baseAgentId": "not-a-uuid",
+	})
+	batchUpdateInvalidBaseReq := httptest.NewRequest(http.MethodPost, "/api/v1/agents/batch-update-base-agent", bytes.NewReader(batchUpdateInvalidBaseBody))
+	batchUpdateInvalidBaseReq.Header.Set("Content-Type", "application/json")
+	batchUpdateInvalidBaseW := httptest.NewRecorder()
+	router.ServeHTTP(batchUpdateInvalidBaseW, batchUpdateInvalidBaseReq)
+	assert.Equal(t, http.StatusBadRequest, batchUpdateInvalidBaseW.Code)
 }

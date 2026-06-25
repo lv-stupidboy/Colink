@@ -270,6 +270,7 @@ func (h *ProjectHandler) RegisterRoutes(r *gin.RouterGroup) {
 	// 文件浏览 API
 	files := r.Group("/files")
 	{
+		files.GET("", h.ListFilesByPath)
 		files.GET("/browse", h.BrowsePath)
 		files.GET("/validate", h.ValidatePath)
 		files.GET("/content", h.GetFileContent)
