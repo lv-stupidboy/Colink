@@ -661,7 +661,6 @@ export interface Skill {
   sourcePath?: string; // 联邦源仓库相对路径
   authorId?: string;
   projectId?: string;
-  supportedAgents?: string[];
   useCount: number;
   status: SkillStatus;
   isPublic: boolean;
@@ -687,7 +686,6 @@ export interface CreateSkillRequest {
   description?: string;
   tags?: string[];
   sourceType: SkillSourceType;
-  supportedAgents?: string[];
   isPublic?: boolean;
 }
 
@@ -695,7 +693,6 @@ export interface CreateSkillRequest {
 export interface UpdateSkillRequest {
   description?: string;
   tags?: string[];
-  supportedAgents?: string[];
   status?: SkillStatus;
   isPublic?: boolean;
 }
@@ -704,7 +701,6 @@ export interface UpdateSkillRequest {
 export interface SkillListQuery {
   tag?: string;
   sourceType?: string;
-  agentType?: string;
   search?: string;
   page?: number;
   pageSize?: number;
@@ -964,7 +960,6 @@ export interface Subagent {
   description?: string;
   content: string;
   skillId?: string;
-  supportedAgents?: string[]; // 支持的Agent类型
   createdAt: string;
   updatedAt: string;
 }
@@ -975,14 +970,12 @@ export interface CreateSubagentRequest {
   description?: string;
   content: string;
   skillId?: string;
-  supportedAgents?: string[]; // 支持的Agent类型
 }
 
 // 更新Subagent请求
 export interface UpdateSubagentRequest {
   description?: string;
   content?: string;
-  supportedAgents?: string[]; // 支持的Agent类型
 }
 
 // Subagent 更新响应（包含受影响的角色信息）
@@ -994,7 +987,6 @@ export interface SubagentUpdateResponse extends Subagent {
 // Subagent列表查询参数
 export interface SubagentListQuery {
   search?: string;
-  agentType?: string; // 按Agent类型过滤
   page?: number;
   pageSize?: number;
 }
@@ -1015,7 +1007,6 @@ export interface Command {
   name: string;
   description?: string;
   content?: string;
-  supportedAgents?: string[]; // 支持的Agent类型
   createdAt: string;
   updatedAt: string;
 }
@@ -1025,13 +1016,11 @@ export interface CreateCommandRequest {
   name: string;
   description?: string;
   content?: string; // 命令内容（可选，传入则保存文件）
-  supportedAgents?: string[]; // 支持的Agent类型
 }
 
 // 更新Command请求
 export interface UpdateCommandRequest {
   description?: string;
-  supportedAgents?: string[]; // 支持的Agent类型
 }
 
 // Command 更新响应（包含受影响的角色信息）
@@ -1043,7 +1032,6 @@ export interface CommandUpdateResponse extends Command {
 // Command列表查询参数
 export interface CommandListQuery {
   search?: string;
-  agentType?: string; // 按Agent类型过滤
   page?: number;
   pageSize?: number;
 }
@@ -1064,7 +1052,6 @@ export interface Rule {
   name: string;
   description?: string;
   content?: string;
-  supportedAgents?: string[]; // 支持的Agent类型
   createdAt: string;
   updatedAt: string;
 }
@@ -1074,13 +1061,11 @@ export interface CreateRuleRequest {
   name: string;
   description?: string;
   content?: string; // 规约内容（可选，传入则保存文件）
-  supportedAgents?: string[]; // 支持的Agent类型
 }
 
 // 更新Rule请求
 export interface UpdateRuleRequest {
   description?: string;
-  supportedAgents?: string[]; // 支持的Agent类型
 }
 
 // Rule 更新响应（包含受影响的角色信息）
@@ -1092,7 +1077,6 @@ export interface RuleUpdateResponse extends Rule {
 // Rule列表查询参数
 export interface RuleListQuery {
   search?: string;
-  agentType?: string; // 按Agent类型过滤
   page?: number;
   pageSize?: number;
 }
@@ -1125,7 +1109,6 @@ export interface Settings {
   name: string;
   description?: string;
   directoryPath?: string;
-  supportedAgents?: string[]; // 支持的Agent类型
   createdAt: string;
   updatedAt: string;
 }
@@ -1134,13 +1117,11 @@ export interface Settings {
 export interface CreateSettingsRequest {
   name: string;
   description?: string;
-  supportedAgents?: string[]; // 支持的Agent类型
 }
 
 // Settings列表查询参数
 export interface SettingsListQuery {
   search?: string;
-  agentType?: string; // 按Agent类型过滤
   page?: number;
   pageSize?: number;
 }
@@ -1156,7 +1137,6 @@ export interface SettingsListResponse {
 // 更新Settings请求
 export interface UpdateSettingsRequest {
   description?: string;
-  supportedAgents?: string[]; // 支持的Agent类型
 }
 
 // Settings 更新响应（包含受影响的角色信息）
@@ -1194,7 +1174,6 @@ export interface MCPServer {
   url?: string;
   headers?: Record<string, string>;
   sourceType: MCPSourceType;
-  supportedAgents?: string[];
   status: MCPStatus;
   createdAt: string;
   updatedAt: string;
@@ -1211,7 +1190,6 @@ export interface CreateMCPServerRequest {
   url?: string;
   headers?: Record<string, string>;
   sourceType?: MCPSourceType;
-  supportedAgents?: string[];
   status?: MCPStatus;
 }
 
@@ -1225,13 +1203,11 @@ export interface UpdateMCPServerRequest {
   url?: string;
   headers?: Record<string, string>;
   sourceType?: MCPSourceType;
-  supportedAgents?: string[];
   status?: MCPStatus;
 }
 
 export interface MCPServerListQuery {
   search?: string;
-  agentType?: string;
   status?: MCPStatus;
   page?: number;
   pageSize?: number;
@@ -1486,7 +1462,6 @@ export interface SkillImportItem {
   path: string;
   description: string;
   tags: string[];
-  supportedAgents: string[];
   importMode?: 'create' | 'update'; // 导入模式（默认 create）
   targetSkillId?: string;           // update 时指定目标 Skill ID
 }

@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
-  Card, Button, Modal, Form, Input, message, Space, Typography, Tag,
-  Popconfirm, Empty, Spin, Pagination, Table, Tooltip, Radio, Select
+  Card, Button, Modal, Form, Input, message, Space, Typography,
+  Popconfirm, Empty, Spin, Pagination, Table, Tooltip, Radio
 } from 'antd';
 import {
   PlusOutlined,
@@ -13,8 +13,7 @@ import {
   TeamOutlined
 } from '@ant-design/icons';
 import api from '@/api/client';
-import { getTypeColorByIndex } from '@/config/agentTypeColors';
-import type { Rule, RuleListResponse, BaseAgentTypeInfo, AssetAgentsResponse } from '@/types';
+import type { Rule, RuleListResponse, AssetAgentsResponse } from '@/types';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -81,7 +80,6 @@ const RuleList: React.FC = () => {
   const [isAfterUpload, setIsAfterUpload] = useState(false);
   // 存储解析后的内容，用户确认后才上传
   const pendingContentRef = useRef<string>('');
-  const [agentTypes, setAgentTypes] = useState<BaseAgentTypeInfo[]>([]);
   const [submitLoading, setSubmitLoading] = useState(false);
   const [submitLoadingText, setSubmitLoadingText] = useState('');
   const [affectedAgents, setAffectedAgents] = useState<{ id: string; name: string }[]>([]);
@@ -105,7 +103,6 @@ const RuleList: React.FC = () => {
 
   useEffect(() => {
     loadRules();
-    api.baseAgents.getTypes().then(setAgentTypes).catch(() => {});
   }, [loadRules]);
 
   const handleCreate = () => {
@@ -114,7 +111,6 @@ const RuleList: React.FC = () => {
     setIsAfterUpload(false);
     pendingContentRef.current = '';
     form.resetFields();
-    form.setFieldsValue({ supportedAgents: [] });
     setModalVisible(true);
   };
 
@@ -126,7 +122,6 @@ const RuleList: React.FC = () => {
     form.setFieldsValue({
       name: record.name,
       description: record.description,
-      supportedAgents: record.supportedAgents || [],
     });
     setModalVisible(true);
   };
@@ -191,7 +186,6 @@ const RuleList: React.FC = () => {
         const startTime = Date.now();
         const result = await api.rules.update(editingRule.id, {
           description: values.description,
-          supportedAgents: values.supportedAgents,
         });
 
         // 设置受影响的角色列表
@@ -220,7 +214,6 @@ const RuleList: React.FC = () => {
           name: values.name,
           description: values.description,
           content: isAfterUpload ? pendingContentRef.current : undefined,
-          supportedAgents: values.supportedAgents,
         });
         message.success('创建成功');
       }
@@ -311,30 +304,6 @@ const RuleList: React.FC = () => {
           </Text>
         </Tooltip>
       ),
-    },
-    {
-      title: '兼容 Agent',
-      dataIndex: 'supportedAgents',
-      key: 'supportedAgents',
-      width: 200,
-      render: (supportedAgents: string[] | undefined) => {
-        if (!supportedAgents || supportedAgents.length === 0) {
-          return <Tag color="blue">默认</Tag>;
-        }
-        return (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-            {supportedAgents.map(agent => {
-              const typeInfo = agentTypes.find(t => t.type === agent);
-              const color = getTypeColorByIndex(agentTypes, agent);
-              return (
-                <Tag key={agent} color={color}>
-                  {typeInfo?.name || agent}
-                </Tag>
-              );
-            })}
-          </div>
-        );
-      },
     },
     {
       title: '创建时间',
@@ -609,20 +578,6 @@ const RuleList: React.FC = () => {
             <Input.TextArea
               rows={3}
               placeholder="简要描述这个 Rule 的内容"
-            />
-          </Form.Item>
-
-          <Form.Item
-            label="兼容 Agent 类型"
-            name="supportedAgents"
-            extra="选择此 Rule 支持的 Agent 类型"
-            rules={[{ required: true, message: '请至少选择一种 Agent 类型' }]}
-          >
-            <Select
-              mode="multiple"
-              placeholder="选择支持的 Agent 类型"
-              style={{ width: '100%' }}
-              options={agentTypes.map(t => ({ label: t.name, value: t.type, color: t.color }))}
             />
           </Form.Item>
         </Form>

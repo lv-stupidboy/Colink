@@ -13,8 +13,7 @@ import {
   TeamOutlined
 } from '@ant-design/icons';
 import api from '@/api/client';
-import { getTypeColorByIndex } from '@/config/agentTypeColors';
-import type { Command, CommandListResponse, Skill, BaseAgentTypeInfo, AssetAgentsResponse } from '@/types';
+import type { Command, CommandListResponse, Skill, AssetAgentsResponse } from '@/types';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -83,7 +82,6 @@ const CommandList: React.FC = () => {
   const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
   const [commandSkillCounts, setCommandSkillCounts] = useState<Record<string, number>>({});
   const [commandSkillsMap, setCommandSkillsMap] = useState<Record<string, Skill[]>>({});
-  const [agentTypes, setAgentTypes] = useState<BaseAgentTypeInfo[]>([]);
   const [submitLoading, setSubmitLoading] = useState(false);
   const [submitLoadingText, setSubmitLoadingText] = useState('');
   const [affectedAgents, setAffectedAgents] = useState<{ id: string; name: string }[]>([]);
@@ -136,7 +134,6 @@ const CommandList: React.FC = () => {
 
   useEffect(() => {
     loadCommands();
-    api.baseAgents.getTypes().then(setAgentTypes).catch(() => {});
   }, [loadCommands]);
 
   useEffect(() => {
@@ -151,7 +148,6 @@ const CommandList: React.FC = () => {
     pendingFileNameRef.current = '';
     setSelectedSkillIds([]);
     form.resetFields();
-    form.setFieldsValue({ supportedAgents: [] });
     setModalVisible(true);
   };
 
@@ -164,7 +160,6 @@ const CommandList: React.FC = () => {
     form.setFieldsValue({
       name: record.name,
       description: record.description,
-      supportedAgents: record.supportedAgents || [],
     });
     // 加载已绑定的技能
     try {
@@ -236,7 +231,6 @@ const CommandList: React.FC = () => {
         const startTime = Date.now();
         const result = await api.commands.update(editingCommand.id, {
           description: values.description,
-          supportedAgents: values.supportedAgents,
         });
 
         // 全量更新技能绑定（传空数组表示清空绑定）
@@ -268,7 +262,6 @@ const CommandList: React.FC = () => {
           name: values.name,
           description: values.description,
           content: isAfterUpload ? pendingContentRef.current : undefined,
-          supportedAgents: values.supportedAgents,
         });
         // 绑定技能（如果有选择）
         if (selectedSkillIds.length > 0) {
@@ -382,30 +375,6 @@ const CommandList: React.FC = () => {
               {count} 个 Skills
             </Tag>
           </Tooltip>
-        );
-      },
-    },
-    {
-      title: '兼容 Agent',
-      dataIndex: 'supportedAgents',
-      key: 'supportedAgents',
-      width: 200,
-      render: (supportedAgents: string[] | undefined) => {
-        if (!supportedAgents || supportedAgents.length === 0) {
-          return <Tag color="blue">默认</Tag>;
-        }
-        return (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-            {supportedAgents.map(agent => {
-              const typeInfo = agentTypes.find(t => t.type === agent);
-              const color = getTypeColorByIndex(agentTypes, agent);
-              return (
-                <Tag key={agent} color={color}>
-                  {typeInfo?.name || agent}
-                </Tag>
-              );
-            })}
-          </div>
         );
       },
     },
@@ -695,20 +664,6 @@ const CommandList: React.FC = () => {
               placeholder="输入 Command 的具体内容..."
               style={{ fontFamily: 'monospace' }}
               disabled={isAfterUpload}
-            />
-          </Form.Item>
-
-          <Form.Item
-            label="兼容 Agent 类型"
-            name="supportedAgents"
-            extra="选择此 Command 支持的 Agent 类型"
-            rules={[{ required: true, message: '请至少选择一种 Agent 类型' }]}
-          >
-            <Select
-              mode="multiple"
-              placeholder="选择支持的 Agent 类型"
-              style={{ width: '100%' }}
-              options={agentTypes.map(t => ({ label: t.name, value: t.type }))}
             />
           </Form.Item>
 

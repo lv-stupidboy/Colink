@@ -12,8 +12,7 @@ import {
   TeamOutlined
 } from '@ant-design/icons';
 import api from '@/api/client';
-import { getTypeColorByIndex } from '@/config/agentTypeColors';
-import type { Subagent, SubagentListResponse, Skill, BaseAgentTypeInfo, AssetAgentsResponse } from '@/types';
+import type { Subagent, SubagentListResponse, Skill, AssetAgentsResponse } from '@/types';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -133,7 +132,6 @@ const SubagentList: React.FC = () => {
   const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
   const [subagentSkillCounts, setSubagentSkillCounts] = useState<Record<string, number>>({});
   const [subagentSkillsMap, setSubagentSkillsMap] = useState<Record<string, Skill[]>>({});
-  const [agentTypes, setAgentTypes] = useState<BaseAgentTypeInfo[]>([]);
   const [submitLoading, setSubmitLoading] = useState(false);
   const [submitLoadingText, setSubmitLoadingText] = useState('');
   const [affectedAgents, setAffectedAgents] = useState<{ id: string; name: string }[]>([]);
@@ -176,7 +174,6 @@ const SubagentList: React.FC = () => {
 
   useEffect(() => {
     loadSubagents();
-    api.baseAgents.getTypes().then(setAgentTypes).catch(() => {});
   }, [loadSubagents]);
 
   // 加载技能列表
@@ -213,7 +210,6 @@ const SubagentList: React.FC = () => {
     pendingContentRef.current = '';
     setSelectedSkillIds([]);
     form.resetFields();
-    form.setFieldsValue({ supportedAgents: [] });
     setModalVisible(true);
   };
 
@@ -226,7 +222,6 @@ const SubagentList: React.FC = () => {
       name: record.name,
       description: record.description,
       content: record.content,
-      supportedAgents: record.supportedAgents || [],
     });
     // 加载已绑定的技能
     await loadSubagentSkills(record.id);
@@ -294,7 +289,6 @@ const SubagentList: React.FC = () => {
         const result = await api.subagents.update(editingSubagent.id, {
           description: values.description,
           content: values.content,
-          supportedAgents: values.supportedAgents,
         });
 
         // 更新技能绑定
@@ -327,7 +321,6 @@ const SubagentList: React.FC = () => {
           name: values.name,
           description: values.description,
           content: content,
-          supportedAgents: values.supportedAgents,
         });
         // 为新创建的子代理绑定技能
         if (selectedSkillIds.length > 0) {
@@ -448,30 +441,6 @@ const SubagentList: React.FC = () => {
               {count} 个 Skills
             </Tag>
           </Tooltip>
-        );
-      },
-    },
-    {
-      title: '兼容 Agent',
-      dataIndex: 'supportedAgents',
-      key: 'supportedAgents',
-      width: 200,
-      render: (supportedAgents: string[] | undefined) => {
-        if (!supportedAgents || supportedAgents.length === 0) {
-          return <Tag color="blue">默认</Tag>;
-        }
-        return (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-            {supportedAgents.map(agent => {
-              const typeInfo = agentTypes.find(t => t.type === agent);
-              const color = getTypeColorByIndex(agentTypes, agent);
-              return (
-                <Tag key={agent} color={color}>
-                  {typeInfo?.name || agent}
-                </Tag>
-              );
-            })}
-          </div>
         );
       },
     },
@@ -761,20 +730,6 @@ const SubagentList: React.FC = () => {
               rows={12}
               placeholder="输入 Subagent 的配置内容..."
               style={{ fontFamily: 'monospace' }}
-            />
-          </Form.Item>
-
-          <Form.Item
-            label="兼容 Agent 类型"
-            name="supportedAgents"
-            extra="选择此 Subagent 支持的 Agent 类型"
-            rules={[{ required: true, message: '请至少选择一种 Agent 类型' }]}
-          >
-            <Select
-              mode="multiple"
-              placeholder="选择支持的 Agent 类型"
-              style={{ width: '100%' }}
-              options={agentTypes.map(t => ({ label: t.name, value: t.type }))}
             />
           </Form.Item>
 

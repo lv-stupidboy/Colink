@@ -41,7 +41,6 @@ type CreateFromFileRequest struct {
 	Name            string     `json:"name"`
 	Description     string     `json:"description"`
 	Version         string     `json:"version"`
-	SupportedAgents []string   `json:"supportedAgents"` // 支持的Agent类型
 	Files           []FileData `json:"files"`
 }
 
@@ -91,18 +90,11 @@ func (s *Service) Create(ctx context.Context, req *model.CreateSettingsRequest) 
 		return nil, errors.New("Settings名称已存在")
 	}
 
-	// 处理 SupportedAgents：空数组默认为 ["claude_code"]
-	supportedAgents := req.SupportedAgents
-	if len(supportedAgents) == 0 {
-		supportedAgents = []string{"claude_code"}
-	}
-
 	now := time.Now()
 	settings := &model.Settings{
 		ID:              uuid.New(),
 		Name:            req.Name,
 		Description:     req.Description,
-		SupportedAgents: supportedAgents,
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}
@@ -142,12 +134,6 @@ func (s *Service) CreateFromFile(ctx context.Context, req *CreateFromFileRequest
 		}
 	} else if existing != nil {
 		return nil, errors.New("Settings名称已存在")
-	}
-
-	// 处理 SupportedAgents：空数组默认为 ["claude_code"]
-	supportedAgents := req.SupportedAgents
-	if len(supportedAgents) == 0 {
-		supportedAgents = []string{"claude_code"}
 	}
 
 	// 创建存储目录
@@ -196,7 +182,6 @@ func (s *Service) CreateFromFile(ctx context.Context, req *CreateFromFileRequest
 		Name:            req.Name,
 		Description:     req.Description,
 		DirectoryPath:   settingsDir,
-		SupportedAgents: supportedAgents,
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}
@@ -240,10 +225,6 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, req *model.UpdateSet
 	// 更新字段
 	if req.Description != "" {
 		settings.Description = req.Description
-	}
-	// 更新 SupportedAgents（如果提供了）
-	if req.SupportedAgents != nil {
-		settings.SupportedAgents = req.SupportedAgents
 	}
 	settings.UpdatedAt = time.Now()
 

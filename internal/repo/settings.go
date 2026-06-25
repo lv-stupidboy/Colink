@@ -3,7 +3,6 @@ package repo
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -27,12 +26,11 @@ func NewSettingsRepository(db *sql.DB, dbType DBType) *SettingsRepository {
 // Create 创建Settings
 func (r *SettingsRepository) Create(ctx context.Context, settings *model.Settings) error {
 	query := `
-		INSERT INTO settings (id, name, description, directory_path, supported_agents, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO settings (id, name, description, directory_path, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)
 	`
-	supportedAgents, _ := json.Marshal(settings.SupportedAgents)
 	_, err := r.DB().ExecContext(ctx, query,
-		settings.ID.String(), settings.Name, settings.Description, settings.DirectoryPath, supportedAgents, settings.CreatedAt, settings.UpdatedAt,
+		settings.ID.String(), settings.Name, settings.Description, settings.DirectoryPath, settings.CreatedAt, settings.UpdatedAt,
 	)
 	return err
 }
@@ -44,11 +42,10 @@ func scanSettings(scanner interface {
 	settings := &model.Settings{}
 	var idStr string
 	var description, directoryPath sql.NullString
-	var supportedAgents []byte
 	var createdAt, updatedAt SQLiteTimeScanner
 
 	err := scanner.Scan(
-		&idStr, &settings.Name, &description, &directoryPath, &supportedAgents, &createdAt, &updatedAt,
+		&idStr, &settings.Name, &description, &directoryPath, &createdAt, &updatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -61,7 +58,6 @@ func scanSettings(scanner interface {
 	if directoryPath.Valid {
 		settings.DirectoryPath = directoryPath.String
 	}
-	json.Unmarshal(supportedAgents, &settings.SupportedAgents)
 	settings.CreatedAt = createdAt.Time
 	settings.UpdatedAt = updatedAt.Time
 
@@ -71,7 +67,7 @@ func scanSettings(scanner interface {
 // FindByID 根据ID查找
 func (r *SettingsRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.Settings, error) {
 	query := `
-		SELECT id, name, description, directory_path, supported_agents, created_at, updated_at
+		SELECT id, name, description, directory_path, created_at, updated_at
 		FROM settings WHERE id = ?
 	`
 	settings, err := scanSettings(r.DB().QueryRowContext(ctx, query, id.String()))
@@ -87,7 +83,7 @@ func (r *SettingsRepository) FindByID(ctx context.Context, id uuid.UUID) (*model
 // FindByName 根据名称查找
 func (r *SettingsRepository) FindByName(ctx context.Context, name string) (*model.Settings, error) {
 	query := `
-		SELECT id, name, description, directory_path, supported_agents, created_at, updated_at
+		SELECT id, name, description, directory_path, created_at, updated_at
 		FROM settings WHERE name = ?
 	`
 	settings, err := scanSettings(r.DB().QueryRowContext(ctx, query, name))
@@ -110,17 +106,6 @@ func (r *SettingsRepository) List(ctx context.Context, query *model.SettingsList
 		conditions = append(conditions, "(name LIKE ? OR description LIKE ?)")
 		searchPattern := "%" + query.Search + "%"
 		args = append(args, searchPattern, searchPattern)
-	}
-
-	// AgentType 过滤（向后兼容：空数组默认只支持 claude_code）
-	if query.AgentType != "" {
-		if query.AgentType == "claude_code" {
-			conditions = append(conditions, "(supported_agents = '[]' OR supported_agents LIKE ?)")
-			args = append(args, `%"claude_code"%`)
-		} else {
-			conditions = append(conditions, "supported_agents LIKE ?")
-			args = append(args, `%"`+query.AgentType+`"%`)
-		}
 	}
 
 	whereClause := ""
@@ -152,7 +137,7 @@ func (r *SettingsRepository) List(ctx context.Context, query *model.SettingsList
 
 	// 查询列表
 	listQuery := `
-		SELECT id, name, description, directory_path, supported_agents, created_at, updated_at
+		SELECT id, name, description, directory_path, created_at, updated_at
 		FROM settings ` + whereClause + ` ORDER BY created_at DESC LIMIT ? OFFSET ?
 	`
 	args = append(args, pageSize, offset)
@@ -181,12 +166,11 @@ func (r *SettingsRepository) Update(ctx context.Context, settings *model.Setting
 	settings.UpdatedAt = now
 	query := `
 		UPDATE settings
-		SET name = ?, description = ?, directory_path = ?, supported_agents = ?, updated_at = ?
+		SET name = ?, description = ?, directory_path = ?, updated_at = ?
 		WHERE id = ?
 	`
-	supportedAgents, _ := json.Marshal(settings.SupportedAgents)
 	_, err := r.DB().ExecContext(ctx, query,
-		settings.Name, settings.Description, settings.DirectoryPath, supportedAgents, now, settings.ID.String(),
+		settings.Name, settings.Description, settings.DirectoryPath, now, settings.ID.String(),
 	)
 	return err
 }

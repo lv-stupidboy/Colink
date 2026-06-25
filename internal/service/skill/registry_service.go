@@ -170,7 +170,6 @@ func (s *RegistryService) Sync(ctx context.Context, id uuid.UUID) (*model.SyncRe
 		// 已存在，更新技能
 		existing.Description = remoteSkill.Description
 		existing.Tags = remoteSkill.Tags
-		existing.SupportedAgents = remoteSkill.SupportedAgents
 		existing.UpdatedAt = time.Now()
 		if err := s.skillRepo.Update(ctx, existing); err != nil {
 			continue
@@ -322,7 +321,6 @@ func (s *RegistryService) SyncConfirm(ctx context.Context, id uuid.UUID, req *mo
 		// 同源同路径，自动更新
 		existing.Description = skill.Description
 		existing.Tags = skill.Tags
-		existing.SupportedAgents = skill.SupportedAgents
 		existing.SourcePath = skill.Path // 更新路径
 		existing.UpdatedAt = time.Now()
 		if err := s.skillRepo.Update(ctx, existing); err != nil {
@@ -363,9 +361,6 @@ func (s *RegistryService) SyncConfirm(ctx context.Context, id uuid.UUID, req *mo
 			existing.Description = op.Description
 			if len(remoteSkill.Tags) > 0 {
 				existing.Tags = remoteSkill.Tags
-			}
-			if len(remoteSkill.SupportedAgents) > 0 {
-				existing.SupportedAgents = remoteSkill.SupportedAgents
 			}
 			existing.SourceType = model.SkillSourceFederated
 			existing.SourceRegistryID = registry.ID
@@ -462,7 +457,6 @@ type RemoteSkill struct {
 	Description     string   `json:"description"`
 	Path            string   `json:"path"` // 文件在仓库中的相对路径
 	Tags            []string `json:"tags"`
-	SupportedAgents []string `json:"supported_agents"`
 	Version         string   `json:"version"`
 }
 
@@ -751,7 +745,6 @@ func (s *RegistryService) syncFromGitRepo(ctx context.Context, registry *model.S
 			Description:     scannedSkill.Description,
 			Path:            scannedSkill.Path, // 保留文件路径
 			Tags:            []string{},
-			SupportedAgents: []string{},
 			Version:         "",
 		})
 	}

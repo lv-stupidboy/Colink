@@ -39,9 +39,6 @@ type Skill struct {
 	AuthorID         uuid.UUID       `json:"authorId,omitempty"`
 	ProjectID        uuid.UUID       `json:"projectId,omitempty"`
 
-	// 兼容性
-	SupportedAgents []string `json:"supportedAgents,omitempty"`
-
 	// 统计数据
 	UseCount int `json:"useCount"`
 
@@ -75,7 +72,6 @@ type CreateSkillRequest struct {
 	Description     string          `json:"description"`
 	Tags            []string        `json:"tags"`
 	SourceType      SkillSourceType `json:"sourceType" binding:"required"`
-	SupportedAgents []string        `json:"supportedAgents" binding:"required,min=1"`
 	IsPublic        bool            `json:"isPublic"` // 仅对 uploaded 类型有效
 }
 
@@ -83,7 +79,6 @@ type CreateSkillRequest struct {
 type UpdateSkillRequest struct {
 	Description     string   `json:"description"`
 	Tags            []string `json:"tags"`
-	SupportedAgents []string `json:"supportedAgents"`
 	Status          string   `json:"status"`
 	IsPublic        bool     `json:"isPublic"` // 仅对 uploaded 类型有效
 }
@@ -97,7 +92,6 @@ type BindSkillRequest struct {
 type SkillListQuery struct {
 	Tag        string `form:"tag"`
 	SourceType string `form:"source_type"`
-	AgentType  string `form:"agent_type"`
 	Search     string `form:"search"`
 	Page       int    `form:"page"`
 	PageSize   int    `form:"page_size"`
@@ -213,7 +207,6 @@ type SkillImportItem struct {
 	Path            string    `json:"path" binding:"required"`
 	Description     string    `json:"description"`
 	Tags            []string  `json:"tags"`
-	SupportedAgents []string  `json:"supportedAgents" binding:"required,min=1"`
 	ImportMode      string    `json:"importMode"`    // create 或 update（默认 create）
 	TargetSkillID   uuid.UUID `json:"targetSkillId"` // update 时指定目标 Skill ID
 }

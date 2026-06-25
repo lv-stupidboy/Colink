@@ -291,8 +291,8 @@ func (s *Service) GenerateAgentConfig(ctx context.Context, req *GenerateAgentCon
 		zap.String("agent_name", agentRole.Name),
 		zap.String("config_path", configPath))
 
-	// 3. 获取并过滤资产（根据 SupportedAgents）
-	filteredAssets := s.getFilteredAssets(ctx, req.AgentRoleID, req.BaseAgentType)
+	// 3. 获取角色绑定的资产
+	filteredAssets := s.getFilteredAssets(ctx, req.AgentRoleID)
 
 	// 4. 获取对应Agent的ConfigGenerator
 	generator := agent.CreateConfigGenerator(
@@ -362,8 +362,8 @@ type FilteredAssets struct {
 	Settings  []*model.Settings
 }
 
-// getFilteredAssets 获取并过滤资产（根据 SupportedAgents 向后兼容）
-func (s *Service) getFilteredAssets(ctx context.Context, agentRoleID uuid.UUID, agentType string) *FilteredAssets {
+// getFilteredAssets 获取角色绑定的所有资产
+func (s *Service) getFilteredAssets(ctx context.Context, agentRoleID uuid.UUID) *FilteredAssets {
 	assets := &FilteredAssets{
 		Skills:    []*model.Skill{},
 		Commands:  []*model.Command{},
@@ -375,7 +375,7 @@ func (s *Service) getFilteredAssets(ctx context.Context, agentRoleID uuid.UUID, 
 	// 用于收集所有 Skill（去重）
 	skillMap := make(map[uuid.UUID]*model.Skill)
 
-	// 1. 获取直接绑定的技能（过滤）
+	// 1. 获取直接绑定的技能
 	directSkillIDs, err := s.bindingRepo.FindByAgentRoleID(ctx, agentRoleID)
 	if err != nil {
 		s.logger.Warn("获取绑定的Skill失败", zap.Error(err))
@@ -386,12 +386,10 @@ func (s *Service) getFilteredAssets(ctx context.Context, agentRoleID uuid.UUID, 
 			s.logger.Warn("获取Skill失败", zap.String("skill_id", skillID.String()), zap.Error(err))
 			continue
 		}
-		if matchesAgentType(skill.SupportedAgents, agentType) {
-			skillMap[skillID] = skill
-		}
+		skillMap[skillID] = skill
 	}
 
-	// 2. 获取绑定的Commands及其关联Skills（过滤）
+	// 2. 获取绑定的Commands及其关联Skills
 	commandIDs, err := s.agentCommandBindingRepo.FindByAgentRoleID(ctx, agentRoleID)
 	if err != nil {
 		s.logger.Warn("获取绑定的Command失败", zap.Error(err))
@@ -402,11 +400,9 @@ func (s *Service) getFilteredAssets(ctx context.Context, agentRoleID uuid.UUID, 
 			s.logger.Warn("获取Command失败", zap.String("command_id", commandID.String()), zap.Error(err))
 			continue
 		}
-		if matchesAgentType(command.SupportedAgents, agentType) {
-			assets.Commands = append(assets.Commands, command)
-		}
+		assets.Commands = append(assets.Commands, command)
 
-		// 收集Command关联的Skill（过滤）
+		// 收集Command关联的Skill
 		commandSkillIDs, err := s.commandSkillBindingRepo.FindByCommandID(ctx, commandID)
 		if err != nil {
 			s.logger.Warn("获取Command关联的Skill失败", zap.Error(err))
@@ -419,24 +415,20 @@ func (s *Service) getFilteredAssets(ctx context.Context, agentRoleID uuid.UUID, 
 					s.logger.Warn("获取Skill失败", zap.String("skill_id", skillID.String()), zap.Error(err))
 					continue
 				}
-				if matchesAgentType(skill.SupportedAgents, agentType) {
-					skillMap[skillID] = skill
-				}
+				skillMap[skillID] = skill
 			}
 		}
 	}
 
-	// 3. 获取绑定的Subagents及其关联Skills（过滤）
+	// 3. 获取绑定的Subagents及其关联Skills
 	subagents, err := s.agentSubagentBindingRepo.FindSubagentsByAgentRoleID(ctx, agentRoleID)
 	if err != nil {
 		s.logger.Warn("获取绑定的Subagent失败", zap.Error(err))
 	}
 	for _, subagent := range subagents {
-		if matchesAgentType(subagent.SupportedAgents, agentType) {
-			assets.Subagents = append(assets.Subagents, subagent)
-		}
+		assets.Subagents = append(assets.Subagents, subagent)
 
-		// 收集Subagent关联的Skill（过滤）
+		// 收集Subagent关联的Skill
 		subagentSkillIDs, err := s.subagentSkillBindingRepo.FindBySubagentID(ctx, subagent.ID)
 		if err != nil {
 			s.logger.Warn("获取Subagent关联的Skill失败", zap.Error(err))
@@ -449,14 +441,12 @@ func (s *Service) getFilteredAssets(ctx context.Context, agentRoleID uuid.UUID, 
 					s.logger.Warn("获取Skill失败", zap.String("skill_id", skillID.String()), zap.Error(err))
 					continue
 				}
-				if matchesAgentType(skill.SupportedAgents, agentType) {
-					skillMap[skillID] = skill
-				}
+				skillMap[skillID] = skill
 			}
 		}
 	}
 
-	// 4. 获取绑定的Rules（过滤）
+	// 4. 获取绑定的Rules
 	ruleIDs, err := s.agentRuleBindingRepo.FindByAgentRoleID(ctx, agentRoleID)
 	if err != nil {
 		s.logger.Warn("获取绑定的Rule失败", zap.Error(err))
@@ -467,12 +457,10 @@ func (s *Service) getFilteredAssets(ctx context.Context, agentRoleID uuid.UUID, 
 			s.logger.Warn("获取Rule失败", zap.String("rule_id", ruleID.String()), zap.Error(err))
 			continue
 		}
-		if matchesAgentType(rule.SupportedAgents, agentType) {
-			assets.Rules = append(assets.Rules, rule)
-		}
+		assets.Rules = append(assets.Rules, rule)
 	}
 
-	// 5. 获取绑定的Settings（过滤）
+	// 5. 获取绑定的Settings
 	settingsIDs, err := s.agentSettingsBindingRepo.FindByAgentRoleID(ctx, agentRoleID)
 	if err != nil {
 		s.logger.Warn("获取绑定的Settings失败", zap.Error(err))
@@ -483,9 +471,7 @@ func (s *Service) getFilteredAssets(ctx context.Context, agentRoleID uuid.UUID, 
 			s.logger.Warn("获取Settings失败", zap.String("settings_id", settingsID.String()), zap.Error(err))
 			continue
 		}
-		if matchesAgentType(settings.SupportedAgents, agentType) {
-			assets.Settings = append(assets.Settings, settings)
-		}
+		assets.Settings = append(assets.Settings, settings)
 	}
 
 	// 6. 转换skillMap为列表
@@ -494,21 +480,6 @@ func (s *Service) getFilteredAssets(ctx context.Context, agentRoleID uuid.UUID, 
 	}
 
 	return assets
-}
-
-// matchesAgentType 检查资产是否支持指定的Agent类型（向后兼容）
-func matchesAgentType(supportedAgents []string, agentType string) bool {
-	// 空数组向后兼容：默认只支持 claude_code
-	if len(supportedAgents) == 0 {
-		return agentType == "claude_code"
-	}
-	// 非空数组：检查是否包含指定类型
-	for _, a := range supportedAgents {
-		if a == agentType {
-			return true
-		}
-	}
-	return false
 }
 
 // getConfigDir 获取配置目录路径

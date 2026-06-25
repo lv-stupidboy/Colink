@@ -2,8 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Button, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message } from 'antd';
 import { ApiOutlined, DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
 import api from '@/api/client';
-import type { BaseAgentTypeInfo, MCPServer, MCPServerListResponse, MCPTransport } from '@/types';
-import { getTypeColorByIndex } from '@/config/agentTypeColors';
+import type { MCPServer, MCPServerListResponse, MCPTransport } from '@/types';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -28,7 +27,6 @@ const stringifyMap = (value?: Record<string, string>) =>
 
 const MCPServerList: React.FC = () => {
   const [servers, setServers] = useState<MCPServer[]>([]);
-  const [agentTypes, setAgentTypes] = useState<BaseAgentTypeInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [submitLoading, setSubmitLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
@@ -59,7 +57,6 @@ const MCPServerList: React.FC = () => {
 
   useEffect(() => {
     loadServers();
-    api.baseAgents.getTypes().then(setAgentTypes).catch(() => {});
   }, [loadServers]);
 
   const handleCreate = () => {
@@ -68,7 +65,6 @@ const MCPServerList: React.FC = () => {
     form.resetFields();
     form.setFieldsValue({
       transport: 'stdio',
-      supportedAgents: [],
     });
     setModalVisible(true);
   };
@@ -107,7 +103,6 @@ const MCPServerList: React.FC = () => {
         env: parseJSONMap(values.envText),
         url: values.url,
         headers: parseJSONMap(values.headersText),
-        supportedAgents: values.supportedAgents || [],
       };
       if (editing) {
         const { name, ...updatePayload } = payload;
@@ -189,19 +184,6 @@ const MCPServerList: React.FC = () => {
             render: (_, record) => record.transport === 'stdio' ? record.command : record.url,
           },
           {
-            title: '适配 Agent',
-            dataIndex: 'supportedAgents',
-            render: (types: string[] = []) => (
-              <Space wrap>
-                {types.length === 0 ? (
-                  <Tag>claude_code</Tag>
-                ) : types.map((type, index) => (
-                  <Tag key={type} color={getTypeColorByIndex(index)}>{type}</Tag>
-                ))}
-              </Space>
-            ),
-          },
-          {
             title: '操作',
             width: 140,
             render: (_, record) => (
@@ -265,16 +247,6 @@ const MCPServerList: React.FC = () => {
               </Form.Item>
             </>
           )}
-          <Form.Item name="supportedAgents" label="支持的基础 Agent">
-            <Select
-              mode="multiple"
-              placeholder="留空默认仅支持 claude_code"
-              options={agentTypes.map((type) => ({
-                label: type.name || type.type,
-                value: type.type,
-              }))}
-            />
-          </Form.Item>
         </Form>
       </Modal>
     </div>

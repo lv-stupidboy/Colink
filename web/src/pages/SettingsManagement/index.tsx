@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
-  Card, Button, Modal, Form, Input, Select, message, Space, Typography, Tag,
+  Card, Button, Modal, Form, Input, message, Space, Typography,
   Popconfirm, Empty, Spin, Divider, Tooltip, Table
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
@@ -14,8 +14,7 @@ import {
 import JSZip from 'jszip';
 import settingsApi from '@/api/settingsApi';
 import api from '@/api/client';
-import { getTypeColorByIndex } from '@/config/agentTypeColors';
-import type { Settings, BaseAgentTypeInfo, AssetAgentsResponse, SettingsUpdateResponse } from '@/types';
+import type { Settings, AssetAgentsResponse, SettingsUpdateResponse } from '@/types';
 
 const { Title, Text } = Typography;
 
@@ -75,7 +74,6 @@ const cleanName = (name: string): string => {
 
 const SettingsManagement: React.FC = () => {
   const [settingsList, setSettingsList] = useState<Settings[]>([]);
-  const [agentTypes, setAgentTypes] = useState<BaseAgentTypeInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -111,26 +109,16 @@ const SettingsManagement: React.FC = () => {
     }
   }, [page, pageSize, searchText]);
 
-  const loadAgentTypes = useCallback(async () => {
-    try {
-      const data = await api.baseAgents.getTypes();
-      setAgentTypes(data);
-    } catch (error) {
-      console.error('加载Agent类型失败', error);
-    }
-  }, []);
-
   useEffect(() => {
     loadSettings();
-    loadAgentTypes();
-  }, [loadSettings, loadAgentTypes]);
+  }, [loadSettings]);
 
   // 新建Settings
   const handleCreate = () => {
     setIsAfterUpload(false);
     pendingZipBlobRef.current = null;
     form.resetFields();
-    form.setFieldsValue({ name: '', description: '', supportedAgents: [] });
+    form.setFieldsValue({ name: '', description: '' });
     setModalVisible(true);
   };
 
@@ -202,8 +190,6 @@ const SettingsManagement: React.FC = () => {
       return;
     }
 
-    const supportedAgents = form.getFieldValue('supportedAgents') || [];
-
     try {
       if (isAfterUpload && pendingZipBlobRef.current) {
         message.loading({ content: '正在创建Settings...', key: 'uploading' });
@@ -212,7 +198,6 @@ const SettingsManagement: React.FC = () => {
         formData.append('file', pendingZipBlobRef.current, 'settings.zip');
         formData.append('name', values.name.trim());
         formData.append('description', values.description || '');
-        formData.append('supportedAgents', JSON.stringify(supportedAgents));
 
         await settingsApi.create(formData);
 
@@ -285,7 +270,6 @@ const SettingsManagement: React.FC = () => {
     setEditingSettings(record);
     editForm.setFieldsValue({
       description: record.description,
-      supportedAgents: record.supportedAgents || [],
     });
     setEditModalVisible(true);
   };
@@ -302,7 +286,6 @@ const SettingsManagement: React.FC = () => {
       const startTime = Date.now();
       const result: SettingsUpdateResponse = await api.settings.update(editingSettings.id, {
         description: values.description,
-        supportedAgents: values.supportedAgents,
       });
 
       // 设置受影响的角色列表
@@ -360,30 +343,6 @@ const SettingsManagement: React.FC = () => {
       key: 'description',
       ellipsis: true,
       render: (desc: string) => desc || '-',
-    },
-    {
-      title: '兼容 Agent',
-      dataIndex: 'supportedAgents',
-      key: 'supportedAgents',
-      width: 200,
-      render: (supportedAgents: string[] | undefined) => {
-        if (!supportedAgents || supportedAgents.length === 0) {
-          return <Tag color="blue">默认</Tag>;
-        }
-        return (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-            {supportedAgents.map(agent => {
-              const typeInfo = agentTypes.find(t => t.type === agent);
-              const color = getTypeColorByIndex(agentTypes, agent);
-              return (
-                <Tag key={agent} color={color}>
-                  {typeInfo?.name || agent}
-                </Tag>
-              );
-            })}
-          </div>
-        );
-      },
     },
     {
       title: '创建时间',
@@ -610,20 +569,6 @@ const SettingsManagement: React.FC = () => {
           <Form.Item name="description" label="描述">
             <Input.TextArea rows={3} placeholder="配置描述（可选）" />
           </Form.Item>
-
-          <Form.Item
-            label="兼容 Agent 类型"
-            name="supportedAgents"
-            extra="选择此 Settings 支持的 Agent 类型"
-            rules={[{ required: true, message: '请至少选择一种 Agent 类型' }]}
-          >
-            <Select
-              mode="multiple"
-              placeholder="选择支持的 Agent 类型"
-              style={{ width: '100%' }}
-              options={agentTypes.map(t => ({ label: t.name, value: t.type }))}
-            />
-          </Form.Item>
         </Form>
       </Modal>
 
@@ -643,20 +588,6 @@ const SettingsManagement: React.FC = () => {
         >
           <Form.Item name="description" label="描述">
             <Input.TextArea rows={3} placeholder="配置描述（可选）" />
-          </Form.Item>
-
-          <Form.Item
-            label="兼容 Agent 类型"
-            name="supportedAgents"
-            extra="选择此 Settings 支持的 Agent 类型"
-            rules={[{ required: true, message: '请至少选择一种 Agent 类型' }]}
-          >
-            <Select
-              mode="multiple"
-              placeholder="选择支持的 Agent 类型"
-              style={{ width: '100%' }}
-              options={agentTypes.map(t => ({ label: t.name, value: t.type }))}
-            />
           </Form.Item>
         </Form>
       </Modal>

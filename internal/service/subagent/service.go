@@ -121,17 +121,10 @@ func (s *Service) Create(ctx context.Context, req *model.CreateSubagentRequest) 
 		return nil, ErrSubagentNameExists
 	}
 
-	// 处理 SupportedAgents：空数组默认为 ["claude_code"]
-	supportedAgents := req.SupportedAgents
-	if len(supportedAgents) == 0 {
-		supportedAgents = []string{"claude_code"}
-	}
-
 	subagent := &model.Subagent{
 		ID:              uuid.New(),
 		Name:            req.Name,
 		Description:     req.Description,
-		SupportedAgents: supportedAgents,
 		Content:         "", // Content 不再存储到数据库
 		CreatedAt:       time.Now(),
 		UpdatedAt:       time.Now(),
@@ -194,10 +187,6 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, req *model.UpdateSub
 	// 更新字段
 	if req.Description != "" {
 		subagent.Description = req.Description
-	}
-	// 更新 SupportedAgents（如果提供了）
-	if req.SupportedAgents != nil {
-		subagent.SupportedAgents = req.SupportedAgents
 	}
 	// 更新 content 文件
 	if req.Content != "" {

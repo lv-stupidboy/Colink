@@ -350,7 +350,6 @@ func (s *Service) Export(ctx context.Context, workflowID string) ([]byte, string
 			Name:            skill.Name,
 			Description:     skill.Description,
 			Tags:            skill.Tags,
-			SupportedAgents: skill.SupportedAgents,
 			IsPublic:        skill.IsPublic,
 			SourceType:      skill.SourceType,
 		})
@@ -1103,7 +1102,6 @@ func (s *Service) importSkill(ctx context.Context, tempDir string, item model.As
 		// 更新 Skill 属性（保留原 ID）
 		existing.Description = item.Description
 		existing.Tags = item.Tags
-		existing.SupportedAgents = item.SupportedAgents
 		existing.IsPublic = item.IsPublic
 		existing.SourceType = item.SourceType
 
@@ -1138,7 +1136,6 @@ func (s *Service) importSkill(ctx context.Context, tempDir string, item model.As
 		Status:          model.SkillStatusActive,
 		IsPublic:        item.IsPublic,
 		UseCount:        0,
-		SupportedAgents: item.SupportedAgents,
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}

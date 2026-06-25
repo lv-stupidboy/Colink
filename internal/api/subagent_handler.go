@@ -154,7 +154,6 @@ func (h *SubagentHandler) Update(c *gin.Context) {
 		"id":              subagent.ID,
 		"name":            subagent.Name,
 		"description":     subagent.Description,
-		"supportedAgents": subagent.SupportedAgents,
 		"updatedAt":       subagent.UpdatedAt,
 		"affectedAgents":  affectedAgents,
 		"affectedCount":   affectedCount,

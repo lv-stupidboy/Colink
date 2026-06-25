@@ -58,7 +58,7 @@ func (r *AgentCommandBindingRepository) FindByAgentRoleID(ctx context.Context, a
 // FindCommandsByAgentRoleID 根据AgentRole ID查找绑定的Command详情列表
 func (r *AgentCommandBindingRepository) FindCommandsByAgentRoleID(ctx context.Context, agentRoleID uuid.UUID) ([]*model.Command, error) {
 	query := `
-		SELECT c.id, c.name, c.description, c.supported_agents, c.created_at, c.updated_at
+		SELECT c.id, c.name, c.description, c.created_at, c.updated_at
 		FROM commands c
 		INNER JOIN agent_command_bindings b ON c.id = b.command_id
 		WHERE b.agent_role_id = ?

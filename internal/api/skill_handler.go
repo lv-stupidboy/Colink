@@ -164,7 +164,6 @@ func (h *SkillHandler) Update(c *gin.Context) {
 		"description":      skill.Description,
 		"tags":             skill.Tags,
 		"sourceType":       skill.SourceType,
-		"supportedAgents":  skill.SupportedAgents,
 		"isPublic":         skill.IsPublic,
 		"updatedAt":        skill.UpdatedAt,
 		"affectedAgents":   affectedAgents,
@@ -725,7 +724,6 @@ func (h *SkillHandler) ImportFromFederated(c *gin.Context) {
 				Path:            targetSkill.Path,
 				Description:     targetSkill.Description,
 				Tags:            []string{},
-				SupportedAgents: []string{"claude"}, // 默认支持 claude
 			},
 		},
 	}

@@ -14,7 +14,6 @@ type Settings struct {
 	Name            string    `json:"name"`
 	Description     string    `json:"description,omitempty"`
 	DirectoryPath   string    `json:"directoryPath,omitempty"` // 存储路径
-	SupportedAgents []string  `json:"supportedAgents,omitempty"` // 支持的Agent类型
 	CreatedAt       time.Time `json:"createdAt"`
 	UpdatedAt       time.Time `json:"updatedAt"`
 }
@@ -39,19 +38,16 @@ func (a *AgentSettingsBinding) TableName() string {
 type CreateSettingsRequest struct {
 	Name            string   `json:"name" binding:"required"`
 	Description     string   `json:"description"`
-	SupportedAgents []string `json:"supportedAgents"` // 支持的Agent类型（可选）
 }
 
 // UpdateSettingsRequest 更新Settings请求
 type UpdateSettingsRequest struct {
 	Description     string   `json:"description"`
-	SupportedAgents []string `json:"supportedAgents"` // 支持的Agent类型（可选）
 }
 
 // SettingsListQuery Settings列表查询参数
 type SettingsListQuery struct {
 	Search    string `form:"search"`
-	AgentType string `form:"agent_type"` // 按Agent类型过滤
 	Page      int    `form:"page"`
 	PageSize  int    `form:"page_size"`
 }

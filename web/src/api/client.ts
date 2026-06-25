@@ -19,7 +19,6 @@ import type {
   SkillListQuery,
   SkillListResponse,
   AgentSkillsResponse,
-  SkillAgentsResponse,
   SkillRegistry,
   CreateRegistryRequest,
   UpdateRegistryRequest,
@@ -562,7 +561,6 @@ class APIClient {
       const params = new URLSearchParams();
       if (query?.tag) params.append('tag', query.tag);
       if (query?.sourceType) params.append('source_type', query.sourceType);
-      if (query?.agentType) params.append('agent_type', query.agentType);
       if (query?.search) params.append('search', query.search);
       if (query?.page) params.append('page', query.page.toString());
       if (query?.pageSize) params.append('page_size', query.pageSize.toString());
@@ -932,7 +930,6 @@ class APIClient {
     list: (query?: MCPServerListQuery): Promise<MCPServerListResponse> => {
       const params = new URLSearchParams();
       if (query?.search) params.append('search', query.search);
-      if (query?.agentType) params.append('agent_type', query.agentType);
       if (query?.status) params.append('status', query.status);
       if (query?.page) params.append('page', query.page.toString());
       if (query?.pageSize) params.append('page_size', query.pageSize.toString());

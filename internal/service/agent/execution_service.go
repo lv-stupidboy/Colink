@@ -982,32 +982,15 @@ func (es *ExecutionService) loadBoundMCPServers(ctx context.Context, config *mod
 			zap.Error(err))
 		return nil
 	}
-	if baseAgent == nil {
-		return servers
-	}
-	filtered := make([]*model.MCPServer, 0, len(servers))
-	for _, server := range servers {
-		if matchesAgentTypeForRuntime(server.SupportedAgents, string(baseAgent.Type)) {
-			filtered = append(filtered, server)
-		}
+	baseAgentType := ""
+	if baseAgent != nil {
+		baseAgentType = string(baseAgent.Type)
 	}
 	logInfo("Loaded bound MCP servers",
 		zap.String("agentConfigID", config.ID.String()),
-		zap.String("baseAgentType", string(baseAgent.Type)),
-		zap.Int("count", len(filtered)))
-	return filtered
-}
-
-func matchesAgentTypeForRuntime(supportedAgents []string, agentType string) bool {
-	if len(supportedAgents) == 0 {
-		return agentType == "claude_code"
-	}
-	for _, supported := range supportedAgents {
-		if supported == agentType {
-			return true
-		}
-	}
-	return false
+		zap.String("baseAgentType", baseAgentType),
+		zap.Int("count", len(servers)))
+	return servers
 }
 
 // saveAgentMessage 保存Agent消息

@@ -3,7 +3,6 @@ package repo
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -26,12 +25,11 @@ func NewRuleRepository(db *sql.DB, dbType DBType) *RuleRepository {
 // Create 创建Rule
 func (r *RuleRepository) Create(ctx context.Context, rule *model.Rule) error {
 	query := `
-		INSERT INTO rules (id, name, description, supported_agents, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO rules (id, name, description, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?)
 	`
-	supportedAgents, _ := json.Marshal(rule.SupportedAgents)
 	_, err := r.DB().ExecContext(ctx, query,
-		rule.ID.String(), rule.Name, rule.Description, supportedAgents, rule.CreatedAt, rule.UpdatedAt,
+		rule.ID.String(), rule.Name, rule.Description, rule.CreatedAt, rule.UpdatedAt,
 	)
 	return err
 }
@@ -43,11 +41,10 @@ func scanRule(scanner interface {
 	rule := &model.Rule{}
 	var idStr string
 	var description sql.NullString
-	var supportedAgents []byte
 	var createdAt, updatedAt SQLiteTimeScanner
 
 	err := scanner.Scan(
-		&idStr, &rule.Name, &description, &supportedAgents, &createdAt, &updatedAt,
+		&idStr, &rule.Name, &description, &createdAt, &updatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -57,7 +54,6 @@ func scanRule(scanner interface {
 	if description.Valid {
 		rule.Description = description.String
 	}
-	json.Unmarshal(supportedAgents, &rule.SupportedAgents)
 	rule.CreatedAt = createdAt.Time
 	rule.UpdatedAt = updatedAt.Time
 
@@ -67,7 +63,7 @@ func scanRule(scanner interface {
 // FindByID 根据ID查找
 func (r *RuleRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.Rule, error) {
 	query := `
-		SELECT id, name, description, supported_agents, created_at, updated_at
+		SELECT id, name, description, created_at, updated_at
 		FROM rules WHERE id = ?
 	`
 	rule, err := scanRule(r.DB().QueryRowContext(ctx, query, id.String()))
@@ -83,7 +79,7 @@ func (r *RuleRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.Rul
 // FindByName 根据名称查找
 func (r *RuleRepository) FindByName(ctx context.Context, name string) (*model.Rule, error) {
 	query := `
-		SELECT id, name, description, supported_agents, created_at, updated_at
+		SELECT id, name, description, created_at, updated_at
 		FROM rules WHERE name = ?
 	`
 	rule, err := scanRule(r.DB().QueryRowContext(ctx, query, name))
@@ -105,17 +101,6 @@ func (r *RuleRepository) List(ctx context.Context, query *model.RuleListQuery) (
 		conditions = append(conditions, "(name LIKE ? OR description LIKE ?)")
 		searchPattern := "%" + query.Search + "%"
 		args = append(args, searchPattern, searchPattern)
-	}
-
-	// AgentType 过滤（向后兼容：空数组默认只支持 claude_code）
-	if query.AgentType != "" {
-		if query.AgentType == "claude_code" {
-			conditions = append(conditions, "(supported_agents = '[]' OR supported_agents LIKE ?)")
-			args = append(args, `%"claude_code"%`)
-		} else {
-			conditions = append(conditions, "supported_agents LIKE ?")
-			args = append(args, `%"`+query.AgentType+`"%`)
-		}
 	}
 
 	whereClause := ""
@@ -147,7 +132,7 @@ func (r *RuleRepository) List(ctx context.Context, query *model.RuleListQuery) (
 
 	// 查询列表
 	listQuery := `
-		SELECT id, name, description, supported_agents, created_at, updated_at
+		SELECT id, name, description, created_at, updated_at
 		FROM rules ` + whereClause + ` ORDER BY created_at DESC LIMIT ? OFFSET ?
 	`
 	args = append(args, pageSize, offset)
@@ -174,12 +159,11 @@ func (r *RuleRepository) List(ctx context.Context, query *model.RuleListQuery) (
 func (r *RuleRepository) Update(ctx context.Context, rule *model.Rule) error {
 	query := `
 		UPDATE rules
-		SET name = ?, description = ?, supported_agents = ?, updated_at = ?
+		SET name = ?, description = ?, updated_at = ?
 		WHERE id = ?
 	`
-	supportedAgents, _ := json.Marshal(rule.SupportedAgents)
 	_, err := r.DB().ExecContext(ctx, query,
-		rule.Name, rule.Description, supportedAgents, rule.UpdatedAt, rule.ID.String(),
+		rule.Name, rule.Description, rule.UpdatedAt, rule.ID.String(),
 	)
 	return err
 }
