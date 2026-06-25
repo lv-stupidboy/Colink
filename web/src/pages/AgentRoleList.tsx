@@ -699,6 +699,18 @@ const AgentRoleList: React.FC = () => {
     }
   };
 
+  // 构建 Agent → 团队 映射
+  const agentTeamsMap = useMemo(() => {
+    const map = new Map<string, string[]>();
+    workflows.forEach(w => {
+      (w.agentIds || []).forEach(agentId => {
+        if (!map.has(agentId)) map.set(agentId, []);
+        map.get(agentId)!.push(w.name);
+      });
+    });
+    return map;
+  }, [workflows]);
+
   // 分组显示：系统预置和自定义，支持团队筛选
   const { systemAgents, customAgents } = useMemo(() => {
     // 先获取选中团队中的 agentIds
@@ -750,6 +762,23 @@ const AgentRoleList: React.FC = () => {
           );
         }
         return <Tag>默认</Tag>;
+      },
+    },
+    {
+      title: '团队',
+      dataIndex: 'id',
+      key: 'team',
+      width: 180,
+      render: (id: string) => {
+        const teams = agentTeamsMap.get(id);
+        if (!teams || teams.length === 0) return <Text type="secondary">-</Text>;
+        return (
+          <Space size={4} wrap>
+            {teams.map(name => (
+              <Tag key={name} color="blue">{name}</Tag>
+            ))}
+          </Space>
+        );
       },
     },
     {
@@ -943,7 +972,7 @@ const AgentRoleList: React.FC = () => {
               onShowSizeChange: (_, size) => setSystemPageSize(size),
             }}
             size="small"
-            scroll={{ x: 930 }}
+            scroll={{ x: 1110 }}
           />
         </Card>
       )}
@@ -1022,7 +1051,7 @@ const AgentRoleList: React.FC = () => {
               onShowSizeChange: (_, size) => setCustomPageSize(size),
             }}
             size="small"
-            scroll={{ x: 930 }}
+            scroll={{ x: 1110 }}
           />
         )}
       </Card>
