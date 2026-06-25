@@ -174,7 +174,7 @@ const SkillLibrary: React.FC = () => {
         </p>
         <p style={{ color: 'var(--ant-color-text)' }}>点击选择技能目录</p>
         <p style={{ fontSize: 12, color: 'var(--ant-color-text-secondary)' }}>
-          目录需包含 SKILL.md 文件，最大 5MB
+          目录需包含 SKILL.md 文件，最大 10MB
         </p>
       </div>
     </>
@@ -555,8 +555,8 @@ const SkillLibrary: React.FC = () => {
 
     // 检查总大小
     const totalSize = Array.from(files).reduce((sum, f) => sum + f.size, 0);
-    if (totalSize > 5 * 1024 * 1024) {
-      message.error('目录总大小不能超过 5MB');
+    if (totalSize > 10 * 1024 * 1024) {
+      message.error('目录总大小不能超过 10MB');
       return;
     }
 
