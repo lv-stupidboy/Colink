@@ -1020,7 +1020,7 @@ func (s *Service) ImportConfirm(ctx context.Context, zipData []byte, confirm *mo
 
 	// 导入工作流
 	if confirm.WorkflowAction != "skip" {
-		_, detail := s.importWorkflow(ctx, manifest.Workflow, originalRoleIDToNewID)
+		_, detail := s.importWorkflow(ctx, manifest.Workflow, originalRoleIDToNewID, confirm.WorkflowAction == "overwrite")
 		result.Details = append(result.Details, detail)
 		switch detail.Status {
 		case "success":
@@ -1672,23 +1672,29 @@ func (s *Service) importSettings(ctx context.Context, tempDir string, item model
 		return roleID, originalIDStr, detail
 	}
 
-func (s *Service) importWorkflow(ctx context.Context, wf model.TeamPackageWorkflow, originalRoleIDToNewID map[string]uuid.UUID) (uuid.UUID, model.ImportDetail) {
+func (s *Service) importWorkflow(ctx context.Context, wf model.TeamPackageWorkflow, originalRoleIDToNewID map[string]uuid.UUID, overwrite bool) (uuid.UUID, model.ImportDetail) {
 	detail := model.ImportDetail{
 		AssetType: "workflow",
 		Name:      wf.Name,
 	}
 
-	// 检查是否已存在
+	// 检查是否已存在同名工作流
+	var existing *model.WorkflowTemplate
 	workflows, err := s.workflowRepo.FindAll(ctx)
 	if err == nil {
-		for _, existing := range workflows {
-			if existing.Name == wf.Name {
-				detail.Status = "skipped"
-				detail.Message = "已存在相同名称的 Team"
-				detail.ID = existing.ID.String() // 设置已存在的 workflow ID
-				return existing.ID, detail
+		for _, wfExisting := range workflows {
+			if wfExisting.Name == wf.Name {
+				existing = wfExisting
+				break
 			}
 		}
+	}
+
+	if existing != nil && !overwrite {
+		detail.Status = "skipped"
+		detail.Message = "已存在相同名称的 Team"
+		detail.ID = existing.ID.String()
+		return existing.ID, detail
 	}
 
 	// 更新 agentIds 映射：将原始ID替换为导入后的新ID
@@ -1732,6 +1738,28 @@ func (s *Service) importWorkflow(ctx context.Context, wf model.TeamPackageWorkfl
 	checkpointsJSON, _ := json.Marshal(wf.Checkpoints)
 
 	now := time.Now()
+
+	if existing != nil {
+		// 覆盖模式：保留原 ID / IsSystem / IsDefault / RoutableTeams，仅更新内容字段
+		existing.Description = wf.Description
+		existing.AgentIDs = agentIDsJSON
+		existing.Transitions = transitionsJSON
+		existing.Checkpoints = checkpointsJSON
+		existing.EstimatedTime = wf.EstimatedTime
+		existing.UpdatedAt = now
+
+		if err := s.workflowRepo.Update(ctx, existing); err != nil {
+			detail.Status = "failed"
+			detail.Message = fmt.Sprintf("更新 Team 记录失败: %v", err)
+			return uuid.Nil, detail
+		}
+
+		detail.Status = "success"
+		detail.Message = "已覆盖现有 Team"
+		detail.ID = existing.ID.String()
+		return existing.ID, detail
+	}
+
 	workflow := &model.WorkflowTemplate{
 		ID:            uuid.New(),
 		Name:          wf.Name,
