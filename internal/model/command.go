@@ -14,7 +14,6 @@ type Command struct {
 	Name            string    `json:"name"`
 	Description     string    `json:"description,omitempty"`
 	Content         string    `json:"content,omitempty"` // 文件内容（上传或查看时返回）
-	SupportedAgents []string  `json:"supportedAgents,omitempty"` // 支持的Agent类型
 	CreatedAt       time.Time `json:"createdAt"`
 	UpdatedAt       time.Time `json:"updatedAt"`
 }
@@ -52,20 +51,17 @@ type CreateCommandRequest struct {
 	Name            string   `json:"name" binding:"required"`
 	Description     string   `json:"description"`
 	Content         string   `json:"content"` // 命令内容（可选，传入则保存文件）
-	SupportedAgents []string `json:"supportedAgents"` // 支持的Agent类型（可选）
 }
 
 // UpdateCommandRequest 更新Command请求
 type UpdateCommandRequest struct {
 	Description     string   `json:"description"`
 	Content         string   `json:"content"` // 命令内容（可选，传入则保存文件）
-	SupportedAgents []string `json:"supportedAgents"` // 支持的Agent类型（可选）
 }
 
 // CommandListQuery Command列表查询参数
 type CommandListQuery struct {
 	Search    string `form:"search"`
-	AgentType string `form:"agent_type"` // 按Agent类型过滤
 	Page      int    `form:"page"`
 	PageSize  int    `form:"page_size"`
 }

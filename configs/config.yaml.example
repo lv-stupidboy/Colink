@@ -72,7 +72,7 @@ logging:
 skill:
   # 更新间隔格式: "30m", "1h", "2h30m"
   use_count_update_interval: "1h"
-  upload_max_size: 5
+  upload_max_size: 10
 
 # 子代理配置
 subagent:

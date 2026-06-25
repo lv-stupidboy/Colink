@@ -4,7 +4,6 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
-	"encoding/json"
 	"io"
 	"net/http"
 	"path/filepath"
@@ -88,20 +87,10 @@ func (h *SettingsHandler) Create(c *gin.Context) {
 	// 获取元数据
 	name := c.PostForm("name")
 	description := c.PostForm("description")
-	supportedAgentsJSON := c.PostForm("supportedAgents")
 
 	if name == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
 		return
-	}
-
-	// 解析 supportedAgents
-	var supportedAgents []string
-	if supportedAgentsJSON != "" {
-		if err := json.Unmarshal([]byte(supportedAgentsJSON), &supportedAgents); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "supportedAgents 格式错误"})
-			return
-		}
 	}
 
 	// 获取上传的文件
@@ -170,7 +159,6 @@ func (h *SettingsHandler) Create(c *gin.Context) {
 	req := &settings.CreateFromFileRequest{
 		Name:            name,
 		Description:     description,
-		SupportedAgents: supportedAgents,
 		Files:           files,
 	}
 
@@ -247,7 +235,6 @@ func (h *SettingsHandler) Update(c *gin.Context) {
 		"id":              settingsRecord.ID,
 		"name":            settingsRecord.Name,
 		"description":     settingsRecord.Description,
-		"supportedAgents": settingsRecord.SupportedAgents,
 		"updatedAt":       settingsRecord.UpdatedAt,
 		"affectedAgents":  affectedAgents,
 		"affectedCount":   affectedCount,

@@ -982,32 +982,15 @@ func (es *ExecutionService) loadBoundMCPServers(ctx context.Context, config *mod
 			zap.Error(err))
 		return nil
 	}
-	if baseAgent == nil {
-		return servers
-	}
-	filtered := make([]*model.MCPServer, 0, len(servers))
-	for _, server := range servers {
-		if matchesAgentTypeForRuntime(server.SupportedAgents, string(baseAgent.Type)) {
-			filtered = append(filtered, server)
-		}
+	baseAgentType := ""
+	if baseAgent != nil {
+		baseAgentType = string(baseAgent.Type)
 	}
 	logInfo("Loaded bound MCP servers",
 		zap.String("agentConfigID", config.ID.String()),
-		zap.String("baseAgentType", string(baseAgent.Type)),
-		zap.Int("count", len(filtered)))
-	return filtered
-}
-
-func matchesAgentTypeForRuntime(supportedAgents []string, agentType string) bool {
-	if len(supportedAgents) == 0 {
-		return agentType == "claude_code"
-	}
-	for _, supported := range supportedAgents {
-		if supported == agentType {
-			return true
-		}
-	}
-	return false
+		zap.String("baseAgentType", baseAgentType),
+		zap.Int("count", len(servers)))
+	return servers
 }
 
 // saveAgentMessage 保存Agent消息
@@ -1592,13 +1575,15 @@ func (es *ExecutionService) buildContextLayers(ctx context.Context, threadID uui
 	layers.Layer1 = ""
 
 	// 根据场景注入 Layer 0（角色定义）
-	// 规则：仅 New 场景注入（Resume 场景 CLI 内部已有）
+	// 规则：始终注入角色 prompt，防止 CLI 内部历史被压缩后角色边界模糊
+	// - New / A2A 场景：使用完整版（含治理摘要等）
+	// - Resume 场景：使用轻量版（仅角色定义 + SystemPrompt + 下游协作方）
 	if !isResume {
 		layers.Layer0 = es.buildDynamicSystemPromptFromContext(tc, config)
-		logInfo("buildContextLayers: 注入 Layer 0（角色定义）", zap.Int("length", len(layers.Layer0)))
+		logInfo("buildContextLayers: 注入 Layer 0（角色定义，完整版）", zap.Int("length", len(layers.Layer0)))
 	} else {
-		layers.Layer0 = ""
-		logInfo("buildContextLayers: 跳过 Layer 0（Resume 场景 CLI 内部已有）")
+		layers.Layer0 = es.buildResumeRolePromptFromContext(tc, config)
+		logInfo("buildContextLayers: 注入 Layer 0（角色定义，Resume 轻量版）", zap.Int("length", len(layers.Layer0)))
 	}
 
 	// 根据场景注入 ChainHistory（A2A 链路历史）
@@ -1772,6 +1757,49 @@ func (es *ExecutionService) buildDynamicSystemPromptFromContext(tc *ThreadContex
 	}
 
 	sb.WriteString("\n---\n\n")
+
+	return sb.String()
+}
+
+// buildResumeRolePromptFromContext 构建 Resume 场景下注入的角色提示（轻量版）
+// 仅注入角色定义 + SystemPrompt + 下游协作方，去掉治理摘要等大体积内容
+// 目的：CLI 内部历史会被压缩，每轮注入角色定义抵抗上下文压缩、防止职责边界模糊
+func (es *ExecutionService) buildResumeRolePromptFromContext(tc *ThreadContext, config *model.AgentRoleConfig) string {
+	var sb strings.Builder
+
+	// 1. 角色定义（最核心）
+	sb.WriteString(fmt.Sprintf("你是 %s (%s)。\n\n", config.Name, config.Description))
+	sb.WriteString(config.SystemPrompt)
+	sb.WriteString("\n")
+
+	// 2. 下游协作方（简短，影响 A2A 路由）
+	var transitions []model.Transition
+	agentIDStr := config.ID.String()
+	for _, t := range tc.Transitions {
+		if t.FromAgentID == agentIDStr {
+			transitions = append(transitions, t)
+		}
+	}
+
+	if len(transitions) > 0 {
+		agentMap := make(map[string]*model.AgentRoleConfig)
+		for _, agent := range tc.AllowedAgents {
+			agentMap[agent.ID.String()] = agent
+		}
+		sb.WriteString("\n**你的下游协作方**：\n")
+		for _, t := range transitions {
+			toAgent := agentMap[t.ToAgentID]
+			var hint string
+			if t.TriggerHint != "" {
+				hint = t.TriggerHint
+			} else if toAgent != nil {
+				hint = generateTriggerHint(toAgent)
+			} else {
+				hint = fmt.Sprintf("@%s", t.ToAgentID[:8])
+			}
+			sb.WriteString(fmt.Sprintf("- %s\n", hint))
+		}
+	}
 
 	return sb.String()
 }
@@ -2592,12 +2620,24 @@ func (es *ExecutionService) CancelAgent(ctx context.Context, invocationID uuid.U
 	// 这样当 CLI 被 kill 报错时，检查 cancelled 状态才能正确跳过
 	invocation.Status = model.InvocationStatusCancelled
 	invocation.CompletedAt = timePtr(time.Now())
+
+	// 关键：保留已有的 sessionId（cli 缓存或 ACP），以便下一轮对话可以 resume 上下文
+	if invocation.SessionID == "" && invocation.AgentConfigID != uuid.Nil {
+		sessionKey := fmt.Sprintf("%s:%s", invocation.ThreadID.String(), invocation.AgentConfigID.String())
+		es.csMu.RLock()
+		if cached, ok := es.cliSessions[sessionKey]; ok && cached != "" {
+			invocation.SessionID = cached
+		}
+		es.csMu.RUnlock()
+	}
+
 	if err := es.invocationRepo.Update(ctx, invocation); err != nil {
 		logError("Failed to update invocation status", zap.Error(err))
 		return fmt.Errorf("failed to update invocation status: %w", err)
 	}
 	logInfo("CancelAgent: invocation status updated to cancelled (before kill)",
-		zap.String("invocationID", invocationID.String()))
+		zap.String("invocationID", invocationID.String()),
+		zap.String("sessionId", invocation.SessionID))
 
 	// 2. 广播取消状态（让前端知道）
 	es.broadcastStatus(invocation.ThreadID, invocation.ID, "cancelled", invocation.Role, "", invocation.AgentConfigID.String(), "")
@@ -2669,14 +2709,8 @@ func (es *ExecutionService) CancelAgent(ctx context.Context, invocationID uuid.U
 	}
 	es.mu.Unlock()
 
-	// 6. 清除 CLI session 缓存（避免下次复用残留状态的 session）
-	if invocation.AgentConfigID != uuid.Nil {
-		sessionKey := fmt.Sprintf("%s:%s", invocation.ThreadID.String(), invocation.AgentConfigID.String())
-		es.csMu.Lock()
-		delete(es.cliSessions, sessionKey)
-		es.csMu.Unlock()
-		logInfo("CancelAgent: cleared CLI session cache", zap.String("sessionKey", sessionKey))
-	}
+	// 注意：故意不清 cliSessions 缓存，让下一轮对话仍可 resume 之前的上下文
+	// （之前会清掉，导致用户取消后再发消息丢失全部上下文）
 
 	return nil
 }
@@ -3891,32 +3925,40 @@ func (es *ExecutionService) shouldUseResumeStrategy(ctx context.Context, threadI
 
 	// 检查最后一个完成的 Agent 是否与目标 Agent **完全相同**（同一个 Agent ID）
 	// 只有同一个 Agent 才能 resume，跨 Agent 调用（即使同角色）应使用新会话
-	lastInvocation := lastCompleted[0] // 第一个是最近的
+	// 取最近一条该 Agent 的记录（优先有 sessionId 的）
+	var lastInvocation *model.AgentInvocation
+	for _, inv := range lastCompleted {
+		if inv.AgentConfigID != targetConfigID {
+			continue
+		}
+		if lastInvocation == nil {
+			lastInvocation = inv
+		}
+		if inv.SessionID != "" {
+			lastInvocation = inv
+			break
+		}
+	}
+	if lastInvocation == nil {
+		logInfo("shouldUseResumeStrategy: 没有匹配的最近 invocation",
+			zap.String("targetConfigID", targetConfigID.String()))
+		return "", ""
+	}
 
 	// 详细日志：打印两个 ID 的完整值进行比较
 	logInfo("shouldUseResumeStrategy: ID对比详情",
 		zap.String("targetConfigID", targetConfigID.String()),
 		zap.String("lastCompletedConfigID", lastInvocation.AgentConfigID.String()),
 		zap.Bool("相等", lastInvocation.AgentConfigID == targetConfigID),
-		zap.String("lastCompletedName", lastInvocation.AgentName))
+		zap.String("lastCompletedName", lastInvocation.AgentName),
+		zap.String("lastSessionId", lastInvocation.SessionID),
+		zap.String("lastStatus", string(lastInvocation.Status)))
 
-	if lastInvocation.AgentConfigID == targetConfigID {
-		logInfo("shouldUseResumeStrategy: 目标 Agent 与最后一个完成的 Agent 相同，使用 resume",
-			zap.String("targetConfigID", targetConfigID.String()),
-			zap.String("lastCompletedConfigID", lastInvocation.AgentConfigID.String()),
-			zap.String("lastCompletedRole", string(lastInvocation.Role)))
-		return SessionStrategyResume, lastInvocation.SessionID
-	}
-
-	// 跨 Agent 调用：使用新会话，不 resume
-	// 即使是同角色，不同 Agent 之间也不共享会话上下文
-	logInfo("shouldUseResumeStrategy: 目标 Agent 与最后一个完成的 Agent 不同，使用新会话",
+	logInfo("shouldUseResumeStrategy: 目标 Agent 与最后一个完成的 Agent 相同，使用 resume",
 		zap.String("targetConfigID", targetConfigID.String()),
 		zap.String("lastCompletedConfigID", lastInvocation.AgentConfigID.String()),
-		zap.String("targetRole", "N/A"),
 		zap.String("lastCompletedRole", string(lastInvocation.Role)))
-
-	return "", ""
+	return SessionStrategyResume, lastInvocation.SessionID
 }
 
 // shouldAutoResume 判断是否应该自动使用 resume 会话策略
@@ -3931,29 +3973,40 @@ func (es *ExecutionService) shouldAutoResume(ctx context.Context, threadID uuid.
 
 	// 只有同一个 Agent ID 才能 resume
 	// 跨 Agent 调用（即使同角色）应使用新会话
-	lastInvocation := lastCompleted[0] // 第一个是最近的
+	// 取最近一条该 Agent 的记录（优先有 sessionId 的，避免取消后 sessionId 为空的记录覆盖可 resume 的旧记录）
+	var lastInvocation *model.AgentInvocation
+	for _, inv := range lastCompleted {
+		if inv.AgentConfigID != targetConfigID {
+			continue
+		}
+		if lastInvocation == nil {
+			lastInvocation = inv
+		}
+		if inv.SessionID != "" {
+			lastInvocation = inv
+			break
+		}
+	}
+	if lastInvocation == nil {
+		logInfo("shouldAutoResume: 没有匹配的最近 invocation",
+			zap.String("targetConfigID", targetConfigID.String()))
+		return "", ""
+	}
 
 	// 详细日志：打印两个 ID 的完整值进行比较
 	logInfo("shouldAutoResume: ID对比详情",
 		zap.String("targetConfigID", targetConfigID.String()),
 		zap.String("lastCompletedConfigID", lastInvocation.AgentConfigID.String()),
 		zap.Bool("相等", lastInvocation.AgentConfigID == targetConfigID),
-		zap.String("lastCompletedName", lastInvocation.AgentName))
+		zap.String("lastCompletedName", lastInvocation.AgentName),
+		zap.String("lastSessionId", lastInvocation.SessionID),
+		zap.String("lastStatus", string(lastInvocation.Status)))
 
-	if lastInvocation.AgentConfigID == targetConfigID {
-		logInfo("shouldAutoResume: 目标 Agent 与最后一个完成的 Agent 相同，自动使用 resume",
-			zap.String("targetConfigID", targetConfigID.String()),
-			zap.String("lastCompletedConfigID", lastInvocation.AgentConfigID.String()),
-			zap.String("lastCompletedRole", string(lastInvocation.Role)))
-		return SessionStrategyResume, lastInvocation.SessionID
-	}
-
-	// 跨 Agent：不自动 resume
-	logInfo("shouldAutoResume: 目标 Agent 与最后一个完成的 Agent 不同，使用新会话",
+	logInfo("shouldAutoResume: 目标 Agent 与最后一个完成的 Agent 相同，自动使用 resume",
 		zap.String("targetConfigID", targetConfigID.String()),
-		zap.String("lastCompletedConfigID", lastInvocation.AgentConfigID.String()))
-
-	return "", ""
+		zap.String("lastCompletedConfigID", lastInvocation.AgentConfigID.String()),
+		zap.String("lastCompletedRole", string(lastInvocation.Role)))
+	return SessionStrategyResume, lastInvocation.SessionID
 }
 
 // matchCondition 匹配条件表达式

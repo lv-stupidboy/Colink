@@ -14,7 +14,6 @@ type Subagent struct {
 	Name            string    `json:"name"`
 	Description     string    `json:"description,omitempty"`
 	Content         string    `json:"content"` // Markdown内容（从文件读取，不存数据库）
-	SupportedAgents []string  `json:"supportedAgents,omitempty"` // 支持的Agent类型
 	CreatedAt       time.Time `json:"createdAt"`
 	UpdatedAt       time.Time `json:"updatedAt"`
 }
@@ -40,20 +39,17 @@ type CreateSubagentRequest struct {
 	Name            string   `json:"name" binding:"required"`
 	Description     string   `json:"description"`
 	Content         string   `json:"content" binding:"required"`
-	SupportedAgents []string `json:"supportedAgents"` // 支持的Agent类型（可选）
 }
 
 // UpdateSubagentRequest 更新Subagent请求
 type UpdateSubagentRequest struct {
 	Description     string   `json:"description"`
 	Content         string   `json:"content"`
-	SupportedAgents []string `json:"supportedAgents"` // 支持的Agent类型（可选）
 }
 
 // SubagentListQuery Subagent列表查询参数
 type SubagentListQuery struct {
 	Search    string `form:"search"`
-	AgentType string `form:"agent_type"` // 按Agent类型过滤
 	Page      int    `form:"page"`
 	PageSize  int    `form:"page_size"`
 }

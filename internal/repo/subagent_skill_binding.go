@@ -58,7 +58,7 @@ func (r *SubagentSkillBindingRepository) FindBySubagentID(ctx context.Context, s
 // FindSkillsBySubagentID 根据Subagent ID查找绑定的Skill详情列表
 func (r *SubagentSkillBindingRepository) FindSkillsBySubagentID(ctx context.Context, subagentID uuid.UUID) ([]*model.Skill, error) {
 	query := `
-		SELECT s.id, s.name, s.description, s.tags, s.source_type, s.source_registry_id, s.author_id, s.project_id, s.supported_agents, s.use_count, s.status, s.is_public, s.created_at, s.updated_at, s.source_path
+		SELECT s.id, s.name, s.description, s.tags, s.source_type, s.source_registry_id, s.author_id, s.project_id, s.use_count, s.status, s.is_public, s.created_at, s.updated_at, s.source_path
 		FROM skills s
 		INNER JOIN subagent_skill_bindings b ON s.id = b.skill_id
 		WHERE b.subagent_id = ?

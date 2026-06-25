@@ -46,7 +46,6 @@ type MCPServer struct {
 	URL             string            `json:"url,omitempty"`
 	Headers         map[string]string `json:"headers,omitempty"`
 	SourceType      MCPSourceType     `json:"sourceType"`
-	SupportedAgents []string          `json:"supportedAgents,omitempty"`
 	Status          MCPStatus         `json:"status"`
 	CreatedAt       time.Time         `json:"createdAt"`
 	UpdatedAt       time.Time         `json:"updatedAt"`
@@ -81,7 +80,6 @@ type CreateMCPServerRequest struct {
 	URL             string            `json:"url"`
 	Headers         map[string]string `json:"headers"`
 	SourceType      MCPSourceType     `json:"sourceType"`
-	SupportedAgents []string          `json:"supportedAgents"`
 	Status          MCPStatus         `json:"status"`
 }
 
@@ -96,14 +94,12 @@ type UpdateMCPServerRequest struct {
 	URL             *string           `json:"url"`
 	Headers         map[string]string `json:"headers"`
 	SourceType      *MCPSourceType    `json:"sourceType"`
-	SupportedAgents []string          `json:"supportedAgents"`
 	Status          *MCPStatus        `json:"status"`
 }
 
 // MCPServerListQuery MCP server list query.
 type MCPServerListQuery struct {
 	Search    string `form:"search"`
-	AgentType string `form:"agent_type"`
 	Status    string `form:"status"`
 	Page      int    `form:"page"`
 	PageSize  int    `form:"page_size"`

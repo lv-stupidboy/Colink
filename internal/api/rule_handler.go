@@ -172,7 +172,6 @@ func (h *RuleHandler) Update(c *gin.Context) {
 		"id":              r.ID,
 		"name":            r.Name,
 		"description":     r.Description,
-		"supportedAgents": r.SupportedAgents,
 		"updatedAt":       r.UpdatedAt,
 		"affectedAgents":  affectedAgents,
 		"affectedCount":   affectedCount,

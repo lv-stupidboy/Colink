@@ -3,7 +3,6 @@ package repo
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -26,12 +25,11 @@ func NewCommandRepository(db *sql.DB, dbType DBType) *CommandRepository {
 // Create 创建Command
 func (r *CommandRepository) Create(ctx context.Context, command *model.Command) error {
 	query := `
-		INSERT INTO commands (id, name, description, supported_agents, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?)
+		INSERT INTO commands (id, name, description, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?)
 	`
-	supportedAgents, _ := json.Marshal(command.SupportedAgents)
 	_, err := r.DB().ExecContext(ctx, query,
-		command.ID.String(), command.Name, command.Description, supportedAgents, command.CreatedAt, command.UpdatedAt,
+		command.ID.String(), command.Name, command.Description, command.CreatedAt, command.UpdatedAt,
 	)
 	return err
 }
@@ -43,11 +41,10 @@ func scanCommand(scanner interface {
 	command := &model.Command{}
 	var idStr string
 	var description sql.NullString
-	var supportedAgents []byte
 	var createdAt, updatedAt SQLiteTimeScanner
 
 	err := scanner.Scan(
-		&idStr, &command.Name, &description, &supportedAgents, &createdAt, &updatedAt,
+		&idStr, &command.Name, &description, &createdAt, &updatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -57,7 +54,6 @@ func scanCommand(scanner interface {
 	if description.Valid {
 		command.Description = description.String
 	}
-	json.Unmarshal(supportedAgents, &command.SupportedAgents)
 	command.CreatedAt = createdAt.Time
 	command.UpdatedAt = updatedAt.Time
 
@@ -67,7 +63,7 @@ func scanCommand(scanner interface {
 // FindByID 根据ID查找
 func (r *CommandRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.Command, error) {
 	query := `
-		SELECT id, name, description, supported_agents, created_at, updated_at
+		SELECT id, name, description, created_at, updated_at
 		FROM commands WHERE id = ?
 	`
 	command, err := scanCommand(r.DB().QueryRowContext(ctx, query, id.String()))
@@ -83,7 +79,7 @@ func (r *CommandRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.
 // FindByName 根据名称查找
 func (r *CommandRepository) FindByName(ctx context.Context, name string) (*model.Command, error) {
 	query := `
-		SELECT id, name, description, supported_agents, created_at, updated_at
+		SELECT id, name, description, created_at, updated_at
 		FROM commands WHERE name = ?
 	`
 	command, err := scanCommand(r.DB().QueryRowContext(ctx, query, name))
@@ -96,21 +92,6 @@ func (r *CommandRepository) FindByName(ctx context.Context, name string) (*model
 	return command, nil
 }
 
-// matchesAgentType 检查资产是否支持指定的Agent类型（向后兼容）
-func matchesAgentType(supportedAgents []string, agentType string) bool {
-	// 空数组向后兼容：默认只支持 claude_code
-	if len(supportedAgents) == 0 {
-		return agentType == "claude_code"
-	}
-	// 非空数组：检查是否包含指定类型
-	for _, a := range supportedAgents {
-		if a == agentType {
-			return true
-		}
-	}
-	return false
-}
-
 // List 列出Commands，支持分页和搜索
 func (r *CommandRepository) List(ctx context.Context, query *model.CommandListQuery) ([]*model.Command, int64, error) {
 	var conditions []string
@@ -120,19 +101,6 @@ func (r *CommandRepository) List(ctx context.Context, query *model.CommandListQu
 		conditions = append(conditions, "(name LIKE ? OR description LIKE ?)")
 		searchPattern := "%" + query.Search + "%"
 		args = append(args, searchPattern, searchPattern)
-	}
-
-	// AgentType 过滤（向后兼容：空数组默认只支持 claude_code）
-	if query.AgentType != "" {
-		if query.AgentType == "claude_code" {
-			// claude_code: 包含空数组（向后兼容）或显式包含 claude_code
-			conditions = append(conditions, "(supported_agents = '[]' OR supported_agents LIKE ?)")
-			args = append(args, `%"claude_code"%`)
-		} else {
-			// 其他类型：必须显式包含
-			conditions = append(conditions, "supported_agents LIKE ?")
-			args = append(args, `%"`+query.AgentType+`"%`)
-		}
 	}
 
 	whereClause := ""
@@ -164,7 +132,7 @@ func (r *CommandRepository) List(ctx context.Context, query *model.CommandListQu
 
 	// 查询列表
 	listQuery := `
-		SELECT id, name, description, supported_agents, created_at, updated_at
+		SELECT id, name, description, created_at, updated_at
 		FROM commands ` + whereClause + ` ORDER BY created_at DESC LIMIT ? OFFSET ?
 	`
 	args = append(args, pageSize, offset)
@@ -191,12 +159,11 @@ func (r *CommandRepository) List(ctx context.Context, query *model.CommandListQu
 func (r *CommandRepository) Update(ctx context.Context, command *model.Command) error {
 	query := `
 		UPDATE commands
-		SET name = ?, description = ?, supported_agents = ?, updated_at = ?
+		SET name = ?, description = ?, updated_at = ?
 		WHERE id = ?
 	`
-	supportedAgents, _ := json.Marshal(command.SupportedAgents)
 	_, err := r.DB().ExecContext(ctx, query,
-		command.Name, command.Description, supportedAgents, command.UpdatedAt, command.ID.String(),
+		command.Name, command.Description, command.UpdatedAt, command.ID.String(),
 	)
 	return err
 }

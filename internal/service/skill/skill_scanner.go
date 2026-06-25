@@ -651,7 +651,6 @@ func (s *SkillScanner) ImportSkills(ctx context.Context, req *model.BatchImportR
 				// 更新元数据（替换策略）
 				existing.Description = item.Description
 				existing.Tags = item.Tags
-				existing.SupportedAgents = item.SupportedAgents
 				existing.SourceType = model.SkillSourceFederated
 				existing.SourceRegistryID = registry.ID
 				existing.SourcePath = item.Path // 联邦源仓库相对路径
@@ -696,7 +695,6 @@ func (s *SkillScanner) ImportSkills(ctx context.Context, req *model.BatchImportR
 				SourceType:       model.SkillSourceFederated,
 				SourceRegistryID: registry.ID,
 				SourcePath:       item.Path, // 联邦源仓库相对路径
-				SupportedAgents:  item.SupportedAgents,
 				IsPublic:         true, // 联邦技能固定公开
 				Status:           model.SkillStatusActive,
 				UseCount:         0,

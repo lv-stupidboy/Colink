@@ -58,17 +58,10 @@ func (s *Service) Create(ctx context.Context, req *model.CreateRuleRequest) (*mo
 		return nil, ErrRuleNameExists
 	}
 
-	// 处理 SupportedAgents：空数组默认为 ["claude_code"]
-	supportedAgents := req.SupportedAgents
-	if len(supportedAgents) == 0 {
-		supportedAgents = []string{"claude_code"}
-	}
-
 	rule := &model.Rule{
 		ID:              uuid.New(),
 		Name:            req.Name,
 		Description:     req.Description,
-		SupportedAgents: supportedAgents,
 		CreatedAt:       time.Now(),
 		UpdatedAt:       time.Now(),
 	}
@@ -158,10 +151,6 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, req *model.UpdateRul
 
 	if req.Description != "" {
 		rule.Description = req.Description
-	}
-	// 更新 SupportedAgents（如果提供了）
-	if req.SupportedAgents != nil {
-		rule.SupportedAgents = req.SupportedAgents
 	}
 	// 更新内容文件
 	if s.storagePath != "" && req.Content != "" {

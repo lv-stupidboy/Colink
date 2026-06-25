@@ -81,9 +81,8 @@ func TestSettingsHandler_CreateFromZipLifecycle(t *testing.T) {
 	})
 
 	w := performMultipart(f.router, "/api/v1/settings", map[string]string{
-		"name":            "uploaded-settings",
-		"description":     "Uploaded settings",
-		"supportedAgents": `["claude_code"]`,
+		"name":        "uploaded-settings",
+		"description": "Uploaded settings",
 	}, "file", "settings.zip", zipBytes)
 	require.Equal(t, http.StatusCreated, w.Code)
 	assert.Contains(t, w.Body.String(), "uploaded-settings")

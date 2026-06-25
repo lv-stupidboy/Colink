@@ -27,10 +27,9 @@ func NewSkillRepository(db *sql.DB, dbType DBType) *SkillRepository {
 // Create 创建Skill
 func (r *SkillRepository) Create(ctx context.Context, skill *model.Skill) error {
 	query := `
-		INSERT INTO skills (id, name, description, tags, source_type, source_registry_id, source_path, author_id, project_id, supported_agents, use_count, status, is_public, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO skills (id, name, description, tags, source_type, source_registry_id, source_path, author_id, project_id, use_count, status, is_public, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
-	supportedAgents, _ := json.Marshal(skill.SupportedAgents)
 	tags, _ := json.Marshal(skill.Tags)
 
 	var sourceRegistryID, authorID, projectID interface{}
@@ -45,7 +44,7 @@ func (r *SkillRepository) Create(ctx context.Context, skill *model.Skill) error 
 	}
 
 	_, err := r.DB().ExecContext(ctx, query,
-		skill.ID.String(), skill.Name, skill.Description, tags, skill.SourceType, sourceRegistryID, skill.SourcePath, authorID, projectID, supportedAgents, skill.UseCount, skill.Status, skill.IsPublic, skill.CreatedAt, skill.UpdatedAt,
+		skill.ID.String(), skill.Name, skill.Description, tags, skill.SourceType, sourceRegistryID, skill.SourcePath, authorID, projectID, skill.UseCount, skill.Status, skill.IsPublic, skill.CreatedAt, skill.UpdatedAt,
 	)
 	return err
 }
@@ -57,12 +56,12 @@ func scanSkill(scanner interface {
 	skill := &model.Skill{}
 	var idStr string
 	var description sql.NullString
-	var tags, supportedAgents []byte
+	var tags []byte
 	var sourceRegistryID, authorID, projectID, sourcePath sql.NullString
 	var createdAt, updatedAt SQLiteTimeScanner
 
 	err := scanner.Scan(
-		&idStr, &skill.Name, &description, &tags, &skill.SourceType, &sourceRegistryID, &authorID, &projectID, &supportedAgents, &skill.UseCount, &skill.Status, &skill.IsPublic, &createdAt, &updatedAt, &sourcePath,
+		&idStr, &skill.Name, &description, &tags, &skill.SourceType, &sourceRegistryID, &authorID, &projectID, &skill.UseCount, &skill.Status, &skill.IsPublic, &createdAt, &updatedAt, &sourcePath,
 	)
 	if err != nil {
 		return nil, err
@@ -85,7 +84,6 @@ func scanSkill(scanner interface {
 	if sourcePath.Valid {
 		skill.SourcePath = sourcePath.String
 	}
-	json.Unmarshal(supportedAgents, &skill.SupportedAgents)
 	skill.CreatedAt = createdAt.Time
 	skill.UpdatedAt = updatedAt.Time
 
@@ -95,7 +93,7 @@ func scanSkill(scanner interface {
 // FindByID 根据ID查找
 func (r *SkillRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.Skill, error) {
 	query := `
-		SELECT id, name, description, tags, source_type, source_registry_id, author_id, project_id, supported_agents, use_count, status, is_public, created_at, updated_at, source_path
+		SELECT id, name, description, tags, source_type, source_registry_id, author_id, project_id, use_count, status, is_public, created_at, updated_at, source_path
 		FROM skills WHERE id = ?
 	`
 	skill, err := scanSkill(r.DB().QueryRowContext(ctx, query, id.String()))
@@ -111,7 +109,7 @@ func (r *SkillRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.Sk
 // FindByName 根据名称查找
 func (r *SkillRepository) FindByName(ctx context.Context, name string) (*model.Skill, error) {
 	query := `
-		SELECT id, name, description, tags, source_type, source_registry_id, author_id, project_id, supported_agents, use_count, status, is_public, created_at, updated_at, source_path
+		SELECT id, name, description, tags, source_type, source_registry_id, author_id, project_id, use_count, status, is_public, created_at, updated_at, source_path
 		FROM skills WHERE name = ?
 	`
 	skill, err := scanSkill(r.DB().QueryRowContext(ctx, query, name))
@@ -127,7 +125,7 @@ func (r *SkillRepository) FindByName(ctx context.Context, name string) (*model.S
 // FindBySourcePath 根据名称 + 联邦源ID + 路径查找（精确匹配）
 func (r *SkillRepository) FindBySourcePath(ctx context.Context, name string, registryID uuid.UUID, path string) (*model.Skill, error) {
 	query := `
-		SELECT id, name, description, tags, source_type, source_registry_id, author_id, project_id, supported_agents, use_count, status, is_public, created_at, updated_at, source_path
+		SELECT id, name, description, tags, source_type, source_registry_id, author_id, project_id, use_count, status, is_public, created_at, updated_at, source_path
 		FROM skills
 		WHERE name = ? AND source_registry_id = ? AND source_path = ?
 	`
@@ -161,11 +159,6 @@ func (r *SkillRepository) List(ctx context.Context, query *model.SkillListQuery)
 		searchPattern := "%" + query.Search + "%"
 		args = append(args, searchPattern, searchPattern)
 	}
-	if query.AgentType != "" {
-		// 使用 LIKE 模糊匹配 JSON 数组（兼容 SQLite 和 MySQL）
-		conditions = append(conditions, "supported_agents LIKE ?")
-		args = append(args, `%"`+query.AgentType+`"%`)
-	}
 
 	whereClause := ""
 	if len(conditions) > 0 {
@@ -196,7 +189,7 @@ func (r *SkillRepository) List(ctx context.Context, query *model.SkillListQuery)
 
 	// 查询列表
 	listQuery := `
-		SELECT id, name, description, tags, source_type, source_registry_id, author_id, project_id, supported_agents, use_count, status, is_public, created_at, updated_at, source_path
+		SELECT id, name, description, tags, source_type, source_registry_id, author_id, project_id, use_count, status, is_public, created_at, updated_at, source_path
 		FROM skills ` + whereClause + ` ORDER BY created_at DESC LIMIT ? OFFSET ?
 	`
 	args = append(args, pageSize, offset)
@@ -225,10 +218,9 @@ func (r *SkillRepository) Update(ctx context.Context, skill *model.Skill) error 
 	skill.UpdatedAt = now
 	query := `
 		UPDATE skills
-		SET name = ?, description = ?, tags = ?, source_type = ?, source_registry_id = ?, source_path = ?, author_id = ?, project_id = ?, supported_agents = ?, use_count = ?, status = ?, is_public = ?, updated_at = ?
+		SET name = ?, description = ?, tags = ?, source_type = ?, source_registry_id = ?, source_path = ?, author_id = ?, project_id = ?, use_count = ?, status = ?, is_public = ?, updated_at = ?
 		WHERE id = ?
 	`
-	supportedAgents, _ := json.Marshal(skill.SupportedAgents)
 	tags, _ := json.Marshal(skill.Tags)
 
 	var sourceRegistryID, authorID, projectID interface{}
@@ -243,7 +235,7 @@ func (r *SkillRepository) Update(ctx context.Context, skill *model.Skill) error 
 	}
 
 	_, err := r.DB().ExecContext(ctx, query,
-		skill.Name, skill.Description, tags, skill.SourceType, sourceRegistryID, skill.SourcePath, authorID, projectID, supportedAgents, skill.UseCount, skill.Status, skill.IsPublic, now, skill.ID.String(),
+		skill.Name, skill.Description, tags, skill.SourceType, sourceRegistryID, skill.SourcePath, authorID, projectID, skill.UseCount, skill.Status, skill.IsPublic, now, skill.ID.String(),
 	)
 	return err
 }

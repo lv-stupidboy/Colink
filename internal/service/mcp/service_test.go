@@ -51,7 +51,6 @@ func setupMCPServiceTest(t *testing.T) (*Service, *sql.DB) {
 			url TEXT,
 			headers TEXT NOT NULL DEFAULT '{}',
 			source_type TEXT NOT NULL DEFAULT 'personal',
-			supported_agents TEXT NOT NULL DEFAULT '["claude_code"]',
 			status TEXT NOT NULL DEFAULT 'active',
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -113,17 +112,13 @@ func TestMCPServiceFunctionalFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create stdio server: %v", err)
 	}
-	if got := stdioServer.SupportedAgents; len(got) != 1 || got[0] != "claude_code" {
-		t.Fatalf("expected default supported agent claude_code, got %#v", got)
-	}
 
 	httpServer, err := svc.Create(ctx, &model.CreateMCPServerRequest{
-		Name:            "docs-search",
-		Transport:       model.MCPTransportHTTP,
-		URL:             "https://example.test/mcp",
-		Headers:         map[string]string{"Authorization": "Bearer ${env:DOCS_TOKEN}"},
-		SupportedAgents: []string{"open_code", "hermes"},
-		Status:          model.MCPStatusActive,
+		Name:      "docs-search",
+		Transport: model.MCPTransportHTTP,
+		URL:       "https://example.test/mcp",
+		Headers:   map[string]string{"Authorization": "Bearer ${env:DOCS_TOKEN}"},
+		Status:    model.MCPStatusActive,
 	})
 	if err != nil {
 		t.Fatalf("failed to create http server: %v", err)
@@ -136,17 +131,16 @@ func TestMCPServiceFunctionalFlow(t *testing.T) {
 		t.Fatal("expected stdio server without command to fail")
 	}
 
-	openCodeServers, total, err := svc.List(ctx, &model.MCPServerListQuery{
-		AgentType: "open_code",
-		Status:    "active",
-		Page:      1,
-		PageSize:  10,
+	allServers, total, err := svc.List(ctx, &model.MCPServerListQuery{
+		Status:   "active",
+		Page:     1,
+		PageSize: 10,
 	})
 	if err != nil {
 		t.Fatalf("failed to list servers: %v", err)
 	}
-	if total != 1 || len(openCodeServers) != 1 || openCodeServers[0].ID != httpServer.ID {
-		t.Fatalf("expected only docs-search for open_code, total=%d servers=%#v", total, openCodeServers)
+	if total != 2 || len(allServers) != 2 {
+		t.Fatalf("expected 2 active servers, total=%d servers=%#v", total, allServers)
 	}
 
 	disabled := model.MCPStatusDisabled

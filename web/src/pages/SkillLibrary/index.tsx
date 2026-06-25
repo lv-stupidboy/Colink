@@ -16,8 +16,7 @@ import {
 } from '@ant-design/icons';
 import JSZip from 'jszip';
 import api from '@/api/client';
-import { getTypeColorByIndex, AGENT_TYPE_COLORS } from '@/config/agentTypeColors';
-import type { Skill, SkillSourceType, BuiltInTagCategory, SkillRegistry, RemoteSkill, ScanResult, SkillImportItem, BaseAgentTypeInfo } from '@/types';
+import type { Skill, SkillSourceType, BuiltInTagCategory, SkillRegistry, RemoteSkill, ScanResult, SkillImportItem } from '@/types';
 
 const { Title, Text, Paragraph } = Typography;
 const { CheckableTag: CheckableTagAnt } = Tag;
@@ -111,7 +110,6 @@ const SkillLibrary: React.FC = () => {
   const [searchText, setSearchText] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [sourceFilter, setSourceFilter] = useState<string>('');
-  const [agentTypeFilter, setAgentTypeFilter] = useState<string>('');
   const [allTags, setAllTags] = useState<string[]>([]);
   const [form] = Form.useForm();
 
@@ -130,7 +128,6 @@ const SkillLibrary: React.FC = () => {
   const [conflictItems, setConflictItems] = useState<RemoteSkill[]>([]);
   const [conflictChoices, setConflictChoices] = useState<Record<string, 'create' | 'update'>>({});
   const [currentRegistryName, setCurrentRegistryName] = useState('');
-  const [unifiedAgents, setUnifiedAgents] = useState<string[]>([]);
   // 冲突弹窗搜索状态
   const [conflictSearchText, setConflictSearchText] = useState('');
   // 扫描弹窗搜索状态
@@ -177,13 +174,11 @@ const SkillLibrary: React.FC = () => {
         </p>
         <p style={{ color: 'var(--ant-color-text)' }}>点击选择技能目录</p>
         <p style={{ fontSize: 12, color: 'var(--ant-color-text-secondary)' }}>
-          目录需包含 SKILL.md 文件，最大 5MB
+          目录需包含 SKILL.md 文件
         </p>
       </div>
     </>
   );
-
-  const [agentTypes, setAgentTypes] = useState<BaseAgentTypeInfo[]>([]);
 
   const loadSkills = useCallback(async () => {
     setLoading(true);
@@ -195,7 +190,6 @@ const SkillLibrary: React.FC = () => {
         search: searchText,
         tag,
         sourceType: sourceFilter,
-        agentType: agentTypeFilter,
       });
       setSkills(result.data);
       setTotal(result.total);
@@ -204,7 +198,7 @@ const SkillLibrary: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, searchText, selectedTags, sourceFilter, agentTypeFilter]);
+  }, [page, pageSize, searchText, selectedTags, sourceFilter]);
 
   const loadTags = useCallback(async () => {
     try {
@@ -228,7 +222,6 @@ const SkillLibrary: React.FC = () => {
     loadSkills();
     loadTags();
     loadRegistries();
-    api.baseAgents.getTypes().then(setAgentTypes).catch(() => {});
   }, [loadSkills, loadTags, loadRegistries]);
 
   const handleCreate = () => {
@@ -240,7 +233,7 @@ const SkillLibrary: React.FC = () => {
     setIsAfterUpload(false);
     pendingZipBlobRef.current = null;
     form.resetFields();
-    form.setFieldsValue({ sourceType: 'personal', tags: [], isPublic: true, supportedAgents: [] });
+    form.setFieldsValue({ sourceType: 'personal', tags: [], isPublic: true });
     setModalVisible(true);
   };
 
@@ -254,7 +247,6 @@ const SkillLibrary: React.FC = () => {
       description: record.description,
       tags: record.tags || [],
       sourceType: record.sourceType,
-      supportedAgents: record.supportedAgents || [],
       isPublic: record.isPublic,
     });
     setModalVisible(true);
@@ -336,10 +328,9 @@ const SkillLibrary: React.FC = () => {
         }
 
         // 更新额外字段（如果有）
-        if (values.tags?.length || values.supportedAgents?.length) {
+        if (values.tags?.length) {
           await api.skills.update(result.id, {
             tags: values.tags,
-            supportedAgents: values.supportedAgents,
           });
         }
 
@@ -379,14 +370,13 @@ const SkillLibrary: React.FC = () => {
         // 单选联邦导入：下载并创建 skill 文件
         await api.skills.importFederated(selectedRegistryId, values.name);
         // 更新额外字段（如果有）
-        if (values.tags?.length || values.supportedAgents?.length) {
+        if (values.tags?.length) {
           // 需要先获取刚创建的 skill id
           const skillsList = await api.skills.list({ search: values.name });
           const newSkill = skillsList.data.find(s => s.name === values.name);
           if (newSkill) {
             await api.skills.update(newSkill.id, {
               tags: values.tags,
-              supportedAgents: values.supportedAgents,
             });
           }
         }
@@ -563,13 +553,6 @@ const SkillLibrary: React.FC = () => {
       return;
     }
 
-    // 检查总大小
-    const totalSize = Array.from(files).reduce((sum, f) => sum + f.size, 0);
-    if (totalSize > 5 * 1024 * 1024) {
-      message.error('目录总大小不能超过 5MB');
-      return;
-    }
-
     try {
       // 解析 SKILL.md 获取描述
       const skillMdContent = await skillMdFile.text();
@@ -607,7 +590,6 @@ const SkillLibrary: React.FC = () => {
         description: metadata.description || '',
         tags: [],
         sourceType: sourceType,
-        supportedAgents: [],
         isPublic: sourceType !== 'personal', // 个人类型私有，其他类型公开
       });
       setModalVisible(true);
@@ -712,7 +694,6 @@ const SkillLibrary: React.FC = () => {
           path: skill.path,
           description: skill.description,
           tags: [],
-          supportedAgents: [],
           importMode: 'create',
         });
       }
@@ -724,7 +705,6 @@ const SkillLibrary: React.FC = () => {
           path: skill.path,
           description: skill.description,
           tags: [],
-          supportedAgents: [],
           importMode: 'update',
           targetSkillId: skill.localSkill?.id,
         });
@@ -739,7 +719,6 @@ const SkillLibrary: React.FC = () => {
           path: skill.path,
           description: skill.description,
           tags: [],
-          supportedAgents: [],
           importMode: choice,
           targetSkillId: choice === 'update' ? skill.localSkill?.id : undefined,
         });
@@ -834,23 +813,11 @@ const SkillLibrary: React.FC = () => {
 
   // 批量保存 Skill
   const handleBatchSave = async () => {
-    // 验证所有 Skill 的 supportedAgents
-    const invalidSkills = batchSkills.filter(s => s.supportedAgents.length === 0);
-    if (!unifySettings && invalidSkills.length > 0) {
-      message.error(`以下 Skill 未设置 Agent：${invalidSkills.map(s => s.name).join(', ')}`);
-      return;
-    }
-    if (unifySettings && unifiedAgents.length === 0) {
-      message.error('请设置统一 Agent');
-      return;
-    }
-
     setBatchImporting(true);
     try {
       const finalSkills = batchSkills.map(s => ({
         ...s,
         tags: unifySettings ? [...s.tags, ...unifiedTags] : s.tags,
-        supportedAgents: unifySettings ? unifiedAgents : s.supportedAgents,
       }));
 
       const result = await api.skills.batchImportFederated({
@@ -1038,19 +1005,6 @@ const SkillLibrary: React.FC = () => {
         </Form.Item>
       </Form.Item>
 
-      
-      <Form.Item
-        name="supportedAgents"
-        label="兼容 Agent"
-        rules={[{ required: true, message: '请选择至少一个 Agent 类型' }]}
-      >
-        <Select
-          mode="multiple"
-          placeholder="选择兼容的 Agent 类型"
-          style={{ width: '100%' }}
-          options={agentTypes.map(t => ({ label: t.name, value: t.type }))}
-        />
-      </Form.Item>
 
       {/* 可见性 - 始终显示，非个人来源不可编辑 */}
       <Form.Item
@@ -1156,20 +1110,6 @@ const SkillLibrary: React.FC = () => {
               <Select.Option value="platform">平台</Select.Option>
               <Select.Option value="personal">个人</Select.Option>
               <Select.Option value="federated">联邦</Select.Option>
-            </Select>
-          </Space>
-          <Space>
-            <Text strong>Agent：</Text>
-            <Select
-              value={agentTypeFilter}
-              onChange={(value) => { setAgentTypeFilter(value); setPage(1); }}
-              style={{ width: 140 }}
-              allowClear
-              placeholder="全部类型"
-            >
-              {agentTypes.map(t => (
-                <Select.Option key={t.type} value={t.type}>{t.name}</Select.Option>
-              ))}
             </Select>
           </Space>
           {allTags.length > 0 && (
@@ -1281,23 +1221,6 @@ const SkillLibrary: React.FC = () => {
                   )}
                 </div>
 
-                {/* Agent 区域 */}
-                <div style={{ minHeight: 30, marginBottom: 4, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                  {skill.supportedAgents && skill.supportedAgents.length > 0 ? (
-                    skill.supportedAgents.map(agent => {
-                      const typeInfo = agentTypes.find(t => t.type === agent);
-                      const color = getTypeColorByIndex(agentTypes, agent);
-                      return (
-                        <Tag key={agent} color={color} style={{ fontSize: 11 }}>
-                          {typeInfo?.name || agent}
-                        </Tag>
-                      );
-                    })
-                  ) : (
-                    <Tag color="blue" style={{ fontSize: 11 }}>默认</Tag>
-                  )}
-                </div>
-
                 <div style={{
                   display: 'flex',
                   justifyContent: 'space-between',
@@ -1365,7 +1288,7 @@ const SkillLibrary: React.FC = () => {
                 checked={unifySettings}
                 onChange={(e) => setUnifySettings(e.target.checked)}
               >
-                统一设置：为所有 Skill 应用相同的标签和 Agent
+                统一设置：为所有 Skill 应用相同的标签
               </Checkbox>
               {unifySettings && (
                 <Space style={{ marginTop: 8, width: '100%' }} direction="vertical">
@@ -1375,14 +1298,6 @@ const SkillLibrary: React.FC = () => {
                     style={{ width: '100%' }}
                     value={unifiedTags}
                     onChange={setUnifiedTags}
-                  />
-                  <Select
-                    mode="multiple"
-                    placeholder="统一 Agent（必填）"
-                    style={{ width: '100%' }}
-                    options={agentTypes.map(t => ({ label: t.name, value: t.type }))}
-                    value={unifiedAgents}
-                    onChange={setUnifiedAgents}
                   />
                 </Space>
               )}
@@ -1440,30 +1355,6 @@ const SkillLibrary: React.FC = () => {
                         onChange={(val) => {
                           const updated = [...batchSkills];
                           updated[index].tags = val;
-                          setBatchSkills(updated);
-                        }}
-                      />
-                    )
-                  ),
-                },
-                {
-                  title: 'Agent',
-                  dataIndex: 'supportedAgents',
-                  key: 'supportedAgents',
-                  width: 150,
-                  render: (_, _record, index) => (
-                    unifySettings ? (
-                      <Text type="secondary">使用统一设置</Text>
-                    ) : (
-                      <Select
-                        mode="multiple"
-                        placeholder="Agent（必填）"
-                        style={{ width: '100%' }}
-                        options={agentTypes.map(t => ({ label: t.name, value: t.type }))}
-                        value={batchSkills[index].supportedAgents}
-                        onChange={(val) => {
-                          const updated = [...batchSkills];
-                          updated[index].supportedAgents = val;
                           setBatchSkills(updated);
                         }}
                       />

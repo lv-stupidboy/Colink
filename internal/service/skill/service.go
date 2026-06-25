@@ -129,7 +129,6 @@ func (s *Service) Create(ctx context.Context, req *model.CreateSkillRequest) (*m
 		Description:     req.Description,
 		Tags:            req.Tags,
 		SourceType:      req.SourceType,
-		SupportedAgents: req.SupportedAgents,
 		IsPublic:        isPublic,
 		Status:          model.SkillStatusActive,
 		UseCount:        0,
@@ -172,9 +171,6 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, req *model.UpdateSki
 	}
 	if req.Tags != nil {
 		skill.Tags = req.Tags
-	}
-	if req.SupportedAgents != nil {
-		skill.SupportedAgents = req.SupportedAgents
 	}
 	if req.Status != "" {
 		skill.Status = model.SkillStatus(req.Status)

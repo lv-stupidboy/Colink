@@ -18,11 +18,10 @@ func TestCommandAndSubagentHandler_SkillBindingLifecycle(t *testing.T) {
 	f := setupAPISurfaceFixture(t)
 
 	skillW := performJSON(f.router, http.MethodPost, "/api/v1/skills", map[string]any{
-		"name":            "binding-helper",
-		"description":     "Shared helper skill",
-		"tags":            []string{"binding"},
-		"sourceType":      "personal",
-		"supportedAgents": []string{"claude_code"},
+		"name":        "binding-helper",
+		"description": "Shared helper skill",
+		"tags":        []string{"binding"},
+		"sourceType":  "personal",
 	})
 	require.Equal(t, http.StatusCreated, skillW.Code)
 
@@ -30,10 +29,9 @@ func TestCommandAndSubagentHandler_SkillBindingLifecycle(t *testing.T) {
 	require.NoError(t, json.Unmarshal(skillW.Body.Bytes(), &skill))
 
 	commandW := performJSON(f.router, http.MethodPost, "/api/v1/commands", map[string]any{
-		"name":            "bind-skill-command",
-		"description":     "Command skill binding",
-		"content":         "run shared helper",
-		"supportedAgents": []string{"claude_code"},
+		"name":        "bind-skill-command",
+		"description": "Command skill binding",
+		"content":     "run shared helper",
 	})
 	require.Equal(t, http.StatusCreated, commandW.Code)
 
@@ -58,10 +56,9 @@ func TestCommandAndSubagentHandler_SkillBindingLifecycle(t *testing.T) {
 	assert.Contains(t, commandSkillsAfterUnbindW.Body.String(), `"count":0`)
 
 	subagentW := performJSON(f.router, http.MethodPost, "/api/v1/subagents", map[string]any{
-		"name":            "bind-skill-subagent",
-		"description":     "Subagent skill binding",
-		"content":         "use shared helper",
-		"supportedAgents": []string{"claude_code"},
+		"name":        "bind-skill-subagent",
+		"description": "Subagent skill binding",
+		"content":     "use shared helper",
 	})
 	require.Equal(t, http.StatusCreated, subagentW.Code)
 

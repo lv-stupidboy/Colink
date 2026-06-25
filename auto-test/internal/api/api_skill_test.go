@@ -18,12 +18,11 @@ func TestSkillHandler_CRUDBindAndTagLifecycle(t *testing.T) {
 	f := setupAPISurfaceFixture(t)
 
 	createW := performJSON(f.router, http.MethodPost, "/api/v1/skills", map[string]any{
-		"name":            "api-review",
-		"description":     "Reviews API changes",
-		"tags":            []string{"Go", "API设计"},
-		"sourceType":      "personal",
-		"supportedAgents": []string{"claude_code"},
-		"isPublic":        false,
+		"name":        "api-review",
+		"description": "Reviews API changes",
+		"tags":        []string{"Go", "API设计"},
+		"sourceType":  "personal",
+		"isPublic":    false,
 	})
 	require.Equal(t, http.StatusCreated, createW.Code)
 
@@ -42,15 +41,13 @@ func TestSkillHandler_CRUDBindAndTagLifecycle(t *testing.T) {
 	assert.Contains(t, getW.Body.String(), "Reviews API changes")
 
 	updateW := performJSON(f.router, http.MethodPut, "/api/v1/skills/"+created.ID.String(), map[string]any{
-		"description":     "Reviews API compatibility",
-		"tags":            []string{"Go", "REST API"},
-		"supportedAgents": []string{"open_code"},
-		"status":          "deprecated",
-		"isPublic":        true,
+		"description": "Reviews API compatibility",
+		"tags":        []string{"Go", "REST API"},
+		"status":      "deprecated",
+		"isPublic":    true,
 	})
 	require.Equal(t, http.StatusOK, updateW.Code)
 	assert.Contains(t, updateW.Body.String(), "Reviews API compatibility")
-	assert.Contains(t, updateW.Body.String(), "open_code")
 
 	tagsW := performJSON(f.router, http.MethodGet, "/api/v1/skills/tags", nil)
 	require.Equal(t, http.StatusOK, tagsW.Code)

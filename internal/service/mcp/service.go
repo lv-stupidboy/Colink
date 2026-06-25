@@ -56,10 +56,6 @@ func (s *Service) Create(ctx context.Context, req *model.CreateMCPServerRequest)
 	if status == "" {
 		status = model.MCPStatusActive
 	}
-	supportedAgents := req.SupportedAgents
-	if len(supportedAgents) == 0 {
-		supportedAgents = []string{"claude_code"}
-	}
 
 	now := time.Now()
 	server := &model.MCPServer{
@@ -74,7 +70,6 @@ func (s *Service) Create(ctx context.Context, req *model.CreateMCPServerRequest)
 		URL:             req.URL,
 		Headers:         req.Headers,
 		SourceType:      sourceType,
-		SupportedAgents: supportedAgents,
 		Status:          status,
 		CreatedAt:       now,
 		UpdatedAt:       now,
@@ -133,9 +128,6 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, req *model.UpdateMCP
 	}
 	if req.SourceType != nil {
 		server.SourceType = *req.SourceType
-	}
-	if req.SupportedAgents != nil {
-		server.SupportedAgents = req.SupportedAgents
 	}
 	if req.Status != nil {
 		server.Status = *req.Status

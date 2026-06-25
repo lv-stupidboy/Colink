@@ -24,18 +24,17 @@ func (r *MCPServerRepository) Create(ctx context.Context, server *model.MCPServe
 	query := `
 		INSERT INTO mcp_servers (
 			id, name, display_name, description, transport, command, args, env, url, headers,
-			source_type, supported_agents, status, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			source_type, status, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	argsJSON, _ := json.Marshal(server.Args)
 	envJSON, _ := json.Marshal(server.Env)
 	headersJSON, _ := json.Marshal(server.Headers)
-	supportedAgentsJSON, _ := json.Marshal(server.SupportedAgents)
 
 	_, err := r.DB().ExecContext(ctx, query,
 		server.ID.String(), server.Name, server.DisplayName, server.Description,
 		string(server.Transport), server.Command, string(argsJSON), string(envJSON), server.URL, string(headersJSON),
-		string(server.SourceType), string(supportedAgentsJSON), string(server.Status),
+		string(server.SourceType), string(server.Status),
 		server.CreatedAt, server.UpdatedAt,
 	)
 	return err
@@ -48,12 +47,12 @@ func scanMCPServer(scanner interface {
 	var idStr string
 	var displayName, description, command, url sql.NullString
 	var transport, sourceType, status string
-	var argsJSON, envJSON, headersJSON, supportedAgentsJSON []byte
+	var argsJSON, envJSON, headersJSON []byte
 	var createdAt, updatedAt SQLiteTimeScanner
 
 	err := scanner.Scan(
 		&idStr, &server.Name, &displayName, &description, &transport, &command,
-		&argsJSON, &envJSON, &url, &headersJSON, &sourceType, &supportedAgentsJSON,
+		&argsJSON, &envJSON, &url, &headersJSON, &sourceType,
 		&status, &createdAt, &updatedAt,
 	)
 	if err != nil {
@@ -78,7 +77,6 @@ func scanMCPServer(scanner interface {
 	}
 	json.Unmarshal(headersJSON, &server.Headers)
 	server.SourceType = model.MCPSourceType(sourceType)
-	json.Unmarshal(supportedAgentsJSON, &server.SupportedAgents)
 	server.Status = model.MCPStatus(status)
 	server.CreatedAt = createdAt.Time
 	server.UpdatedAt = updatedAt.Time
@@ -88,7 +86,7 @@ func scanMCPServer(scanner interface {
 func (r *MCPServerRepository) FindByID(ctx context.Context, id uuid.UUID) (*model.MCPServer, error) {
 	query := `
 		SELECT id, name, display_name, description, transport, command, args, env, url, headers,
-		       source_type, supported_agents, status, created_at, updated_at
+		       source_type, status, created_at, updated_at
 		FROM mcp_servers WHERE id = ?
 	`
 	server, err := scanMCPServer(r.DB().QueryRowContext(ctx, query, id.String()))
@@ -104,7 +102,7 @@ func (r *MCPServerRepository) FindByID(ctx context.Context, id uuid.UUID) (*mode
 func (r *MCPServerRepository) FindByName(ctx context.Context, name string) (*model.MCPServer, error) {
 	query := `
 		SELECT id, name, display_name, description, transport, command, args, env, url, headers,
-		       source_type, supported_agents, status, created_at, updated_at
+		       source_type, status, created_at, updated_at
 		FROM mcp_servers WHERE name = ?
 	`
 	server, err := scanMCPServer(r.DB().QueryRowContext(ctx, query, name))
@@ -129,15 +127,6 @@ func (r *MCPServerRepository) List(ctx context.Context, query *model.MCPServerLi
 	if query.Status != "" {
 		conditions = append(conditions, "status = ?")
 		args = append(args, query.Status)
-	}
-	if query.AgentType != "" {
-		if query.AgentType == "claude_code" {
-			conditions = append(conditions, "(supported_agents = '[]' OR supported_agents LIKE ?)")
-			args = append(args, `%"claude_code"%`)
-		} else {
-			conditions = append(conditions, "supported_agents LIKE ?")
-			args = append(args, `%"`+query.AgentType+`"%`)
-		}
 	}
 
 	whereClause := ""
@@ -166,7 +155,7 @@ func (r *MCPServerRepository) List(ctx context.Context, query *model.MCPServerLi
 
 	listQuery := `
 		SELECT id, name, display_name, description, transport, command, args, env, url, headers,
-		       source_type, supported_agents, status, created_at, updated_at
+		       source_type, status, created_at, updated_at
 		FROM mcp_servers ` + whereClause + ` ORDER BY created_at DESC LIMIT ? OFFSET ?
 	`
 	args = append(args, pageSize, offset)
@@ -192,18 +181,17 @@ func (r *MCPServerRepository) Update(ctx context.Context, server *model.MCPServe
 	query := `
 		UPDATE mcp_servers
 		SET display_name = ?, description = ?, transport = ?, command = ?, args = ?, env = ?,
-		    url = ?, headers = ?, source_type = ?, supported_agents = ?, status = ?, updated_at = ?
+		    url = ?, headers = ?, source_type = ?, status = ?, updated_at = ?
 		WHERE id = ?
 	`
 	argsJSON, _ := json.Marshal(server.Args)
 	envJSON, _ := json.Marshal(server.Env)
 	headersJSON, _ := json.Marshal(server.Headers)
-	supportedAgentsJSON, _ := json.Marshal(server.SupportedAgents)
 
 	_, err := r.DB().ExecContext(ctx, query,
 		server.DisplayName, server.Description, string(server.Transport), server.Command,
 		string(argsJSON), string(envJSON), server.URL, string(headersJSON), string(server.SourceType),
-		string(supportedAgentsJSON), string(server.Status), server.UpdatedAt, server.ID.String(),
+		string(server.Status), server.UpdatedAt, server.ID.String(),
 	)
 	return err
 }
@@ -271,7 +259,7 @@ func (r *AgentMCPBindingRepository) FindServerIDsByAgentRoleID(ctx context.Conte
 func (r *AgentMCPBindingRepository) FindServersByAgentRoleID(ctx context.Context, agentRoleID uuid.UUID) ([]*model.MCPServer, error) {
 	rows, err := r.DB().QueryContext(ctx, `
 		SELECT s.id, s.name, s.display_name, s.description, s.transport, s.command, s.args, s.env,
-		       s.url, s.headers, s.source_type, s.supported_agents, s.status, s.created_at, s.updated_at
+		       s.url, s.headers, s.source_type, s.status, s.created_at, s.updated_at
 		FROM mcp_servers s
 		INNER JOIN agent_mcp_bindings b ON b.mcp_server_id = s.id
 		WHERE b.agent_role_id = ? AND b.enabled = 1 AND s.status = 'active'

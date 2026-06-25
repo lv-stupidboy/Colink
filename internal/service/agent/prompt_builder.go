@@ -16,7 +16,9 @@ func BuildPrompt(layers *ContextLayers, input string) string {
 	var sb strings.Builder
 
 	if layers != nil {
-		// Layer 0: 系统提示（角色定义）- 仅 New 场景注入
+		// Layer 0: 系统提示（角色定义）- 始终注入
+		// New / A2A 场景注入完整版；Resume 场景注入轻量版（仅角色 + SystemPrompt + 下游）
+		// 目的：CLI 内部历史会被压缩，每轮注入角色定义防止职责边界模糊
 		if layers.Layer0 != "" {
 			sb.WriteString("<system>\n")
 			sb.WriteString(layers.Layer0)

@@ -6,7 +6,6 @@ type AssetPackageSkillItem struct {
 	Name            string          `json:"name"`
 	Description     string          `json:"description,omitempty"`
 	Tags            []string        `json:"tags,omitempty"`
-	SupportedAgents []string        `json:"supportedAgents,omitempty"`
 	IsPublic        bool            `json:"isPublic"`
 	SourceType      SkillSourceType `json:"sourceType"`
 }

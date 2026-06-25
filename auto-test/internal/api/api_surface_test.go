@@ -369,10 +369,9 @@ func TestSubagentHandler_CRUDBindAndUnbindLifecycle(t *testing.T) {
 	f := setupAPISurfaceFixture(t)
 
 	createW := performJSON(f.router, http.MethodPost, "/api/v1/subagents", map[string]any{
-		"name":            "review-helper",
-		"description":     "Helps review generated code",
-		"content":         "Focus on regressions and missing tests.",
-		"supportedAgents": []string{"claude_code", "open_code"},
+		"name":        "review-helper",
+		"description": "Helps review generated code",
+		"content":     "Focus on regressions and missing tests.",
 	})
 	require.Equal(t, http.StatusCreated, createW.Code)
 
@@ -381,7 +380,6 @@ func TestSubagentHandler_CRUDBindAndUnbindLifecycle(t *testing.T) {
 	assert.NotEqual(t, uuid.Nil, created.ID)
 	assert.Equal(t, "review-helper", created.Name)
 	assert.Equal(t, "Focus on regressions and missing tests.", created.Content)
-	assert.Equal(t, []string{"claude_code", "open_code"}, created.SupportedAgents)
 
 	invalidW := performJSON(f.router, http.MethodPost, "/api/v1/subagents", map[string]any{
 		"name":    "Bad_Name",
@@ -405,13 +403,11 @@ func TestSubagentHandler_CRUDBindAndUnbindLifecycle(t *testing.T) {
 	assert.Contains(t, getW.Body.String(), "Focus on regressions")
 
 	updateW := performJSON(f.router, http.MethodPut, "/api/v1/subagents/"+created.ID.String(), map[string]any{
-		"description":     "Updated review helper",
-		"content":         "Now focus on API contracts too.",
-		"supportedAgents": []string{"open_code"},
+		"description": "Updated review helper",
+		"content":     "Now focus on API contracts too.",
 	})
 	require.Equal(t, http.StatusOK, updateW.Code)
 	assert.Contains(t, updateW.Body.String(), "Updated review helper")
-	assert.Contains(t, updateW.Body.String(), "open_code")
 
 	agentID := insertAPITestAgent(t, f.db, "Subagent Owner")
 
@@ -449,10 +445,9 @@ func TestCommandHandler_CRUDBindAndUnbindLifecycle(t *testing.T) {
 	f := setupAPISurfaceFixture(t)
 
 	createW := performJSON(f.router, http.MethodPost, "/api/v1/commands", map[string]any{
-		"name":            "run-checks",
-		"description":     "Runs local validation",
-		"content":         "go test ./...",
-		"supportedAgents": []string{"claude_code"},
+		"name":        "run-checks",
+		"description": "Runs local validation",
+		"content":     "go test ./...",
 	})
 	require.Equal(t, http.StatusCreated, createW.Code)
 
@@ -482,13 +477,11 @@ func TestCommandHandler_CRUDBindAndUnbindLifecycle(t *testing.T) {
 	assert.Contains(t, getW.Body.String(), "go test ./...")
 
 	updateW := performJSON(f.router, http.MethodPut, "/api/v1/commands/"+created.ID.String(), map[string]any{
-		"description":     "Runs focused validation",
-		"content":         "go test ./auto-test/internal/api",
-		"supportedAgents": []string{"open_code"},
+		"description": "Runs focused validation",
+		"content":     "go test ./auto-test/internal/api",
 	})
 	require.Equal(t, http.StatusOK, updateW.Code)
 	assert.Contains(t, updateW.Body.String(), "Runs focused validation")
-	assert.Contains(t, updateW.Body.String(), "open_code")
 
 	agentID := insertAPITestAgent(t, f.db, "Command Owner")
 	bindW := performJSON(f.router, http.MethodPost, "/api/v1/agents/"+agentID.String()+"/commands", map[string]any{
@@ -522,14 +515,13 @@ func TestMCPHandler_CRUDBindAndFilterLifecycle(t *testing.T) {
 	f := setupAPISurfaceFixture(t)
 
 	createW := performJSON(f.router, http.MethodPost, "/api/v1/mcp-servers", map[string]any{
-		"name":            "filesystem-tools",
-		"displayName":     "Filesystem Tools",
-		"description":     "Provides file operations",
-		"transport":       "stdio",
-		"command":         "node",
-		"args":            []string{"server.js"},
-		"env":             map[string]string{"ROOT": "/tmp"},
-		"supportedAgents": []string{"claude_code"},
+		"name":        "filesystem-tools",
+		"displayName": "Filesystem Tools",
+		"description": "Provides file operations",
+		"transport":   "stdio",
+		"command":     "node",
+		"args":        []string{"server.js"},
+		"env":         map[string]string{"ROOT": "/tmp"},
 	})
 	require.Equal(t, http.StatusCreated, createW.Code)
 
@@ -553,7 +545,7 @@ func TestMCPHandler_CRUDBindAndFilterLifecycle(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusConflict, conflictW.Code)
 
-	listW := performJSON(f.router, http.MethodGet, "/api/v1/mcp-servers?search=file&page=1&page_size=5&agent_type=claude_code&status=active", nil)
+	listW := performJSON(f.router, http.MethodGet, "/api/v1/mcp-servers?search=file&page=1&page_size=5&status=active", nil)
 	require.Equal(t, http.StatusOK, listW.Code)
 	assert.Contains(t, listW.Body.String(), `"total":1`)
 	assert.Contains(t, listW.Body.String(), "Filesystem Tools")
@@ -563,15 +555,13 @@ func TestMCPHandler_CRUDBindAndFilterLifecycle(t *testing.T) {
 	assert.Contains(t, getW.Body.String(), "server.js")
 
 	updateW := performJSON(f.router, http.MethodPut, "/api/v1/mcp-servers/"+created.ID.String(), map[string]any{
-		"displayName":     "Updated Filesystem Tools",
-		"description":     "Provides scoped file operations",
-		"command":         "npx",
-		"args":            []string{"@example/mcp-fs"},
-		"supportedAgents": []string{"open_code"},
+		"displayName": "Updated Filesystem Tools",
+		"description": "Provides scoped file operations",
+		"command":     "npx",
+		"args":        []string{"@example/mcp-fs"},
 	})
 	require.Equal(t, http.StatusOK, updateW.Code)
 	assert.Contains(t, updateW.Body.String(), "Updated Filesystem Tools")
-	assert.Contains(t, updateW.Body.String(), "open_code")
 
 	agentID := insertAPITestAgent(t, f.db, "MCP Owner")
 	bindW := performJSON(f.router, http.MethodPut, "/api/v1/agents/"+agentID.String()+"/mcp-servers", map[string]any{
@@ -602,10 +592,9 @@ func TestRuleHandler_CRUDBindAndUnbindLifecycle(t *testing.T) {
 	f := setupAPISurfaceFixture(t)
 
 	createW := performJSON(f.router, http.MethodPost, "/api/v1/rules", map[string]any{
-		"name":            "api-contracts",
-		"description":     "Protects API compatibility",
-		"content":         "Do not change response fields without migration.",
-		"supportedAgents": []string{"claude_code"},
+		"name":        "api-contracts",
+		"description": "Protects API compatibility",
+		"content":     "Do not change response fields without migration.",
 	})
 	require.Equal(t, http.StatusCreated, createW.Code)
 
@@ -633,13 +622,11 @@ func TestRuleHandler_CRUDBindAndUnbindLifecycle(t *testing.T) {
 	assert.Contains(t, getW.Body.String(), "Do not change response fields")
 
 	updateW := performJSON(f.router, http.MethodPut, "/api/v1/rules/"+created.ID.String(), map[string]any{
-		"description":     "Protects public API compatibility",
-		"content":         "Document every response shape change.",
-		"supportedAgents": []string{"open_code"},
+		"description": "Protects public API compatibility",
+		"content":     "Document every response shape change.",
 	})
 	require.Equal(t, http.StatusOK, updateW.Code)
 	assert.Contains(t, updateW.Body.String(), "Protects public API compatibility")
-	assert.Contains(t, updateW.Body.String(), "open_code")
 
 	agentID := insertAPITestAgent(t, f.db, "Rule Owner")
 	bindW := performJSON(f.router, http.MethodPost, "/api/v1/agents/"+agentID.String()+"/rules", map[string]any{

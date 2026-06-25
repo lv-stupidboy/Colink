@@ -173,7 +173,6 @@ func (h *CommandHandler) Update(c *gin.Context) {
 		"id":              cmd.ID,
 		"name":            cmd.Name,
 		"description":     cmd.Description,
-		"supportedAgents": cmd.SupportedAgents,
 		"updatedAt":       cmd.UpdatedAt,
 		"affectedAgents":  affectedAgents,
 		"affectedCount":   affectedCount,

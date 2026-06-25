@@ -44,7 +44,7 @@ func TestSettingsHandler_CRUDBindAndReadLifecycle(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(settingsDir, "nested", "notes.md"), []byte("# Notes"), 0644))
 	settingsID := insertAPISettings(t, f.db, "runtime-settings", settingsDir)
 
-	listW := performJSON(f.router, http.MethodGet, "/api/v1/settings?search=runtime&agent_type=claude_code&page=1&page_size=5", nil)
+	listW := performJSON(f.router, http.MethodGet, "/api/v1/settings?search=runtime&page=1&page_size=5", nil)
 	require.Equal(t, http.StatusOK, listW.Code)
 	assert.Contains(t, listW.Body.String(), `"total":1`)
 	assert.Contains(t, listW.Body.String(), "runtime-settings")
@@ -54,12 +54,10 @@ func TestSettingsHandler_CRUDBindAndReadLifecycle(t *testing.T) {
 	assert.Contains(t, getW.Body.String(), "Shared runtime settings")
 
 	updateW := performJSON(f.router, http.MethodPut, "/api/v1/settings/"+settingsID.String(), map[string]any{
-		"description":     "Updated runtime settings",
-		"supportedAgents": []string{"open_code"},
+		"description": "Updated runtime settings",
 	})
 	require.Equal(t, http.StatusOK, updateW.Code)
 	assert.Contains(t, updateW.Body.String(), "Updated runtime settings")
-	assert.Contains(t, updateW.Body.String(), "open_code")
 
 	directoryW := performJSON(f.router, http.MethodGet, "/api/v1/settings/"+settingsID.String()+"/directory", nil)
 	require.Equal(t, http.StatusOK, directoryW.Code)
