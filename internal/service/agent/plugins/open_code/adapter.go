@@ -4,10 +4,12 @@ package open_code
 
 import (
 	"encoding/json"
+	"strconv"
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/service/agent"
 	"github.com/anthropic/isdp/internal/service/agent/plugins/acp"
+	"go.uber.org/zap"
 )
 
 // openCodeProviderID 是注入到 OpenCode 配置中的自定义 provider 名。
@@ -40,9 +42,14 @@ func NewOpenCodeAdapter(baseAgent *model.BaseAgent) agent.AgentAdapter {
 	config := acp.AcpAdapterConfig{
 		CliPath: cliPath,
 		BuildArgs: func(req *agent.ExecutionRequest) []string {
-			// --port 26307 固定 HTTP API 端口，让 ISDP 能通过 localhost 调用
-			// OpenCode 的 /question REST API 来 reply question 工具的用户答案
-			return []string{"acp", "--port", "26307"}
+			// --port 动态分配，避免多个 OpenCode 窗口同时执行时端口冲突
+			// OpenCode 通过此端口暴露 /question REST API 供 reply question 工具使用
+			port, err := acp.FindFreePort()
+			if err != nil {
+				acp.LogError("OpenCode: FindFreePort failed, question reply will not work", zap.Error(err))
+				return []string{"acp"}
+			}
+			return []string{"acp", "--port", strconv.Itoa(port)}
 		},
 		BuildEnv: func(req *agent.ExecutionRequest) []string {
 			env := make([]string, 0, 4)

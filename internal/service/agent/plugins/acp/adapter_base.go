@@ -63,6 +63,7 @@ type acpSession struct {
 	cancel          context.CancelFunc
 	status          agent.SessionStatus
 	cwd             string // 工作目录（用于 OpenCode HTTP API 调用等）
+	port            int    // --port 值（用于 OpenCode HTTP API 调用等，动态分配，避免多窗口端口冲突）
 	output          strings.Builder
 	stderrOutput    strings.Builder // stderr 输出缓冲（用于错误诊断）
 	pendingQuestion *agent.Chunk    // 待处理的 AskUserQuestion（等待用户响应）
@@ -193,6 +194,7 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 		status: agent.SessionStatusRunning,
 		isdpID: invocationIDStr,
 		cwd:    req.WorkDir,
+		port:   ExtractPortFromArgs(args),
 	}
 
 	// 启动 stderr 消费 goroutine（在 session 创建之后）
@@ -435,6 +437,7 @@ func (a *BaseACPAdapter) StartSession(ctx context.Context, sessionID string, req
 		cancel: sessionCancel,
 		status: agent.SessionStatusRunning,
 		cwd:    req.WorkDir,
+		port:   ExtractPortFromArgs(args),
 	}
 
 	// 启动 stderr 消费 goroutine（添加 wg 以防止 goroutine leak）
@@ -1539,16 +1542,17 @@ func (a *BaseACPAdapter) SendToolResult(invocationID uuid.UUID, toolCallID strin
 	// 如果是 JSON 格式（前端 ACP 路径的 question 编码），尝试先通过 OpenCode HTTP
 	// API 直接 reply question 工具。OpenCode ACP 模式下 question.asked 事件没有
 	// 桥接到 ACP——question.ask() 创建 Deferred 后永远等不到 reply()，session/resolve_tool_call
-	// 发给 ACP 也是被静默丢弃。而 OpenCode 的 HTTP API 端口 26307 完整暴露了
-	// /question REPL API（启动时 --port 固定）。
+	// 发给 ACP 也是被静默丢弃。而 OpenCode 的 HTTP API 完整暴露了
+	// /question REPL API（启动时 --port 动态分配，避免多窗口端口冲突）。
 	//
 	// 如果 HTTP API 不可用（非 OpenCode 或端口不通），自动回退到原有 session/resolve_tool_call
 	// 兼容路径。
-	if strings.HasPrefix(result, "{") && session.cwd != "" {
-		if err := openCodeQuestionReply(session.cwd, toolCallID, result); err != nil {
+	if strings.HasPrefix(result, "{") && session.cwd != "" && session.port > 0 {
+		if err := openCodeQuestionReply(session.cwd, toolCallID, result, session.port); err != nil {
 			LogWarn("ACP: OpenCode question reply via HTTP failed, falling back to resolve_tool_call",
 				zap.Error(err),
 				zap.String("cwd", session.cwd),
+				zap.Int("port", session.port),
 				zap.String("toolCallId", toolCallID))
 		} else {
 			LogInfo("ACP: OpenCode question reply via HTTP succeeded",
@@ -1687,19 +1691,21 @@ func buildElicitationContent(answer string, questions []agent.QuestionItem) map[
 	}
 }
 
-// openCodeQuestionReply 通过 OpenCode HTTP API (端口 26307) 回复 question 工具的用户答案。
+// openCodeQuestionReply 通过 OpenCode HTTP API 回复 question 工具的用户答案。
 //
 // OpenCode 在 ACP 模式下，question.asked 事件没有被桥接——question.ask() 内部创建一个
 // Deferred 阻塞等待 reply()，但 ACP event handler 不监听 question.asked。唯一的解锁途径是
 // 调 OpenCode HTTP API 的 POST /question/{requestID}/reply。
+//
+// port 是 OpenCode ACP 进程启动时的 --port 值（动态分配，避免多窗口端口冲突）。
 //
 // 流程：
 //  1. GET  /question?directory={cwd} → 列出所有 pending question，找到 tool.callID 匹配项
 //  2. 将 JSON {"question_0":"a","question_1":["b","c"]} 转为 OpenCode reply 格式的
 //     {"answers":[["a"],["b","c"]]}
 //  3. POST /question/{requestID}/reply?directory={cwd}
-func openCodeQuestionReply(cwd, toolCallID, jsonAnswer string) error {
-	baseURL := "http://127.0.0.1:26307"
+func openCodeQuestionReply(cwd, toolCallID, jsonAnswer string, port int) error {
+	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
 	dirParam := url.QueryEscape(cwd)
 
 	// 1. GET /question?directory={cwd} — 列出 pending questions
@@ -1980,6 +1986,7 @@ func (a *BaseACPAdapter) SessionResume(ctx context.Context, acpSessionID string,
 		cancel:    sessionCancel,
 		status:    agent.SessionStatusRunning,
 		stdinPipe: stdinPipe,
+		port:      ExtractPortFromArgs(args),
 	}
 
 	// 启动 stderr 消费
@@ -2121,6 +2128,7 @@ func (a *BaseACPAdapter) SessionLoad(ctx context.Context, acpSessionID string, c
 		cancel:    sessionCancel,
 		status:    agent.SessionStatusRunning,
 		stdinPipe: stdinPipe,
+		port:      ExtractPortFromArgs(args),
 	}
 
 	// 启动 stderr 消费
@@ -2332,6 +2340,7 @@ func (a *BaseACPAdapter) ExecuteWithResume(ctx context.Context, req *agent.Execu
 			status:    agent.SessionStatusRunning,
 			stdinPipe: stdinPipe,
 			cwd:       req.WorkDir,
+			port:      ExtractPortFromArgs(args),
 			// 进入 ExecuteWithResume 即处于"回放阶段"：从 session/resume 发送之后到
 			// session/prompt 发送之前，CLI 推回来的所有 session/update 都属于历史
 			// 重放（用于让模型 KV 缓存恢复上下文），不应当作本轮新输出。
