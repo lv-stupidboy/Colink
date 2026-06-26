@@ -378,7 +378,7 @@ export interface ToolEvent {
 // ========== 消息内容块类型（按返回顺序穿插显示） ==========
 
 // 内容块类型（扩展支持富内容）
-export type MessageContentBlockType = 'thinking' | 'tool_use' | 'text' | 'question' | 'rich';
+export type MessageContentBlockType = 'thinking' | 'tool_use' | 'text' | 'question' | 'rich' | 'error';
 
 // 内容块状态
 export type ContentBlockStatus = 'streaming' | 'waiting_user_input' | 'success' | 'failed';
@@ -449,6 +449,13 @@ export interface QuestionBlock extends MessageContentBlockBase {
 export interface TextBlock extends MessageContentBlockBase {
   type: 'text';
   content: string;
+}
+
+// 错误/提示块（CLI stderr 限流/重试等运行时提示，作为对话流中的常驻条目）
+export interface ErrorBlock extends MessageContentBlockBase {
+  type: 'error';
+  content: string;
+  status?: ContentBlockStatus;
 }
 
 // ========== 富内容块类型 ==========
@@ -600,6 +607,7 @@ export type MessageContentBlock =
   | ToolUseBlock
   | QuestionBlock
   | TextBlock
+  | ErrorBlock
   | RichBlock;
 
 // Agent完整消息

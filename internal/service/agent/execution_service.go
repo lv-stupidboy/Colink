@@ -3106,6 +3106,18 @@ func (es *ExecutionService) broadcastChunk(threadID, invocationID uuid.UUID, chu
 						zap.String("agentName", agentNameStr))
 				}
 			}
+		case ChunkTypeError:
+			// 错误提示（如 CLI 限流/重试）：作为独立内容块持久化，
+			// 让历史消息也能回看，刷新页面不丢失
+			if chunk.Content != "" {
+				agent.AccumulatedContentBlocks = append(agent.AccumulatedContentBlocks, ContentBlockData{
+					ID:        fmt.Sprintf("error-%d-%d", invocationID.ID(), now),
+					Type:      "error",
+					Content:   chunk.Content,
+					Timestamp: now,
+					Status:    "failed",
+				})
+			}
 		}
 		agent.ContentBlocksMu.Unlock()
 		// 在释放锁后检查是否需要取消 CLI 进程（避免死锁）

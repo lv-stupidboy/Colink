@@ -693,16 +693,28 @@ const ThreadView: React.FC = () => {
         const chunkType = data.payload.chunkType as string || 'text';
         const invocId = data.payload.invocationId as string;
 
-        // 瞬时错误提示：展示 CLI 的限流/重试等信息，遇到下一个非 error chunk 自动消失
+        // CLI 运行时错误/提示（限流、重试、API 错误等）：
+        // 1) 作为常驻 error block 注入到当前 invocation 的 streamingContentBlocks，
+        //    跟随消息持久化，刷新或重连后仍可见
+        // 2) 仍同步设置 transientError 用于右下角浮标提醒（终态时清理，不再被
+        //    下一条普通 chunk 秒清）
         if (chunkType === 'error') {
           const errorContent = data.payload.chunk as string;
           if (errorContent) {
             setTransientError(invocId, errorContent);
+            appendContentBlock(invocId, {
+              id: `error-${invocId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              type: 'error',
+              content: errorContent,
+              timestamp: Date.now(),
+              status: 'failed',
+            });
           }
-          break; // error chunk 不流向后续渲染
+          break; // error chunk 不再流向后续渲染分支
         }
-        // 非 error chunk → 清除瞬时错误（限流/重试已结束）
-        clearTransientError();
+        // 注：不再在每条非 error chunk 上 clearTransientError()。
+        // 浮标会一直保留到 invocation 进入终态（completed/failed/cancelled/interrupted），
+        // 由下方 agent_status 处理统一清理，避免重试期间普通输出秒清浮标的体验问题。
 
         if (chunkType === 'thinking') {
           // 思考块 - Store 会智能累积

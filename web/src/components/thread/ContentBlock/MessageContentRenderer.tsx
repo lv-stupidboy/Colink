@@ -1,6 +1,6 @@
 import React, { useState, useEffect, memo } from 'react';
 import { useAppStore } from '@/store';
-import type { MessageContentBlock, ToolUseBlock, ThinkingBlock as ThinkingBlockType, TextBlock as TextBlockType, RichBlock, AgentConfig, QuestionBlock, CardRichBlock, DiffRichBlock, ChecklistRichBlock } from '@/types';
+import type { MessageContentBlock, ToolUseBlock, ThinkingBlock as ThinkingBlockType, TextBlock as TextBlockType, RichBlock, AgentConfig, QuestionBlock, CardRichBlock, DiffRichBlock, ChecklistRichBlock, ErrorBlock as ErrorBlockType } from '@/types';
 import ThinkingBlockComponent from './ThinkingBlock';
 import ToolBlockComponent, { ToolCallRow } from './ToolBlock';
 import TextBlockComponent from './TextBlock';
@@ -143,6 +143,13 @@ const MessageContentRenderer: React.FC<MessageContentRendererProps> = memo(({
                 key={`text-${index}`}
                 block={block as TextBlockType}
                 agentConfigs={agentConfigs}
+              />
+            );
+          case 'error':
+            return (
+              <ErrorBlockView
+                key={(block as ErrorBlockType).id || `error-${index}`}
+                block={block as ErrorBlockType}
               />
             );
           case 'rich':
@@ -463,3 +470,33 @@ const ToolGroupBlock: React.FC<ToolGroupBlockProps> = memo(({ tools, richBlocks,
 ToolGroupBlock.displayName = 'ToolGroupBlock';
 
 export default MessageContentRenderer;
+
+/**
+ * 错误/提示块视图：用于 CLI 限流、重试、API 错误等运行时提示。
+ * 作为对话流中的常驻条目，刷新页面后仍可见。
+ */
+const ErrorBlockView: React.FC<{ block: ErrorBlockType }> = memo(({ block }) => {
+  const content = block.content || '';
+  if (!content) return null;
+  return (
+    <div
+      role="alert"
+      style={{
+        marginTop: 6,
+        padding: '6px 10px',
+        background: 'rgba(255, 247, 230, 0.85)',
+        color: '#d46b08',
+        border: '1px solid #ffd591',
+        borderRadius: 8,
+        fontSize: 12,
+        lineHeight: 1.5,
+        whiteSpace: 'pre-wrap',
+        wordBreak: 'break-word',
+      }}
+    >
+      <span style={{ marginRight: 6 }}>⚠</span>
+      {content}
+    </div>
+  );
+});
+ErrorBlockView.displayName = 'ErrorBlockView';
