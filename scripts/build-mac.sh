@@ -94,6 +94,10 @@ echo "Server built: bin/colink-server"
 go build -o bin/migrate ./cmd/migrate
 echo "Migrate built: bin/migrate"
 
+# Build mcp-server (provides post_message tool for A2A)
+go build -o bin/mcp-server ./cmd/mcp-server
+echo "MCP server built: bin/mcp-server"
+
 # Step 2: Build frontend
 echo ""
 echo "[2/7] Building frontend..."
@@ -205,6 +209,11 @@ cp "$STAGING_RESOURCES/bin/migrate" "$MACOS/" 2>/dev/null || \
     cp "$PROJECT_ROOT/bin/migrate" "$MACOS/" || \
     echo "Warning: migrate not found"
 chmod +x "$MACOS/migrate" 2>/dev/null || true
+
+cp "$STAGING_RESOURCES/packages/runtime/tools/mcp-server" "$MACOS/" 2>/dev/null || \
+    cp "$PROJECT_ROOT/bin/mcp-server" "$MACOS/" || \
+    echo "Warning: mcp-server not found"
+chmod +x "$MACOS/mcp-server" 2>/dev/null || true
 
 # Copy launcher
 cp "$LAUNCHER_DEST/Colink" "$MACOS/" 2>/dev/null || true

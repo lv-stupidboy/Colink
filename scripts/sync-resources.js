@@ -46,6 +46,22 @@ if (fs.existsSync(migrateSrc)) {
   console.error('✗ migrate.exe 未找到');
 }
 
+// 2.5 复制 mcp-server 到 packages/runtime/tools 目录（提供 post_message 等 A2A 工具）
+const isWindows = process.platform === 'win32';
+const mcpServerName = isWindows ? 'mcp-server.exe' : 'mcp-server';
+const toolsDestDir = path.join(TARGET_DIR, 'packages', 'runtime', 'tools');
+if (!fs.existsSync(toolsDestDir)) {
+  fs.mkdirSync(toolsDestDir, { recursive: true });
+}
+const mcpServerSrc = path.join(ROOT_DIR, 'bin', mcpServerName);
+const mcpServerDest = path.join(toolsDestDir, mcpServerName);
+if (fs.existsSync(mcpServerSrc)) {
+  fs.copyFileSync(mcpServerSrc, mcpServerDest);
+  console.log('✓ ' + mcpServerName);
+} else {
+  console.error('✗ ' + mcpServerName + ' 未找到，请先执行 make build');
+}
+
 // 3. 复制 sql-change 目录
 const sqlSrc = path.join(ROOT_DIR, 'sql-change');
 const sqlDest = path.join(TARGET_DIR, 'sql-change');

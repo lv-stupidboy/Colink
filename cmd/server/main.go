@@ -453,19 +453,23 @@ func main() {
 	logger.Info("SessionManager initialized and injected into Orchestrator")
 
 	// 设置 MCP server 路径（用于 Agent 记忆工具调用）
-	// 开发模式：bin/mcp-server.exe（相对于项目根目录）
-	// 安装模式：packages/runtime/tools/mcp-server.exe（相对于安装目录）
+	// 开发模式：bin/mcp-server（相对于项目根目录）
+	// 安装模式：packages/runtime/tools/mcp-server（相对于安装目录）
 	mcpServerPath := ""
 	if os.Getenv("ISDP_MCP_SERVER_PATH") == "" {
 		workDir, err := os.Getwd()
 		if err == nil {
+			mcpServerName := "mcp-server"
+			if runtime.GOOS == "windows" {
+				mcpServerName = "mcp-server.exe"
+			}
 			// 优先检查安装模式路径
-			installedPath := filepath.Join(workDir, "packages", "runtime", "tools", "mcp-server.exe")
+			installedPath := filepath.Join(workDir, "packages", "runtime", "tools", mcpServerName)
 			if _, err := os.Stat(installedPath); err == nil {
 				mcpServerPath = installedPath
 			} else {
 				// 回退到开发模式路径
-				devPath := filepath.Join(workDir, "bin", "mcp-server.exe")
+				devPath := filepath.Join(workDir, "bin", mcpServerName)
 				if _, err := os.Stat(devPath); err == nil {
 					mcpServerPath = devPath
 				}

@@ -92,6 +92,14 @@ if (-not $?) {
 }
 Write-Host "Migrate built: bin/migrate.exe" -ForegroundColor Green
 
+# Build mcp-server (provides post_message tool for A2A)
+& go -C $ProjectRoot build -o bin/mcp-server.exe ./cmd/mcp-server
+if (-not $?) {
+    Write-Host "MCP server build failed" -ForegroundColor Red
+    exit 1
+}
+Write-Host "MCP server built: bin/mcp-server.exe" -ForegroundColor Green
+
 # Step 2: Build ISDP frontend
 Write-Host "`n[2/7] Building ISDP frontend..." -ForegroundColor Yellow
 & npm --prefix "$ProjectRoot/web" run build
