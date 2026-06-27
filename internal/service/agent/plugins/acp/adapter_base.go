@@ -849,11 +849,77 @@ func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, 
 		}
 
 	default:
+		// 未知通知方法：method 名含 error/warn/rate/limit 等关键词时，
+		// 尝试从 params 中提取可读消息透传给前端（兜底 OpenCode 等 CLI 通过
+		// 非标准 method 发限流/重试/错误通知的场景）。
+		if onChunk != nil && isErrorLikeMethod(method) {
+			if line := extractReadableErrorLine(params); line != "" && agent.ShouldNotifyStderr(line) {
+				LogInfo("ACP: forward error-like notification as error chunk",
+					zap.String("method", method),
+					zap.String("line", line))
+				onChunk(agent.Chunk{Type: agent.ChunkTypeError, Content: line})
+			}
+		}
 		// 未知通知方法降级为 Debug
 		LogDebug("ACP: unknown notification method",
 			zap.String("method", method),
 			zap.String("params", string(params)))
 	}
+}
+
+// isErrorLikeMethod 判断 JSON-RPC method 名是否像错误/警告类通知。
+// 用于在 handleNotification 的 default 分支兜底识别 CLI 自定义的错误通知。
+func isErrorLikeMethod(method string) bool {
+	if method == "" {
+		return false
+	}
+	lower := strings.ToLower(method)
+	for _, kw := range []string{"error", "warn", "rate", "limit", "retry", "throttle"} {
+		if strings.Contains(lower, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+// extractReadableErrorLine 从 JSON-RPC params 里抽取一条人类可读的提示行。
+// 不依赖具体 schema：优先级 message > error.message > text > description > reason > 原始首行。
+func extractReadableErrorLine(params json.RawMessage) string {
+	if len(params) == 0 {
+		return ""
+	}
+	var probe map[string]interface{}
+	if err := json.Unmarshal(params, &probe); err != nil {
+		// 非对象：取裁剪后的原文（去除换行）
+		raw := strings.TrimSpace(string(params))
+		if len(raw) > 240 {
+			raw = raw[:240]
+		}
+		return raw
+	}
+	for _, key := range []string{"message", "msg", "text", "description", "reason", "detail"} {
+		if v, ok := probe[key]; ok {
+			if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+				return strings.TrimSpace(s)
+			}
+		}
+	}
+	if errObj, ok := probe["error"].(map[string]interface{}); ok {
+		for _, key := range []string{"message", "msg", "description", "type"} {
+			if v, ok := errObj[key]; ok {
+				if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+					return strings.TrimSpace(s)
+				}
+			}
+		}
+	}
+	// 兜底：拿到对象的字符串字段拼出 KV
+	for k, v := range probe {
+		if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+			return k + ": " + strings.TrimSpace(s)
+		}
+	}
+	return ""
 }
 
 // handleServerRequest 处理服务端发起的 request（如 session/request_permission、
