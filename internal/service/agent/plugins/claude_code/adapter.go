@@ -125,6 +125,11 @@ func (a *ClaudeCLIAdapter) ExecuteWithStream(ctx context.Context, req *agent.Exe
 		logInfo("Claude: Creating new session", zap.String("sessionId", sessionID))
 	}
 
+	// 立即回调持久化 session ID，不等进程退出，确保取消/崩溃后仍可 resume
+	if req.OnSessionIDAcquired != nil {
+		req.OnSessionIDAcquired(sessionID)
+	}
+
 	// 添加模型参数
 	if a.baseAgent != nil && a.baseAgent.DefaultModel != "" {
 		args = append(args, "--model", a.baseAgent.DefaultModel)

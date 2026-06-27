@@ -302,6 +302,11 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 		session.id = uuid.New().String()
 	}
 
+	// 立即回调持久化 session ID，不等进程退出，确保取消/崩溃后仍可 resume
+	if req.OnSessionIDAcquired != nil {
+		req.OnSessionIDAcquired(session.id)
+	}
+
 	LogInfo("ACP: session created",
 		zap.String("sessionId", session.id),
 		zap.String("invocationId", invocationIDStr))
@@ -2543,6 +2548,11 @@ func (a *BaseACPAdapter) ExecuteWithResume(ctx context.Context, req *agent.Execu
 		session.mu.Lock()
 		session.id = acpSessionID
 		session.mu.Unlock()
+
+			// 立即回调持久化 session ID（resume 路径同样需要，防止后续取消丢失）
+			if req.OnSessionIDAcquired != nil {
+				req.OnSessionIDAcquired(acpSessionID)
+			}
 
 		// session/load 在 1.3.3 通过历史回放恢复 model/agent，不需要 configureSession。
 		// 1.17.x 若返回 ConfigOptions 则补一次 configureSession（与 set_config_option 对齐）。

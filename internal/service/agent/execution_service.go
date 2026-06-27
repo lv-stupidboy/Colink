@@ -538,6 +538,9 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 
 	execReq := &ExecutionRequest{
 		Config:          config,
+		OnSessionIDAcquired: func(sid string) {
+			es.saveSessionIDEarly(ctx, req.ThreadID, config, baseAgent, invocation, sid)
+		},
 		BaseAgent:       baseAgent,
 		Context:         contextLayers,
 		Input:           req.Input,
@@ -3966,11 +3969,46 @@ func (es *ExecutionService) shouldUseResumeStrategy(ctx context.Context, threadI
 		zap.String("lastSessionId", lastInvocation.SessionID),
 		zap.String("lastStatus", string(lastInvocation.Status)))
 
+	// 如果找到了匹配的 invocation 但 session ID 为空，说明上次取消时 session ID 未持久化
+	// 此时不能返回 Resume，必须降级为 New 否则 agent 将丢失上下文重新开始
+	if lastInvocation.SessionID == "" {
+		logWarn("shouldUseResumeStrategy: 找到匹配的 invocation 但 sessionId 为空，降级为 new session",
+			zap.String("targetConfigID", targetConfigID.String()),
+			zap.String("lastCompletedName", lastInvocation.AgentName),
+			zap.String("lastStatus", string(lastInvocation.Status)))
+		return "", ""
+	}
+
 	logInfo("shouldUseResumeStrategy: 目标 Agent 与最后一个完成的 Agent 相同，使用 resume",
 		zap.String("targetConfigID", targetConfigID.String()),
 		zap.String("lastCompletedConfigID", lastInvocation.AgentConfigID.String()),
 		zap.String("lastCompletedRole", string(lastInvocation.Role)))
 	return SessionStrategyResume, lastInvocation.SessionID
+}
+
+// saveSessionIDEarly 在 adapter 拿到 session ID 后立即持久化
+// 不等进程退出，确保取消/崩溃后仍可 resume
+func (es *ExecutionService) saveSessionIDEarly(ctx context.Context, threadID uuid.UUID, config *model.AgentRoleConfig, baseAgent *model.BaseAgent, invocation *model.AgentInvocation, sessionID string) {
+	if sessionID == "" {
+		return
+	}
+
+	// 更新 invocation 的 SessionID
+	invocation.SessionID = sessionID
+	saveCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := es.invocationRepo.Update(saveCtx, invocation); err != nil {
+		logError("saveSessionIDEarly: failed to update invocation sessionId", zap.Error(err), zap.String("invocationID", invocation.ID.String()), zap.String("sessionId", sessionID))
+		return
+	}
+	logInfo("saveSessionIDEarly: persisted sessionId", zap.String("invocationID", invocation.ID.String()), zap.String("sessionId", sessionID), zap.String("agentName", config.Name))
+
+	// 同时保存到 ACP session_records 表
+	if es.sessionManager != nil {
+		if err := es.sessionManager.SaveACPSessionID(saveCtx, threadID.String(), config.ID.String(), sessionID, baseAgent.Type); err != nil {
+			logError("saveSessionIDEarly: failed to save ACP session ID", zap.Error(err))
+		}
+	}
 }
 
 // shouldAutoResume 判断是否应该自动使用 resume 会话策略
@@ -4013,6 +4051,16 @@ func (es *ExecutionService) shouldAutoResume(ctx context.Context, threadID uuid.
 		zap.String("lastCompletedName", lastInvocation.AgentName),
 		zap.String("lastSessionId", lastInvocation.SessionID),
 		zap.String("lastStatus", string(lastInvocation.Status)))
+
+	// 如果找到了匹配的 invocation 但 session ID 为空，说明上次取消时 session ID 未持久化
+	// 此时不能返回 Resume，必须降级为 New 否则 agent 将丢失上下文重新开始
+	if lastInvocation.SessionID == "" {
+		logWarn("shouldAutoResume: 找到匹配的 invocation 但 sessionId 为空，降级为 new session",
+			zap.String("targetConfigID", targetConfigID.String()),
+			zap.String("lastCompletedName", lastInvocation.AgentName),
+			zap.String("lastStatus", string(lastInvocation.Status)))
+		return "", ""
+	}
 
 	logInfo("shouldAutoResume: 目标 Agent 与最后一个完成的 Agent 相同，自动使用 resume",
 		zap.String("targetConfigID", targetConfigID.String()),

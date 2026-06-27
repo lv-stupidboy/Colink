@@ -130,6 +130,10 @@ type ExecutionRequest struct {
 	InvocationID    uuid.UUID          // Invocation ID（用于 AskUserQuestion 答案发送）
 	CallbackToken   string             // MCP server 回调认证 Token
 	APIURL          string             // MCP server 回调 API URL
+
+	// OnSessionIDAcquired 在 adapter 拿到 session ID 时立即回调（不等进程退出）
+	// 用于提前持久化 session ID，确保取消/崩溃后仍可 resume
+	OnSessionIDAcquired func(sessionID string)
 }
 
 // ExecutionResult 执行结果
