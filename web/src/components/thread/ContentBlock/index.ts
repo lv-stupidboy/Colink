@@ -4,4 +4,5 @@
 export { default as ThinkingBlock } from './ThinkingBlock';
 export { default as ToolBlock } from './ToolBlock';
 export { default as TextBlock } from './TextBlock';
+export { default as SubagentBlock } from './SubagentBlock';
 export { default as ToolCallRow } from './ToolCallRow';

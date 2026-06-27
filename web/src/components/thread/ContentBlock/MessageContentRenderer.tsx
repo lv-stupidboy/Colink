@@ -5,6 +5,7 @@ import ThinkingBlockComponent from './ThinkingBlock';
 import ToolBlockComponent, { ToolCallRow } from './ToolBlock';
 import TextBlockComponent from './TextBlock';
 import QuestionBlockComponent from './QuestionBlock';
+import SubagentBlock from './SubagentBlock';
 import { RichBlocks } from './RichBlocks';
 import './ContentBlock.css';
 
@@ -99,6 +100,14 @@ const MessageContentRenderer: React.FC<MessageContentRendererProps> = memo(({
                 onInteractiveAction={onInteractiveAction}
               />
             );
+          case 'subagent':
+            return (
+              <SubagentBlock
+                key={(block.tool as ToolUseBlock).id || `subagent-${index}`}
+                block={block.tool as ToolUseBlock}
+                defaultExpanded={defaultExpanded}
+              />
+            );
           case 'question':
             // AskUserQuestion 工具使用内联组件，直接展示选项
             const qb = block as QuestionBlock;
@@ -185,45 +194,60 @@ function extractRichBlocks(block: MessageContentBlock | { type: 'tool_use_group'
  * 聚合内容块
  * - 连续的 thinking 块合并（取最后一个，内容已由 Store 累积）
  * - 连续的 tool_use 块聚合为一个组（不含 stdout）
+ * - Task/Agent 工具（subagent）独立渲染，不参与普通工具合并
  * - text 块始终独立渲染，不聚合到 tool_use_group
  * - rich 块保持独立
  */
-function aggregateBlocks(blocks: MessageContentBlock[]): Array<MessageContentBlock | { type: 'tool_use_group'; tools: ToolUseBlock[]; richBlocks?: RichBlock[] }> {
-  const result: Array<MessageContentBlock | { type: 'tool_use_group'; tools: ToolUseBlock[]; richBlocks?: RichBlock[] }> = [];
+
+/** 判断是否为 subagent 工具（Task/Agent），应独立渲染为卡片 */
+export function isSubagentTool(toolName: string): boolean {
+  return toolName === 'Task' || toolName === 'Agent';
+}
+
+/** 聚合结果类型 */
+type AggregatedEntry =
+  | MessageContentBlock
+  | { type: 'tool_use_group'; tools: ToolUseBlock[]; richBlocks?: RichBlock[] }
+  | { type: 'subagent'; tool: ToolUseBlock };
+
+function aggregateBlocks(blocks: MessageContentBlock[]): AggregatedEntry[] {
+  const result: AggregatedEntry[] = [];
   let currentToolGroup: ToolUseBlock[] = [];
   let currentRichBlocks: RichBlock[] = [];
 
+  /** 输出累积的工具组 */
+  const flushToolGroup = () => {
+    if (currentToolGroup.length > 0) {
+      result.push({
+        type: 'tool_use_group',
+        tools: currentToolGroup,
+        richBlocks: currentRichBlocks.length > 0 ? currentRichBlocks : undefined,
+      });
+      currentToolGroup = [];
+      currentRichBlocks = [];
+    }
+  };
+
   for (const block of blocks) {
     if (block.type === 'tool_use') {
-      // 累积 tool_use 块
-      currentToolGroup.push(block as ToolUseBlock);
+      const toolBlock = block as ToolUseBlock;
+      // Subagent 工具（Task/Agent）独立渲染为卡片，不参与普通工具合并
+      if (isSubagentTool(toolBlock.toolName)) {
+        flushToolGroup();
+        result.push({ type: 'subagent', tool: toolBlock });
+      } else {
+        currentToolGroup.push(toolBlock);
+      }
     } else if (block.type === 'text') {
       // text 块始终独立输出，不再聚合到 tool_use_group
-      // 先输出累积的 tool_use 组
-      if (currentToolGroup.length > 0) {
-        result.push({
-          type: 'tool_use_group',
-          tools: currentToolGroup,
-          richBlocks: currentRichBlocks.length > 0 ? currentRichBlocks : undefined,
-        });
-        currentToolGroup = [];
-        currentRichBlocks = [];
-      }
+      flushToolGroup();
       result.push(block);
     } else if (block.type === 'rich') {
       // 累积 rich 块
       currentRichBlocks.push(block as RichBlock);
     } else {
       // 遇到非 tool_use/text/rich 块，先输出累积的块
-      if (currentToolGroup.length > 0) {
-        result.push({
-          type: 'tool_use_group',
-          tools: currentToolGroup,
-          richBlocks: currentRichBlocks.length > 0 ? currentRichBlocks : undefined,
-        });
-        currentToolGroup = [];
-        currentRichBlocks = [];
-      }
+      flushToolGroup();
       // 输出累积的 rich 块
       if (currentRichBlocks.length > 0) {
         for (const richBlock of currentRichBlocks) {
@@ -236,13 +260,7 @@ function aggregateBlocks(blocks: MessageContentBlock[]): Array<MessageContentBlo
   }
 
   // 处理末尾的累积块
-  if (currentToolGroup.length > 0) {
-    result.push({
-      type: 'tool_use_group',
-      tools: currentToolGroup,
-      richBlocks: currentRichBlocks.length > 0 ? currentRichBlocks : undefined,
-    });
-  }
+  flushToolGroup();
   if (currentRichBlocks.length > 0) {
     for (const richBlock of currentRichBlocks) {
       result.push(richBlock);

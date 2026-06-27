@@ -278,6 +278,12 @@ const ThreadView: React.FC = () => {
         wsConnectedRef.current = true;
         wsReconnectAttemptsRef.current = 0;
         setDebugWsConnected(true);
+
+        // 请求恢复运行中 invocation 的完整内容块（thinking、tool_use 等）
+        ws.send(JSON.stringify({
+          type: 'recover_invocation_state',
+          threadId: id,
+        }));
       }
     };
 
@@ -630,6 +636,12 @@ const ThreadView: React.FC = () => {
         wsConnectedRef.current = true;
         wsReconnectAttemptsRef.current = 0;
         setWsConnected(true);
+
+        // 请求恢复运行中 invocation 的完整内容块（thinking、tool_use 等）
+        ws.send(JSON.stringify({
+          type: 'recover_invocation_state',
+          threadId: id,
+        }));
       }
     };
 
