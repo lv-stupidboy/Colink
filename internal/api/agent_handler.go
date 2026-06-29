@@ -43,14 +43,13 @@ func (a *configGenAdapter) GenerateAgentConfig(ctx context.Context, agentId uuid
 
 // AgentHandler Agent配置API处理器
 type AgentHandler struct {
-	configSvc                *agent.ConfigService
-	baseAgentSvc             *agent.BaseAgentService
-	orchestrator             *agent.Orchestrator
-	threadRepo               *repo.ThreadRepository
-	debugThreadMgr           *agent.DebugThreadManager // 调试线程管理器
-	workflowRepo             *repo.WorkflowTemplateRepository
-	configGenService         *configgen.Service        // 配置生成服务
-	autoGenerator            *configgen.AutoGenerator  // 自动配置生成器
+	configSvc        *agent.ConfigService
+	baseAgentSvc     *agent.BaseAgentService
+	orchestrator     *agent.Orchestrator
+	threadRepo       *repo.ThreadRepository
+	workflowRepo     *repo.WorkflowTemplateRepository
+	configGenService *configgen.Service       // 配置生成服务
+	autoGenerator    *configgen.AutoGenerator // 自动配置生成器
 	// 绑定关系 repository
 	agentSkillBindingRepo    *repo.AgentSkillBindingRepository
 	agentSubagentBindingRepo *repo.AgentSubagentBindingRepository
@@ -65,7 +64,6 @@ func NewAgentHandler(
 	baseAgentSvc *agent.BaseAgentService,
 	orchestrator *agent.Orchestrator,
 	threadRepo *repo.ThreadRepository,
-	debugThreadMgr *agent.DebugThreadManager, // 新增
 	workflowRepo *repo.WorkflowTemplateRepository,
 	configGenService *configgen.Service, // 配置生成服务
 	autoGenerator *configgen.AutoGenerator, // 自动配置生成器
@@ -80,7 +78,6 @@ func NewAgentHandler(
 		baseAgentSvc:             baseAgentSvc,
 		orchestrator:             orchestrator,
 		threadRepo:               threadRepo,
-		debugThreadMgr:           debugThreadMgr,
 		workflowRepo:             workflowRepo,
 		configGenService:         configGenService,
 		autoGenerator:            autoGenerator,
@@ -255,9 +252,9 @@ func (h *AgentHandler) BatchDelete(c *gin.Context) {
 
 		if config.IsSystem {
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error":            "系统预置角色不可删除",
-				"hasSystemAgent":   true,
-				"systemAgentName":  config.Name,
+				"error":           "系统预置角色不可删除",
+				"hasSystemAgent":  true,
+				"systemAgentName": config.Name,
 			})
 			return
 		}
@@ -365,14 +362,14 @@ func (h *AgentHandler) Copy(c *gin.Context) {
 
 	// 创建副本
 	copyReq := &model.CreateAgentRequest{
-		Name:           original.Name + " (副本)",
-		Role:           original.Role,
-		BaseAgentID:    original.BaseAgentID,
-		Description:    original.Description,
-		SystemPrompt:   original.SystemPrompt,
-		MaxTokens:      original.MaxTokens,
-		Temperature:    original.Temperature,
-		IsDefault:      false, // 副本不设为默认
+		Name:            original.Name + " (副本)",
+		Role:            original.Role,
+		BaseAgentID:     original.BaseAgentID,
+		Description:     original.Description,
+		SystemPrompt:    original.SystemPrompt,
+		MaxTokens:       original.MaxTokens,
+		Temperature:     original.Temperature,
+		IsDefault:       false, // 副本不设为默认
 		MentionPatterns: original.MentionPatterns,
 	}
 
@@ -459,142 +456,6 @@ func (h *AgentHandler) Copy(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, copy)
-}
-
-// DebugRequest 调试请求
-type DebugRequest struct {
-	Input       string `json:"input" binding:"required"`
-	ProjectPath string `json:"projectPath"`
-	ThreadID    string `json:"threadId"` // 前端传入的预创建threadId，用于WebSocket已连接的场景
-}
-
-// DebugResponse 调试响应
-type DebugResponse struct {
-	InvocationID string `json:"invocationId"`
-	ThreadID     string `json:"threadId"` // 添加 threadId，前端用这个订阅 WebSocket
-	Output       string `json:"output"`
-	SandboxURL   string `json:"sandboxUrl,omitempty"`
-}
-
-// CreateDebugThreadRequest 创建调试Thread请求
-type CreateDebugThreadRequest struct {
-	ProjectPath string `json:"projectPath"`
-}
-
-// CreateDebugThreadResponse 创建调试Thread响应
-type CreateDebugThreadResponse struct {
-	ThreadID string `json:"threadId"`
-}
-
-// CreateDebugThread 预创建调试Thread - 完全内存操作
-func (h *AgentHandler) CreateDebugThread(c *gin.Context) {
-	var req CreateDebugThreadRequest
-	projectPath := ""
-	if err := c.ShouldBindJSON(&req); err == nil {
-		projectPath = req.ProjectPath
-	}
-
-	thread := h.debugThreadMgr.CreateThread(projectPath)
-	c.JSON(http.StatusOK, &CreateDebugThreadResponse{
-		ThreadID: thread.ID.String(),
-	})
-}
-
-// Debug 调试Agent - 启动交互式会话
-func (h *AgentHandler) Debug(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
-		return
-	}
-
-	var req DebugRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	// 获取Agent配置
-	config, err := h.configSvc.GetByID(c.Request.Context(), id)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "config not found"})
-		return
-	}
-
-	// 解析或创建调试线程
-	var debugThreadID uuid.UUID
-	if req.ThreadID != "" {
-		debugThreadID, err = uuid.Parse(req.ThreadID)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid threadId"})
-			return
-		}
-		// 验证线程存在
-		if h.debugThreadMgr.GetThread(debugThreadID) == nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "debug thread not found"})
-			return
-		}
-		// 如果传递了新的 ProjectPath，更新线程的工作目录
-		if req.ProjectPath != "" {
-			h.debugThreadMgr.SetProjectPath(debugThreadID, req.ProjectPath)
-		}
-	} else {
-		thread := h.debugThreadMgr.CreateThread(req.ProjectPath)
-		debugThreadID = thread.ID
-	}
-
-	// 启动Agent执行
-	invocation, err := h.orchestrator.SpawnDebugAgent(c.Request.Context(), &agent.SpawnRequest{
-		ThreadID:    debugThreadID,
-		ConfigID:    config.ID,
-		Role:        config.Role,
-			RequiresHuman: config.RequiresHuman,
-		Input:       req.Input,
-		ProjectPath: req.ProjectPath,
-	})
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, &DebugResponse{
-		InvocationID: invocation.ID.String(),
-		ThreadID:     debugThreadID.String(),
-	})
-}
-
-// ContinueDebugRequest 继续调试请求
-type ContinueDebugRequest struct {
-	Message string `json:"message" binding:"required"`
-}
-
-// ContinueDebug 继续调试会话 - 发送消息到正在运行的会话
-func (h *AgentHandler) ContinueDebug(c *gin.Context) {
-	threadID, err := uuid.Parse(c.Param("threadId"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid thread id"})
-		return
-	}
-
-	// 验证是调试线程
-	if h.debugThreadMgr.GetThread(threadID) == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "debug thread not found"})
-		return
-	}
-
-	var req ContinueDebugRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	if err := h.orchestrator.ContinueDebugAgent(c.Request.Context(), threadID, req.Message); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"status": "sent"})
 }
 
 // SubmitQuestionAnswer 提交 AskUserQuestion 的用户答案
@@ -752,8 +613,6 @@ func (h *AgentHandler) RegisterRoutes(r *gin.RouterGroup) {
 		agents.POST("", h.Create)
 		// 注意：具体路由必须在参数化路由之前注册
 		agents.GET("/role/:role", h.GetByRole)
-		agents.POST("/debug/thread", h.CreateDebugThread) // 预创建调试Thread
-		agents.POST("/debug/:threadId/continue", h.ContinueDebug)
 		agents.POST("/question/:threadId/answer", h.SubmitQuestionAnswer) // AskUserQuestion 答案提交
 		agents.POST("/batch-generate-config", h.BatchGenerateConfig)      // 批量生成配置
 		agents.POST("/batch-update-base-agent", h.BatchUpdateBaseAgent)   // 批量修改基础Agent
@@ -761,7 +620,6 @@ func (h *AgentHandler) RegisterRoutes(r *gin.RouterGroup) {
 		// 注意：带后缀的路由必须在通用 :id 路由之前注册
 		agents.POST("/:id/refs", h.CheckReferences)
 		agents.POST("/:id/copy", h.Copy)
-		agents.POST("/:id/debug", h.Debug)
 		agents.POST("/:id/refresh", h.RefreshConfig) // 刷新配置（自动检测类型）
 		agents.GET("/:id", h.Get)
 		agents.PUT("/:id", h.Update)

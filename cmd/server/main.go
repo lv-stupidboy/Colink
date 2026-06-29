@@ -173,10 +173,6 @@ func main() {
 	go wsHub.Run()
 	ws.SetWSLogger(logger) // 设置 WebSocket 日志记录器
 
-	// 初始化调试线程管理器
-	debugThreadMgr := agent.NewDebugThreadManager(wsHub)
-	defer debugThreadMgr.Stop() // 优雅关闭调试线程管理器
-
 	// 初始化Repositories
 	dbType := cfg.Database.Type
 	projectRepo := repo.NewProjectRepository(db, dbType)
@@ -432,8 +428,6 @@ func main() {
 		memoryManager,
 	)
 
-	// 在Orchestrator中设置调试管理器
-	orchestrator.SetDebugThreadManager(debugThreadMgr)
 	// 设置 API URL 到 executionService（用于 MCP server 回调）
 	orchestrator.SetExecutionServiceAPIURL(apiURL)
 	logger.Info("MemoryManager initialized and injected into Orchestrator", zap.String("apiURL", apiURL))
@@ -639,7 +633,7 @@ func main() {
 	messageHandler := api.NewMessageHandler(messageService)
 	messageHandler.RegisterRoutes(v1)
 
-	agentHandler := api.NewAgentHandler(configService, baseAgentService, orchestrator, threadRepo, debugThreadMgr, workflowRepo, configGenService, autoGenerator,
+	agentHandler := api.NewAgentHandler(configService, baseAgentService, orchestrator, threadRepo, workflowRepo, configGenService, autoGenerator,
 		agentSkillBindingRepo, agentSubagentBindingRepo, agentCommandBindingRepo, agentRuleBindingRepo, agentSettingsBindingRepo)
 	// configGenHandler 必须在 agentHandler 前注册，否则 /agents/:id/config/* 路由会被 /agents/:id 捕获
 	configGenHandler := api.NewConfigGenHandler(configGenService, autoGenerator, agentConfigRepo, baseAgentRepo)

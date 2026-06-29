@@ -48,7 +48,6 @@ func setupTestHandler(t *testing.T) (*gin.Engine, *agent.ConfigService) {
 		baseAgentSvc,
 		nil, // orchestrator - 不需要用于基础 CRUD 测试
 		threadRepo,
-		nil, // debugThreadMgr
 		workflowRepo,
 		nil, // configGenService
 		nil, // autoGenerator

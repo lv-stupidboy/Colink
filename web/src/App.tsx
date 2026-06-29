@@ -155,11 +155,6 @@ const App: React.FC = () => {
               <Route path="agents/plugins" element={<PlaceholderPage title="插件管理" description="该功能正在开发中，敬请期待" />} />
               <Route path="agents/knowledge" element={<KnowledgeManagement />} />
 
-              {/* Agent 调试路由 */}
-              <Route path="agents/:agentId/debug" element={<ThreadView />} />
-              {/* 调试模式路由 - 直接使用 ThreadView */}
-              <Route path="debug/:agentId" element={<ThreadView />} />
-
               {/* 兼容旧路由，重定向到新路由 */}
               <Route path="skills" element={<Navigate to="/agents/skills" replace />} />
               <Route path="subagents" element={<Navigate to="/agents/subagents" replace />} />
