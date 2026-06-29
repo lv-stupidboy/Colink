@@ -3768,6 +3768,35 @@ func (es *ExecutionService) SpawnAgentForUserMessage(ctx context.Context, thread
 		}
 	}
 
+	// 无 @mention 时：如果此前已有对话，发送给最后一次对话的角色（不限状态：成功/失败/取消）
+	if targetConfig == nil {
+		invocations, listErr := es.invocationRepo.FindByThreadID(ctx, threadID)
+		if listErr != nil {
+			logError("SpawnAgentForUserMessage: 查询历史 invocation 失败", zap.Error(listErr))
+		} else if len(invocations) > 0 {
+			// FindByThreadID 按 created_at DESC 排序，[0] 即最后一次对话
+			lastConfigID := invocations[0].AgentConfigID
+			config, cfgErr := es.configSvc.GetByID(ctx, lastConfigID)
+			if cfgErr != nil {
+				logError("SpawnAgentForUserMessage: 最后一次对话的 Agent 配置不存在，回退到工作流入口",
+					zap.String("lastConfigID", lastConfigID.String()), zap.Error(cfgErr))
+			} else {
+				targetConfig = config
+				logInfo("SpawnAgentForUserMessage: 无@mention，使用最后一次对话的 Agent",
+					zap.String("name", config.Name),
+					zap.String("id", config.ID.String()),
+					zap.String("lastStatus", string(invocations[0].Status)))
+
+				sessionStrategy, sessionIdFromDB = es.shouldAutoResume(ctx, threadID, config.ID)
+				if sessionStrategy == SessionStrategyResume {
+					logInfo("SpawnAgentForUserMessage: 自动判断使用 resume 会话策略（无@mention，最后一次对话角色）",
+						zap.String("agentName", config.Name),
+						zap.String("agentID", config.ID.String()))
+				}
+			}
+		}
+	}
+
 	// 如果没有 @mention 或没找到被 @ 的 Agent，使用 workflow 入口 Agent
 	if targetConfig == nil {
 		// 获取工作流模板中的Agent列表和Transitions
