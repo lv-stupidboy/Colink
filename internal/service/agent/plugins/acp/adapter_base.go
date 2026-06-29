@@ -242,6 +242,12 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 	session.transport = transport
 	transport.Start()
 
+	// ProcessPool 集成：进程初始化完成，通知 ExecutionService 填充 Lease.Client
+	if req.OnProcessInitialized != nil {
+		req.OnProcessInitialized(session)
+		LogInfo("ACP: OnProcessInitialized callback called", zap.String("isdpID", invocationIDStr))
+	}
+
 	initResult, err := transport.SendRequest("initialize", &acpInitializeParams{
 		ProtocolVersion: 2025,
 		ClientCapabilities: acpClientCapabilities{
@@ -2458,6 +2464,12 @@ func (a *BaseACPAdapter) ExecuteWithResume(ctx context.Context, req *agent.Execu
 		})
 		session.transport = transport
 		transport.Start()
+
+		// ProcessPool 集成：进程初始化完成，通知 ExecutionService 填充 Lease.Client
+		if req.OnProcessInitialized != nil {
+			req.OnProcessInitialized(session)
+			LogInfo("ACP: OnProcessInitialized callback called (ExecuteWithResume)", zap.String("isdpID", isdpIDStr))
+		}
 
 		// 保存 session 到 sessions map
 		a.mu.Lock()

@@ -49,6 +49,11 @@ redis:
 # Agent A2A 深度配置
 agent:
   max_depth: 15  # A2A 链最大深度，防止无限递归
+  # 进程池配置（CLI 进程预热复用）
+  process_pool:
+    max_live_processes: 10   # 最大存活进程数
+    idle_ttl_ms: 1800000     # 空闲 TTL（毫秒），默认 30min
+    health_check_ms: 30000   # 健康检查间隔（毫秒），默认 30s
 
 mcp:
   base_url: http://localhost:26305/api/v1/mcp

@@ -131,6 +131,12 @@ type ExecutionService struct {
 	cliSessions map[string]string
 	csMu        sync.RWMutex
 
+	// 进程池（CLI 进程预热复用，性能优化）
+	processPool *ProcessPool
+
+	// SessionMutex（防止并发 resume 同一 sessionKey）
+	sessionMutex *SessionMutex
+
 	// ChunkListeners 外部 chunk 监听器（如飞书 IM 转发）
 	chunkListeners   []ChunkListener
 	chunkListenersMu sync.RWMutex
@@ -191,6 +197,8 @@ func NewExecutionService(
 		cliSessions:        make(map[string]string),
 		chunkListeners:     make([]ChunkListener, 0),
 		tokenBudgetManager: NewTokenBudgetManager(),
+		processPool:        NewProcessPool(PoolConfig{}),     // 进程池初始化
+		sessionMutex:       NewSessionMutex(),               // SessionMutex 初始化
 	}
 
 	// 启动后台清理 goroutine，定期清理超时的 Agent
@@ -220,6 +228,14 @@ func (es *ExecutionService) SetAPIURL(url string) {
 // SetSessionManager 设置 Session 管理器（用于不同 CLI 类型的 session 策略）
 func (es *ExecutionService) SetSessionManager(sm *SessionManager) {
 	es.sessionManager = sm
+}
+
+// SetProcessPoolConfig 设置进程池配置（从 config.yaml 加载）
+func (es *ExecutionService) SetProcessPoolConfig(config PoolConfig) {
+	if es.processPool != nil {
+		es.processPool.Close()
+	}
+	es.processPool = NewProcessPool(config)
 }
 
 // SetMCPBindingRepository 设置 MCP Server 绑定仓库。
@@ -536,10 +552,29 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 			zap.String("sessionKey", sessionKey))
 	}
 
+	// === ProcessPool: 进程预热复用（性能优化）===
+	// PoolKey: workDir::roleID（工作目录 + AgentRoleConfig.ID）
+	// 在 execReq 构建之前定义，避免作用域问题
+	poolKey := PoolKey{
+		WorkDir: req.ProjectPath,
+		RoleID:  config.ID,
+	}
+	var processLease *Lease
+
 	execReq := &ExecutionRequest{
 		Config:          config,
 		OnSessionIDAcquired: func(sid string) {
 			es.saveSessionIDEarly(ctx, req.ThreadID, config, baseAgent, invocation, sid)
+		},
+		OnProcessInitialized: func(processInfo interface{}) {
+			// ProcessPool 集成：填充 Lease.Client
+			if processLease != nil {
+				processLease.Client = processInfo
+				logInfo("ProcessPool: Lease.Client filled",
+					zap.String("workDir", req.ProjectPath),
+					zap.String("roleID", config.ID.String()),
+					zap.String("invocationID", invocation.ID.String()))
+			}
 		},
 		BaseAgent:       baseAgent,
 		Context:         contextLayers,
@@ -579,6 +614,69 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 	cliStart := time.Now()
 	logInfo("[PERF] CLI execution starting", zap.String("invocationID", invocation.ID.String()))
 
+	// === SessionMutex: 防止并发 resume 同一 sessionKey ===
+	// 锁粒度: threadID:agentID（而非 sessionId，避免时序陷阱）
+	// 原因: sessionId 在 CLI 执行后才生成，并发请求时可能为空导致锁失效
+	var sessionMutexRelease func()
+	if req.SessionStrategy == SessionStrategyResume {
+		// Resume 策略：获取锁，防止并发 resume 同一 sessionKey
+		sessionMutexRelease, err = es.sessionMutex.Acquire(req.ThreadID.String(), config.ID.String(), ctx)
+		if err != nil {
+			// 获取锁失败（context cancelled 或其他错误）
+			logError("SessionMutex.Acquire failed", zap.Error(err),
+				zap.String("threadID", req.ThreadID.String()),
+				zap.String("agentID", config.ID.String()))
+			es.handleAgentError(ctx, invocation, fmt.Errorf("failed to acquire session mutex: %w", err))
+			return
+		}
+		logInfo("SessionMutex acquired for resume",
+			zap.String("threadID", req.ThreadID.String()),
+			zap.String("agentID", config.ID.String()),
+			zap.String("invocationID", invocation.ID.String()))
+		// 确保执行完成后释放锁
+		defer func() {
+			if sessionMutexRelease != nil {
+				sessionMutexRelease()
+				logInfo("SessionMutex released",
+					zap.String("threadID", req.ThreadID.String()),
+					zap.String("agentID", config.ID.String()),
+					zap.String("invocationID", invocation.ID.String()))
+			}
+		}()
+	}
+
+	// === ProcessPool: 进程预热复用（性能优化）===
+	// 尝试从进程池获取进程租约（所有执行时，不仅仅 resume）
+	if es.processPool != nil {
+		// 尝试从进程池获取进程租约
+		processLease, err = es.processPool.Acquire(poolKey, sessionID)
+		if err != nil {
+			// 获取失败（pool at capacity 或其他错误），记录日志但继续执行
+			// 降级为 cold start（不影响功能）
+			logWarn("ProcessPool.Acquire failed, fallback to cold start",
+				zap.Error(err),
+				zap.String("workDir", req.ProjectPath),
+				zap.String("roleID", config.ID.String()))
+			processLease = nil
+		} else {
+			logInfo("ProcessPool lease acquired",
+				zap.String("workDir", req.ProjectPath),
+				zap.String("roleID", config.ID.String()),
+				zap.String("invocationID", invocation.ID.String()),
+				zap.Bool("warmHit", processLease.Client != nil))
+			// 确保执行完成后归还进程
+			defer func() {
+				if processLease != nil && processLease.Release != nil {
+					processLease.Release()
+					logInfo("ProcessPool lease released",
+						zap.String("workDir", req.ProjectPath),
+						zap.String("roleID", config.ID.String()),
+						zap.String("invocationID", invocation.ID.String()))
+				}
+			}()
+		}
+	}
+
 	// 检查 adapter 是否支持 ACP 原生 session/resume
 	resumeCapable, ok := adapter.(SessionResumeCapable)
 	if ok && acpSessionID != "" {
@@ -607,6 +705,17 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 		if saveErr != nil {
 			logError("SaveACPSessionID failed", zap.Error(saveErr))
 		}
+	}
+
+	// === ProcessPool: 记录 session 归属 ===
+	// 执行成功后，记录 session 与进程的归属关系（用于后续 resume 路由）
+	if err == nil && processLease != nil && newACPSessionID != "" && es.processPool != nil {
+		es.processPool.RememberSession(poolKey, newACPSessionID, processLease)
+		logInfo("ProcessPool.RememberSession called",
+			zap.String("workDir", req.ProjectPath),
+			zap.String("roleID", config.ID.String()),
+			zap.String("sessionId", newACPSessionID),
+			zap.String("invocationID", invocation.ID.String()))
 	}
 
 	// 会话恢复失败降级机制

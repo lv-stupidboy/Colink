@@ -204,9 +204,17 @@ type SandboxConfig struct {
 
 // AgentConfig Agent配置
 type AgentConfig struct {
-	MaxDepth        int `mapstructure:"max_depth"`
-	MaxRetries      int `mapstructure:"max_retries"`
-	ContextMaxLines int `mapstructure:"context_max_lines"`
+	MaxDepth        int               `mapstructure:"max_depth"`
+	MaxRetries      int               `mapstructure:"max_retries"`
+	ContextMaxLines int               `mapstructure:"context_max_lines"`
+	ProcessPool     ProcessPoolConfig `mapstructure:"process_pool"` // 进程池配置
+}
+
+// ProcessPoolConfig 进程池配置
+type ProcessPoolConfig struct {
+	MaxLiveProcesses  int `mapstructure:"max_live_processes"`  // 最大存活进程数，默认 10
+	IdleTtlMs         int `mapstructure:"idle_ttl_ms"`         // 空闲 TTL（毫秒），默认 1800000 (30min)
+	HealthCheckMs     int `mapstructure:"health_check_ms"`     // 健康检查间隔（毫秒），默认 30000 (30s)
 }
 
 // LoggingConfig 日志配置

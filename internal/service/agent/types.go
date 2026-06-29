@@ -134,6 +134,11 @@ type ExecutionRequest struct {
 	// OnSessionIDAcquired 在 adapter 拿到 session ID 时立即回调（不等进程退出）
 	// 用于提前持久化 session ID，确保取消/崩溃后仍可 resume
 	OnSessionIDAcquired func(sessionID string)
+
+	// OnProcessInitialized 进程初始化完成回调（ProcessPool 集成）
+	// Adapter 在进程初始化完成后调用，传递进程信息（如 acpSession）用于填充 Lease.Client
+	// 参数: processInfo - 进程信息（interface{}，具体类型由 adapter 决定）
+	OnProcessInitialized func(processInfo interface{})
 }
 
 // ExecutionResult 执行结果
