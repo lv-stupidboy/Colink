@@ -18,12 +18,15 @@ import (
 	"github.com/anthropic/isdp/internal/repo"
 	agentservice "github.com/anthropic/isdp/internal/service/agent"
 	commandservice "github.com/anthropic/isdp/internal/service/command"
+	localreposervice "github.com/anthropic/isdp/internal/service/local_repo"
 	projectservice "github.com/anthropic/isdp/internal/service/project"
 	ruleservice "github.com/anthropic/isdp/internal/service/rule"
 	settingsservice "github.com/anthropic/isdp/internal/service/settings"
 	skillservice "github.com/anthropic/isdp/internal/service/skill"
 	subagentservice "github.com/anthropic/isdp/internal/service/subagent"
 	workflowservice "github.com/anthropic/isdp/internal/service/workflow"
+	"github.com/anthropic/isdp/internal/service/workspace"
+	"github.com/anthropic/isdp/pkg/config"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -999,6 +1002,118 @@ func TestProjectHandlerCRUDAndFileEndpoints(t *testing.T) {
 	}
 }
 
+func TestLocalRepoHandlerUploadBrowseConfigureAndDeleteLifecycle(t *testing.T) {
+	db := openAPICRUDTestDB(t)
+	workspaceRoot := t.TempDir()
+	guard, err := workspace.NewGuard(workspaceRoot)
+	if err != nil {
+		t.Fatalf("workspace guard: %v", err)
+	}
+	service := localreposervice.NewService(
+		repo.NewLocalRepoRepository(db, repo.DBTypeSQLite),
+		guard,
+		&config.GitURLConversionConfig{},
+	)
+	router := setupAPILightRouter(func(group *gin.RouterGroup) {
+		NewLocalRepoHandler(service).RegisterRoutes(group)
+	})
+
+	uploadDir := filepath.Join(workspaceRoot, "uploads")
+	if err := os.MkdirAll(uploadDir, 0755); err != nil {
+		t.Fatalf("mkdir upload dir: %v", err)
+	}
+
+	uploadW := performAPIMultipart(router, http.MethodPost, "/api/v1/repos/upload", map[string]string{
+		"name":       "uploaded-repo",
+		"targetPath": uploadDir,
+	}, "repo.zip", map[string]string{
+		"README.md":  "repo readme",
+		"src/app.go": "package main\n",
+	})
+	if uploadW.Code != http.StatusCreated || !bytes.Contains(uploadW.Body.Bytes(), []byte("uploaded-repo")) {
+		t.Fatalf("upload code=%d body=%s", uploadW.Code, uploadW.Body.String())
+	}
+
+	var repoID string
+	if err := db.QueryRow(`SELECT id FROM local_repos WHERE name = ?`, "uploaded-repo").Scan(&repoID); err != nil {
+		t.Fatalf("query local repo id: %v", err)
+	}
+	localPath := filepath.Join(uploadDir, "uploaded-repo")
+	if _, err := os.Stat(filepath.Join(localPath, "src", "app.go")); err != nil {
+		t.Fatalf("uploaded file missing: %v", err)
+	}
+
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/repos", nil); w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte("uploaded-repo")) {
+		t.Fatalf("list code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/repos/"+repoID, nil); w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte(localPath)) {
+		t.Fatalf("get code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/repos/browse?path="+uploadDir, nil); w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte("uploaded-repo")) {
+		t.Fatalf("browse code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodPost, "/api/v1/repos/folder", map[string]any{"path": uploadDir, "name": "new-folder"}); w.Code != http.StatusOK {
+		t.Fatalf("create folder code=%d body=%s", w.Code, w.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(uploadDir, "new-folder")); err != nil {
+		t.Fatalf("new folder missing: %v", err)
+	}
+
+	configureW := performAPILightJSON(router, http.MethodPut, "/api/v1/repos/"+repoID+"/git-config", map[string]any{
+		"gitUrl": "https://example.com/owner/repo.git",
+		"branch": "main",
+	})
+	if configureW.Code != http.StatusInternalServerError {
+		t.Fatalf("invalid configure code=%d body=%s", configureW.Code, configureW.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodPost, "/api/v1/repos/"+repoID+"/sync", nil); w.Code != http.StatusBadRequest {
+		t.Fatalf("sync without git code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodDelete, "/api/v1/repos/"+repoID, nil); w.Code != http.StatusNoContent {
+		t.Fatalf("delete code=%d body=%s", w.Code, w.Body.String())
+	}
+	if _, err := os.Stat(localPath); !os.IsNotExist(err) {
+		t.Fatalf("local path should be deleted, err=%v", err)
+	}
+}
+
+func TestLocalRepoHandlerRejectsInvalidAndMalformedRequests(t *testing.T) {
+	db := openAPICRUDTestDB(t)
+	service := localreposervice.NewService(repo.NewLocalRepoRepository(db, repo.DBTypeSQLite), nil, &config.GitURLConversionConfig{})
+	router := setupAPILightRouter(func(group *gin.RouterGroup) {
+		NewLocalRepoHandler(service).RegisterRoutes(group)
+	})
+
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/repos/not-a-uuid", nil); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid get id code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodDelete, "/api/v1/repos/not-a-uuid", nil); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid delete id code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodPost, "/api/v1/repos/not-a-uuid/sync", nil); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid sync id code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodPut, "/api/v1/repos/not-a-uuid/git-config", map[string]any{"gitUrl": "git@github.com:owner/repo.git"}); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid configure id code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodPost, "/api/v1/repos/clone", map[string]any{}); w.Code != http.StatusBadRequest {
+		t.Fatalf("malformed clone code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodPost, "/api/v1/repos/remote-branches", map[string]any{}); w.Code != http.StatusBadRequest {
+		t.Fatalf("malformed branches code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodPost, "/api/v1/repos/folder", map[string]any{"path": t.TempDir()}); w.Code != http.StatusBadRequest {
+		t.Fatalf("malformed folder code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/repos/"+uuid.New().String(), nil); w.Code != http.StatusNotFound {
+		t.Fatalf("missing repo code=%d", w.Code)
+	}
+	badExtW := performAPIMultipart(router, http.MethodPost, "/api/v1/repos/upload", map[string]string{"name": "repo", "targetPath": t.TempDir()}, "repo.txt", map[string]string{"README.md": "x"})
+	if badExtW.Code != http.StatusBadRequest {
+		t.Fatalf("bad upload extension code=%d body=%s", badExtW.Code, badExtW.Body.String())
+	}
+}
+
 func openAPICRUDTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	db, err := sql.Open("sqlite", ":memory:")
@@ -1026,6 +1141,7 @@ func openAPICRUDTestDB(t *testing.T) *sql.DB {
 		`CREATE TABLE agent_settings_bindings (id TEXT PRIMARY KEY, agent_role_id TEXT, settings_id TEXT, created_at TIMESTAMP)`,
 		`CREATE TABLE command_skill_bindings (id TEXT PRIMARY KEY, command_id TEXT, skill_id TEXT, created_at TIMESTAMP)`,
 		`CREATE TABLE subagent_skill_bindings (id TEXT PRIMARY KEY, subagent_id TEXT, skill_id TEXT, created_at TIMESTAMP)`,
+		`CREATE TABLE local_repos (id TEXT PRIMARY KEY, name TEXT, git_url TEXT, local_path TEXT, branch TEXT, last_commit TEXT, status TEXT, error_message TEXT, created_at TIMESTAMP, updated_at TIMESTAMP)`,
 	}
 	for _, stmt := range schema {
 		if _, err := db.Exec(stmt); err != nil {
