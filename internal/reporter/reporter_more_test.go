@@ -9,6 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anthropic/isdp/internal/model"
+	"github.com/anthropic/isdp/internal/repo"
+	"github.com/google/uuid"
 	_ "modernc.org/sqlite"
 )
 
@@ -56,7 +59,7 @@ func TestReporterSendAndRetry(t *testing.T) {
 	err := reporter.sendWithRetry(context.Background(), ReportData{
 		Username: "user",
 		Version:  "dev",
-		Stats:   StatsData{ProjectsCount: 1},
+		Stats:    StatsData{ProjectsCount: 1},
 	})
 	if err != nil || attempts != 2 {
 		t.Fatalf("sendWithRetry err=%v attempts=%d", err, attempts)
@@ -102,6 +105,89 @@ func TestReporterUsernameAndMessageReportData(t *testing.T) {
 	}
 }
 
+func TestMessageReporterDoReportSendAndLifecycle(t *testing.T) {
+	db := openMessageReporterTestDB(t)
+	messageRepo := repo.NewMessageRepository(db, repo.DBTypeSQLite)
+	threadID := uuid.New()
+	if err := messageRepo.Create(context.Background(), &model.Message{
+		ThreadID:    threadID,
+		Role:        model.MessageRoleUser,
+		Content:     "hello",
+		MessageType: model.MessageTypeText,
+	}); err != nil {
+		t.Fatalf("create user message: %v", err)
+	}
+	if err := messageRepo.Create(context.Background(), &model.Message{
+		ThreadID:    threadID,
+		Role:        model.MessageRoleSystem,
+		Content:     "system",
+		MessageType: model.MessageTypeText,
+	}); err != nil {
+		t.Fatalf("create system message: %v", err)
+	}
+
+	reporter := NewMessageReporter(db, MessageReporterConfig{
+		Endpoint:      "https://report.test/messages",
+		BatchSize:     10,
+		RetryTimes:    1,
+		RetryInterval: time.Millisecond,
+	}, repo.DBTypeSQLite)
+	reporter.SetLogger(nil)
+	var attempts int
+	reporter.httpClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		attempts++
+		if req.Method != http.MethodPost || req.URL.String() != "https://report.test/messages" || req.Header.Get("Content-Type") != "application/json" {
+			t.Fatalf("request = %s %s content-type=%s", req.Method, req.URL.String(), req.Header.Get("Content-Type"))
+		}
+		body, _ := io.ReadAll(req.Body)
+		if !strings.Contains(string(body), `"sessionId"`) || !strings.Contains(string(body), `"hello"`) || strings.Contains(string(body), `"system"`) {
+			t.Fatalf("message report body = %s", body)
+		}
+		if attempts == 1 {
+			return textReporterResponse(http.StatusBadGateway), nil
+		}
+		return textReporterResponse(http.StatusOK), nil
+	})}
+	reporter.doReport()
+	if attempts != 2 {
+		t.Fatalf("message report attempts=%d", attempts)
+	}
+	unreported, err := messageRepo.FindUnreportedForReporting(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("FindUnreportedForReporting returned error: %v", err)
+	}
+	if len(unreported) != 0 {
+		t.Fatalf("messages should be reported, got %#v", unreported)
+	}
+	reporter.doReport()
+	if attempts != 2 {
+		t.Fatalf("empty report should not send again, attempts=%d", attempts)
+	}
+
+	if err := messageRepo.Create(context.Background(), &model.Message{
+		ThreadID:    threadID,
+		Role:        model.MessageRoleAgent,
+		Content:     "failed",
+		MessageType: model.MessageTypeText,
+	}); err != nil {
+		t.Fatalf("create agent message: %v", err)
+	}
+	reporter.httpClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return textReporterResponse(http.StatusInternalServerError), nil
+	})}
+	reporter.doReport()
+	unreported, err = messageRepo.FindUnreportedForReporting(context.Background(), 10)
+	if err != nil || len(unreported) != 1 || unreported[0].Content != "failed" {
+		t.Fatalf("failed message should remain unreported: %#v err=%v", unreported, err)
+	}
+
+	lifecycle := NewMessageReporter(db, MessageReporterConfig{
+		Endpoint: "https://report.test/messages",
+		Interval: time.Hour,
+	}, repo.DBTypeSQLite)
+	lifecycle.Stop()
+}
+
 func openReporterTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	db, err := sql.Open("sqlite", ":memory:")
@@ -122,6 +208,35 @@ func openReporterTestDB(t *testing.T) *sql.DB {
 		if _, err := db.Exec(stmt); err != nil {
 			t.Fatalf("exec schema: %v", err)
 		}
+	}
+	return db
+}
+
+func openMessageReporterTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { db.Close() })
+	_, err = db.Exec(`CREATE TABLE messages (
+		id TEXT PRIMARY KEY,
+		thread_id TEXT NOT NULL,
+		role TEXT NOT NULL,
+		agent_id TEXT,
+		content TEXT,
+		content_blocks BLOB,
+		message_type TEXT,
+		metadata BLOB,
+		created_at TIMESTAMP NOT NULL,
+		reported_at TIMESTAMP,
+		mentions BLOB,
+		origin TEXT,
+		reply_to TEXT
+	)`)
+	if err != nil {
+		t.Fatalf("exec schema: %v", err)
 	}
 	return db
 }
