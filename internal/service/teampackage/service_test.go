@@ -15,8 +15,8 @@ import (
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
 	"github.com/google/uuid"
-	_ "modernc.org/sqlite"
 	"go.uber.org/zap"
+	_ "modernc.org/sqlite"
 )
 
 // TestRoleSkipHandlingWithDifferentID 验证跳过角色时按名称查找
@@ -29,8 +29,8 @@ func TestRoleSkipHandlingWithDifferentID(t *testing.T) {
 	// 修复后：按名称查找 → 找到 → roleNameToID正确 → skill绑定成功
 
 	// 准备测试数据
-	localRoleID := uuid.New()         // 本地已存在的角色ID
-	importedRoleID := uuid.New()      // 导入团队包中的角色ID（不存在于本地）
+	localRoleID := uuid.New()    // 本地已存在的角色ID
+	importedRoleID := uuid.New() // 导入团队包中的角色ID（不存在于本地）
 	roleName := "需求分析师"
 
 	// 模拟 manifest
@@ -115,7 +115,7 @@ func TestSkillOverwritePreservesID(t *testing.T) {
 	// 修复前：删除重建 → ID 变化 → Team A 的绑定断开
 	// 修复后：保留 ID → Team A 的绑定保持
 
-	existingSkillID := uuid.New()     // 现有 skill 的 ID
+	existingSkillID := uuid.New() // 现有 skill 的 ID
 	skillName := "brainstorming"
 	t.Logf("测试 skill: %s (ID: %v)", skillName, existingSkillID)
 
@@ -226,9 +226,9 @@ func TestTeamPackageImportPreviewConfirmAndExportLifecycle(t *testing.T) {
 	}
 	zipData := teamPackageZip(t, manifest, map[string]string{
 		"assets/skills/Review Skill/SKILL.md": "# Review Skill",
-		"assets/commands/Build.md":           "go test ./...",
-		"assets/subagents/Reviewer.md":       "# Reviewer",
-		"assets/rules/Secure.md":             "# Secure",
+		"assets/commands/Build.md":            "go test ./...",
+		"assets/subagents/Reviewer.md":        "# Reviewer",
+		"assets/rules/Secure.md":              "# Secure",
 		"assets/settings/Defaults/config.yml": "model: test",
 	})
 
@@ -368,6 +368,103 @@ func TestTeamPackageImportConfirmErrorsAndSkip(t *testing.T) {
 	}
 }
 
+func TestTeamPackageImportAssetOverwriteAndFailureBranches(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	db := openTeamPackageTestDB(t)
+	service := newTeamPackageTestService(t, db, root)
+	tempDir := t.TempDir()
+	now := time.Now()
+
+	mustWriteTeamPackageFile(t, filepath.Join(tempDir, "assets", "skills", "Existing Skill", "SKILL.md"), "# new skill")
+	mustWriteTeamPackageFile(t, filepath.Join(tempDir, "assets", "commands", "Existing Command.md"), "new command")
+	mustWriteTeamPackageFile(t, filepath.Join(tempDir, "assets", "subagents", "Existing Subagent.md"), "# new subagent")
+	mustWriteTeamPackageFile(t, filepath.Join(tempDir, "assets", "rules", "Existing Rule.md"), "# new rule")
+	mustWriteTeamPackageFile(t, filepath.Join(tempDir, "assets", "settings", "Existing Settings", "config.yml"), "new: true")
+
+	existingSkill := &model.Skill{ID: uuid.New(), Name: "Existing Skill", Description: "old", Tags: []string{"old"}, SourceType: model.SkillSourcePersonal, Status: model.SkillStatusActive, IsPublic: false, CreatedAt: now, UpdatedAt: now}
+	if err := service.skillRepo.Create(ctx, existingSkill); err != nil {
+		t.Fatalf("create existing skill: %v", err)
+	}
+	mustWriteTeamPackageFile(t, filepath.Join(root, "skills", existingSkill.ID.String(), "SKILL.md"), "# old skill")
+	if id, detail := service.importSkill(ctx, tempDir, model.AssetPackageSkillItem{Name: "Existing Skill"}, false); id != existingSkill.ID || detail.Status != "skipped" {
+		t.Fatalf("skip skill id=%s detail=%+v", id, detail)
+	}
+	if id, detail := service.importSkill(ctx, tempDir, model.AssetPackageSkillItem{Name: "Existing Skill", Description: "new", Tags: []string{"new"}, IsPublic: true}, true); id != existingSkill.ID || detail.Status != "success" {
+		t.Fatalf("overwrite skill id=%s detail=%+v", id, detail)
+	}
+	assertTeamFile(t, filepath.Join(root, "skills", existingSkill.ID.String(), "SKILL.md"), "# new skill")
+	if id, detail := service.importSkill(ctx, tempDir, model.AssetPackageSkillItem{Name: "Missing Skill"}, false); id != uuid.Nil || detail.Status != "failed" {
+		t.Fatalf("missing skill id=%s detail=%+v", id, detail)
+	}
+
+	existingCommand := &model.Command{ID: uuid.New(), Name: "Existing Command", Description: "old", CreatedAt: now, UpdatedAt: now}
+	if err := service.commandRepo.Create(ctx, existingCommand); err != nil {
+		t.Fatalf("create existing command: %v", err)
+	}
+	mustWriteTeamPackageFile(t, filepath.Join(root, "commands", "Existing Command.md"), "old command")
+	if id, detail := service.importCommand(ctx, tempDir, model.AssetPackageCommandItem{Name: "Existing Command"}, false); id != existingCommand.ID || detail.Status != "skipped" {
+		t.Fatalf("skip command id=%s detail=%+v", id, detail)
+	}
+	if id, detail := service.importCommand(ctx, tempDir, model.AssetPackageCommandItem{Name: "Existing Command", Description: "new"}, true); id != existingCommand.ID || detail.Status != "success" {
+		t.Fatalf("overwrite command id=%s detail=%+v", id, detail)
+	}
+	assertTeamFile(t, filepath.Join(root, "commands", "Existing Command.md"), "new command")
+	if id, detail := service.importCommand(ctx, tempDir, model.AssetPackageCommandItem{Name: "Missing Command"}, false); id != uuid.Nil || detail.Status != "failed" {
+		t.Fatalf("missing command id=%s detail=%+v", id, detail)
+	}
+
+	existingSubagent := &model.Subagent{ID: uuid.New(), Name: "Existing Subagent", Description: "old", CreatedAt: now, UpdatedAt: now}
+	if err := service.subagentRepo.Create(ctx, existingSubagent); err != nil {
+		t.Fatalf("create existing subagent: %v", err)
+	}
+	mustWriteTeamPackageFile(t, filepath.Join(root, "subagents", "Existing Subagent.md"), "# old subagent")
+	if id, detail := service.importSubagent(ctx, tempDir, model.AssetPackageSubagentItem{Name: "Existing Subagent"}, false); id != existingSubagent.ID || detail.Status != "skipped" {
+		t.Fatalf("skip subagent id=%s detail=%+v", id, detail)
+	}
+	if id, detail := service.importSubagent(ctx, tempDir, model.AssetPackageSubagentItem{Name: "Existing Subagent", Description: "new"}, true); id != existingSubagent.ID || detail.Status != "success" {
+		t.Fatalf("overwrite subagent id=%s detail=%+v", id, detail)
+	}
+	assertTeamFile(t, filepath.Join(root, "subagents", "Existing Subagent.md"), "# new subagent")
+	if id, detail := service.importSubagent(ctx, tempDir, model.AssetPackageSubagentItem{Name: "Missing Subagent"}, false); id != uuid.Nil || detail.Status != "failed" {
+		t.Fatalf("missing subagent id=%s detail=%+v", id, detail)
+	}
+
+	existingRule := &model.Rule{ID: uuid.New(), Name: "Existing Rule", Description: "old", CreatedAt: now, UpdatedAt: now}
+	if err := service.ruleRepo.Create(ctx, existingRule); err != nil {
+		t.Fatalf("create existing rule: %v", err)
+	}
+	mustWriteTeamPackageFile(t, filepath.Join(root, "rules", "Existing Rule.md"), "# old rule")
+	if id, detail := service.importRule(ctx, tempDir, model.AssetPackageRuleItem{Name: "Existing Rule"}, false); id != existingRule.ID || detail.Status != "skipped" {
+		t.Fatalf("skip rule id=%s detail=%+v", id, detail)
+	}
+	if id, detail := service.importRule(ctx, tempDir, model.AssetPackageRuleItem{Name: "Existing Rule", Description: "new"}, true); id != existingRule.ID || detail.Status != "success" {
+		t.Fatalf("overwrite rule id=%s detail=%+v", id, detail)
+	}
+	assertTeamFile(t, filepath.Join(root, "rules", "Existing Rule.md"), "# new rule")
+	if id, detail := service.importRule(ctx, tempDir, model.AssetPackageRuleItem{Name: "Missing Rule"}, false); id != uuid.Nil || detail.Status != "failed" {
+		t.Fatalf("missing rule id=%s detail=%+v", id, detail)
+	}
+
+	existingSettings := &model.Settings{ID: uuid.New(), Name: "Existing Settings", Description: "old", DirectoryPath: filepath.Join(root, "settings", "Existing Settings"), CreatedAt: now, UpdatedAt: now}
+	if err := service.settingsRepo.Create(ctx, existingSettings); err != nil {
+		t.Fatalf("create existing settings: %v", err)
+	}
+	mustWriteTeamPackageFile(t, filepath.Join(root, "settings", "Existing Settings", "config.yml"), "old: true")
+	if id, detail := service.importSettings(ctx, tempDir, model.AssetPackageSettingsItem{Name: "Existing Settings"}, false); id != existingSettings.ID || detail.Status != "skipped" {
+		t.Fatalf("skip settings id=%s detail=%+v", id, detail)
+	}
+	if id, detail := service.importSettings(ctx, tempDir, model.AssetPackageSettingsItem{Name: "Existing Settings", Description: "new"}, true); id != existingSettings.ID || detail.Status != "success" {
+		t.Fatalf("overwrite settings id=%s detail=%+v", id, detail)
+	}
+	assertTeamFile(t, filepath.Join(root, "settings", "Existing Settings", "config.yml"), "new: true")
+	if id, detail := service.importSettings(ctx, tempDir, model.AssetPackageSettingsItem{Name: "Missing Settings"}, false); id != uuid.Nil || detail.Status != "failed" {
+		t.Fatalf("missing settings id=%s detail=%+v", id, detail)
+	}
+
+	service.SetAutoGenerator(nil)
+}
+
 func openTeamPackageTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 
@@ -492,6 +589,16 @@ func assertTeamFile(t *testing.T, path, want string) {
 	}
 	if string(data) != want {
 		t.Fatalf("%s body = %q, want %q", path, data, want)
+	}
+}
+
+func mustWriteTeamPackageFile(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatalf("mkdir for %s: %v", path, err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
 	}
 }
 
