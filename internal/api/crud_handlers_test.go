@@ -552,6 +552,63 @@ func TestSettingsHandlerUploadReadBindingsAndInvalidRequests(t *testing.T) {
 	}
 }
 
+func TestDashboardHandlerStatsWorkflowsAndThreads(t *testing.T) {
+	db := openAPICRUDTestDB(t)
+	router := setupAPILightRouter(func(group *gin.RouterGroup) {
+		NewDashboardHandler(db).RegisterRoutes(group)
+	})
+
+	agentID := insertAPIAgentConfig(t, db, "Planner")
+	workflowID := insertAPIWorkflowWithAgent(t, db, "Delivery Team", agentID)
+	projectID := uuid.New()
+	threadID := uuid.New()
+	now := time.Now()
+	mustAPIExec(t, db, `INSERT INTO projects (id, name, workflow_template_id) VALUES (?, ?, ?)`, projectID.String(), "Colink", workflowID.String())
+	mustAPIExec(t, db, `INSERT INTO threads (id, project_id, name, status, current_phase, current_agent, workflow_template_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		threadID.String(), projectID.String(), "Ship feature", "running", "development", "Planner", workflowID.String(), now, now)
+	mustAPIExec(t, db, `INSERT INTO agent_invocations (id, thread_id, agent_config_id, agent_name, status, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		uuid.New().String(), threadID.String(), agentID.String(), "Planner", "running", now)
+	skillID := insertAPISkill(t, db, "review-skill")
+	commandID := insertAPICommandRow(t, db, "build-app")
+	subagentID := insertAPISubagentRow(t, db, "reviewer")
+	ruleID := insertAPIRuleRow(t, db, "secure-rule")
+	mustAPIExec(t, db, `INSERT INTO agent_skill_bindings (id, agent_role_id, skill_id, created_at) VALUES (?, ?, ?, ?)`, uuid.New().String(), agentID.String(), skillID.String(), now)
+	mustAPIExec(t, db, `INSERT INTO agent_command_bindings (id, agent_role_id, command_id, created_at) VALUES (?, ?, ?, ?)`, uuid.New().String(), agentID.String(), commandID.String(), now)
+	mustAPIExec(t, db, `INSERT INTO agent_subagent_bindings (id, agent_role_id, subagent_id, created_at) VALUES (?, ?, ?, ?)`, uuid.New().String(), agentID.String(), subagentID.String(), now)
+	mustAPIExec(t, db, `INSERT INTO agent_rule_bindings (id, agent_role_id, rule_id, created_at) VALUES (?, ?, ?, ?)`, uuid.New().String(), agentID.String(), ruleID.String(), now)
+
+	statsW := performAPILightJSON(router, http.MethodGet, "/api/v1/dashboard/stats", nil)
+	if statsW.Code != http.StatusOK || !bytes.Contains(statsW.Body.Bytes(), []byte(`"totalProjects":1`)) || !bytes.Contains(statsW.Body.Bytes(), []byte(`"activeThreads":1`)) || !bytes.Contains(statsW.Body.Bytes(), []byte(`"totalRules":1`)) {
+		t.Fatalf("stats code=%d body=%s", statsW.Code, statsW.Body.String())
+	}
+	workflowsW := performAPILightJSON(router, http.MethodGet, "/api/v1/dashboard/workflows-with-assets", nil)
+	if workflowsW.Code != http.StatusOK || !bytes.Contains(workflowsW.Body.Bytes(), []byte("Delivery Team")) || !bytes.Contains(workflowsW.Body.Bytes(), []byte("review-skill")) || !bytes.Contains(workflowsW.Body.Bytes(), []byte(`"totalAssets":4`)) {
+		t.Fatalf("workflows code=%d body=%s", workflowsW.Code, workflowsW.Body.String())
+	}
+	activeW := performAPILightJSON(router, http.MethodGet, "/api/v1/dashboard/active-threads", nil)
+	if activeW.Code != http.StatusOK || !bytes.Contains(activeW.Body.Bytes(), []byte("Ship feature")) || !bytes.Contains(activeW.Body.Bytes(), []byte("Planner")) {
+		t.Fatalf("active threads code=%d body=%s", activeW.Code, activeW.Body.String())
+	}
+	recentW := performAPILightJSON(router, http.MethodGet, "/api/v1/dashboard/recent-threads", nil)
+	if recentW.Code != http.StatusOK || !bytes.Contains(recentW.Body.Bytes(), []byte("Colink")) || !bytes.Contains(recentW.Body.Bytes(), []byte("Delivery Team")) {
+		t.Fatalf("recent threads code=%d body=%s", recentW.Code, recentW.Body.String())
+	}
+
+	handler := NewDashboardHandler(db)
+	if got := handler.queryCount(context.Background(), "SELECT COUNT(*) FROM missing_table"); got != 0 {
+		t.Fatalf("queryCount bad query = %d", got)
+	}
+	if got := parseJSONArray(`["a", "b"]`); len(got) != 2 || got[1] != "b" {
+		t.Fatalf("parseJSONArray standard = %#v", got)
+	}
+	if got := parseJSONArray(`["a","b",]`); len(got) != 2 {
+		t.Fatalf("parseJSONArray fallback = %#v", got)
+	}
+	if got := parseJSONArray("not-json"); got != nil {
+		t.Fatalf("parseJSONArray invalid = %#v", got)
+	}
+}
+
 func openAPICRUDTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	db, err := sql.Open("sqlite", ":memory:")
@@ -563,10 +620,14 @@ func openAPICRUDTestDB(t *testing.T) *sql.DB {
 		`CREATE TABLE base_agents (id TEXT PRIMARY KEY, name TEXT, type TEXT, api_url TEXT, api_token TEXT, default_model TEXT, cli_path TEXT, git_bash_path TEXT, max_tokens INTEGER, timeout_minutes INTEGER, is_default BOOLEAN, created_at TIMESTAMP, updated_at TIMESTAMP)`,
 		`CREATE TABLE agent_configs (id TEXT PRIMARY KEY, name TEXT, role TEXT, description TEXT, system_prompt TEXT, max_tokens INTEGER, temperature REAL, base_agent_id TEXT, is_default INTEGER, is_system INTEGER, requires_human INTEGER, mention_patterns BLOB, config_generated_at TEXT, config_path TEXT, created_at TIMESTAMP, updated_at TIMESTAMP)`,
 		`CREATE TABLE workflow_templates (id TEXT PRIMARY KEY, name TEXT, description TEXT, agent_ids BLOB, transitions BLOB, checkpoints BLOB, estimated_time TEXT, is_system INTEGER, is_default INTEGER, routable_teams BLOB, created_at TIMESTAMP, updated_at TIMESTAMP)`,
-		`CREATE TABLE projects (id TEXT PRIMARY KEY, workflow_template_id TEXT)`,
+		`CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT, workflow_template_id TEXT)`,
+		`CREATE TABLE threads (id TEXT PRIMARY KEY, project_id TEXT, name TEXT, status TEXT, current_phase TEXT, current_agent TEXT, workflow_template_id TEXT, created_at TIMESTAMP, updated_at TIMESTAMP)`,
+		`CREATE TABLE agent_invocations (id TEXT PRIMARY KEY, thread_id TEXT, agent_config_id TEXT, agent_name TEXT, status TEXT, created_at TIMESTAMP)`,
 		`CREATE TABLE commands (id TEXT PRIMARY KEY, name TEXT, description TEXT, created_at TIMESTAMP, updated_at TIMESTAMP)`,
 		`CREATE TABLE settings (id TEXT PRIMARY KEY, name TEXT, description TEXT, directory_path TEXT, created_at TIMESTAMP, updated_at TIMESTAMP)`,
 		`CREATE TABLE skills (id TEXT PRIMARY KEY, name TEXT, description TEXT, tags BLOB, source_type TEXT, source_registry_id TEXT, source_path TEXT, author_id TEXT, project_id TEXT, use_count INTEGER, status TEXT, is_public INTEGER, created_at TIMESTAMP, updated_at TIMESTAMP)`,
+		`CREATE TABLE subagents (id TEXT PRIMARY KEY, name TEXT, description TEXT, created_at TIMESTAMP, updated_at TIMESTAMP)`,
+		`CREATE TABLE rules (id TEXT PRIMARY KEY, name TEXT, description TEXT, created_at TIMESTAMP, updated_at TIMESTAMP)`,
 		`CREATE TABLE agent_skill_bindings (id TEXT PRIMARY KEY, agent_role_id TEXT, skill_id TEXT, created_at TIMESTAMP)`,
 		`CREATE TABLE agent_command_bindings (id TEXT PRIMARY KEY, agent_role_id TEXT, command_id TEXT, created_at TIMESTAMP)`,
 		`CREATE TABLE agent_subagent_bindings (id TEXT PRIMARY KEY, agent_role_id TEXT, subagent_id TEXT, created_at TIMESTAMP)`,
@@ -680,4 +741,28 @@ func insertAPIWorkflowProjectReference(t *testing.T, db *sql.DB, workflowID uuid
 	if err != nil {
 		t.Fatalf("insert project workflow reference: %v", err)
 	}
+}
+
+func insertAPICommandRow(t *testing.T, db *sql.DB, name string) uuid.UUID {
+	t.Helper()
+	id := uuid.New()
+	now := time.Now()
+	mustAPIExec(t, db, `INSERT INTO commands (id, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`, id.String(), name, "command", now, now)
+	return id
+}
+
+func insertAPISubagentRow(t *testing.T, db *sql.DB, name string) uuid.UUID {
+	t.Helper()
+	id := uuid.New()
+	now := time.Now()
+	mustAPIExec(t, db, `INSERT INTO subagents (id, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`, id.String(), name, "subagent", now, now)
+	return id
+}
+
+func insertAPIRuleRow(t *testing.T, db *sql.DB, name string) uuid.UUID {
+	t.Helper()
+	id := uuid.New()
+	now := time.Now()
+	mustAPIExec(t, db, `INSERT INTO rules (id, name, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`, id.String(), name, "rule", now, now)
+	return id
 }
