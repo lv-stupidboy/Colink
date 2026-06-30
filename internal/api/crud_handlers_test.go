@@ -17,6 +17,7 @@ import (
 	agentservice "github.com/anthropic/isdp/internal/service/agent"
 	commandservice "github.com/anthropic/isdp/internal/service/command"
 	settingsservice "github.com/anthropic/isdp/internal/service/settings"
+	skillservice "github.com/anthropic/isdp/internal/service/skill"
 	workflowservice "github.com/anthropic/isdp/internal/service/workflow"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -609,6 +610,141 @@ func TestDashboardHandlerStatsWorkflowsAndThreads(t *testing.T) {
 	}
 }
 
+func TestSkillHandlerCRUDUploadBindingsAndValidation(t *testing.T) {
+	db := openAPICRUDTestDB(t)
+	storage := t.TempDir()
+	skillRepo := repo.NewSkillRepository(db, repo.DBTypeSQLite)
+	agentRepo := repo.NewAgentConfigRepository(db, repo.DBTypeSQLite)
+	agentSkillRepo := repo.NewAgentSkillBindingRepository(db, repo.DBTypeSQLite)
+	commandSkillRepo := repo.NewCommandSkillBindingRepository(db, repo.DBTypeSQLite)
+	subagentSkillRepo := repo.NewSubagentSkillBindingRepository(db, repo.DBTypeSQLite)
+	commandRepo := repo.NewCommandRepository(db, repo.DBTypeSQLite)
+	subagentRepo := repo.NewSubagentRepository(db, repo.DBTypeSQLite)
+	registryRepo := repo.NewSkillRegistryRepository(db, repo.DBTypeSQLite)
+	svc := skillservice.NewService(skillRepo, agentSkillRepo, agentRepo, subagentSkillRepo, commandSkillRepo, subagentRepo, commandRepo, storage, zap.NewNop())
+	scanner := skillservice.NewSkillScanner(registryRepo, skillRepo, agentSkillRepo, agentRepo, storage, t.TempDir(), zap.NewNop())
+	router := setupAPILightRouter(func(group *gin.RouterGroup) {
+		NewSkillHandler(svc, scanner, storage, 1024*1024, nil, nil).RegisterRoutes(group)
+	})
+	agentID := insertAPIAgentConfig(t, db, "Reviewer")
+
+	createW := performAPILightJSON(router, http.MethodPost, "/api/v1/skills", map[string]any{
+		"name":        "review-skill",
+		"description": "reviews code",
+		"tags":        []string{"Go", "review"},
+		"sourceType":  "personal",
+		"isPublic":    true,
+	})
+	if createW.Code != http.StatusCreated {
+		t.Fatalf("Create skill code=%d body=%s", createW.Code, createW.Body.String())
+	}
+	var created model.Skill
+	if err := json.Unmarshal(createW.Body.Bytes(), &created); err != nil {
+		t.Fatalf("unmarshal skill: %v", err)
+	}
+	if created.ID == uuid.Nil || len(created.Tags) != 2 {
+		t.Fatalf("created skill = %#v", created)
+	}
+	listW := performAPILightJSON(router, http.MethodGet, "/api/v1/skills?search=review", nil)
+	if listW.Code != http.StatusOK || !bytes.Contains(listW.Body.Bytes(), []byte("review-skill")) {
+		t.Fatalf("List skills code=%d body=%s", listW.Code, listW.Body.String())
+	}
+	getW := performAPILightJSON(router, http.MethodGet, "/api/v1/skills/"+created.ID.String(), nil)
+	if getW.Code != http.StatusOK || !bytes.Contains(getW.Body.Bytes(), []byte("reviews code")) {
+		t.Fatalf("Get skill code=%d body=%s", getW.Code, getW.Body.String())
+	}
+	updateW := performAPILightJSON(router, http.MethodPut, "/api/v1/skills/"+created.ID.String(), map[string]any{
+		"description": "updated",
+		"tags":        []string{"Rust"},
+		"status":      "deprecated",
+	})
+	if updateW.Code != http.StatusOK || !bytes.Contains(updateW.Body.Bytes(), []byte("updated")) {
+		t.Fatalf("Update skill code=%d body=%s", updateW.Code, updateW.Body.String())
+	}
+	tagsW := performAPILightJSON(router, http.MethodGet, "/api/v1/skills/tags", nil)
+	if tagsW.Code != http.StatusOK || !bytes.Contains(tagsW.Body.Bytes(), []byte("Rust")) {
+		t.Fatalf("GetTags code=%d body=%s", tagsW.Code, tagsW.Body.String())
+	}
+	builtinTagsW := performAPILightJSON(router, http.MethodGet, "/api/v1/skills/tags/builtin", nil)
+	if builtinTagsW.Code != http.StatusOK || !bytes.Contains(builtinTagsW.Body.Bytes(), []byte("编程语言")) {
+		t.Fatalf("GetBuiltInTags code=%d body=%s", builtinTagsW.Code, builtinTagsW.Body.String())
+	}
+
+	bindW := performAPILightJSON(router, http.MethodPost, "/api/v1/agent-skills/"+agentID.String(), map[string]any{"skillIds": []string{created.ID.String()}})
+	if bindW.Code != http.StatusNoContent {
+		t.Fatalf("BindSkills code=%d body=%s", bindW.Code, bindW.Body.String())
+	}
+	agentSkillsW := performAPILightJSON(router, http.MethodGet, "/api/v1/agent-skills/"+agentID.String(), nil)
+	if agentSkillsW.Code != http.StatusOK || !bytes.Contains(agentSkillsW.Body.Bytes(), []byte("review-skill")) {
+		t.Fatalf("GetAgentSkills code=%d body=%s", agentSkillsW.Code, agentSkillsW.Body.String())
+	}
+	boundAgentsW := performAPILightJSON(router, http.MethodGet, "/api/v1/skills/"+created.ID.String()+"/agents", nil)
+	if boundAgentsW.Code != http.StatusOK || !bytes.Contains(boundAgentsW.Body.Bytes(), []byte("Reviewer")) {
+		t.Fatalf("GetBoundAgents code=%d body=%s", boundAgentsW.Code, boundAgentsW.Body.String())
+	}
+	deleteBoundW := performAPILightJSON(router, http.MethodDelete, "/api/v1/skills/"+created.ID.String(), nil)
+	if deleteBoundW.Code != http.StatusInternalServerError {
+		t.Fatalf("Delete bound skill code=%d body=%s", deleteBoundW.Code, deleteBoundW.Body.String())
+	}
+	unbindW := performAPILightJSON(router, http.MethodDelete, "/api/v1/agent-skills/"+agentID.String()+"/"+created.ID.String(), nil)
+	if unbindW.Code != http.StatusNoContent {
+		t.Fatalf("UnbindSkill code=%d body=%s", unbindW.Code, unbindW.Body.String())
+	}
+
+	uploadW := performAPIMultipart(router, http.MethodPost, "/api/v1/skills/upload", map[string]string{
+		"directory_name": "uploaded-skill",
+		"description":    "from zip",
+		"source_type":    "personal",
+	}, "skill.zip", map[string]string{
+		"SKILL.md": "# Uploaded\n\n## Description\nUploaded desc",
+	})
+	if uploadW.Code != http.StatusCreated || !bytes.Contains(uploadW.Body.Bytes(), []byte("uploaded-skill")) {
+		t.Fatalf("Upload skill code=%d body=%s", uploadW.Code, uploadW.Body.String())
+	}
+
+	deleteW := performAPILightJSON(router, http.MethodDelete, "/api/v1/skills/"+created.ID.String(), nil)
+	if deleteW.Code != http.StatusNoContent {
+		t.Fatalf("Delete skill code=%d body=%s", deleteW.Code, deleteW.Body.String())
+	}
+
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/skills/not-a-uuid", nil); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid get skill code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/skills/"+uuid.New().String(), nil); w.Code != http.StatusNotFound {
+		t.Fatalf("missing get skill code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodPut, "/api/v1/skills/not-a-uuid", map[string]any{}); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid update skill code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodDelete, "/api/v1/skills/not-a-uuid", nil); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid delete skill code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/skills/not-a-uuid/agents", nil); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid bound agents code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodPost, "/api/v1/agent-skills/not-a-uuid", map[string]any{}); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid bind skill agent code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/agent-skills/not-a-uuid", nil); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid get agent skills code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodDelete, "/api/v1/agent-skills/"+agentID.String()+"/not-a-uuid", nil); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid unbind skill code=%d", w.Code)
+	}
+	if w := performAPIMultipart(router, http.MethodPost, "/api/v1/skills/upload", map[string]string{"directory_name": "bad"}, "skill.txt", map[string]string{"SKILL.md": "# Bad"}); w.Code != http.StatusBadRequest {
+		t.Fatalf("bad upload extension code=%d", w.Code)
+	}
+	if w := performAPIMultipart(router, http.MethodPost, "/api/v1/skills/upload", map[string]string{"directory_name": "bad"}, "skill.zip", map[string]string{"README.md": "# Missing"}); w.Code != http.StatusBadRequest {
+		t.Fatalf("missing skill md upload code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodPost, "/api/v1/skills/import/repo", map[string]any{"repoUrl": "https://example.com/repo"}); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid import repo code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodPost, "/api/v1/skills/import/federated/scan", map[string]any{"registryId": "bad"}); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid federated scan code=%d", w.Code)
+	}
+}
+
 func openAPICRUDTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	db, err := sql.Open("sqlite", ":memory:")
@@ -625,6 +761,7 @@ func openAPICRUDTestDB(t *testing.T) *sql.DB {
 		`CREATE TABLE agent_invocations (id TEXT PRIMARY KEY, thread_id TEXT, agent_config_id TEXT, agent_name TEXT, status TEXT, created_at TIMESTAMP)`,
 		`CREATE TABLE commands (id TEXT PRIMARY KEY, name TEXT, description TEXT, created_at TIMESTAMP, updated_at TIMESTAMP)`,
 		`CREATE TABLE settings (id TEXT PRIMARY KEY, name TEXT, description TEXT, directory_path TEXT, created_at TIMESTAMP, updated_at TIMESTAMP)`,
+		`CREATE TABLE skill_registries (id TEXT PRIMARY KEY, name TEXT UNIQUE, display_name TEXT, type TEXT, url TEXT, auth_config BLOB, sync_interval INTEGER, last_sync_at TIMESTAMP, sync_status TEXT, skill_count INTEGER, status TEXT, created_at TIMESTAMP)`,
 		`CREATE TABLE skills (id TEXT PRIMARY KEY, name TEXT, description TEXT, tags BLOB, source_type TEXT, source_registry_id TEXT, source_path TEXT, author_id TEXT, project_id TEXT, use_count INTEGER, status TEXT, is_public INTEGER, created_at TIMESTAMP, updated_at TIMESTAMP)`,
 		`CREATE TABLE subagents (id TEXT PRIMARY KEY, name TEXT, description TEXT, created_at TIMESTAMP, updated_at TIMESTAMP)`,
 		`CREATE TABLE rules (id TEXT PRIMARY KEY, name TEXT, description TEXT, created_at TIMESTAMP, updated_at TIMESTAMP)`,
@@ -634,6 +771,7 @@ func openAPICRUDTestDB(t *testing.T) *sql.DB {
 		`CREATE TABLE agent_rule_bindings (id TEXT PRIMARY KEY, agent_role_id TEXT, rule_id TEXT, created_at TIMESTAMP)`,
 		`CREATE TABLE agent_settings_bindings (id TEXT PRIMARY KEY, agent_role_id TEXT, settings_id TEXT, created_at TIMESTAMP)`,
 		`CREATE TABLE command_skill_bindings (id TEXT PRIMARY KEY, command_id TEXT, skill_id TEXT, created_at TIMESTAMP)`,
+		`CREATE TABLE subagent_skill_bindings (id TEXT PRIMARY KEY, subagent_id TEXT, skill_id TEXT, created_at TIMESTAMP)`,
 	}
 	for _, stmt := range schema {
 		if _, err := db.Exec(stmt); err != nil {
