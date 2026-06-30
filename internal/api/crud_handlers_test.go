@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http"
@@ -175,6 +176,154 @@ func TestWorkflowHandlerCRUDDefaultDeleteGuardsAndInvalidRequests(t *testing.T) 
 	}
 }
 
+func TestAgentHandlerCRUDCopyReferencesAndBatchOperations(t *testing.T) {
+	db := openAPICRUDTestDB(t)
+	configRepo := repo.NewAgentConfigRepository(db, repo.DBTypeSQLite)
+	baseRepo := repo.NewBaseAgentRepository(db, repo.DBTypeSQLite)
+	workflowRepo := repo.NewWorkflowTemplateRepository(db, repo.DBTypeSQLite)
+	skillBindingRepo := repo.NewAgentSkillBindingRepository(db, repo.DBTypeSQLite)
+	commandBindingRepo := repo.NewAgentCommandBindingRepository(db, repo.DBTypeSQLite)
+	subagentBindingRepo := repo.NewAgentSubagentBindingRepository(db, repo.DBTypeSQLite)
+	ruleBindingRepo := repo.NewAgentRuleBindingRepository(db, repo.DBTypeSQLite)
+	settingsBindingRepo := repo.NewAgentSettingsBindingRepository(db, repo.DBTypeSQLite)
+	handler := NewAgentHandler(
+		agentservice.NewConfigService(configRepo, baseRepo),
+		agentservice.NewBaseAgentService(baseRepo),
+		nil,
+		nil,
+		workflowRepo,
+		nil,
+		nil,
+		skillBindingRepo,
+		subagentBindingRepo,
+		commandBindingRepo,
+		ruleBindingRepo,
+		settingsBindingRepo,
+	)
+	router := setupAPILightRouter(handler.RegisterRoutes)
+
+	now := time.Now()
+	baseA := uuid.New()
+	baseB := uuid.New()
+	insertAPIBaseAgent(t, db, baseA, "Hermes", "hermes", true)
+	insertAPIBaseAgent(t, db, baseB, "OpenCode", "open_code", false)
+
+	createW := performAPILightJSON(router, http.MethodPost, "/api/v1/agents", map[string]any{
+		"name":            "Planner",
+		"description":     "plans",
+		"systemPrompt":    "plan carefully",
+		"baseAgentId":     baseA.String(),
+		"mentionPatterns": []string{"@planner"},
+		"isDefault":       true,
+	})
+	if createW.Code != http.StatusCreated {
+		t.Fatalf("Create agent code=%d body=%s", createW.Code, createW.Body.String())
+	}
+	var created model.AgentRoleConfig
+	if err := json.Unmarshal(createW.Body.Bytes(), &created); err != nil {
+		t.Fatalf("unmarshal created agent: %v", err)
+	}
+	if created.ID == uuid.Nil || created.Role != model.AgentRoleAgent {
+		t.Fatalf("created agent = %#v", created)
+	}
+
+	listW := performAPILightJSON(router, http.MethodGet, "/api/v1/agents", nil)
+	if listW.Code != http.StatusOK || !bytes.Contains(listW.Body.Bytes(), []byte("Planner")) {
+		t.Fatalf("List agents code=%d body=%s", listW.Code, listW.Body.String())
+	}
+	getW := performAPILightJSON(router, http.MethodGet, "/api/v1/agents/"+created.ID.String(), nil)
+	if getW.Code != http.StatusOK || !bytes.Contains(getW.Body.Bytes(), []byte("Planner")) {
+		t.Fatalf("Get agent code=%d body=%s", getW.Code, getW.Body.String())
+	}
+	roleW := performAPILightJSON(router, http.MethodGet, "/api/v1/agents/role/agent", nil)
+	if roleW.Code != http.StatusOK || !bytes.Contains(roleW.Body.Bytes(), []byte("@planner")) {
+		t.Fatalf("GetByRole code=%d body=%s", roleW.Code, roleW.Body.String())
+	}
+	updateW := performAPILightJSON(router, http.MethodPut, "/api/v1/agents/"+created.ID.String(), map[string]any{
+		"name":         "Coder",
+		"role":         "reviewer",
+		"description":  "codes",
+		"systemPrompt": "code carefully",
+		"baseAgentId":  baseB.String(),
+	})
+	if updateW.Code != http.StatusOK || !bytes.Contains(updateW.Body.Bytes(), []byte("Coder")) {
+		t.Fatalf("Update agent code=%d body=%s", updateW.Code, updateW.Body.String())
+	}
+
+	skillID, commandID, subagentID, ruleID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	mustAPIExec(t, db, `INSERT INTO agent_skill_bindings (id, agent_role_id, skill_id, created_at) VALUES (?, ?, ?, ?)`, uuid.New().String(), created.ID.String(), skillID.String(), now)
+	mustAPIExec(t, db, `INSERT INTO agent_command_bindings (id, agent_role_id, command_id, created_at) VALUES (?, ?, ?, ?)`, uuid.New().String(), created.ID.String(), commandID.String(), now)
+	mustAPIExec(t, db, `INSERT INTO agent_subagent_bindings (id, agent_role_id, subagent_id, created_at) VALUES (?, ?, ?, ?)`, uuid.New().String(), created.ID.String(), subagentID.String(), now)
+	mustAPIExec(t, db, `INSERT INTO agent_rule_bindings (id, agent_role_id, rule_id, created_at) VALUES (?, ?, ?, ?)`, uuid.New().String(), created.ID.String(), ruleID.String(), now)
+
+	copyW := performAPILightJSON(router, http.MethodPost, "/api/v1/agents/"+created.ID.String()+"/copy", nil)
+	if copyW.Code != http.StatusCreated || !bytes.Contains(copyW.Body.Bytes(), []byte("副本")) {
+		t.Fatalf("Copy agent code=%d body=%s", copyW.Code, copyW.Body.String())
+	}
+	var copied model.AgentRoleConfig
+	if err := json.Unmarshal(copyW.Body.Bytes(), &copied); err != nil {
+		t.Fatalf("unmarshal copied agent: %v", err)
+	}
+	if ids, err := skillBindingRepo.FindByAgentRoleID(nilContext(), copied.ID); err != nil || len(ids) != 1 || ids[0] != skillID {
+		t.Fatalf("copied skill bindings = %#v err=%v", ids, err)
+	}
+
+	refsW := performAPILightJSON(router, http.MethodPost, "/api/v1/agents/"+created.ID.String()+"/refs", nil)
+	if refsW.Code != http.StatusOK || !bytes.Contains(refsW.Body.Bytes(), []byte(`"referenced":false`)) {
+		t.Fatalf("refs before workflow code=%d body=%s", refsW.Code, refsW.Body.String())
+	}
+	insertAPIWorkflowWithAgent(t, db, "Uses Coder", created.ID)
+	refsW = performAPILightJSON(router, http.MethodPost, "/api/v1/agents/"+created.ID.String()+"/refs", nil)
+	if refsW.Code != http.StatusOK || !bytes.Contains(refsW.Body.Bytes(), []byte(`"referenced":true`)) {
+		t.Fatalf("refs after workflow code=%d body=%s", refsW.Code, refsW.Body.String())
+	}
+	deleteReferencedW := performAPILightJSON(router, http.MethodDelete, "/api/v1/agents/"+created.ID.String(), nil)
+	if deleteReferencedW.Code != http.StatusBadRequest {
+		t.Fatalf("Delete referenced code=%d body=%s", deleteReferencedW.Code, deleteReferencedW.Body.String())
+	}
+	batchReferencedW := performAPILightJSON(router, http.MethodPost, "/api/v1/agents/batch-delete", map[string]any{"ids": []string{created.ID.String()}})
+	if batchReferencedW.Code != http.StatusBadRequest || !bytes.Contains(batchReferencedW.Body.Bytes(), []byte("referencedAgents")) {
+		t.Fatalf("BatchDelete referenced code=%d body=%s", batchReferencedW.Code, batchReferencedW.Body.String())
+	}
+
+	batchUpdateW := performAPILightJSON(router, http.MethodPost, "/api/v1/agents/batch-update-base-agent", map[string]any{
+		"agentIds":    []string{copied.ID.String(), uuid.New().String()},
+		"baseAgentId": baseA.String(),
+	})
+	if batchUpdateW.Code != http.StatusOK || !bytes.Contains(batchUpdateW.Body.Bytes(), []byte(`"success":1`)) {
+		t.Fatalf("BatchUpdateBaseAgent code=%d body=%s", batchUpdateW.Code, batchUpdateW.Body.String())
+	}
+	batchDeleteW := performAPILightJSON(router, http.MethodPost, "/api/v1/agents/batch-delete", map[string]any{"ids": []string{copied.ID.String()}})
+	if batchDeleteW.Code != http.StatusNoContent {
+		t.Fatalf("BatchDelete copied code=%d body=%s", batchDeleteW.Code, batchDeleteW.Body.String())
+	}
+
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/agents/not-a-uuid", nil); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid get agent code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/agents/"+uuid.New().String(), nil); w.Code != http.StatusNotFound {
+		t.Fatalf("missing get agent code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodPut, "/api/v1/agents/not-a-uuid", map[string]any{}); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid update agent code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodDelete, "/api/v1/agents/not-a-uuid", nil); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid delete agent code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodPost, "/api/v1/agents/batch-delete", map[string]any{"ids": []string{}}); w.Code != http.StatusBadRequest {
+		t.Fatalf("empty batch delete code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodPost, "/api/v1/agents/batch-generate-config", map[string]any{"agentIds": []string{"bad"}, "cliType": "hermes"}); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid batch generate id code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodPost, "/api/v1/agents/batch-update-base-agent", map[string]any{"agentIds": []string{"bad"}, "baseAgentId": baseA.String()}); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid batch update id code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodPost, "/api/v1/agents/"+created.ID.String()+"/refresh", nil); w.Code != http.StatusInternalServerError {
+		t.Fatalf("refresh without auto generator code=%d", w.Code)
+	}
+}
+
 func openAPICRUDTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	db, err := sql.Open("sqlite", ":memory:")
@@ -184,8 +333,14 @@ func openAPICRUDTestDB(t *testing.T) *sql.DB {
 	t.Cleanup(func() { db.Close() })
 	schema := []string{
 		`CREATE TABLE base_agents (id TEXT PRIMARY KEY, name TEXT, type TEXT, api_url TEXT, api_token TEXT, default_model TEXT, cli_path TEXT, git_bash_path TEXT, max_tokens INTEGER, timeout_minutes INTEGER, is_default BOOLEAN, created_at TIMESTAMP, updated_at TIMESTAMP)`,
+		`CREATE TABLE agent_configs (id TEXT PRIMARY KEY, name TEXT, role TEXT, description TEXT, system_prompt TEXT, max_tokens INTEGER, temperature REAL, base_agent_id TEXT, is_default INTEGER, is_system INTEGER, requires_human INTEGER, mention_patterns BLOB, config_generated_at TEXT, config_path TEXT, created_at TIMESTAMP, updated_at TIMESTAMP)`,
 		`CREATE TABLE workflow_templates (id TEXT PRIMARY KEY, name TEXT, description TEXT, agent_ids BLOB, transitions BLOB, checkpoints BLOB, estimated_time TEXT, is_system INTEGER, is_default INTEGER, routable_teams BLOB, created_at TIMESTAMP, updated_at TIMESTAMP)`,
 		`CREATE TABLE projects (id TEXT PRIMARY KEY, workflow_template_id TEXT)`,
+		`CREATE TABLE agent_skill_bindings (id TEXT PRIMARY KEY, agent_role_id TEXT, skill_id TEXT, created_at TIMESTAMP)`,
+		`CREATE TABLE agent_command_bindings (id TEXT PRIMARY KEY, agent_role_id TEXT, command_id TEXT, created_at TIMESTAMP)`,
+		`CREATE TABLE agent_subagent_bindings (id TEXT PRIMARY KEY, agent_role_id TEXT, subagent_id TEXT, created_at TIMESTAMP)`,
+		`CREATE TABLE agent_rule_bindings (id TEXT PRIMARY KEY, agent_role_id TEXT, rule_id TEXT, created_at TIMESTAMP)`,
+		`CREATE TABLE agent_settings_bindings (id TEXT PRIMARY KEY, agent_role_id TEXT, settings_id TEXT, created_at TIMESTAMP)`,
 	}
 	for _, stmt := range schema {
 		if _, err := db.Exec(stmt); err != nil {
@@ -193,6 +348,40 @@ func openAPICRUDTestDB(t *testing.T) *sql.DB {
 		}
 	}
 	return db
+}
+
+func insertAPIBaseAgent(t *testing.T, db *sql.DB, id uuid.UUID, name string, typ string, isDefault bool) {
+	t.Helper()
+	defaultInt := 0
+	if isDefault {
+		defaultInt = 1
+	}
+	mustAPIExec(t, db, `INSERT INTO base_agents (id, name, type, api_url, api_token, default_model, cli_path, git_bash_path, max_tokens, timeout_minutes, is_default, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id.String(), name, typ, "", "", "model", typ, "", 4096, 30, defaultInt, time.Now(), time.Now())
+}
+
+func insertAPIWorkflowWithAgent(t *testing.T, db *sql.DB, name string, agentID uuid.UUID) uuid.UUID {
+	t.Helper()
+	id := uuid.New()
+	now := time.Now()
+	agentIDs, _ := json.Marshal([]string{agentID.String()})
+	_, err := db.Exec(`INSERT INTO workflow_templates (id, name, description, agent_ids, transitions, checkpoints, estimated_time, is_system, is_default, routable_teams, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id.String(), name, "", agentIDs, []byte(`[]`), []byte(`[]`), "1h", 0, 0, []byte(`[]`), now, now)
+	if err != nil {
+		t.Fatalf("insert workflow with agent: %v", err)
+	}
+	return id
+}
+
+func mustAPIExec(t *testing.T, db *sql.DB, query string, args ...any) {
+	t.Helper()
+	if _, err := db.Exec(query, args...); err != nil {
+		t.Fatalf("exec %s: %v", query, err)
+	}
+}
+
+func nilContext() context.Context {
+	return context.Background()
 }
 
 func insertAPIWorkflow(t *testing.T, db *sql.DB, name string, isDefault bool) uuid.UUID {
