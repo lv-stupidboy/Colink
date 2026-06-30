@@ -30,6 +30,43 @@ func TestToolMetadataSchemas(t *testing.T) {
 	}
 }
 
+func TestMemoryArgumentCopyHelpers(t *testing.T) {
+	args := map[string]interface{}{
+		"workspacePath": "/workspace",
+		"query":         "runtime",
+		"type":          "project",
+		"tags":          []interface{}{"go", "runtime"},
+		"topic":         "Helios",
+		"summary":       "Runtime notes",
+		"facts":         []interface{}{"fact"},
+		"usage":         []interface{}{"usage"},
+		"ignored":       "nope",
+	}
+	optional := map[string]interface{}{}
+	copyOptionalMemoryArgs(optional, args)
+	for _, key := range []string{"workspacePath", "query", "type", "tags", "topic", "summary", "facts", "usage"} {
+		if _, ok := optional[key]; !ok {
+			t.Fatalf("copyOptionalMemoryArgs missing %s in %#v", key, optional)
+		}
+	}
+	if _, ok := optional["ignored"]; ok {
+		t.Fatalf("copyOptionalMemoryArgs copied ignored key")
+	}
+
+	structured := map[string]interface{}{}
+	copyStructuredMemoryArgs(structured, args)
+	for _, key := range []string{"tags", "topic", "summary", "facts", "usage"} {
+		if _, ok := structured[key]; !ok {
+			t.Fatalf("copyStructuredMemoryArgs missing %s in %#v", key, structured)
+		}
+	}
+	for _, key := range []string{"workspacePath", "query", "type", "ignored"} {
+		if _, ok := structured[key]; ok {
+			t.Fatalf("copyStructuredMemoryArgs copied %s", key)
+		}
+	}
+}
+
 func TestPostMessageThreadContextAndTeamToolsExecute(t *testing.T) {
 	restore := stubToolHTTP(t, func(req *http.Request) (*http.Response, error) {
 		if req.Header.Get("X-Invocation-ID") != "inv-1" || req.Header.Get("X-Callback-Token") != "token" {
