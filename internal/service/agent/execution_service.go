@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -243,6 +244,112 @@ func (es *ExecutionService) SetProcessPoolConfig(config PoolConfig) {
 // SetMCPBindingRepository 设置 MCP Server 绑定仓库。
 func (es *ExecutionService) SetMCPBindingRepository(repo *repo.AgentMCPBindingRepository) {
 	es.mcpBindingRepo = repo
+}
+
+// GetProcessPool 获取进程池（用于预热）
+func (es *ExecutionService) GetProcessPool() *ProcessPool {
+	return es.processPool
+}
+
+// WarmupProcessPool 预热进程池（服务启动时调用）
+// 减少首次调用延迟：5秒 → 0.5秒（目标：85%）
+// 参数 db: 数据库连接，用于查询最近活跃的 Agent
+// 参数 agentConfigRepo: AgentConfig 仓库，用于加载配置
+func (es *ExecutionService) WarmupProcessPool(db *sql.DB, agentConfigRepo *repo.AgentConfigRepository) {
+	if es.processPool == nil {
+		return
+	}
+
+	// 查询最近24小时活跃的Agent配置
+	rows, err := db.Query(`
+		SELECT DISTINCT ai.agent_config_id, p.workspace_path
+		FROM agent_invocations ai
+		JOIN threads t ON ai.thread_id = t.id
+		JOIN projects p ON t.project_id = p.id
+		WHERE ai.created_at > ?
+		ORDER BY ai.created_at DESC
+		LIMIT 5
+	`, time.Now().Add(-24*time.Hour))
+
+	if err != nil {
+		LogWarn("ProcessPool warmup query failed", zap.Error(err))
+		return
+	}
+	defer rows.Close()
+
+	// 构建 PoolKeys
+	poolKeys := []PoolKey{}
+	for rows.Next() {
+		var configID string
+		var workDir string
+		if err := rows.Scan(&configID, &workDir); err != nil {
+			LogWarn("ProcessPool warmup scan failed", zap.Error(err))
+			continue
+		}
+
+		configUUID, err := uuid.Parse(configID)
+		if err != nil {
+			LogWarn("ProcessPool warmup parse configID failed", zap.Error(err), zap.String("configID", configID))
+			continue
+		}
+
+		poolKeys = append(poolKeys, PoolKey{
+			WorkDir: workDir,
+			RoleID:  configUUID,
+		})
+	}
+
+	if len(poolKeys) == 0 {
+		LogInfo("ProcessPool warmup: no recent active agents found")
+		return
+	}
+
+	// 创建 ProcessClient 工厂函数
+	createClient := func(pk PoolKey) (ProcessClient, error) {
+		// 加载 AgentRoleConfig
+		ctx := context.Background()
+		config, err := agentConfigRepo.FindByID(ctx, pk.RoleID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load agent config: %w", err)
+		}
+
+		// 获取 BaseAgent（如果配置中没有，则使用默认）
+		baseAgent := config.BaseAgent
+		if baseAgent == nil && config.BaseAgentID != uuid.Nil {
+			baseAgent, err = es.baseAgentRepo.FindByID(ctx, config.BaseAgentID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to load base agent: %w", err)
+			}
+		}
+
+		// 创建 adapter（使用私有方法）
+		adapter, err := es.getAdapter(ctx, config, baseAgent)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create adapter: %w", err)
+		}
+
+		// 创建预热请求
+		req := &ExecutionRequest{
+			WorkDir:      pk.WorkDir,
+			BaseAgent:    baseAgent,
+			InvocationID: uuid.New(),
+		}
+
+		// 启动 session（预热进程）
+		sessionID := uuid.New().String()
+		if err := adapter.StartSession(ctx, sessionID, req); err != nil {
+			return nil, fmt.Errorf("failed to start warmup session: %w", err)
+		}
+
+		return &warmupProcessClient{adapter: adapter, sessionID: sessionID}, nil
+	}
+
+	// 调用 Warmup（后台异步执行）
+	es.processPool.Warmup(poolKeys, createClient)
+
+	LogInfo("ProcessPool warmup started",
+		zap.Int("count", len(poolKeys)),
+		zap.Any("configIDs", poolKeys))
 }
 
 // NotifyChunkListeners 通知所有外部 chunk 监听器
@@ -672,15 +779,16 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 	// === ProcessPool: 进程预热复用（性能优化）===
 	// 尝试从进程池获取进程租约（所有执行时，不仅仅 resume）
 	if es.processPool != nil {
-		// 尝试从进程池获取进程租约
-		processLease, err = es.processPool.Acquire(poolKey, sessionID)
+		// 尝试从进程池获取进程租约（传递 supportsMultiplexing 参数）
+		processLease, err = es.processPool.Acquire(poolKey, sessionID, baseAgent.SupportsMultiplexing)
 		if err != nil {
 			// 获取失败（pool at capacity 或其他错误），记录日志但继续执行
 			// 降级为 cold start（不影响功能）
 			logWarn("ProcessPool.Acquire failed, fallback to cold start",
 				zap.Error(err),
 				zap.String("workDir", req.ProjectPath),
-				zap.String("roleID", config.ID.String()))
+				zap.String("roleID", config.ID.String()),
+				zap.Bool("supportsMultiplexing", baseAgent.SupportsMultiplexing))
 			processLease = nil
 		} else {
 			logInfo("ProcessPool lease acquired",
@@ -4591,4 +4699,31 @@ func (es *ExecutionService) GetAllRunningAgents(ctx context.Context) ([]RunningA
 // 用于提前生成 sessionID 并持久化 pending 状态，确保 CLI 取消后可 resume
 func generateSessionID() string {
 	return uuid.New().String()
+}
+
+
+// warmupProcessClient 预热进程客户端（实现 ProcessClient 接口）
+type warmupProcessClient struct {
+	adapter   AgentAdapter
+	sessionID string
+}
+
+func (w *warmupProcessClient) IsAlive() bool {
+	if w.adapter == nil {
+		return false
+	}
+	status := w.adapter.GetSessionStatus(w.sessionID)
+	return status == SessionStatusRunning || status == SessionStatusIdle
+}
+
+func (w *warmupProcessClient) Close() error {
+	if w.adapter != nil {
+		return w.adapter.StopSession(w.sessionID)
+	}
+	return nil
+}
+
+func (w *warmupProcessClient) Initialize() error {
+	// 预热进程已通过 StartSession 初始化，无需额外操作
+	return nil
 }

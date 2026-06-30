@@ -40,10 +40,18 @@ type Lease struct {
 	AcquiredAt time.Time
 }
 
+// PendingSpawn 表示正在 spawn 的进程
+// 用于避免重复启动进程，并发 Acquire 时等待正在 spawn 的进程
+type PendingSpawn struct {
+	Promise chan *PoolEntry // 用于等待 spawn 完成的 channel
+	Done    bool            // spawn 是否完成
+}
+
 // ProcessPool 进程池，管理 CLI 进程的预热和复用
 type ProcessPool struct {
-	entries       map[string][]*PoolEntry // key: serializeKey(poolKey) → entries
-	sessionOwners map[string]*PoolEntry   // key: poolKey::sessionId → entry (session 归属)
+	entries       map[string][]*PoolEntry   // key: serializeKey(poolKey) → entries
+	sessionOwners map[string]*PoolEntry     // key: poolKey::sessionId → entry (session 归属)
+	pendingSpawns map[string]*PendingSpawn  // key: serializeKey(poolKey) → 正在 spawn 的进程
 	config        PoolConfig
 	metrics       PoolMetrics
 	mu            sync.RWMutex
@@ -96,6 +104,7 @@ func NewProcessPool(config PoolConfig) *ProcessPool {
 	pool := &ProcessPool{
 		entries:       make(map[string][]*PoolEntry),
 		sessionOwners: make(map[string]*PoolEntry),
+		pendingSpawns: make(map[string]*PendingSpawn),
 		config:        config,
 		metrics:       PoolMetrics{},
 	}
@@ -145,12 +154,14 @@ func (p *ProcessPool) Close() {
 	// 清空 maps
 	p.entries = make(map[string][]*PoolEntry)
 	p.sessionOwners = make(map[string]*PoolEntry)
+	p.pendingSpawns = make(map[string]*PendingSpawn)
 	p.metrics = PoolMetrics{}
 }
 
 // Acquire 获取进程租约（优化版：读锁优先）
 // 复用逻辑: sessionOwners(读锁快速路径) → entries(写锁慢路径) → cold start
-func (p *ProcessPool) Acquire(poolKey PoolKey, sessionId string) (*Lease, error) {
+// supportsMultiplexing: 是否支持多lease共享进程（multiplexing模式）
+func (p *ProcessPool) Acquire(poolKey PoolKey, sessionId string, supportsMultiplexing bool) (*Lease, error) {
 	// 优化：先读锁查 sessionOwners（快速路径）
 	if sessionId != "" {
 		sessionKey := serializeSessionKey(poolKey, sessionId)
@@ -162,8 +173,42 @@ func (p *ProcessPool) Acquire(poolKey PoolKey, sessionId string) (*Lease, error)
 		if exists && owner != nil {
 			// 快速路径：只锁单个 entry（避免全局锁）
 			owner.mu.Lock()
-			// 双重检查：确保 entry 状态有效且可复用
-			if owner.State == "ready" && owner.LeaseCount == 0 && owner.Client != nil {
+
+			// 僵尸租约检测：单lease模式下leaseCount>0
+			// 场景：Windows控制台断开等导致旧租约未正确释放
+			// 检测条件：进程ready但leaseCount>0（不应该存在）
+			if owner.State == "ready" && owner.Client != nil && !supportsMultiplexing && owner.LeaseCount > 0 {
+				LogWarn("僵尸租约检测，强制释放（快速路径）",
+					zap.String("sessionId", sessionId),
+					zap.Int("leaseCount", owner.LeaseCount),
+					zap.Int64("generation", owner.LeaseGeneration))
+
+				// 强制释放僵尸租约：更新 metrics
+				p.mu.Lock()
+				p.metrics.ActiveLeaseCount -= owner.LeaseCount
+				p.metrics.IdleProcessCount++
+				p.mu.Unlock()
+
+				// 清零 leaseCount，bump generation 防止旧 release 干扰
+				owner.LeaseCount = 0
+				owner.LeaseGeneration++
+
+				// 清除可能存在的 idleTimer
+				if owner.IdleTimer != nil {
+					owner.IdleTimer.Stop()
+					owner.IdleTimer = nil
+				}
+			}
+
+			// 双重检查：确保 entry 状态有效
+			// multiplexing模式：允许leaseCount>0的进程复用
+			// 单lease模式：仅允许leaseCount==0的进程复用
+			canReuse := owner.State == "ready" && owner.Client != nil
+			if !supportsMultiplexing {
+				canReuse = canReuse && owner.LeaseCount == 0 // 单lease模式
+			}
+
+			if canReuse {
 				// 清除 idleTimer
 				if owner.IdleTimer != nil {
 					owner.IdleTimer.Stop()
@@ -178,7 +223,9 @@ func (p *ProcessPool) Acquire(poolKey PoolKey, sessionId string) (*Lease, error)
 				p.mu.Lock()
 				p.metrics.WarmHitCount++
 				p.metrics.ActiveLeaseCount++
-				p.metrics.IdleProcessCount--
+				if owner.LeaseCount == 1 {
+					p.metrics.IdleProcessCount--
+				}
 				p.mu.Unlock()
 
 				return p.createLease(owner, poolKey), nil
@@ -197,12 +244,68 @@ func (p *ProcessPool) Acquire(poolKey PoolKey, sessionId string) (*Lease, error)
 
 	key := serializeKey(poolKey)
 
-	// 1. 再次检查 sessionOwners（防止读锁释放后状态变化）
+	// 1. 检查是否有正在 spawn 的进程（避免重复启动）
+	if pending, exists := p.pendingSpawns[key]; exists && !pending.Done {
+		// 释放写锁，等待 spawn 完成
+		p.mu.Unlock()
+		entry := <-pending.Promise
+
+		// 重新获取写锁处理租约
+		p.mu.Lock()
+		if p.closed {
+			return nil, ErrPoolClosed
+		}
+
+		entry.mu.Lock()
+		entry.LeaseCount++
+		entry.LeaseGeneration++
+		entry.LastUsedAt = time.Now()
+		entry.mu.Unlock()
+
+		p.metrics.WarmHitCount++
+		p.metrics.ActiveLeaseCount++
+
+		return p.createLease(entry, poolKey), nil
+	}
+
+	// 2. 再次检查 sessionOwners（防止读锁释放后状态变化）
 	if sessionId != "" {
 		sessionKey := serializeSessionKey(poolKey, sessionId)
 		if owner, exists := p.sessionOwners[sessionKey]; exists && owner != nil {
 			owner.mu.Lock()
-			if owner.State == "ready" && owner.LeaseCount == 0 && owner.Client != nil {
+
+			// 僵尸租约检测：单lease模式下leaseCount>0
+			// 场景：Windows控制台断开等导致旧租约未正确释放
+			// 检测条件：进程ready但leaseCount>0（不应该存在）
+			if owner.State == "ready" && owner.Client != nil && !supportsMultiplexing && owner.LeaseCount > 0 {
+				LogWarn("僵尸租约检测，强制释放（慢路径）",
+					zap.String("sessionId", sessionId),
+					zap.Int("leaseCount", owner.LeaseCount),
+					zap.Int64("generation", owner.LeaseGeneration))
+
+				// 强制释放僵尸租约：更新 metrics（已在写锁中，无需额外锁）
+				p.metrics.ActiveLeaseCount -= owner.LeaseCount
+				p.metrics.IdleProcessCount++
+
+				// 清零 leaseCount，bump generation 防止旧 release 干扰
+				owner.LeaseCount = 0
+				owner.LeaseGeneration++
+
+				// 清除可能存在的 idleTimer
+				if owner.IdleTimer != nil {
+					owner.IdleTimer.Stop()
+					owner.IdleTimer = nil
+				}
+			}
+
+			// multiplexing模式：允许leaseCount>0的进程复用
+			// 单lease模式：仅允许leaseCount==0的进程复用
+			canReuse := owner.State == "ready" && owner.Client != nil
+			if !supportsMultiplexing {
+				canReuse = canReuse && owner.LeaseCount == 0 // 单lease模式
+			}
+
+			if canReuse {
 				if owner.IdleTimer != nil {
 					owner.IdleTimer.Stop()
 					owner.IdleTimer = nil
@@ -214,18 +317,27 @@ func (p *ProcessPool) Acquire(poolKey PoolKey, sessionId string) (*Lease, error)
 
 				p.metrics.WarmHitCount++
 				p.metrics.ActiveLeaseCount++
-				p.metrics.IdleProcessCount--
+				if owner.LeaseCount == 1 {
+					p.metrics.IdleProcessCount--
+				}
 				return p.createLease(owner, poolKey), nil
 			}
 			owner.mu.Unlock()
 		}
 	}
 
-	// 2. 检查 entries 中 ready + 空闲进程
+	// 3. 检查 entries 中 ready + 空闲进程
 	entries := p.entries[key]
 	for _, entry := range entries {
 		entry.mu.Lock()
-		if entry.State == "ready" && entry.LeaseCount == 0 && entry.Client != nil {
+		// multiplexing模式：允许leaseCount>0的进程复用
+		// 单lease模式：仅允许leaseCount==0的进程复用
+		canReuse := entry.State == "ready" && entry.Client != nil
+		if !supportsMultiplexing {
+			canReuse = canReuse && entry.LeaseCount == 0 // 单lease模式
+		}
+
+		if canReuse {
 			// 清除 idle timer
 			if entry.IdleTimer != nil {
 				entry.IdleTimer.Stop()
@@ -238,20 +350,25 @@ func (p *ProcessPool) Acquire(poolKey PoolKey, sessionId string) (*Lease, error)
 
 			p.metrics.WarmHitCount++
 			p.metrics.ActiveLeaseCount++
-			p.metrics.IdleProcessCount--
+			if entry.LeaseCount == 1 {
+				p.metrics.IdleProcessCount--
+			}
 			return p.createLease(entry, poolKey), nil
 		}
 		entry.mu.Unlock()
 	}
 
-	// 3. 容量检查 + LRU 驱逐
+	// 4. 容量检查 + LRU 驱逐
 	if p.metrics.LiveProcessCount >= p.config.MaxLiveProcesses {
 		if !p.evictOne() {
 			return nil, ErrPoolAtCapacity
 		}
 	}
 
-	// 4. Cold start - 创建新 entry
+	// 5. Cold start - 创建新 entry（标记为正在 spawn）
+	pending := &PendingSpawn{Promise: make(chan *PoolEntry, 1)}
+	p.pendingSpawns[key] = pending
+
 	entry := &PoolEntry{
 		Client:          nil, // 后续由 adapter 设置
 		LeaseCount:      1,
@@ -268,6 +385,11 @@ func (p *ProcessPool) Acquire(poolKey PoolKey, sessionId string) (*Lease, error)
 	p.metrics.LiveProcessCount++
 	p.metrics.ActiveLeaseCount++
 	p.metrics.ColdStartCount++
+
+	// spawn 完成，通知等待的 Acquire
+	pending.Done = true
+	pending.Promise <- entry
+	delete(p.pendingSpawns, key)
 
 	return p.createLease(entry, poolKey), nil
 }
@@ -573,4 +695,91 @@ type ProcessClient interface {
 	// Initialize 初始化进程（用于预热）
 	// 参考 clowder-ai AcpProcessPool.ts:312-331 的 spawnEntry
 	Initialize() error
+}
+
+// Warmup 预热进程池（后台异步预热常用Agent）
+// 减少首次调用延迟：5秒 → 0.5秒（目标：85%）
+// 参数 poolKeys: 需要预热的 PoolKey 列表（workDir + roleID）
+// 参数 createClient: 创建 ProcessClient 的工厂函数（由 ExecutionService 提供）
+func (p *ProcessPool) Warmup(poolKeys []PoolKey, createClient func(PoolKey) (ProcessClient, error)) {
+	if len(poolKeys) == 0 {
+		return
+	}
+
+	LogInfo("ProcessPool.Warmup: starting background warmup",
+		zap.Int("count", len(poolKeys)))
+
+	for _, key := range poolKeys {
+		go func(pk PoolKey) {
+			// 后台异步预热
+			startTime := time.Now()
+
+			// 创建 entry 并标记为 initializing
+			entry := &PoolEntry{
+				Client:          nil,
+				LeaseCount:      0,
+				LeaseGeneration: 0,
+				LastUsedAt:      time.Now(),
+				State:           "initializing",
+			}
+
+			// 加入 entries（需要全局锁）
+			p.mu.Lock()
+			if p.closed {
+				p.mu.Unlock()
+				LogWarn("ProcessPool.Warmup: pool closed, skip warmup",
+					zap.String("workDir", pk.WorkDir),
+					zap.String("roleID", pk.RoleID.String()))
+				return
+			}
+
+			keyStr := serializeKey(pk)
+			if p.entries[keyStr] == nil {
+				p.entries[keyStr] = []*PoolEntry{}
+			}
+			p.entries[keyStr] = append(p.entries[keyStr], entry)
+			p.metrics.LiveProcessCount++
+			p.mu.Unlock()
+
+			// 调用工厂函数创建 client（调用 adapter 的 Initialize）
+			client, err := createClient(pk)
+			if err != nil {
+				// 预热失败：移除 entry
+				p.mu.Lock()
+				entries := p.entries[keyStr]
+				for i, e := range entries {
+					if e == entry {
+						p.entries[keyStr] = append(entries[:i], entries[i+1:]...)
+						break
+					}
+				}
+				if len(p.entries[keyStr]) == 0 {
+					delete(p.entries, keyStr)
+				}
+				p.metrics.LiveProcessCount--
+				p.mu.Unlock()
+
+				LogError("ProcessPool.Warmup: warmup failed",
+					zap.String("workDir", pk.WorkDir),
+					zap.String("roleID", pk.RoleID.String()),
+					zap.Error(err),
+					zap.Duration("duration", time.Since(startTime)))
+				return
+			}
+
+			// 预热成功：设置 client 并标记为 ready
+			p.mu.Lock()
+			entry.mu.Lock()
+			entry.Client = client
+			entry.State = "ready"
+			entry.mu.Unlock()
+			p.metrics.IdleProcessCount++
+			p.mu.Unlock()
+
+			LogInfo("ProcessPool.Warmup: warmup completed",
+				zap.String("workDir", pk.WorkDir),
+				zap.String("roleID", pk.RoleID.String()),
+				zap.Duration("duration", time.Since(startTime)))
+		}(key)
+	}
 }

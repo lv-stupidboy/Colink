@@ -484,6 +484,9 @@ func main() {
 	startupReconciler := agent.NewStartupReconciler(invocationRepo, contentBlockRepo)
 	startupReconciler.Reconcile(context.Background())
 
+	// ProcessPool 预热：后台异步预热常用Agent进程，减少首次调用延迟
+	warmupProcessPool(db, orchestrator, agentConfigRepo, logger)
+
 	// 连接Message服务和Agent编排器（用户消息触发Agent）
 	messageService.SetAgentSpawner(orchestrator)
 
@@ -1101,4 +1104,21 @@ func checkDatabaseTables(db *sql.DB, logger *zap.Logger) {
 				zap.String("size_mb", fmt.Sprintf("%.2f", float64(dbSize)/1024/1024)))
 		}
 	}
+}
+
+
+// warmupProcessPool 预热进程池（服务启动时后台异步预热常用Agent）
+// 减少首次调用延迟：5秒 → 0.5秒（目标：85%）
+func warmupProcessPool(db *sql.DB, orchestrator *agent.Orchestrator, agentConfigRepo *repo.AgentConfigRepository, logger *zap.Logger) {
+	// 获取 ExecutionService
+	execSvc := orchestrator.GetExecutionService()
+	if execSvc == nil {
+		logger.Warn("ProcessPool warmup: ExecutionService not available")
+		return
+	}
+
+	// 调用 ExecutionService 的 WarmupProcessPool 方法
+	execSvc.WarmupProcessPool(db, agentConfigRepo)
+
+	logger.Info("ProcessPool warmup initiated")
 }
