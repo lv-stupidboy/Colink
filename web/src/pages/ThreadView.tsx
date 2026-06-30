@@ -207,6 +207,9 @@ const ThreadView: React.FC = () => {
 
   // Agent 完成后预填入状态
   const [prefilledMention, setPrefilledMention] = useState<string | undefined>(undefined);
+  // A2A 交接预填入延迟计时器：上游 Agent 完成后不立即预填入，等待短窗口；
+  // 若期间下游 Agent 启动（A2A 交接），则取消上游预填入，改由下游完成时预填入。
+  const prefillTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 点击 Agent 头像/名称追加 @mention 状态
   const [appendMention, setAppendMention] = useState<string | undefined>(undefined);
   const [rightPanelActiveTab, setRightPanelActiveTab] = useState<'code' | 'sandbox'>('code');
@@ -452,6 +455,10 @@ const ThreadView: React.FC = () => {
         wsRef.current.close();
         wsRef.current = null;
         wsConnectedRef.current = false;
+      }
+      if (prefillTimerRef.current) {
+        clearTimeout(prefillTimerRef.current);
+        prefillTimerRef.current = null;
       }
     };
   }, [threadId, isDebugMode]);
@@ -1014,14 +1021,30 @@ const ThreadView: React.FC = () => {
         console.log('[agent_status] Received:', { status, invocId, agentName, agentId, hasErrorDetails: !!errorDetails });
         // failed 状态时传递 errorDetails 作为 input（用于保存错误信息）
         updateAgentStatus(invocId, status, agentName, errorDetails || input);
+        // 下游 Agent 启动：取消上游 Agent 完成时挂起的预填入（A2A 交接场景）
+        if (status === 'started' || status === 'running') {
+          if (prefillTimerRef.current) {
+            clearTimeout(prefillTimerRef.current);
+            prefillTimerRef.current = null;
+          }
+        }
         // Agent 完成或中断时清理工具事件（包括 cancelled）
         if (status === 'completed' || status === 'failed' || status === 'interrupted' || status === 'cancelled') {
           clearToolEvents(invocId);
 
           // Agent 完成后预填入：设置上一个对话的 Agent 名称
           // 只在 completed 状态且非调试模式下预填入（interrupted 不预填入，用户需要回答问题）
+          // A2A 交接场景：上游 Agent 完成时，下游 Agent 可能即将启动（后端在广播 completed 后才 spawn 下游）。
+          // 延迟预填入，若延迟窗口内下游启动（见上方 started 分支），则取消上游预填入，避免误 @ 上游。
           if (status === 'completed' && !isDebugMode && agentName) {
-            setPrefilledMention(agentName);
+            if (prefillTimerRef.current) {
+              clearTimeout(prefillTimerRef.current);
+            }
+            const pendingAgentName = agentName;
+            prefillTimerRef.current = setTimeout(() => {
+              setPrefilledMention(pendingAgentName);
+              prefillTimerRef.current = null;
+            }, 800);
           }
 
           // 检测调度结束阻塞：Agent 完成且没有调用下一个 agent
