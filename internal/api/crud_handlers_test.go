@@ -1,11 +1,14 @@
 package api
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -13,6 +16,7 @@ import (
 	"github.com/anthropic/isdp/internal/repo"
 	agentservice "github.com/anthropic/isdp/internal/service/agent"
 	commandservice "github.com/anthropic/isdp/internal/service/command"
+	settingsservice "github.com/anthropic/isdp/internal/service/settings"
 	workflowservice "github.com/anthropic/isdp/internal/service/workflow"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -441,6 +445,113 @@ func TestCommandHandlerCRUDAndBindings(t *testing.T) {
 	}
 }
 
+func TestSettingsHandlerUploadReadBindingsAndInvalidRequests(t *testing.T) {
+	db := openAPICRUDTestDB(t)
+	storage := t.TempDir()
+	settingsRepo := repo.NewSettingsRepository(db, repo.DBTypeSQLite)
+	agentSettingsRepo := repo.NewAgentSettingsBindingRepository(db, repo.DBTypeSQLite)
+	agentRepo := repo.NewAgentConfigRepository(db, repo.DBTypeSQLite)
+	svc := settingsservice.NewService(settingsRepo, agentSettingsRepo, agentRepo, storage, zap.NewNop())
+	router := setupAPILightRouter(func(group *gin.RouterGroup) {
+		NewSettingsHandler(svc, storage, nil, agentRepo).RegisterRoutes(group)
+	})
+	agentID := insertAPIAgentConfig(t, db, "Ops")
+
+	createW := performAPIMultipart(router, http.MethodPost, "/api/v1/settings", map[string]string{
+		"name":        "ops-settings",
+		"description": "ops config",
+	}, "settings.zip", map[string]string{
+		"config/app.json": `{"enabled":true}`,
+		"README.md":       "# Ops",
+	})
+	if createW.Code != http.StatusCreated {
+		t.Fatalf("Create settings code=%d body=%s", createW.Code, createW.Body.String())
+	}
+	var created model.Settings
+	if err := json.Unmarshal(createW.Body.Bytes(), &created); err != nil {
+		t.Fatalf("unmarshal settings: %v", err)
+	}
+	if created.ID == uuid.Nil || created.DirectoryPath == "" {
+		t.Fatalf("created settings = %#v", created)
+	}
+
+	listW := performAPILightJSON(router, http.MethodGet, "/api/v1/settings?search=ops", nil)
+	if listW.Code != http.StatusOK || !bytes.Contains(listW.Body.Bytes(), []byte("ops-settings")) {
+		t.Fatalf("List settings code=%d body=%s", listW.Code, listW.Body.String())
+	}
+	getW := performAPILightJSON(router, http.MethodGet, "/api/v1/settings/"+created.ID.String(), nil)
+	if getW.Code != http.StatusOK || !bytes.Contains(getW.Body.Bytes(), []byte("ops-settings")) {
+		t.Fatalf("Get settings code=%d body=%s", getW.Code, getW.Body.String())
+	}
+	updateW := performAPILightJSON(router, http.MethodPut, "/api/v1/settings/"+created.ID.String(), map[string]any{"description": "updated"})
+	if updateW.Code != http.StatusOK || !bytes.Contains(updateW.Body.Bytes(), []byte("updated")) {
+		t.Fatalf("Update settings code=%d body=%s", updateW.Code, updateW.Body.String())
+	}
+	dirW := performAPILightJSON(router, http.MethodGet, "/api/v1/settings/"+created.ID.String()+"/directory", nil)
+	if dirW.Code != http.StatusOK || !bytes.Contains(dirW.Body.Bytes(), []byte("README.md")) {
+		t.Fatalf("ReadDirectory code=%d body=%s", dirW.Code, dirW.Body.String())
+	}
+	fileW := performAPILightJSON(router, http.MethodGet, "/api/v1/settings/"+created.ID.String()+"/file?path=config/app.json", nil)
+	if fileW.Code != http.StatusOK || !bytes.Contains(fileW.Body.Bytes(), []byte("enabled")) {
+		t.Fatalf("ReadFile code=%d body=%s", fileW.Code, fileW.Body.String())
+	}
+
+	bindW := performAPILightJSON(router, http.MethodPost, "/api/v1/agent-roles/"+agentID.String()+"/settings", map[string]any{"settingsIds": []string{created.ID.String()}})
+	if bindW.Code != http.StatusNoContent {
+		t.Fatalf("Bind settings code=%d body=%s", bindW.Code, bindW.Body.String())
+	}
+	agentSettingsW := performAPILightJSON(router, http.MethodGet, "/api/v1/agent-roles/"+agentID.String()+"/settings", nil)
+	if agentSettingsW.Code != http.StatusOK || !bytes.Contains(agentSettingsW.Body.Bytes(), []byte("ops-settings")) {
+		t.Fatalf("GetAgentSettings code=%d body=%s", agentSettingsW.Code, agentSettingsW.Body.String())
+	}
+	boundAgentsW := performAPILightJSON(router, http.MethodGet, "/api/v1/settings/"+created.ID.String()+"/agents", nil)
+	if boundAgentsW.Code != http.StatusOK || !bytes.Contains(boundAgentsW.Body.Bytes(), []byte("Ops")) {
+		t.Fatalf("GetBoundAgents code=%d body=%s", boundAgentsW.Code, boundAgentsW.Body.String())
+	}
+	unbindW := performAPILightJSON(router, http.MethodDelete, "/api/v1/agent-roles/"+agentID.String()+"/settings/"+created.ID.String(), nil)
+	if unbindW.Code != http.StatusNoContent {
+		t.Fatalf("Unbind settings code=%d body=%s", unbindW.Code, unbindW.Body.String())
+	}
+	deleteW := performAPILightJSON(router, http.MethodDelete, "/api/v1/settings/"+created.ID.String(), nil)
+	if deleteW.Code != http.StatusNoContent {
+		t.Fatalf("Delete settings code=%d body=%s", deleteW.Code, deleteW.Body.String())
+	}
+
+	if w := performAPIMultipart(router, http.MethodPost, "/api/v1/settings", map[string]string{}, "settings.zip", map[string]string{"a.txt": "a"}); w.Code != http.StatusBadRequest {
+		t.Fatalf("missing name create code=%d", w.Code)
+	}
+	if w := performAPIMultipart(router, http.MethodPost, "/api/v1/settings", map[string]string{"name": "bad"}, "settings.txt", map[string]string{"a.txt": "a"}); w.Code != http.StatusBadRequest {
+		t.Fatalf("bad extension create code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/settings/not-a-uuid", nil); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid get settings code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/settings/"+uuid.New().String(), nil); w.Code != http.StatusNotFound {
+		t.Fatalf("missing get settings code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodPut, "/api/v1/settings/not-a-uuid", map[string]any{}); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid update settings code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodDelete, "/api/v1/settings/not-a-uuid", nil); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid delete settings code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/settings/not-a-uuid/directory", nil); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid directory settings code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/settings/"+uuid.New().String()+"/file", nil); w.Code != http.StatusBadRequest {
+		t.Fatalf("missing file path code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodPost, "/api/v1/agent-roles/not-a-uuid/settings", map[string]any{}); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid bind agent code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/agent-roles/not-a-uuid/settings", nil); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid get agent settings code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodDelete, "/api/v1/agent-roles/"+agentID.String()+"/settings/not-a-uuid", nil); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid unbind settings code=%d", w.Code)
+	}
+}
+
 func openAPICRUDTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	db, err := sql.Open("sqlite", ":memory:")
@@ -454,6 +565,7 @@ func openAPICRUDTestDB(t *testing.T) *sql.DB {
 		`CREATE TABLE workflow_templates (id TEXT PRIMARY KEY, name TEXT, description TEXT, agent_ids BLOB, transitions BLOB, checkpoints BLOB, estimated_time TEXT, is_system INTEGER, is_default INTEGER, routable_teams BLOB, created_at TIMESTAMP, updated_at TIMESTAMP)`,
 		`CREATE TABLE projects (id TEXT PRIMARY KEY, workflow_template_id TEXT)`,
 		`CREATE TABLE commands (id TEXT PRIMARY KEY, name TEXT, description TEXT, created_at TIMESTAMP, updated_at TIMESTAMP)`,
+		`CREATE TABLE settings (id TEXT PRIMARY KEY, name TEXT, description TEXT, directory_path TEXT, created_at TIMESTAMP, updated_at TIMESTAMP)`,
 		`CREATE TABLE skills (id TEXT PRIMARY KEY, name TEXT, description TEXT, tags BLOB, source_type TEXT, source_registry_id TEXT, source_path TEXT, author_id TEXT, project_id TEXT, use_count INTEGER, status TEXT, is_public INTEGER, created_at TIMESTAMP, updated_at TIMESTAMP)`,
 		`CREATE TABLE agent_skill_bindings (id TEXT PRIMARY KEY, agent_role_id TEXT, skill_id TEXT, created_at TIMESTAMP)`,
 		`CREATE TABLE agent_command_bindings (id TEXT PRIMARY KEY, agent_role_id TEXT, command_id TEXT, created_at TIMESTAMP)`,
@@ -520,6 +632,30 @@ func mustAPIExec(t *testing.T, db *sql.DB, query string, args ...any) {
 
 func nilContext() context.Context {
 	return context.Background()
+}
+
+func performAPIMultipart(router *gin.Engine, method, path string, fields map[string]string, filename string, files map[string]string) *httptest.ResponseRecorder {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	for key, value := range fields {
+		_ = writer.WriteField(key, value)
+	}
+	part, _ := writer.CreateFormFile("file", filename)
+	var zipBuf bytes.Buffer
+	zipWriter := zip.NewWriter(&zipBuf)
+	for name, content := range files {
+		fileWriter, _ := zipWriter.Create(name)
+		_, _ = fileWriter.Write([]byte(content))
+	}
+	_ = zipWriter.Close()
+	_, _ = part.Write(zipBuf.Bytes())
+	_ = writer.Close()
+
+	req := httptest.NewRequest(method, path, &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	return w
 }
 
 func insertAPIWorkflow(t *testing.T, db *sql.DB, name string, isDefault bool) uuid.UUID {
