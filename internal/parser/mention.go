@@ -143,6 +143,45 @@ func ParseA2AMentionsMulti(text string, currentAgentID string, patterns []Mentio
 	return found
 }
 
+// handoffToTokenRegex 提取 ### To 字段中的 @句柄（不依赖行首）
+var handoffToTokenRegex = regexp.MustCompile(`@[^\s@,，。；;:：、]+`)
+
+// ParseHandoffTo 从 <a2a-handoff> 块的 ### To 字段解析路由目标（行首解析的兜底）
+//
+// 模型常把 @mention 写进散文/列表/句中，导致 ParseA2AMentions 的行首判定落空、
+// 交接静默失败。此函数不依赖行首：提取 ### To 段落内的 @句柄后，逐个置于行首
+// 复用 ParseA2AMentions，保证 token 边界、长匹配优先、去重、最大目标数、自调用
+// 过滤等约束与主解析完全一致。
+func ParseHandoffTo(text string, currentAgentID string, patterns []MentionPattern) []string {
+	toSection := extractHandoffField(text, "### To")
+	if toSection == "" {
+		return nil
+	}
+
+	tokens := handoffToTokenRegex.FindAllString(toSection, -1)
+	if len(tokens) == 0 {
+		return nil
+	}
+
+	// 每个句柄独占一行后复用行首解析
+	normalized := strings.Join(tokens, "\n")
+	return ParseA2AMentions(normalized, currentAgentID, patterns)
+}
+
+// extractHandoffField 提取 handoff 块中指定 ### 字段的内容
+// 从 header 之后到下一个 "### " 标记（或块末尾）之间的文本
+func extractHandoffField(block, header string) string {
+	idx := strings.Index(block, header)
+	if idx == -1 {
+		return ""
+	}
+	rest := block[idx+len(header):]
+	if next := strings.Index(rest, "### "); next != -1 {
+		return strings.TrimSpace(rest[:next])
+	}
+	return strings.TrimSpace(rest)
+}
+
 // countLeadingWhitespace 计算行首空白字符数
 func countLeadingWhitespace(line string) int {
 	count := 0

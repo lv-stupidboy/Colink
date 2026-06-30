@@ -201,7 +201,12 @@ func (p *Parser) Parse(ctx context.Context, text string, currentAgentID string) 
 		})
 	}
 
-	return parser.ParseA2AMentions(text, currentAgentID, patterns), nil
+	result := parser.ParseA2AMentions(text, currentAgentID, patterns)
+	if len(result) == 0 {
+		// 行首解析未命中时，回退解析 handoff 块的 ### To 字段（不依赖行首）
+		result = parser.ParseHandoffTo(text, currentAgentID, patterns)
+	}
+	return result, nil
 }
 
 // ParseForAgents 解析行首 @mention，限制在指定 Agent 范围内
@@ -230,6 +235,10 @@ func (p *Parser) ParseForAgents(ctx context.Context, text string, currentAgentID
 	}
 
 	result := parser.ParseA2AMentions(text, currentAgentID, patterns)
+	if len(result) == 0 {
+		// 行首解析未命中时，回退解析 handoff 块的 ### To 字段（不依赖行首）
+		result = parser.ParseHandoffTo(text, currentAgentID, patterns)
+	}
 	fmt.Printf("[DEBUG] ParseForAgents: 解析结果=%v\n", result)
 	return result, nil
 }

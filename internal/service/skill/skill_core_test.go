@@ -247,6 +247,8 @@ func TestSkillValidatorHandoffRules(t *testing.T) {
 
 	validOutput := `@测试工程师
 <a2a-handoff>
+### To
+@测试工程师
 ### Goal
 请验证本次登录流程是否满足验收目标。
 ### Context

@@ -53,6 +53,51 @@ func TestParseA2AMentionsMultiDedupesPatterns(t *testing.T) {
 	}
 }
 
+func TestParseHandoffTo(t *testing.T) {
+	patterns := []MentionPattern{
+		{Pattern: "@dev", AgentID: "dev"},
+		{Pattern: "@review", AgentIDs: []string{"qa", "lead"}},
+		{Pattern: "@self", AgentID: "self"},
+	}
+
+	tests := []struct {
+		name    string
+		text    string
+		current string
+		want    []string
+	}{
+		{
+			name: "recovers inline mention via To field",
+			text: "我已完成，确认后将交给 @dev 继续\n<a2a-handoff>\n### To\n@dev\n### Goal\n目标内容\n</a2a-handoff>",
+			want: []string{"dev"},
+		},
+		{
+			name: "multiple handles in To field",
+			text: "<a2a-handoff>\n### To\n@dev @review\n### Goal\n目标\n</a2a-handoff>",
+			want: []string{"dev", "qa"},
+		},
+		{
+			name: "stops at next field boundary",
+			text: "<a2a-handoff>\n### To\n@dev\n### Goal\n这里有 @review 不应被当作路由\n</a2a-handoff>",
+			want: []string{"dev"},
+		},
+		{name: "no To field returns nil", text: "<a2a-handoff>\n### Goal\n@dev\n</a2a-handoff>", want: []string{}},
+		{name: "filters self", text: "### To\n@self", current: "self", want: []string{}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ParseHandoffTo(tt.text, tt.current, append([]MentionPattern{}, patterns...))
+			if len(got) == 0 && len(tt.want) == 0 {
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("ParseHandoffTo=%v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestMentionHelpers(t *testing.T) {
 	if got := countLeadingWhitespace(" \t hi"); got != 3 {
 		t.Fatalf("countLeadingWhitespace=%d", got)
