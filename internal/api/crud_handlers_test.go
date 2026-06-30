@@ -18,7 +18,9 @@ import (
 	"github.com/anthropic/isdp/internal/repo"
 	agentservice "github.com/anthropic/isdp/internal/service/agent"
 	commandservice "github.com/anthropic/isdp/internal/service/command"
+	"github.com/anthropic/isdp/internal/service/knowledge"
 	localreposervice "github.com/anthropic/isdp/internal/service/local_repo"
+	mcpservice "github.com/anthropic/isdp/internal/service/mcp"
 	projectservice "github.com/anthropic/isdp/internal/service/project"
 	ruleservice "github.com/anthropic/isdp/internal/service/rule"
 	settingsservice "github.com/anthropic/isdp/internal/service/settings"
@@ -1114,6 +1116,151 @@ func TestLocalRepoHandlerRejectsInvalidAndMalformedRequests(t *testing.T) {
 	}
 }
 
+func TestMCPHandlerCRUDAndAgentBindings(t *testing.T) {
+	db := openAPICRUDTestDB(t)
+	service := mcpservice.NewService(
+		repo.NewMCPServerRepository(db, repo.DBTypeSQLite),
+		repo.NewAgentMCPBindingRepository(db, repo.DBTypeSQLite),
+		repo.NewAgentConfigRepository(db, repo.DBTypeSQLite),
+		zap.NewNop(),
+	)
+	router := setupAPILightRouter(func(group *gin.RouterGroup) {
+		NewMCPHandler(service).RegisterRoutes(group)
+	})
+
+	createW := performAPILightJSON(router, http.MethodPost, "/api/v1/mcp-servers", map[string]any{
+		"name":        "github-tools",
+		"displayName": "GitHub Tools",
+		"transport":   "stdio",
+		"command":     "npx",
+		"args":        []string{"-y", "@modelcontextprotocol/server-github"},
+		"env":         map[string]string{"GITHUB_TOKEN": "${env:GITHUB_TOKEN}"},
+	})
+	if createW.Code != http.StatusCreated || !bytes.Contains(createW.Body.Bytes(), []byte("github-tools")) {
+		t.Fatalf("create mcp code=%d body=%s", createW.Code, createW.Body.String())
+	}
+	var created model.MCPServer
+	if err := json.Unmarshal(createW.Body.Bytes(), &created); err != nil {
+		t.Fatalf("unmarshal mcp: %v", err)
+	}
+
+	if w := performAPILightJSON(router, http.MethodPost, "/api/v1/mcp-servers", map[string]any{"name": "github-tools", "transport": "stdio", "command": "npx"}); w.Code != http.StatusConflict {
+		t.Fatalf("duplicate mcp code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/mcp-servers?status=active&page=0&page_size=0", nil); w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte(`"total":1`)) {
+		t.Fatalf("list mcp code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/mcp-servers/"+created.ID.String(), nil); w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte("GitHub Tools")) {
+		t.Fatalf("get mcp code=%d body=%s", w.Code, w.Body.String())
+	}
+	updateW := performAPILightJSON(router, http.MethodPut, "/api/v1/mcp-servers/"+created.ID.String(), map[string]any{
+		"displayName": "GitHub MCP",
+		"description": "updated",
+		"transport":   "http",
+		"url":         "http://127.0.0.1:9100/mcp",
+	})
+	if updateW.Code != http.StatusOK || !bytes.Contains(updateW.Body.Bytes(), []byte("GitHub MCP")) {
+		t.Fatalf("update mcp code=%d body=%s", updateW.Code, updateW.Body.String())
+	}
+
+	agentID := insertAPIAgentConfig(t, db, "MCP Agent")
+	bindW := performAPILightJSON(router, http.MethodPut, "/api/v1/agents/"+agentID.String()+"/mcp-servers", map[string]any{
+		"mcpServerIds": []string{created.ID.String()},
+	})
+	if bindW.Code != http.StatusOK {
+		t.Fatalf("bind mcp code=%d body=%s", bindW.Code, bindW.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/agents/"+agentID.String()+"/mcp-servers", nil); w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte("github-tools")) {
+		t.Fatalf("list bound mcp code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodDelete, "/api/v1/mcp-servers/"+created.ID.String(), nil); w.Code != http.StatusNoContent {
+		t.Fatalf("delete mcp code=%d body=%s", w.Code, w.Body.String())
+	}
+
+	for _, tc := range []struct {
+		method string
+		path   string
+		body   any
+	}{
+		{http.MethodGet, "/api/v1/mcp-servers/not-a-uuid", nil},
+		{http.MethodPut, "/api/v1/mcp-servers/not-a-uuid", map[string]any{}},
+		{http.MethodDelete, "/api/v1/mcp-servers/not-a-uuid", nil},
+		{http.MethodGet, "/api/v1/agents/not-a-uuid/mcp-servers", nil},
+		{http.MethodPut, "/api/v1/agents/not-a-uuid/mcp-servers", map[string]any{"mcpServerIds": []string{uuid.New().String()}}},
+		{http.MethodPost, "/api/v1/mcp-servers", map[string]any{"name": "Bad_Name", "transport": "stdio", "command": "npx"}},
+	} {
+		if w := performAPILightJSON(router, tc.method, tc.path, tc.body); w.Code == http.StatusOK || w.Code == http.StatusCreated || w.Code == http.StatusNoContent {
+			t.Fatalf("expected error for %s %s, got %d body=%s", tc.method, tc.path, w.Code, w.Body.String())
+		}
+	}
+}
+
+func TestKnowledgeHandlerCRUDAndQueryErrors(t *testing.T) {
+	db := openAPICRUDTestDB(t)
+	service := knowledge.NewService(repo.NewKnowledgeBaseRepository(db, repo.DBTypeSQLite))
+	router := setupAPILightRouter(func(group *gin.RouterGroup) {
+		NewKnowledgeHandler(service).RegisterRoutes(group)
+	})
+
+	createW := performAPILightJSON(router, http.MethodPost, "/api/v1/knowledge", map[string]any{
+		"name":        "runbook",
+		"displayName": "Runbook KB",
+		"description": "ops docs",
+		"type":        "mcp",
+		"config":      map[string]string{"endpoint": ""},
+	})
+	if createW.Code != http.StatusCreated || !bytes.Contains(createW.Body.Bytes(), []byte("runbook")) {
+		t.Fatalf("create kb code=%d body=%s", createW.Code, createW.Body.String())
+	}
+	var created model.KnowledgeBase
+	if err := json.Unmarshal(createW.Body.Bytes(), &created); err != nil {
+		t.Fatalf("unmarshal knowledge: %v", err)
+	}
+
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/knowledge?page=0&size=0", nil); w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte(`"total":1`)) {
+		t.Fatalf("list kb code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/knowledge/"+created.ID.String(), nil); w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte("Runbook KB")) {
+		t.Fatalf("get kb code=%d body=%s", w.Code, w.Body.String())
+	}
+	updateW := performAPILightJSON(router, http.MethodPut, "/api/v1/knowledge/"+created.ID.String(), map[string]any{
+		"displayName": "Updated KB",
+		"description": "updated",
+		"status":      "inactive",
+	})
+	if updateW.Code != http.StatusOK || !bytes.Contains(updateW.Body.Bytes(), []byte("Updated KB")) {
+		t.Fatalf("update kb code=%d body=%s", updateW.Code, updateW.Body.String())
+	}
+	queryW := performAPILightJSON(router, http.MethodPost, "/api/v1/knowledge/"+created.ID.String()+"/query", map[string]any{"query": "hello"})
+	if queryW.Code != http.StatusInternalServerError {
+		t.Fatalf("inactive query code=%d body=%s", queryW.Code, queryW.Body.String())
+	}
+	queryAllW := performAPILightJSON(router, http.MethodPost, "/api/v1/knowledge/query", map[string]any{"query": "hello"})
+	if queryAllW.Code != http.StatusOK || !bytes.Contains(queryAllW.Body.Bytes(), []byte(`"results":[]`)) {
+		t.Fatalf("query all code=%d body=%s", queryAllW.Code, queryAllW.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodDelete, "/api/v1/knowledge/"+created.ID.String(), nil); w.Code != http.StatusNoContent {
+		t.Fatalf("delete kb code=%d body=%s", w.Code, w.Body.String())
+	}
+
+	for _, tc := range []struct {
+		method string
+		path   string
+		body   any
+	}{
+		{http.MethodGet, "/api/v1/knowledge/not-a-uuid", nil},
+		{http.MethodPut, "/api/v1/knowledge/not-a-uuid", map[string]any{}},
+		{http.MethodDelete, "/api/v1/knowledge/not-a-uuid", nil},
+		{http.MethodPost, "/api/v1/knowledge/not-a-uuid/query", map[string]any{"query": "x"}},
+		{http.MethodPost, "/api/v1/knowledge", map[string]any{"name": "missing type"}},
+		{http.MethodPost, "/api/v1/knowledge/query", map[string]any{}},
+	} {
+		if w := performAPILightJSON(router, tc.method, tc.path, tc.body); w.Code == http.StatusOK || w.Code == http.StatusCreated || w.Code == http.StatusNoContent {
+			t.Fatalf("expected error for %s %s, got %d body=%s", tc.method, tc.path, w.Code, w.Body.String())
+		}
+	}
+}
+
 func openAPICRUDTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	db, err := sql.Open("sqlite", ":memory:")
@@ -1142,6 +1289,9 @@ func openAPICRUDTestDB(t *testing.T) *sql.DB {
 		`CREATE TABLE command_skill_bindings (id TEXT PRIMARY KEY, command_id TEXT, skill_id TEXT, created_at TIMESTAMP)`,
 		`CREATE TABLE subagent_skill_bindings (id TEXT PRIMARY KEY, subagent_id TEXT, skill_id TEXT, created_at TIMESTAMP)`,
 		`CREATE TABLE local_repos (id TEXT PRIMARY KEY, name TEXT, git_url TEXT, local_path TEXT, branch TEXT, last_commit TEXT, status TEXT, error_message TEXT, created_at TIMESTAMP, updated_at TIMESTAMP)`,
+		`CREATE TABLE mcp_servers (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, display_name TEXT, description TEXT, transport TEXT NOT NULL DEFAULT 'stdio', command TEXT, args TEXT NOT NULL DEFAULT '[]', env TEXT NOT NULL DEFAULT '{}', url TEXT, headers TEXT NOT NULL DEFAULT '{}', source_type TEXT NOT NULL DEFAULT 'personal', status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMP NOT NULL, updated_at TIMESTAMP NOT NULL)`,
+		`CREATE TABLE agent_mcp_bindings (id TEXT PRIMARY KEY, agent_role_id TEXT NOT NULL, mcp_server_id TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, created_at TIMESTAMP NOT NULL, UNIQUE(agent_role_id, mcp_server_id))`,
+		`CREATE TABLE knowledge_bases (id TEXT PRIMARY KEY, name TEXT, display_name TEXT, description TEXT, type TEXT, config BLOB, query_endpoint TEXT, status TEXT, last_query_at TIMESTAMP, query_count INTEGER DEFAULT 0, created_at TIMESTAMP, updated_at TIMESTAMP)`,
 	}
 	for _, stmt := range schema {
 		if _, err := db.Exec(stmt); err != nil {
