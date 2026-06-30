@@ -12,6 +12,32 @@ import (
 	"go.uber.org/zap"
 )
 
+// maxLogFieldLen is the maximum length of a string field written to logs.
+// ACP tool_call_update notifications carry full file contents (Edit/Write),
+// and writing those to zap serializes multi-MB JSON on the read loop,
+// blocking ACP traffic and stalling the agent session.
+const maxLogFieldLen = 500
+
+// truncateForLog returns a string preview safe to embed in a log field.
+func truncateForLog(s string) string {
+	if len(s) <= maxLogFieldLen {
+		return s
+	}
+	return s[:maxLogFieldLen] + "...(truncated)"
+}
+
+// truncateJSONForLog marshals v and returns a truncated preview.
+func truncateJSONForLog(v interface{}) string {
+	if v == nil {
+		return ""
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprintf("<marshal error: %v>", err)
+	}
+	return truncateForLog(string(b))
+}
+
 func parseACPSessionUpdate(raw json.RawMessage, session *acpSession) ([]agent.Chunk, error) {
 	var header acpSessionUpdateHeader
 	if err := json.Unmarshal(raw, &header); err != nil {
@@ -100,7 +126,7 @@ func parseACPToolCall(raw json.RawMessage, session *acpSession) ([]agent.Chunk, 
 		zap.String("title", tc.Title),
 		zap.String("kind", tc.Kind),
 		zap.String("status", tc.Status),
-		zap.Any("rawInput", tc.RawInput))
+		zap.String("rawInput", truncateJSONForLog(tc.RawInput)))
 
 	var toolInput map[string]interface{}
 	if m, ok := tc.RawInput.(map[string]interface{}); ok {
@@ -132,7 +158,7 @@ func parseACPToolCall(raw json.RawMessage, session *acpSession) ([]agent.Chunk, 
 			zap.String("toolCallId", tc.ToolCallID),
 			zap.String("title", tc.Title),
 			zap.String("kind", tc.Kind),
-			zap.Any("input", toolInput))
+			zap.String("input", truncateJSONForLog(toolInput)))
 
 		// 解析问题列表
 		questions := parseQuestionsFromInput(toolInput)
@@ -200,9 +226,9 @@ func detectQuestionTool(title, kind string, rawInput map[string]interface{}) boo
 }
 
 func parseACPToolCallUpdate(raw json.RawMessage, session *acpSession) ([]agent.Chunk, error) {
-	// 首先打印完整的 raw JSON，便于调试
-	LogInfo("ACP: parseACPToolCallUpdate raw JSON",
-		zap.String("raw", string(raw)))
+	// 首先打印 raw JSON 预览（截断，避免 Edit/Write 工具带完整文件内容阻塞日志）
+	LogDebug("ACP: parseACPToolCallUpdate raw JSON",
+		zap.String("raw", truncateForLog(string(raw))))
 
 	// claude-agent-acp 在触发 elicitation/create 反向请求的同时也会通过 tool_call_update
 	// 通知 AskUserQuestion 工具的状态（in_progress / completed / 含 toolResponse 的中间态）。
@@ -238,7 +264,7 @@ func parseACPToolCallUpdate(raw json.RawMessage, session *acpSession) ([]agent.C
 		zap.String("status", update.Status),
 		zap.String("title", update.Title),
 		zap.String("kind", update.Kind),
-		zap.Any("rawInput", update.RawInput),
+		zap.String("rawInput", truncateJSONForLog(update.RawInput)),
 		zap.Int("contentBlocksCount", len(update.Content)))
 
 	// 如果 Title 为空，从 session 的工具名称映射中查找
@@ -300,7 +326,7 @@ func parseACPToolCallUpdate(raw json.RawMessage, session *acpSession) ([]agent.C
 			zap.String("toolCallId", update.ToolCallID),
 			zap.String("status", update.Status),
 			zap.String("title", toolName),
-			zap.Any("rawInput", toolInput))
+			zap.String("rawInput", truncateJSONForLog(toolInput)))
 
 		return []agent.Chunk{{
 			Type:      agent.ChunkTypeToolUse,

@@ -2589,9 +2589,50 @@ func (es *ExecutionService) broadcastStatus(threadID, invocationID uuid.UUID, st
 	}
 }
 
+// maxBroadcastToolInputFieldLen 限制单条 WebSocket 广播中 ToolInput 单个字符串字段的最大长度。
+// Edit/Write 等工具会把整份文件内容塞进 toolInput.content / new_string，
+// json.Marshal 这份大 map 会阻塞 broadcastChunk，进而拖慢整个会话。
+const maxBroadcastToolInputFieldLen = 2000
+
+// truncateToolInputForBroadcast 返回 ToolInput 的深拷贝，其中超长字符串字段被截断。
+// 保留 key 结构（path/command/pattern 等小字段原样），只裁掉大文本字段。
+func truncateToolInputForBroadcast(input map[string]interface{}) map[string]interface{} {
+	if input == nil {
+		return nil
+	}
+	out := make(map[string]interface{}, len(input))
+	for k, v := range input {
+		out[k] = truncateToolInputValueForBroadcast(v)
+	}
+	return out
+}
+
+func truncateToolInputValueForBroadcast(v interface{}) interface{} {
+	switch val := v.(type) {
+	case string:
+		if len(val) <= maxBroadcastToolInputFieldLen {
+			return val
+		}
+		return val[:maxBroadcastToolInputFieldLen] + "...(truncated)"
+	case map[string]interface{}:
+		out := make(map[string]interface{}, len(val))
+		for k, sv := range val {
+			out[k] = truncateToolInputValueForBroadcast(sv)
+		}
+		return out
+	case []interface{}:
+		out := make([]interface{}, len(val))
+		for i, sv := range val {
+			out[i] = truncateToolInputValueForBroadcast(sv)
+		}
+		return out
+	default:
+		return v
+	}
+}
+
 // broadcastChunk 广播输出块（实时流式输出）
 func (es *ExecutionService) broadcastChunk(threadID, invocationID uuid.UUID, chunk Chunk, agentID, agentName string) {
-	// 高频流式日志降级为 Debug
 	logDebug("broadcastChunk called", zap.String("threadId", threadID.String()), zap.String("chunkType", string(chunk.Type)), zap.String("toolName", chunk.ToolName))
 
 	// 更新 Agent 的最后活动时间，并处理工具执行状态
@@ -3045,7 +3086,7 @@ broadcast:
 			payload["toolId"] = chunk.ToolID
 			payload["toolIndex"] = chunk.ToolIndex
 			if chunk.ToolInput != nil {
-				payload["toolInput"] = chunk.ToolInput
+				payload["toolInput"] = truncateToolInputForBroadcast(chunk.ToolInput)
 			}
 		}
 
@@ -3062,7 +3103,7 @@ broadcast:
 			payload["toolId"] = chunk.ToolID
 			payload["questions"] = chunk.Questions
 			if chunk.ToolInput != nil {
-				payload["toolInput"] = chunk.ToolInput
+				payload["toolInput"] = truncateToolInputForBroadcast(chunk.ToolInput)
 			}
 		}
 
