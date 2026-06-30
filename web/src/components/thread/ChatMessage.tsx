@@ -34,7 +34,7 @@ interface ChatMessageProps {
   message: Message;
   agentConfig?: AgentConfig;
   agentConfigs?: AgentConfig[];
-  agentTypes?: { type: string }[];
+  agentTypes?: { type: string; name?: string }[];
   projectPath?: string;
   isStreaming?: boolean;
   progress?: ProgressInfo;
@@ -363,13 +363,20 @@ export const ChatMessage: React.FC<ChatMessageProps> = memo(({
               {displayAgentName}
             </span>
             {/* 基础Agent信息 */}
-            {(message.metadata?.baseAgentType || agentConfig?.baseAgent?.type) && (
-              <Tag color={getTypeColorByIndex(_agentTypes, String(message.metadata?.baseAgentType || agentConfig?.baseAgent?.type))} style={{ marginLeft: 8 }}>
-                {String(message.metadata?.baseAgentTypeName || message.metadata?.baseAgentType || agentConfig?.baseAgent?.type)}
-                {' · '}
-                {String(message.metadata?.baseAgentModel || agentConfig?.baseAgent?.defaultModel || '')}
-              </Tag>
-            )}
+            {(message.metadata?.baseAgentType || agentConfig?.baseAgent?.type) && (() => {
+              const resolvedType = String(message.metadata?.baseAgentType || agentConfig?.baseAgent?.type);
+              const typeDisplayName =
+                String(message.metadata?.baseAgentTypeName || '') ||
+                _agentTypes.find(t => t.type === resolvedType)?.name ||
+                resolvedType;
+              return (
+                <Tag color={getTypeColorByIndex(_agentTypes, resolvedType)} style={{ marginLeft: 8 }}>
+                  {typeDisplayName}
+                  {' · '}
+                  {String(message.metadata?.baseAgentModel || agentConfig?.baseAgent?.defaultModel || '')}
+                </Tag>
+              );
+            })()}
             {timestamp && (
               <span
                 className="chat-message-time"

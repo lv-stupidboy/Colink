@@ -157,7 +157,7 @@ const ThreadView: React.FC = () => {
   const [debugWsConnected, setDebugWsConnected] = useState(false);
 
   // Agent 类型列表（用于颜色动态分配）
-  const [agentTypes, setAgentTypes] = useState<{ type: string }[]>([]);
+  const [agentTypes, setAgentTypes] = useState<{ type: string; name?: string }[]>([]);
 
   // 工具事件本地状态（用于旧版 CLI 输出块兼容显示）
   const [toolEvents, setToolEvents] = useState<Record<string, ToolEvent[]>>({});
