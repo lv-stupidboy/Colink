@@ -1,12 +1,17 @@
 package agent
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/anthropic/isdp/internal/model"
+	"github.com/anthropic/isdp/internal/repo"
 	"github.com/google/uuid"
+	_ "modernc.org/sqlite"
 )
 
 func TestContextBuilderPromptAndHistoryHelpers(t *testing.T) {
@@ -50,6 +55,71 @@ func TestContextBuilderPromptAndHistoryHelpers(t *testing.T) {
 	}
 	if BuildChainHistoryLayer(nil) != "" {
 		t.Fatalf("nil chain history should be empty")
+	}
+}
+
+func TestContextBuilderBuildWithOptions(t *testing.T) {
+	ctx := context.Background()
+	db := openContextBuilderTestDB(t)
+	threadRepo := repo.NewThreadRepository(db, repo.DBTypeSQLite)
+	messageRepo := repo.NewMessageRepository(db, repo.DBTypeSQLite)
+	builder := NewContextBuilderWithBudget(threadRepo, messageRepo, nil, NewTokenBudgetManager())
+
+	threadID := uuid.New()
+	projectID := uuid.New()
+	thread := &model.Thread{
+		ID:           threadID,
+		ProjectID:    projectID,
+		Name:         "Runtime refactor",
+		Status:       model.ThreadStatusRunning,
+		CurrentPhase: model.PhaseDevelopment,
+		CurrentAgent: "coder",
+		Depth:        1,
+		CreatedAt:    time.Now(),
+		UpdatedAt:    time.Now(),
+	}
+	if err := threadRepo.Create(ctx, thread); err != nil {
+		t.Fatalf("create thread: %v", err)
+	}
+	if err := messageRepo.Create(ctx, &model.Message{ThreadID: threadID, Role: model.MessageRoleUser, Content: "请接入 Helios", MessageType: model.MessageTypeText, CreatedAt: time.Now()}); err != nil {
+		t.Fatalf("create user message: %v", err)
+	}
+	if err := messageRepo.Create(ctx, &model.Message{ThreadID: threadID, Role: model.MessageRoleAgent, AgentID: "coder", Content: "正在处理", MessageType: model.MessageTypeText, CreatedAt: time.Now().Add(time.Second)}); err != nil {
+		t.Fatalf("create agent message: %v", err)
+	}
+
+	layers, err := builder.BuildWithOptions(ctx, threadID, &model.AgentConfig{Name: "Coder", Description: "writes code", SystemPrompt: "Follow rules."}, &BuildOptions{
+		IncludeGitContext:       true,
+		IncludeInstructionFiles: true,
+		ProjectContext: &ProjectContext{
+			GitStatus: "M runtime.go",
+			RecentCommits: []CommitInfo{{Hash: "abc123", Subject: "wire helios"}},
+			InstructionFiles: []InstructionFile{{Path: "CLAUDE.md", Scope: "project", Content: "Use Helios runtime"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("BuildWithOptions returned error: %v", err)
+	}
+	for _, want := range []string{"Coder", "请接入 Helios", "[coder] 正在处理", "开发实现", "运行中", "M runtime.go", "wire helios", "Use Helios runtime"} {
+		joined := layers.Layer0 + "\n" + layers.Layer1 + "\n" + layers.Layer3
+		if !strings.Contains(joined, want) {
+			t.Fatalf("layers missing %q: %#v", want, layers)
+		}
+	}
+	if layers.Layer2 != "" {
+		t.Fatalf("Layer2 should remain empty until artifact context is implemented, got %q", layers.Layer2)
+	}
+
+	plain, err := builder.Build(ctx, threadID, &model.AgentConfig{Name: "Reviewer", Description: "reviews", SystemPrompt: "Review."})
+	if err != nil {
+		t.Fatalf("Build returned error: %v", err)
+	}
+	if !strings.Contains(plain.Layer0, "Reviewer") || strings.Contains(plain.Layer3, "Git Status") {
+		t.Fatalf("plain build layers = %#v", plain)
+	}
+
+	if _, err := builder.Build(ctx, uuid.New(), &model.AgentConfig{Name: "Missing"}); err == nil {
+		t.Fatalf("Build should fail for missing thread")
 	}
 }
 
@@ -136,4 +206,48 @@ func TestStructuredHistoryExtraction(t *testing.T) {
 	if !strings.Contains(limited, "用户请求") {
 		t.Fatalf("limited history = %q", limited)
 	}
+}
+
+func openContextBuilderTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	for _, stmt := range []string{
+		`CREATE TABLE threads (
+			id TEXT PRIMARY KEY,
+			project_id TEXT,
+			name TEXT,
+			status TEXT,
+			current_phase TEXT,
+			current_agent TEXT,
+			depth INTEGER,
+			abort_token TEXT,
+			workflow_template_id TEXT,
+			created_at TIMESTAMP,
+			updated_at TIMESTAMP
+		)`,
+		`CREATE TABLE messages (
+			id TEXT PRIMARY KEY,
+			thread_id TEXT NOT NULL,
+			role TEXT NOT NULL,
+			agent_id TEXT,
+			content TEXT,
+			content_blocks BLOB,
+			message_type TEXT,
+			metadata BLOB,
+			created_at TEXT NOT NULL,
+			reported_at TIMESTAMP NULL,
+			mentions BLOB,
+			origin TEXT,
+			reply_to TEXT
+		)`,
+	} {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatalf("exec schema: %v", err)
+		}
+	}
+	return db
 }
