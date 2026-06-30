@@ -2005,6 +2005,69 @@ func (es *ExecutionService) getOrCreateHumanChainHistory(ctx context.Context, th
 	return BuildA2AChainContext(a2aCtx, SessionStrategyNew, 1, es.tokenBudgetManager)
 }
 
+// BuildChainHistoryForHandoff 为 MCP post_message 触发的 A2A 交接构建链路历史快照
+// 在上游 Agent 通过 MCP 回调 @mention 下游时调用
+// 取 a2aContexts[threadID] 的快照，把上游 Agent 的输出附加到 PreviousResponses 末尾，
+// 返回 ChainHistory 用于下游 SpawnRequest
+// 不修改共享的 a2aCtx —— 上游 Agent 完成后仍会自行 append（execution_service.go:874）
+func (es *ExecutionService) BuildChainHistoryForHandoff(ctx context.Context, threadID, fromAgentID uuid.UUID, fromAgentName, fromAgentRole, output string) *A2AChainContext {
+	es.a2aMu.Lock()
+	a2aCtx, exists := es.a2aContexts[threadID]
+	es.a2aMu.Unlock()
+	if !exists {
+		return nil
+	}
+
+	// 构建快照，避免污染共享状态
+	invoked := make(map[uuid.UUID]bool, len(a2aCtx.InvokedAgents))
+	for k, v := range a2aCtx.InvokedAgents {
+		invoked[k] = v
+	}
+	completed := make(map[uuid.UUID]bool, len(a2aCtx.CompletedAgents))
+	for k, v := range a2aCtx.CompletedAgents {
+		completed[k] = v
+	}
+	prev := append([]ChainResponse{}, a2aCtx.PreviousResponses...)
+
+	snapshot := &A2AContext{
+		Depth:            a2aCtx.Depth,
+		InvokedAgents:    invoked,
+		CompletedAgents:  completed,
+		FromAgent: &AgentInfo{
+			ID:   fromAgentID,
+			Name: fromAgentName,
+			Role: fromAgentRole,
+		},
+		PreviousResponses: prev,
+		OriginalMessage:   a2aCtx.OriginalMessage,
+		ChainIndex:        a2aCtx.ChainIndex,
+		ChainTotal:        a2aCtx.ChainTotal,
+		SessionStrategy:   SessionStrategyNew,
+	}
+
+	// 附加上游 Agent 的输出（handoff 优先，与 execution_service.go:854 一致）
+	handoffBlock, hasHandoff := ExtractHandoffBlockWithTags(output)
+	var storedContent string
+	if hasHandoff {
+		storedContent = handoffBlock
+	} else {
+		storedContent = output
+		if len(output) > 800 {
+			storedContent = TruncateHeadTail(output, 800)
+		}
+	}
+	snapshot.PreviousResponses = append(snapshot.PreviousResponses, ChainResponse{
+		AgentID:   fromAgentID,
+		AgentName: fromAgentName,
+		Content:   storedContent,
+		Role:      fromAgentRole,
+		Timestamp: time.Now().Unix(),
+	})
+	snapshot.ChainIndex++
+
+	return BuildA2AChainContext(snapshot, SessionStrategyNew, 1, es.tokenBudgetManager)
+}
+
 // buildHumanChainHistory 构建人类触发的 ChainHistory（已废弃，使用 getOrCreateHumanChainHistory）
 // 将用户输入作为 PreviousResponses 的第一个条目
 // 包含 Token 预算保护：截断超长输入
@@ -2362,6 +2425,16 @@ func (es *ExecutionService) checkSignalRouting(ctx context.Context, threadID uui
 		// 简化调用 - 不传递 contentBlocks（前序输出已包含工具调用结果）
 		a2aInput := es.buildA2AInput(ctx, threadID, config, a2aCtx, output, nil, sessionStrategy)
 
+		// 构建链路历史，注入下游 prompt 的 <a2a-context>
+		// 此时 a2aCtx.PreviousResponses 已包含上游 Agent 的输出（execution_service.go:874 append）
+		es.a2aMu.Lock()
+		chainHistory := BuildA2AChainContext(a2aCtx, sessionStrategy, 1, es.tokenBudgetManager)
+		es.a2aMu.Unlock()
+		logInfo("A2A 触发执行: 构建 ChainHistory",
+			zap.String("fromAgent", config.Name),
+			zap.String("toAgent", targetConfig.Name),
+			zap.Int("previousResponses", len(chainHistory.PreviousResponses)))
+
 		// 触发下一个 Agent
 		es.SpawnAgent(ctx, &SpawnRequest{
 			ThreadID:        threadID,
@@ -2370,6 +2443,7 @@ func (es *ExecutionService) checkSignalRouting(ctx context.Context, threadID uui
 			Input:           a2aInput,
 			ProjectPath:     projectPath,
 			SessionStrategy: sessionStrategy,
+			ChainHistory:    chainHistory,
 		})
 	}
 }

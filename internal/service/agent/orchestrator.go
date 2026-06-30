@@ -348,6 +348,12 @@ var (
 	ErrAgentNotFound = errors.New("agent not found")
 )
 
+// BuildChainHistoryForHandoff 为 MCP post_message 触发的 A2A 交接构建链路历史
+// 上游 Agent 通过 @mention 触发下游时，由 callback_handler 调用
+func (o *Orchestrator) BuildChainHistoryForHandoff(ctx context.Context, threadID, fromAgentID uuid.UUID, fromAgentName, fromAgentRole, output string) *A2AChainContext {
+	return o.executionService.BuildChainHistoryForHandoff(ctx, threadID, fromAgentID, fromAgentName, fromAgentRole, output)
+}
+
 // SpawnAgentForUserMessage 为用户消息触发Agent响应
 // 实现message.AgentSpawner接口
 // 使用工作流模板中指定的Agent，而不是根据Phase硬编码选择

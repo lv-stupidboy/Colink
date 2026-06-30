@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anthropic/isdp/internal/service/agent"
 	"github.com/google/uuid"
 )
 
@@ -83,7 +84,7 @@ func TestQueueProcessorAutoExecuteAndPauseState(t *testing.T) {
 	updated := make(chan string, 1)
 	processor := NewQueueProcessor(QueueProcessorDeps{
 		Queue: queue,
-		SpawnAgent: func(ctx context.Context, gotThreadID uuid.UUID, catID string, content string) error {
+		SpawnAgent: func(ctx context.Context, gotThreadID uuid.UUID, catID string, content string, chainHistory *agent.A2AChainContext, triggeredBy uuid.UUID) error {
 			if gotThreadID != threadID {
 				t.Fatalf("threadID = %s, want %s", gotThreadID, threadID)
 			}

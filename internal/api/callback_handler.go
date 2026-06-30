@@ -606,6 +606,26 @@ func (h *CallbackHandler) triggerA2A(ctx context.Context, threadID uuid.UUID, me
 		ParentInvocationID: &record.ID,
 	}
 
+	// 构建上游 Agent 的交接 ChainHistory（含上游输出），注入下游 prompt 的 <a2a-context>
+	// 上游 Agent 此刻仍在运行，其输出尚未追加到 a2aContexts，故在此主动构建快照
+	if h.orchestrator != nil {
+		fromAgentID, err := uuid.Parse(record.CatID)
+		if err == nil {
+			var fromName, fromRole string
+			if h.agentConfigRepo != nil {
+				if cfg, cfgErr := h.agentConfigRepo.FindByID(ctx, fromAgentID); cfgErr == nil && cfg != nil {
+					fromName = cfg.Name
+					fromRole = string(cfg.Role)
+				}
+			}
+			if chainHistory := h.orchestrator.BuildChainHistoryForHandoff(ctx, threadID, fromAgentID, fromName, fromRole, content); chainHistory != nil {
+				opts.ChainHistory = chainHistory
+				fmt.Printf("[Callback] triggerA2A: 构建交接 ChainHistory, fromAgent=%s(%s), previousResponses=%d\n",
+					fromName, fromRole, len(chainHistory.PreviousResponses))
+			}
+		}
+	}
+
 	// 调用 A2A 触发
 	result, err := a2a.EnqueueA2ATargets(ctx, deps, opts)
 	if err != nil {

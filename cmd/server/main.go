@@ -482,12 +482,14 @@ func main() {
 		Queue:    invocationQueue,
 		Registry: invocationRegistry,
 		WSHub:    wsHub,
-		SpawnAgent: func(ctx context.Context, threadID uuid.UUID, catID string, content string) error {
+		SpawnAgent: func(ctx context.Context, threadID uuid.UUID, catID string, content string, chainHistory *agent.A2AChainContext, triggeredBy uuid.UUID) error {
 			// 通过 Orchestrator 触发 Agent
 			req := &agent.SpawnRequest{
-				ThreadID: threadID,
-				Role:     getRoleFromCatID(catID),
-				Input:    content,
+				ThreadID:     threadID,
+				Role:         getRoleFromCatID(catID),
+				Input:        content,
+				ChainHistory: chainHistory,
+				TriggeredBy:  triggeredBy,
 			}
 			_, err := orchestrator.SpawnAgent(ctx, req)
 			return err
