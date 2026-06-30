@@ -76,3 +76,29 @@ func (r *SessionRecorderImpl) RecordSuccessfulSession(threadID, configID, sessio
 			zap.String("recordId", record.ID))
 	}
 }
+
+// RecordPendingSession 记录待执行会话（CLI 执行前持久化）
+// 确保 CLI 取消或崩溃后仍能通过 sessionID resume 上下文
+func (r *SessionRecorderImpl) RecordPendingSession(threadID, configID, sessionID string) {
+	if sessionID == "" {
+		return
+	}
+
+	store := GetSessionChainStore()
+
+	// 创建会话记录（active 状态，表示正在执行）
+	record := store.Create(CreateSessionInput{
+		CLISessionID: sessionID,
+		ThreadID:     threadID,
+		CatID:        configID,
+		UserID:       "",
+	})
+
+	if record != nil {
+		zap.L().Info("Pending session recorded (before CLI execution)",
+			zap.String("sessionId", sessionID),
+			zap.String("threadId", threadID),
+			zap.String("catId", configID),
+			zap.String("recordId", record.ID))
+	}
+}

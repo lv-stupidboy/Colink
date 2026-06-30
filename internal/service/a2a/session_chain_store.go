@@ -1,10 +1,12 @@
 package a2a
 
 import (
+	"database/sql"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
 
 // SessionStatus 会话状态
@@ -87,17 +89,26 @@ type SessionChainStore struct {
 	chains      map[string][]string        // catId:threadId -> session IDs (ordered by seq)
 	activeIndex map[string]string          // catId:threadId -> active session ID
 	cliIndex    map[string]string          // cliSessionId -> record ID
+	cliSessions map[string]string          // 内存缓存：threadID:configID -> sessionID（新增）
+	db          *sql.DB                    // 数据库连接（新增）
 	mu          sync.RWMutex
 }
 
 // NewSessionChainStore 创建会话链存储
-func NewSessionChainStore() *SessionChainStore {
-	return &SessionChainStore{
+func NewSessionChainStore(db *sql.DB) *SessionChainStore {
+	s := &SessionChainStore{
 		records:     make(map[string]*SessionRecord),
 		chains:      make(map[string][]string),
 		activeIndex: make(map[string]string),
 		cliIndex:    make(map[string]string),
+		cliSessions: make(map[string]string),
+		db:          db,
 	}
+	// 启动时恢复缓存
+	if db != nil {
+		s.RestoreFromDB()
+	}
+	return s
 }
 
 // chainKey 生成链键
@@ -414,10 +425,77 @@ func (s *SessionChainStore) Size() int {
 	return len(s.records)
 }
 
+// PersistCliSession 持久化CLI session到数据库
+func (s *SessionChainStore) PersistCliSession(threadID, configID, sessionID string) error {
+	// 1. 写入内存缓存（快速路径）
+	key := threadID + ":" + configID
+	s.mu.Lock()
+	s.cliSessions[key] = sessionID
+	s.mu.Unlock()
+
+	// 2. 异步写入数据库（持久化）
+	if s.db != nil {
+		go func() {
+			_, err := s.db.Exec(`
+				INSERT OR REPLACE INTO cli_session_cache
+				(thread_id, config_id, session_id, updated_at)
+				VALUES (?, ?, ?, ?)
+			`, threadID, configID, sessionID, time.Now())
+			if err != nil {
+				zap.L().Warn("cliSessions持久化失败",
+					zap.String("threadID", threadID),
+					zap.String("configID", configID),
+					zap.Error(err))
+			}
+		}()
+	}
+	return nil
+}
+
+// RestoreFromDB 启动时从数据库恢复缓存
+func (s *SessionChainStore) RestoreFromDB() error {
+	if s.db == nil {
+		return nil
+	}
+
+	rows, err := s.db.Query(`
+		SELECT thread_id, config_id, session_id
+		FROM cli_session_cache
+		WHERE updated_at > ?
+	`, time.Now().Add(-24*time.Hour))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	s.mu.Lock()
+	for rows.Next() {
+		var threadID, configID, sessionID string
+		if err := rows.Scan(&threadID, &configID, &sessionID); err == nil {
+			key := threadID + ":" + configID
+			s.cliSessions[key] = sessionID
+		}
+	}
+	s.mu.Unlock()
+
+	zap.L().Info("cliSessions缓存已恢复",
+		zap.Int("count", len(s.cliSessions)))
+	return nil
+}
+
 // 全局 SessionChainStore 实例
-var globalSessionChainStore = NewSessionChainStore()
+var globalSessionChainStore *SessionChainStore
+
+// InitGlobalSessionChainStore 初始化全局 SessionChainStore（启动时调用）
+func InitGlobalSessionChainStore(db *sql.DB) {
+	globalSessionChainStore = NewSessionChainStore(db)
+}
 
 // GetSessionChainStore 获取全局 SessionChainStore
 func GetSessionChainStore() *SessionChainStore {
+	if globalSessionChainStore == nil {
+		// 兜底：未初始化时创建无数据库实例
+		globalSessionChainStore = NewSessionChainStore(nil)
+	}
 	return globalSessionChainStore
 }

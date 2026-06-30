@@ -123,6 +123,21 @@ func (a *BaseACPAdapter) Execute(ctx context.Context, req *agent.ExecutionReques
 func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.ExecutionRequest, onChunk func(agent.Chunk)) (*agent.ExecutionResult, error) {
 	cliStartTime := time.Now()
 
+	// === 提前生成 sessionID 并持久化（避免并发竞争）===
+	// 在调用 CLI session/new 之前就生成 sessionID 并立即持久化
+	// 确保 CLI 执行被取消或崩溃后，后续仍能通过 sessionID resume 上下文
+	if req.SessionID == "" {
+		req.SessionID = uuid.New().String()
+
+		// 立即回调持久化（不等 CLI 进程创建）
+		if req.OnSessionIDAcquired != nil {
+			req.OnSessionIDAcquired(req.SessionID)
+			LogInfo("ACP: sessionID pre-generated and persisted",
+				zap.String("sessionId", req.SessionID),
+				zap.Bool("isNewSession", req.SessionStrategy == agent.SessionStrategyNew))
+		}
+	}
+
 	args := a.Config.BuildArgs(req)
 	cmd := exec.CommandContext(ctx, a.Config.CliPath, args...)
 	hideCommandLineWindow(cmd) // 隐藏命令行窗口（Windows）
@@ -302,15 +317,28 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 	if err := json.Unmarshal(sessionNewResult, &sessionResp); err != nil {
 		LogWarn("ACP: session/new response parse warning", zap.Error(err))
 	}
-	if sessionResp.SessionID != "" {
+
+	// 使用 sessionID 的优先级：
+	// 1. 如果 req.SessionID 已提前生成（避免并发竞争），使用它
+	// 2. 否则使用 CLI 返回的 sessionResp.SessionID
+	// 3. 如果两者都为空，生成新的
+	if req.SessionID != "" {
+		session.id = req.SessionID
+		LogInfo("ACP: using pre-generated sessionID",
+			zap.String("sessionId", session.id),
+			zap.String("invocationId", invocationIDStr))
+	} else if sessionResp.SessionID != "" {
 		session.id = sessionResp.SessionID
 	} else {
 		session.id = uuid.New().String()
 	}
 
-	// 立即回调持久化 session ID，不等进程退出，确保取消/崩溃后仍可 resume
-	if req.OnSessionIDAcquired != nil {
-		req.OnSessionIDAcquired(session.id)
+	// 如果 req.SessionID 为空（未提前生成），现在立即回调持久化
+	// 如果已提前生成并持久化，这里不重复调用
+	if req.SessionID == "" {
+		if req.OnSessionIDAcquired != nil {
+			req.OnSessionIDAcquired(session.id)
+		}
 	}
 
 	LogInfo("ACP: session created",

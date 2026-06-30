@@ -152,6 +152,10 @@ func main() {
 
 	logger.Info("Database connected successfully")
 
+	// 初始化全局 SessionChainStore（启动时恢复 cliSessions 缓存）
+	a2a.InitGlobalSessionChainStore(db)
+	logger.Info("SessionChainStore initialized, cliSessions cache will be restored")
+
 	// 检查数据库关键表是否存在（用于定位安装时迁移问题）
 	checkDatabaseTables(db, logger)
 

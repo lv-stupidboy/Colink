@@ -71,6 +71,8 @@ type ThreadContext struct {
 type SessionRecorder interface {
 	RecordFailedSession(threadID, configID, sessionID string)
 	RecordSuccessfulSession(threadID, configID, sessionID string)
+	// RecordPendingSession 记录待执行会话（CLI 执行前持久化，确保取消后可 resume）
+	RecordPendingSession(threadID, configID, sessionID string)
 }
 
 // 全局 SessionRecorder 实例（通过 SetSessionRecorder 设置）
@@ -548,8 +550,30 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 			zap.Bool("hasSession", sessionID != ""))
 	} else {
 		// 跨角色调用或默认：不使用会话缓存，确保新会话
-		logInfo("A2A 会话策略: new，使用新会话（不传递历史）",
+		// adapter 会通过 CLI session/new 创建新 sessionID，无需提前生成
+		logInfo("A2A 会话策略: new，使用新会话（adapter 会创建 sessionID）",
 			zap.String("sessionKey", sessionKey))
+	}
+
+	// === 新增：提前生成 sessionID 并持久化 pending 状态 ===
+	// 确保 CLI 执行前 sessionID 已持久化，取消或崩溃后仍可 resume
+	// 仅对 SessionStrategyNew 且无缓存 sessionID 的情况生成
+	if req.SessionStrategy == SessionStrategyNew && sessionID == "" {
+		sessionID = generateSessionID()
+
+		// 立即持久化 pending 状态
+		if globalSessionRecorder != nil {
+			globalSessionRecorder.RecordPendingSession(
+				req.ThreadID.String(),
+				config.ID.String(),
+				sessionID,
+			)
+			logInfo("SessionID 提前生成并持久化 pending 状态",
+				zap.String("sessionID", sessionID),
+				zap.String("threadID", req.ThreadID.String()),
+				zap.String("configID", config.ID.String()),
+				zap.String("invocationID", invocation.ID.String()))
+		}
 	}
 
 	// === ProcessPool: 进程预热复用（性能优化）===
@@ -4561,4 +4585,10 @@ func (es *ExecutionService) GetAllRunningAgents(ctx context.Context) ([]RunningA
 		})
 	}
 	return result, nil
+}
+
+// generateSessionID 生成唯一的 session ID
+// 用于提前生成 sessionID 并持久化 pending 状态，确保 CLI 取消后可 resume
+func generateSessionID() string {
+	return uuid.New().String()
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
 
 // PoolKey 进程池键，决定进程复用粒度
@@ -147,9 +148,46 @@ func (p *ProcessPool) Close() {
 	p.metrics = PoolMetrics{}
 }
 
-// Acquire 获取进程租约
-// 复用逻辑: sessionOwners → entries → cold start
+// Acquire 获取进程租约（优化版：读锁优先）
+// 复用逻辑: sessionOwners(读锁快速路径) → entries(写锁慢路径) → cold start
 func (p *ProcessPool) Acquire(poolKey PoolKey, sessionId string) (*Lease, error) {
+	// 优化：先读锁查 sessionOwners（快速路径）
+	if sessionId != "" {
+		sessionKey := serializeSessionKey(poolKey, sessionId)
+
+		p.mu.RLock()
+		owner, exists := p.sessionOwners[sessionKey]
+		p.mu.RUnlock()
+
+		if exists && owner != nil {
+			// 快速路径：只锁单个 entry（避免全局锁）
+			owner.mu.Lock()
+			// 双重检查：确保 entry 状态有效且可复用
+			if owner.State == "ready" && owner.LeaseCount == 0 && owner.Client != nil {
+				// 清除 idleTimer
+				if owner.IdleTimer != nil {
+					owner.IdleTimer.Stop()
+					owner.IdleTimer = nil
+				}
+				owner.LeaseCount++
+				owner.LeaseGeneration++
+				owner.LastUsedAt = time.Now()
+				owner.mu.Unlock()
+
+				// 更新 metrics（短暂持全局锁）
+				p.mu.Lock()
+				p.metrics.WarmHitCount++
+				p.metrics.ActiveLeaseCount++
+				p.metrics.IdleProcessCount--
+				p.mu.Unlock()
+
+				return p.createLease(owner, poolKey), nil
+			}
+			owner.mu.Unlock()
+		}
+	}
+
+	// 慢路径：需要全局写锁（处理 entries 和 cold start）
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -159,13 +197,12 @@ func (p *ProcessPool) Acquire(poolKey PoolKey, sessionId string) (*Lease, error)
 
 	key := serializeKey(poolKey)
 
-	// 1. 检查 sessionOwners 优先路由（session 归属）
+	// 1. 再次检查 sessionOwners（防止读锁释放后状态变化）
 	if sessionId != "" {
 		sessionKey := serializeSessionKey(poolKey, sessionId)
-		if owner, exists := p.sessionOwners[sessionKey]; exists {
+		if owner, exists := p.sessionOwners[sessionKey]; exists && owner != nil {
 			owner.mu.Lock()
-			if owner.State == "ready" && owner.LeaseCount == 0 {
-				// 清除 idle timer
+			if owner.State == "ready" && owner.LeaseCount == 0 && owner.Client != nil {
 				if owner.IdleTimer != nil {
 					owner.IdleTimer.Stop()
 					owner.IdleTimer = nil
@@ -188,7 +225,7 @@ func (p *ProcessPool) Acquire(poolKey PoolKey, sessionId string) (*Lease, error)
 	entries := p.entries[key]
 	for _, entry := range entries {
 		entry.mu.Lock()
-		if entry.State == "ready" && entry.LeaseCount == 0 {
+		if entry.State == "ready" && entry.LeaseCount == 0 && entry.Client != nil {
 			// 清除 idle timer
 			if entry.IdleTimer != nil {
 				entry.IdleTimer.Stop()
@@ -281,6 +318,7 @@ func (p *ProcessPool) releaseLease(entry *PoolEntry, poolKey PoolKey, generation
 
 // RememberSession 记录 session 归属
 // 用于 resume 时优先路由到同一进程
+// 同时同步更新 PoolEntry.Client（关键修复）
 func (p *ProcessPool) RememberSession(poolKey PoolKey, sessionId string, lease *Lease) {
 	if sessionId == "" || lease == nil {
 		return
@@ -292,14 +330,35 @@ func (p *ProcessPool) RememberSession(poolKey PoolKey, sessionId string, lease *
 	key := serializeKey(poolKey)
 	sessionKey := serializeSessionKey(poolKey, sessionId)
 
-	// 找到 lease 对应的 entry
+	// 找到 lease 对应的 entry（通过 generation 匹配）
 	entries := p.entries[key]
 	for _, entry := range entries {
-		if entry.Client == lease.Client {
+		entry.mu.Lock()
+		// 通过 generation 匹配找到对应的 entry（更可靠）
+		if entry.LeaseGeneration == lease.Generation {
+			// 关键修复：同步更新 PoolEntry.Client
+			// 这样下次 Acquire 时，entry.Client 不为 nil，能正确返回 warm hit
+			entry.Client = lease.Client
+			entry.State = "ready" // 标记为 ready 状态
+			entry.mu.Unlock()
+
+			// 记录 session 归属
 			p.sessionOwners[sessionKey] = entry
+			LogInfo("ProcessPool.RememberSession: PoolEntry.Client updated",
+				zap.String("workDir", poolKey.WorkDir),
+				zap.String("roleID", poolKey.RoleID.String()),
+				zap.String("sessionId", sessionId),
+				zap.Bool("hasClient", entry.Client != nil))
 			return
 		}
+		entry.mu.Unlock()
 	}
+
+	LogWarn("ProcessPool.RememberSession: entry not found",
+		zap.String("workDir", poolKey.WorkDir),
+		zap.String("roleID", poolKey.RoleID.String()),
+		zap.String("sessionId", sessionId),
+		zap.Int64("generation", lease.Generation))
 }
 
 // ForgetSession 清除 session 归属
@@ -503,8 +562,15 @@ func (p *ProcessPool) startHealthCheck() {
 	})
 }
 
-// IsAlive 检查进程是否存活（接口，由具体 adapter 实现）
+// ProcessClient 进程客户端接口（由具体 adapter 实现）
+// 参考 clowder-ai AcpProcessPool.ts:52-57 的 AcpPoolClient 接口
 type ProcessClient interface {
+	// IsAlive 检查进程是否存活
+	// 参考 clowder-ai 的 isAlive 检查机制（cmd.Process.State + stdinPipe 状态）
 	IsAlive() bool
+	// Close 关闭进程（释放资源）
 	Close() error
+	// Initialize 初始化进程（用于预热）
+	// 参考 clowder-ai AcpProcessPool.ts:312-331 的 spawnEntry
+	Initialize() error
 }
