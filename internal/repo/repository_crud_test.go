@@ -301,6 +301,84 @@ func TestWorkflowTemplateRepositoryQueries(t *testing.T) {
 	}
 }
 
+func TestTeamPackageVersionRepositoryLifecycle(t *testing.T) {
+	db := openRepoCRUDTestDB(t)
+	repository := NewTeamPackageVersionRepository(db, DBTypeSQLite)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Second)
+
+	version := &model.TeamPackageVersion{
+		WorkflowID:    uuid.New(),
+		Name:          "delivery-team",
+		Category:      "development",
+		Version:       "1.0.0",
+		Description:   "initial release",
+		LastSyncedAt:  &now,
+	}
+	if err := repository.Create(ctx, version); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if version.ID == uuid.Nil || version.CreatedAt.IsZero() || version.UpdatedAt.IsZero() {
+		t.Fatalf("created version missing generated fields: %+v", version)
+	}
+
+	found, err := repository.FindByName(ctx, "delivery-team")
+	if err != nil {
+		t.Fatalf("FindByName() error = %v", err)
+	}
+	if found == nil || found.ID != version.ID || found.LastSyncedAt == nil {
+		t.Fatalf("FindByName() = %+v, want created version", found)
+	}
+	missing, err := repository.FindByName(ctx, "missing")
+	if err != nil || missing != nil {
+		t.Fatalf("FindByName(missing) = %+v err=%v, want nil nil", missing, err)
+	}
+
+	all, err := repository.ListAll(ctx)
+	if err != nil {
+		t.Fatalf("ListAll() error = %v", err)
+	}
+	if len(all) != 1 || all[0].Name != "delivery-team" {
+		t.Fatalf("ListAll() = %+v", all)
+	}
+
+	updatedTime := now.Add(time.Hour)
+	version.Version = "1.1.0"
+	version.Category = "ops"
+	version.Description = "updated release"
+	version.LastSyncedAt = &updatedTime
+	if err := repository.Update(ctx, version); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	updated, err := repository.FindByName(ctx, "delivery-team")
+	if err != nil {
+		t.Fatalf("FindByName(updated) error = %v", err)
+	}
+	if updated.Version != "1.1.0" || updated.Category != "ops" || updated.Description != "updated release" {
+		t.Fatalf("updated version = %+v", updated)
+	}
+}
+
+func TestTeamPackageVersionRepositoryErrors(t *testing.T) {
+	db := openRepoCRUDTestDB(t)
+	repository := NewTeamPackageVersionRepository(db, DBTypeSQLite)
+	ctx := context.Background()
+
+	mustRepo(t, db.Close())
+	if err := repository.Create(ctx, &model.TeamPackageVersion{Name: "broken"}); err == nil {
+		t.Fatal("Create(closed db) error = nil, want error")
+	}
+	if _, err := repository.FindByName(ctx, "broken"); err == nil {
+		t.Fatal("FindByName(closed db) error = nil, want error")
+	}
+	if _, err := repository.ListAll(ctx); err == nil {
+		t.Fatal("ListAll(closed db) error = nil, want error")
+	}
+	if err := repository.Update(ctx, &model.TeamPackageVersion{ID: uuid.New()}); err == nil {
+		t.Fatal("Update(closed db) error = nil, want error")
+	}
+}
+
 func TestLocalRepoAndMarketRepositories(t *testing.T) {
 	ctx := context.Background()
 	db := openRepoCRUDTestDB(t)
@@ -438,6 +516,7 @@ func openRepoCRUDTestDB(t *testing.T) *sql.DB {
 		`CREATE TABLE agent_configs (id TEXT PRIMARY KEY, name TEXT, role TEXT, description TEXT, system_prompt TEXT, max_tokens INTEGER, temperature REAL, base_agent_id TEXT, is_default INTEGER, is_system INTEGER, requires_human INTEGER, mention_patterns BLOB, config_generated_at TEXT, config_path TEXT, created_at TIMESTAMP, updated_at TIMESTAMP)`,
 		`CREATE TABLE workflow_templates (id TEXT PRIMARY KEY, name TEXT, description TEXT, agent_ids BLOB, transitions BLOB, checkpoints BLOB, estimated_time TEXT, is_system INTEGER, is_default INTEGER, routable_teams BLOB, created_at TIMESTAMP, updated_at TIMESTAMP)`,
 		`CREATE TABLE projects (id TEXT PRIMARY KEY, workflow_template_id TEXT)`,
+		`CREATE TABLE team_package_versions (id TEXT PRIMARY KEY, workflow_id TEXT, name TEXT, category TEXT, version TEXT, description TEXT, last_synced_at TEXT, created_at TEXT, updated_at TEXT)`,
 		`CREATE TABLE agent_skill_bindings (id TEXT PRIMARY KEY, agent_role_id TEXT, skill_id TEXT, created_at TIMESTAMP)`,
 		`CREATE TABLE agent_command_bindings (id TEXT PRIMARY KEY, agent_role_id TEXT, command_id TEXT, created_at TIMESTAMP)`,
 		`CREATE TABLE agent_subagent_bindings (id TEXT PRIMARY KEY, agent_role_id TEXT, subagent_id TEXT, created_at TIMESTAMP)`,

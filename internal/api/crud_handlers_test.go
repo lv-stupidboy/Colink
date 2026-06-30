@@ -27,6 +27,7 @@ import (
 	settingsservice "github.com/anthropic/isdp/internal/service/settings"
 	skillservice "github.com/anthropic/isdp/internal/service/skill"
 	subagentservice "github.com/anthropic/isdp/internal/service/subagent"
+	threadservice "github.com/anthropic/isdp/internal/service/thread"
 	workflowservice "github.com/anthropic/isdp/internal/service/workflow"
 	"github.com/anthropic/isdp/internal/service/workspace"
 	"github.com/anthropic/isdp/pkg/config"
@@ -1262,6 +1263,146 @@ func TestKnowledgeHandlerCRUDAndQueryErrors(t *testing.T) {
 	}
 }
 
+func TestAdditionalAPIHandlersValidationBranches(t *testing.T) {
+	router := setupAPILightRouter(func(group *gin.RouterGroup) {
+		NewMarketHandler(nil, &config.Config{Market: config.MarketDefaultConfig{Name: "Default Market", URL: "", Branch: ""}}, zap.NewNop()).RegisterRoutes(group)
+		NewConfigGenHandler(nil, nil, nil, nil).RegisterRoutes(group)
+		NewInvocationHandler(nil, nil, nil).RegisterRoutes(group)
+		NewHumanTaskHandler(nil).RegisterRoutes(group)
+		NewTeamPackageHandler(nil).RegisterRoutes(group)
+		NewRegistryHandler(nil).RegisterRoutes(group)
+		NewTeamPackageSyncHandler(nil, zap.NewNop()).RegisterRoutes(group)
+	})
+
+	checks := []struct {
+		method string
+		path   string
+		body   any
+		want   int
+	}{
+		{http.MethodGet, "/api/v1/markets/default", nil, http.StatusOK},
+		{http.MethodPost, "/api/v1/markets/default", nil, http.StatusBadRequest},
+		{http.MethodPost, "/api/v1/markets", "{", http.StatusBadRequest},
+		{http.MethodPut, "/api/v1/markets/not-a-uuid", map[string]any{}, http.StatusBadRequest},
+		{http.MethodDelete, "/api/v1/markets/not-a-uuid", nil, http.StatusBadRequest},
+		{http.MethodPost, "/api/v1/markets/not-a-uuid/refresh", nil, http.StatusBadRequest},
+
+		{http.MethodPost, "/api/v1/projects/project-1/config/sync", map[string]any{}, http.StatusBadRequest},
+		{http.MethodPost, "/api/v1/projects/project-1/config/sync", map[string]any{"baseAgentType": "unsupported"}, http.StatusBadRequest},
+		{http.MethodGet, "/api/v1/agents/not-a-uuid/config/preview", nil, http.StatusBadRequest},
+		{http.MethodPost, "/api/v1/agents/not-a-uuid/config/generate", map[string]any{}, http.StatusBadRequest},
+		{http.MethodPost, "/api/v1/agents/" + uuid.New().String() + "/config/generate", map[string]any{}, http.StatusBadRequest},
+		{http.MethodPost, "/api/v1/agents/not-a-uuid/config/refresh", nil, http.StatusBadRequest},
+		{http.MethodPost, "/api/v1/agents/" + uuid.New().String() + "/config/refresh", nil, http.StatusInternalServerError},
+
+		{http.MethodPost, "/api/v1/threads/not-a-uuid/invocations", map[string]any{}, http.StatusBadRequest},
+		{http.MethodPost, "/api/v1/threads/" + uuid.New().String() + "/invocations", map[string]any{}, http.StatusBadRequest},
+		{http.MethodGet, "/api/v1/invocations/not-a-uuid", nil, http.StatusBadRequest},
+		{http.MethodPost, "/api/v1/invocations/not-a-uuid/cancel", nil, http.StatusBadRequest},
+		{http.MethodGet, "/api/v1/human-tasks?status=weird", nil, http.StatusBadRequest},
+		{http.MethodGet, "/api/v1/human-tasks/not-a-uuid", nil, http.StatusBadRequest},
+		{http.MethodPut, "/api/v1/human-tasks/not-a-uuid/complete", nil, http.StatusBadRequest},
+		{http.MethodPut, "/api/v1/human-tasks/not-a-uuid/cancel", nil, http.StatusBadRequest},
+		{http.MethodPut, "/api/v1/human-tasks/invocation/not-a-uuid/complete", nil, http.StatusBadRequest},
+
+		{http.MethodPost, "/api/v1/team-packages/import", nil, http.StatusBadRequest},
+		{http.MethodPost, "/api/v1/team-packages/import/confirm", nil, http.StatusBadRequest},
+		{http.MethodPost, "/api/v1/team-packages/export", "{", http.StatusBadRequest},
+
+		{http.MethodPost, "/api/v1/registries", "{", http.StatusBadRequest},
+		{http.MethodGet, "/api/v1/registries/not-a-uuid", nil, http.StatusBadRequest},
+		{http.MethodPut, "/api/v1/registries/not-a-uuid", map[string]any{}, http.StatusBadRequest},
+		{http.MethodPut, "/api/v1/registries/" + uuid.New().String(), "{", http.StatusBadRequest},
+		{http.MethodDelete, "/api/v1/registries/not-a-uuid", nil, http.StatusBadRequest},
+		{http.MethodPost, "/api/v1/registries/not-a-uuid/sync", nil, http.StatusBadRequest},
+		{http.MethodPost, "/api/v1/registries/not-a-uuid/sync-preview", nil, http.StatusBadRequest},
+		{http.MethodPost, "/api/v1/registries/not-a-uuid/sync-confirm", map[string]any{}, http.StatusBadRequest},
+
+		{http.MethodPost, "/api/v1/team-package-sync/preview", "{", http.StatusBadRequest},
+		{http.MethodPost, "/api/v1/team-package-sync/sync", "{", http.StatusBadRequest},
+		{http.MethodPost, "/api/v1/team-package-sync/preview-batch", "{", http.StatusBadRequest},
+		{http.MethodPost, "/api/v1/team-package-sync/sync-batch", "{", http.StatusBadRequest},
+	}
+
+	for _, check := range checks {
+		if w := performAPILightJSON(router, check.method, check.path, check.body); w.Code != check.want {
+			t.Fatalf("%s %s code=%d want=%d body=%s", check.method, check.path, w.Code, check.want, w.Body.String())
+		}
+	}
+
+	if w := performAPIMultipart(router, http.MethodPost, "/api/v1/team-packages/import", nil, "team.txt", map[string]string{"manifest.json": "{}"}); w.Code != http.StatusBadRequest {
+		t.Fatalf("team package import wrong ext code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPIMultipart(router, http.MethodPost, "/api/v1/team-packages/import/confirm", nil, "team.txt", map[string]string{"manifest.json": "{}"}); w.Code != http.StatusBadRequest {
+		t.Fatalf("team package confirm wrong ext code=%d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestThreadHandlerLifecycleAndValidation(t *testing.T) {
+	db := openAPICRUDTestDB(t)
+	projectRepo := repo.NewProjectRepository(db, repo.DBTypeSQLite)
+	workflowRepo := repo.NewWorkflowTemplateRepository(db, repo.DBTypeSQLite)
+	handler := NewThreadHandler(threadservice.NewService(repo.NewThreadRepository(db, repo.DBTypeSQLite), projectRepo, workflowRepo))
+	router := setupAPILightRouter(handler.RegisterRoutes)
+
+	workflowID := insertAPIWorkflow(t, db, "Default Team", true)
+	projectID := insertAPIProject(t, db, "Demo Project", workflowID)
+
+	createW := performAPILightJSON(router, http.MethodPost, "/api/v1/threads/project/"+projectID.String(), map[string]any{"name": "Investigate"})
+	if createW.Code != http.StatusCreated {
+		t.Fatalf("Create thread code=%d body=%s", createW.Code, createW.Body.String())
+	}
+	var created model.Thread
+	if err := json.Unmarshal(createW.Body.Bytes(), &created); err != nil {
+		t.Fatalf("unmarshal thread: %v", err)
+	}
+	if created.ID == uuid.Nil || created.WorkflowTemplateID == nil || *created.WorkflowTemplateID != workflowID {
+		t.Fatalf("created thread = %#v", created)
+	}
+
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/threads/"+created.ID.String(), nil); w.Code != http.StatusOK {
+		t.Fatalf("Get thread code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/threads/project/"+projectID.String(), nil); w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte("Investigate")) {
+		t.Fatalf("ListByProject thread code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodPut, "/api/v1/threads/"+created.ID.String()+"/status", map[string]any{"status": "running"}); w.Code != http.StatusOK {
+		t.Fatalf("UpdateStatus thread code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodPut, "/api/v1/threads/"+created.ID.String()+"/phase", map[string]any{"phase": "development", "agent": "coder"}); w.Code != http.StatusOK {
+		t.Fatalf("SetPhase thread code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodPut, "/api/v1/threads/"+created.ID.String(), map[string]any{"workflowTemplateId": workflowID.String()}); w.Code != http.StatusOK {
+		t.Fatalf("Update thread code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodDelete, "/api/v1/threads/"+created.ID.String(), nil); w.Code != http.StatusNoContent {
+		t.Fatalf("Delete thread code=%d body=%s", w.Code, w.Body.String())
+	}
+
+	invalidChecks := []struct {
+		method string
+		path   string
+		body   any
+		want   int
+	}{
+		{http.MethodGet, "/api/v1/threads/not-a-uuid", nil, http.StatusBadRequest},
+		{http.MethodGet, "/api/v1/threads/" + uuid.New().String(), nil, http.StatusNotFound},
+		{http.MethodGet, "/api/v1/threads/project/not-a-uuid", nil, http.StatusBadRequest},
+		{http.MethodPost, "/api/v1/threads/project/not-a-uuid", nil, http.StatusBadRequest},
+		{http.MethodPut, "/api/v1/threads/not-a-uuid/status", map[string]any{"status": "running"}, http.StatusBadRequest},
+		{http.MethodPut, "/api/v1/threads/" + uuid.New().String() + "/status", map[string]any{}, http.StatusBadRequest},
+		{http.MethodPut, "/api/v1/threads/not-a-uuid/phase", map[string]any{"phase": "development"}, http.StatusBadRequest},
+		{http.MethodPut, "/api/v1/threads/" + uuid.New().String() + "/phase", map[string]any{}, http.StatusBadRequest},
+		{http.MethodPut, "/api/v1/threads/not-a-uuid", map[string]any{}, http.StatusBadRequest},
+		{http.MethodDelete, "/api/v1/threads/not-a-uuid", nil, http.StatusBadRequest},
+	}
+	for _, check := range invalidChecks {
+		if w := performAPILightJSON(router, check.method, check.path, check.body); w.Code != check.want {
+			t.Fatalf("%s %s code=%d want=%d body=%s", check.method, check.path, w.Code, check.want, w.Body.String())
+		}
+	}
+}
+
 func TestSandboxHandlerValidationAndMissingServerPaths(t *testing.T) {
 	service := sandboxservice.NewSandboxService(nil, nil)
 	handler := NewSandboxHandler(service)
@@ -1337,7 +1478,8 @@ func openAPICRUDTestDB(t *testing.T) *sql.DB {
 		`CREATE TABLE agent_configs (id TEXT PRIMARY KEY, name TEXT, role TEXT, description TEXT, system_prompt TEXT, max_tokens INTEGER, temperature REAL, base_agent_id TEXT, is_default INTEGER, is_system INTEGER, requires_human INTEGER, mention_patterns BLOB, config_generated_at TEXT, config_path TEXT, created_at TIMESTAMP, updated_at TIMESTAMP)`,
 		`CREATE TABLE workflow_templates (id TEXT PRIMARY KEY, name TEXT, description TEXT, agent_ids BLOB, transitions BLOB, checkpoints BLOB, estimated_time TEXT, is_system INTEGER, is_default INTEGER, routable_teams BLOB, created_at TIMESTAMP, updated_at TIMESTAMP)`,
 		`CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT, description TEXT, type TEXT, mode TEXT, status TEXT, local_path TEXT, git_repo TEXT, config BLOB, workflow_template_id TEXT, created_at TIMESTAMP, updated_at TIMESTAMP)`,
-		`CREATE TABLE threads (id TEXT PRIMARY KEY, project_id TEXT, name TEXT, status TEXT, current_phase TEXT, current_agent TEXT, workflow_template_id TEXT, created_at TIMESTAMP, updated_at TIMESTAMP)`,
+		`CREATE TABLE threads (id TEXT PRIMARY KEY, project_id TEXT, name TEXT, status TEXT, current_phase TEXT, current_agent TEXT, depth INTEGER, workflow_template_id TEXT, abort_token TEXT, created_at TIMESTAMP, updated_at TIMESTAMP)`,
+		`CREATE TABLE messages (id TEXT PRIMARY KEY, thread_id TEXT, role TEXT, content TEXT, created_at TIMESTAMP)`,
 		`CREATE TABLE agent_invocations (id TEXT PRIMARY KEY, thread_id TEXT, agent_config_id TEXT, agent_name TEXT, status TEXT, created_at TIMESTAMP)`,
 		`CREATE TABLE commands (id TEXT PRIMARY KEY, name TEXT, description TEXT, created_at TIMESTAMP, updated_at TIMESTAMP)`,
 		`CREATE TABLE settings (id TEXT PRIMARY KEY, name TEXT, description TEXT, directory_path TEXT, created_at TIMESTAMP, updated_at TIMESTAMP)`,
@@ -1463,6 +1605,18 @@ func insertAPIWorkflowProjectReference(t *testing.T, db *sql.DB, workflowID uuid
 	if err != nil {
 		t.Fatalf("insert project workflow reference: %v", err)
 	}
+}
+
+func insertAPIProject(t *testing.T, db *sql.DB, name string, workflowID uuid.UUID) uuid.UUID {
+	t.Helper()
+	id := uuid.New()
+	now := time.Now()
+	_, err := db.Exec(`INSERT INTO projects (id, name, description, type, mode, status, local_path, git_repo, config, workflow_template_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id.String(), name, "", model.ProjectTypeApp, model.ProjectModeNew, model.ProjectStatusDeveloping, t.TempDir(), nil, []byte(`{}`), workflowID.String(), now, now)
+	if err != nil {
+		t.Fatalf("insert project: %v", err)
+	}
+	return id
 }
 
 func insertAPICommandRow(t *testing.T, db *sql.DB, name string) uuid.UUID {

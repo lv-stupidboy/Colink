@@ -263,6 +263,67 @@ before release`
 	}
 }
 
+func TestReadRawMarkdownIndexLinksMissingAndSiblings(t *testing.T) {
+	workspace := t.TempDir()
+	indexDir := filepath.Join(workspace, ".colink", "project-memory")
+	if err := os.MkdirAll(filepath.Join(indexDir, "nested"), 0755); err != nil {
+		t.Fatalf("mkdir memory dirs: %v", err)
+	}
+	index := filepath.Join(indexDir, memoryIndexFile)
+	if err := os.WriteFile(index, []byte("- [Alpha](alpha.md)\n- [Beta](nested/beta.md)\n- [Missing](missing.md)\n- [Duplicate](alpha.md)\n"), 0644); err != nil {
+		t.Fatalf("write index: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(indexDir, "alpha.md"), []byte("alpha memory"), 0644); err != nil {
+		t.Fatalf("write alpha: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(indexDir, "nested", "beta.md"), []byte("beta memory"), 0644); err != nil {
+		t.Fatalf("write beta: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(indexDir, "sibling.md"), []byte("sibling memory"), 0644); err != nil {
+		t.Fatalf("write sibling: %v", err)
+	}
+
+	manager := NewMemoryManager(nil)
+	group, err := manager.ReadRawMarkdown(MemoryTypeProject, MemoryScopeIdentity{WorkspacePath: workspace, ProjectName: "Colink"})
+	if err != nil {
+		t.Fatalf("ReadRawMarkdown() error = %v", err)
+	}
+	if !group.IndexExists || group.IndexPath != index || !strings.Contains(group.Index, "Alpha") {
+		t.Fatalf("raw group index fields = %+v", group)
+	}
+	if len(group.Missing) != 1 || group.Missing[0] != "missing.md" {
+		t.Fatalf("missing = %#v", group.Missing)
+	}
+	if !rawMarkdownGroupHasFile(group, "alpha.md", "alpha memory") ||
+		!rawMarkdownGroupHasFile(group, "beta.md", "beta memory") ||
+		!rawMarkdownGroupHasFile(group, "sibling.md", "sibling memory") {
+		t.Fatalf("raw group files = %#v", group.Files)
+	}
+
+	empty, err := manager.ReadRawMarkdown(MemoryTypeProject, MemoryScopeIdentity{WorkspacePath: t.TempDir()})
+	if err != nil {
+		t.Fatalf("ReadRawMarkdown(missing index) error = %v", err)
+	}
+	if empty.IndexExists || len(empty.Files) != 0 || len(empty.Missing) != 0 {
+		t.Fatalf("missing index group = %+v", empty)
+	}
+	if _, err := rawMarkdownFileFromPath(filepath.Join(workspace, "missing.md")); err == nil {
+		t.Fatal("rawMarkdownFileFromPath(missing) error = nil, want error")
+	}
+	if got := manager.rawMarkdownIndexPath(MemoryType("unknown"), MemoryScopeIdentity{}); got != "" {
+		t.Fatalf("rawMarkdownIndexPath(unknown) = %q, want empty", got)
+	}
+}
+
+func rawMarkdownGroupHasFile(group RawMarkdownGroup, name, content string) bool {
+	for _, file := range group.Files {
+		if file.Name == name && strings.Contains(file.Content, content) {
+			return true
+		}
+	}
+	return false
+}
+
 func TestMemoryManagerAddSearchReplaceRemoveAndToolCalls(t *testing.T) {
 	workspace := t.TempDir()
 	teamRoot := filepath.Join(t.TempDir(), "team-memory")
