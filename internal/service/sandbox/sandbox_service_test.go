@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"net"
 	"os"
@@ -13,7 +14,9 @@ import (
 	"time"
 
 	"github.com/anthropic/isdp/internal/model"
+	"github.com/anthropic/isdp/internal/repo"
 	"github.com/google/uuid"
+	_ "modernc.org/sqlite"
 )
 
 func TestSandboxServiceRunStateHelpers(t *testing.T) {
@@ -105,6 +108,9 @@ func TestSandboxServiceRunProjectValidationAndHelpers(t *testing.T) {
 	if _, err := service.RunProject(context.Background(), &RunProjectRequest{}); err == nil || !strings.Contains(err.Error(), "project path is required") {
 		t.Fatalf("RunProject empty path error = %v", err)
 	}
+	if _, err := service.RunProject(context.Background(), &RunProjectRequest{ProjectPath: t.TempDir(), Mode: RunModeLocal}); err == nil || !strings.Contains(err.Error(), "unable to determine start command") {
+		t.Fatalf("RunProject unknown local project error = %v", err)
+	}
 	if _, err := service.RunProject(context.Background(), &RunProjectRequest{ProjectPath: t.TempDir(), Mode: RunMode("bad")}); err == nil || !strings.Contains(err.Error(), "unsupported run mode") {
 		t.Fatalf("RunProject bad mode error = %v", err)
 	}
@@ -167,6 +173,57 @@ func TestSandboxServiceRunProjectValidationAndHelpers(t *testing.T) {
 	if service.IsDockerAvailable() {
 		t.Fatalf("nil docker client should not be available")
 	}
+}
+
+func TestSandboxServiceCreateSandboxPersistsRecord(t *testing.T) {
+	ctx := context.Background()
+	db := openSandboxServiceDB(t)
+	repository := repo.NewSandboxRepository(db, repo.DBTypeSQLite)
+	service := NewSandboxService(nil, repository)
+
+	threadID := uuid.New()
+	created, err := service.CreateSandbox(ctx, &CreateSandboxRequest{
+		ThreadID: threadID,
+		Name:     "preview",
+		Image:    "python:3.11-slim",
+	})
+	if err != nil {
+		t.Fatalf("CreateSandbox returned error: %v", err)
+	}
+	if created.ID == uuid.Nil || created.ThreadID != threadID || created.Status != model.SandboxStatusCreated {
+		t.Fatalf("created sandbox = %#v", created)
+	}
+	persisted, err := repository.FindByID(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("FindByID returned error: %v", err)
+	}
+	if persisted.Name != "preview" || persisted.Image != "python:3.11-slim" {
+		t.Fatalf("persisted sandbox = %#v", persisted)
+	}
+}
+
+func openSandboxServiceDB(t *testing.T) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	_, err = db.Exec(`CREATE TABLE sandboxes (
+		id TEXT PRIMARY KEY,
+		thread_id TEXT,
+		name TEXT,
+		image TEXT,
+		status TEXT,
+		container_id TEXT,
+		port INTEGER,
+		created_at TIMESTAMP,
+		ended_at TIMESTAMP
+	)`)
+	if err != nil {
+		t.Fatalf("exec schema: %v", err)
+	}
+	return db
 }
 
 func TestSandboxServiceWaitForServerSuccess(t *testing.T) {
