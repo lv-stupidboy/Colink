@@ -9,6 +9,8 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -16,13 +18,16 @@ import (
 	"github.com/anthropic/isdp/internal/repo"
 	agentservice "github.com/anthropic/isdp/internal/service/agent"
 	commandservice "github.com/anthropic/isdp/internal/service/command"
+	projectservice "github.com/anthropic/isdp/internal/service/project"
+	ruleservice "github.com/anthropic/isdp/internal/service/rule"
 	settingsservice "github.com/anthropic/isdp/internal/service/settings"
 	skillservice "github.com/anthropic/isdp/internal/service/skill"
+	subagentservice "github.com/anthropic/isdp/internal/service/subagent"
 	workflowservice "github.com/anthropic/isdp/internal/service/workflow"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	_ "modernc.org/sqlite"
 	"go.uber.org/zap"
+	_ "modernc.org/sqlite"
 )
 
 func TestBaseAgentHandlerCRUDDefaultAndInvalidRequests(t *testing.T) {
@@ -745,6 +750,255 @@ func TestSkillHandlerCRUDUploadBindingsAndValidation(t *testing.T) {
 	}
 }
 
+func TestSubagentHandlerCRUDBindingsAndInvalidRequests(t *testing.T) {
+	db := openAPICRUDTestDB(t)
+	storagePath := t.TempDir()
+	subagentRepo := repo.NewSubagentRepository(db, repo.DBTypeSQLite)
+	bindingRepo := repo.NewAgentSubagentBindingRepository(db, repo.DBTypeSQLite)
+	skillBindingRepo := repo.NewSubagentSkillBindingRepository(db, repo.DBTypeSQLite)
+	agentRepo := repo.NewAgentConfigRepository(db, repo.DBTypeSQLite)
+	skillRepo := repo.NewSkillRepository(db, repo.DBTypeSQLite)
+	handler := NewSubagentHandler(
+		subagentservice.NewService(subagentRepo, bindingRepo, skillBindingRepo, agentRepo, skillRepo, storagePath, zap.NewNop()),
+		storagePath,
+		1024,
+		nil,
+		agentRepo,
+	)
+	router := setupAPILightRouter(handler.RegisterRoutes)
+
+	agentID := insertAPIAgentConfig(t, db, "Planner")
+	skillID := insertAPISkill(t, db, "debugger")
+
+	createW := performAPILightJSON(router, http.MethodPost, "/api/v1/subagents", map[string]any{
+		"name":        "code-helper",
+		"description": "helps code",
+		"content":     "# helper",
+	})
+	if createW.Code != http.StatusCreated {
+		t.Fatalf("Create subagent code=%d body=%s", createW.Code, createW.Body.String())
+	}
+	var created model.Subagent
+	if err := json.Unmarshal(createW.Body.Bytes(), &created); err != nil {
+		t.Fatalf("unmarshal subagent: %v", err)
+	}
+	if created.ID == uuid.Nil || created.Content != "# helper" {
+		t.Fatalf("created subagent = %#v", created)
+	}
+	if _, err := os.Stat(filepath.Join(storagePath, "code-helper.md")); err != nil {
+		t.Fatalf("expected content file: %v", err)
+	}
+
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/subagents?page=0&page_size=0", nil); w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte("code-helper")) {
+		t.Fatalf("List subagents code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/subagents/"+created.ID.String(), nil); w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte("# helper")) {
+		t.Fatalf("Get subagent code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodPut, "/api/v1/subagents/"+created.ID.String(), map[string]any{"description": "updated", "content": "# updated"}); w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte("updated")) {
+		t.Fatalf("Update subagent code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodPost, "/api/v1/agents/"+agentID.String()+"/subagents", map[string]any{"subagentIds": []string{created.ID.String()}}); w.Code != http.StatusNoContent {
+		t.Fatalf("Bind subagents code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/agents/"+agentID.String()+"/subagents", nil); w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte("code-helper")) {
+		t.Fatalf("Get agent subagents code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodPost, "/api/v1/subagents/"+created.ID.String()+"/skills", map[string]any{"skillIds": []string{skillID.String()}}); w.Code != http.StatusNoContent {
+		t.Fatalf("Bind subagent skills code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/subagents/"+created.ID.String()+"/skills", nil); w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte("debugger")) {
+		t.Fatalf("Get subagent skills code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodDelete, "/api/v1/subagents/"+created.ID.String()+"/skills/"+skillID.String(), nil); w.Code != http.StatusNoContent {
+		t.Fatalf("Unbind subagent skill code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodDelete, "/api/v1/agents/"+agentID.String()+"/subagents/"+created.ID.String(), nil); w.Code != http.StatusNoContent {
+		t.Fatalf("Unbind agent subagent code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodDelete, "/api/v1/subagents/"+created.ID.String(), nil); w.Code != http.StatusNoContent {
+		t.Fatalf("Delete subagent code=%d body=%s", w.Code, w.Body.String())
+	}
+
+	if w := performAPILightJSON(router, http.MethodPost, "/api/v1/subagents", map[string]any{"name": "BadName", "content": "x"}); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid subagent name code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/subagents/not-a-uuid", nil); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid get subagent code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/subagents/"+uuid.New().String(), nil); w.Code != http.StatusNotFound {
+		t.Fatalf("missing get subagent code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodPut, "/api/v1/subagents/not-a-uuid", map[string]any{}); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid update subagent code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/subagents/"+uuid.New().String()+"/agents", nil); w.Code != http.StatusInternalServerError {
+		t.Fatalf("missing auto generator code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodPost, "/api/v1/agents/not-a-uuid/subagents", map[string]any{}); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid bind subagent agent code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodDelete, "/api/v1/agents/"+agentID.String()+"/subagents/not-a-uuid", nil); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid unbind subagent code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodPost, "/api/v1/subagents/not-a-uuid/skills", map[string]any{}); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid bind subagent skills code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodDelete, "/api/v1/subagents/"+uuid.New().String()+"/skills/not-a-uuid", nil); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid unbind subagent skill code=%d", w.Code)
+	}
+}
+
+func TestRuleHandlerCRUDBindingsAndInvalidRequests(t *testing.T) {
+	db := openAPICRUDTestDB(t)
+	storagePath := t.TempDir()
+	ruleRepo := repo.NewRuleRepository(db, repo.DBTypeSQLite)
+	agentBindingRepo := repo.NewAgentRuleBindingRepository(db, repo.DBTypeSQLite)
+	agentRepo := repo.NewAgentConfigRepository(db, repo.DBTypeSQLite)
+	handler := NewRuleHandler(
+		ruleservice.NewService(ruleRepo, agentBindingRepo, agentRepo, storagePath, zap.NewNop()),
+		storagePath,
+		1024,
+		nil,
+		agentRepo,
+	)
+	router := setupAPILightRouter(handler.RegisterRoutes)
+
+	agentID := insertAPIAgentConfig(t, db, "Planner")
+	createW := performAPILightJSON(router, http.MethodPost, "/api/v1/rules", map[string]any{"name": "code-style", "description": "style", "content": "# style"})
+	if createW.Code != http.StatusCreated {
+		t.Fatalf("Create rule code=%d body=%s", createW.Code, createW.Body.String())
+	}
+	var created model.Rule
+	if err := json.Unmarshal(createW.Body.Bytes(), &created); err != nil {
+		t.Fatalf("unmarshal rule: %v", err)
+	}
+	if created.ID == uuid.Nil || created.Content != "# style" {
+		t.Fatalf("created rule = %#v", created)
+	}
+
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/rules?page=0&page_size=0", nil); w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte("code-style")) {
+		t.Fatalf("List rules code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/rules/"+created.ID.String(), nil); w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte("# style")) {
+		t.Fatalf("Get rule code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodPut, "/api/v1/rules/"+created.ID.String(), map[string]any{"description": "updated", "content": "# updated"}); w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte("updated")) {
+		t.Fatalf("Update rule code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodPost, "/api/v1/agents/"+agentID.String()+"/rules", map[string]any{"ruleIds": []string{created.ID.String()}}); w.Code != http.StatusNoContent {
+		t.Fatalf("Bind rules code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/agents/"+agentID.String()+"/rules", nil); w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte("code-style")) {
+		t.Fatalf("Get agent rules code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodDelete, "/api/v1/agents/"+agentID.String()+"/rules/"+created.ID.String(), nil); w.Code != http.StatusNoContent {
+		t.Fatalf("Unbind rule code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodDelete, "/api/v1/rules/"+created.ID.String(), nil); w.Code != http.StatusNoContent {
+		t.Fatalf("Delete rule code=%d body=%s", w.Code, w.Body.String())
+	}
+
+	if w := performAPILightJSON(router, http.MethodPost, "/api/v1/rules", map[string]any{"name": "BadName"}); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid rule name code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/rules/not-a-uuid", nil); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid get rule code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/rules/"+uuid.New().String(), nil); w.Code != http.StatusNotFound {
+		t.Fatalf("missing get rule code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodPut, "/api/v1/rules/not-a-uuid", map[string]any{}); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid update rule code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/rules/"+uuid.New().String()+"/agents", nil); w.Code != http.StatusInternalServerError {
+		t.Fatalf("missing auto generator rule code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodPost, "/api/v1/agents/not-a-uuid/rules", map[string]any{}); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid bind rule agent code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodDelete, "/api/v1/agents/"+agentID.String()+"/rules/not-a-uuid", nil); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid unbind rule code=%d", w.Code)
+	}
+}
+
+func TestProjectHandlerCRUDAndFileEndpoints(t *testing.T) {
+	db := openAPICRUDTestDB(t)
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("hello"), 0644); err != nil {
+		t.Fatalf("write readme: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "src"), 0755); err != nil {
+		t.Fatalf("mkdir src: %v", err)
+	}
+	handler := NewProjectHandler(projectservice.NewService(repo.NewProjectRepository(db, repo.DBTypeSQLite), repo.NewWorkflowTemplateRepository(db, repo.DBTypeSQLite), nil))
+	router := setupAPILightRouter(handler.RegisterRoutes)
+
+	createW := performAPILightJSON(router, http.MethodPost, "/api/v1/projects", map[string]any{"name": "Demo", "description": "project desc", "localPath": root})
+	if createW.Code != http.StatusCreated {
+		t.Fatalf("Create project code=%d body=%s", createW.Code, createW.Body.String())
+	}
+	var created model.Project
+	if err := json.Unmarshal(createW.Body.Bytes(), &created); err != nil {
+		t.Fatalf("unmarshal project: %v", err)
+	}
+	if created.ID == uuid.Nil || created.Type != model.ProjectTypeService || created.Mode != model.ProjectModeNew {
+		t.Fatalf("created project = %#v", created)
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/projects", nil); w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte("Demo")) {
+		t.Fatalf("List projects code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/projects/"+created.ID.String(), nil); w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte("Demo")) {
+		t.Fatalf("Get project code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodPut, "/api/v1/projects/"+created.ID.String(), map[string]any{"name": "Demo Updated", "status": model.ProjectStatusDeveloping}); w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte("Demo Updated")) {
+		t.Fatalf("Update project code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/projects/"+created.ID.String()+"/files", nil); w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte("README.md")) {
+		t.Fatalf("List files code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/files/browse?path="+root, nil); w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte("src")) {
+		t.Fatalf("Browse path code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/files/validate?path="+root, nil); w.Code != http.StatusOK {
+		t.Fatalf("Validate path code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/files/content?basePath="+root+"&path=README.md", nil); w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte("hello")) {
+		t.Fatalf("Get content code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodPost, "/api/v1/files/folder", map[string]any{"path": root, "name": "docs"}); w.Code != http.StatusOK {
+		t.Fatalf("Create folder code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/files/image?basePath="+root+"&path=README.md", nil); w.Code != http.StatusBadRequest {
+		t.Fatalf("non image code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodDelete, "/api/v1/projects/"+created.ID.String(), nil); w.Code != http.StatusNoContent {
+		t.Fatalf("Delete project code=%d body=%s", w.Code, w.Body.String())
+	}
+
+	if w := performAPILightJSON(router, http.MethodPost, "/api/v1/projects", map[string]any{"name": "Missing path"}); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid create project code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/projects/not-a-uuid", nil); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid get project code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/projects/"+uuid.New().String(), nil); w.Code != http.StatusNotFound {
+		t.Fatalf("missing get project code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodPut, "/api/v1/projects/not-a-uuid", map[string]any{}); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid update project code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/files", nil); w.Code != http.StatusBadRequest {
+		t.Fatalf("missing base path code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/files/content?basePath="+root, nil); w.Code != http.StatusBadRequest {
+		t.Fatalf("missing content path code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/projects/not-a-uuid/files", nil); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid list files project code=%d", w.Code)
+	}
+}
+
 func openAPICRUDTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	db, err := sql.Open("sqlite", ":memory:")
@@ -756,7 +1010,7 @@ func openAPICRUDTestDB(t *testing.T) *sql.DB {
 		`CREATE TABLE base_agents (id TEXT PRIMARY KEY, name TEXT, type TEXT, api_url TEXT, api_token TEXT, default_model TEXT, cli_path TEXT, git_bash_path TEXT, max_tokens INTEGER, timeout_minutes INTEGER, is_default BOOLEAN, created_at TIMESTAMP, updated_at TIMESTAMP)`,
 		`CREATE TABLE agent_configs (id TEXT PRIMARY KEY, name TEXT, role TEXT, description TEXT, system_prompt TEXT, max_tokens INTEGER, temperature REAL, base_agent_id TEXT, is_default INTEGER, is_system INTEGER, requires_human INTEGER, mention_patterns BLOB, config_generated_at TEXT, config_path TEXT, created_at TIMESTAMP, updated_at TIMESTAMP)`,
 		`CREATE TABLE workflow_templates (id TEXT PRIMARY KEY, name TEXT, description TEXT, agent_ids BLOB, transitions BLOB, checkpoints BLOB, estimated_time TEXT, is_system INTEGER, is_default INTEGER, routable_teams BLOB, created_at TIMESTAMP, updated_at TIMESTAMP)`,
-		`CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT, workflow_template_id TEXT)`,
+		`CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT, description TEXT, type TEXT, mode TEXT, status TEXT, local_path TEXT, git_repo TEXT, config BLOB, workflow_template_id TEXT, created_at TIMESTAMP, updated_at TIMESTAMP)`,
 		`CREATE TABLE threads (id TEXT PRIMARY KEY, project_id TEXT, name TEXT, status TEXT, current_phase TEXT, current_agent TEXT, workflow_template_id TEXT, created_at TIMESTAMP, updated_at TIMESTAMP)`,
 		`CREATE TABLE agent_invocations (id TEXT PRIMARY KEY, thread_id TEXT, agent_config_id TEXT, agent_name TEXT, status TEXT, created_at TIMESTAMP)`,
 		`CREATE TABLE commands (id TEXT PRIMARY KEY, name TEXT, description TEXT, created_at TIMESTAMP, updated_at TIMESTAMP)`,
