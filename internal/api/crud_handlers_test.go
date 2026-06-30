@@ -21,6 +21,7 @@ import (
 	"github.com/anthropic/isdp/internal/service/knowledge"
 	localreposervice "github.com/anthropic/isdp/internal/service/local_repo"
 	mcpservice "github.com/anthropic/isdp/internal/service/mcp"
+	messageservice "github.com/anthropic/isdp/internal/service/message"
 	projectservice "github.com/anthropic/isdp/internal/service/project"
 	ruleservice "github.com/anthropic/isdp/internal/service/rule"
 	sandboxservice "github.com/anthropic/isdp/internal/service/sandbox"
@@ -1338,6 +1339,71 @@ func TestAdditionalAPIHandlersValidationBranches(t *testing.T) {
 	}
 }
 
+func TestMessageHandlerCreateListAndHistory(t *testing.T) {
+	db := openAPICRUDTestDB(t)
+	handler := NewMessageHandler(messageservice.NewService(repo.NewMessageRepository(db, repo.DBTypeSQLite), nil))
+	router := setupAPILightRouter(handler.RegisterRoutes)
+	threadID := uuid.New()
+
+	firstW := performAPILightJSON(router, http.MethodPost, "/api/v1/messages/thread/"+threadID.String(), map[string]any{
+		"content":          "first message",
+		"skipAgentTrigger": true,
+	})
+	if firstW.Code != http.StatusCreated {
+		t.Fatalf("Create first message code=%d body=%s", firstW.Code, firstW.Body.String())
+	}
+	var first model.Message
+	if err := json.Unmarshal(firstW.Body.Bytes(), &first); err != nil {
+		t.Fatalf("unmarshal first message: %v", err)
+	}
+	time.Sleep(2 * time.Millisecond)
+
+	secondW := performAPILightJSON(router, http.MethodPost, "/api/v1/messages/thread/"+threadID.String(), map[string]any{
+		"content":          "second message",
+		"skipAgentTrigger": true,
+		"images": []map[string]any{
+			{"mimeType": "image/png", "data": "aW1n"},
+		},
+	})
+	if secondW.Code != http.StatusCreated {
+		t.Fatalf("Create second message code=%d body=%s", secondW.Code, secondW.Body.String())
+	}
+	var second model.Message
+	if err := json.Unmarshal(secondW.Body.Bytes(), &second); err != nil {
+		t.Fatalf("unmarshal second message: %v", err)
+	}
+	if !bytes.Contains(second.ContentBlocks, []byte("media_gallery")) || !bytes.Contains(second.ContentBlocks, []byte("data:image/png;base64,aW1n")) {
+		t.Fatalf("second content blocks = %s", second.ContentBlocks)
+	}
+
+	listW := performAPILightJSON(router, http.MethodGet, "/api/v1/messages/thread/"+threadID.String()+"?limit=1", nil)
+	if listW.Code != http.StatusOK || !bytes.Contains(listW.Body.Bytes(), []byte(`"total":2`)) || !bytes.Contains(listW.Body.Bytes(), []byte(`"hasMore":true`)) {
+		t.Fatalf("List messages code=%d body=%s", listW.Code, listW.Body.String())
+	}
+	historyW := performAPILightJSON(router, http.MethodGet, "/api/v1/messages/thread/"+threadID.String()+"/history?cursor="+second.ID.String()+"&limit=10", nil)
+	if historyW.Code != http.StatusOK || !bytes.Contains(historyW.Body.Bytes(), []byte("first message")) {
+		t.Fatalf("History code=%d body=%s", historyW.Code, historyW.Body.String())
+	}
+
+	invalidChecks := []struct {
+		method string
+		path   string
+		body   any
+		want   int
+	}{
+		{http.MethodGet, "/api/v1/messages/thread/not-a-uuid", nil, http.StatusBadRequest},
+		{http.MethodGet, "/api/v1/messages/thread/not-a-uuid/history?cursor=x", nil, http.StatusBadRequest},
+		{http.MethodGet, "/api/v1/messages/thread/" + threadID.String() + "/history", nil, http.StatusBadRequest},
+		{http.MethodPost, "/api/v1/messages/thread/not-a-uuid", map[string]any{"content": "bad"}, http.StatusBadRequest},
+		{http.MethodPost, "/api/v1/messages/thread/" + threadID.String(), map[string]any{}, http.StatusBadRequest},
+	}
+	for _, check := range invalidChecks {
+		if w := performAPILightJSON(router, check.method, check.path, check.body); w.Code != check.want {
+			t.Fatalf("%s %s code=%d want=%d body=%s", check.method, check.path, w.Code, check.want, w.Body.String())
+		}
+	}
+}
+
 func TestThreadHandlerLifecycleAndValidation(t *testing.T) {
 	db := openAPICRUDTestDB(t)
 	projectRepo := repo.NewProjectRepository(db, repo.DBTypeSQLite)
@@ -1479,7 +1545,7 @@ func openAPICRUDTestDB(t *testing.T) *sql.DB {
 		`CREATE TABLE workflow_templates (id TEXT PRIMARY KEY, name TEXT, description TEXT, agent_ids BLOB, transitions BLOB, checkpoints BLOB, estimated_time TEXT, is_system INTEGER, is_default INTEGER, routable_teams BLOB, created_at TIMESTAMP, updated_at TIMESTAMP)`,
 		`CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT, description TEXT, type TEXT, mode TEXT, status TEXT, local_path TEXT, git_repo TEXT, config BLOB, workflow_template_id TEXT, created_at TIMESTAMP, updated_at TIMESTAMP)`,
 		`CREATE TABLE threads (id TEXT PRIMARY KEY, project_id TEXT, name TEXT, status TEXT, current_phase TEXT, current_agent TEXT, depth INTEGER, workflow_template_id TEXT, abort_token TEXT, created_at TIMESTAMP, updated_at TIMESTAMP)`,
-		`CREATE TABLE messages (id TEXT PRIMARY KEY, thread_id TEXT, role TEXT, content TEXT, created_at TIMESTAMP)`,
+		`CREATE TABLE messages (id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, role TEXT NOT NULL, agent_id TEXT, content TEXT, content_blocks BLOB, message_type TEXT, metadata BLOB, created_at TEXT NOT NULL, reported_at TIMESTAMP NULL, mentions BLOB, origin TEXT, reply_to TEXT)`,
 		`CREATE TABLE agent_invocations (id TEXT PRIMARY KEY, thread_id TEXT, agent_config_id TEXT, agent_name TEXT, status TEXT, created_at TIMESTAMP)`,
 		`CREATE TABLE commands (id TEXT PRIMARY KEY, name TEXT, description TEXT, created_at TIMESTAMP, updated_at TIMESTAMP)`,
 		`CREATE TABLE settings (id TEXT PRIMARY KEY, name TEXT, description TEXT, directory_path TEXT, created_at TIMESTAMP, updated_at TIMESTAMP)`,

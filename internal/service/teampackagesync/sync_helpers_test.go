@@ -209,6 +209,49 @@ func TestSyncServiceVersionRecordsAndLocalVersions(t *testing.T) {
 	}
 }
 
+func TestSyncCheckerSkipsDisabledAndManualMarkets(t *testing.T) {
+	ctx := context.Background()
+	db := openSyncServiceTestDB(t)
+	marketRepo := repo.NewMarketRepository(db, repo.DBTypeSQLite)
+	versionRepo := repo.NewTeamPackageVersionRepository(db, repo.DBTypeSQLite)
+	service := newSyncServiceWithRepos(db)
+	checker := NewSyncChecker(service, marketRepo, versionRepo, time.Hour, zap.NewNop())
+
+	if checker.syncSvc != service || checker.marketRepo != marketRepo || checker.versionRepo != versionRepo || checker.interval != time.Hour {
+		t.Fatalf("checker fields not initialized")
+	}
+
+	if err := marketRepo.Create(ctx, &model.Market{Name: "disabled", URL: "git@example.com/disabled.git", Branch: "main", Enabled: false, AutoUpdate: true}); err != nil {
+		t.Fatalf("create disabled market: %v", err)
+	}
+	if err := marketRepo.Create(ctx, &model.Market{Name: "manual", URL: "git@example.com/manual.git", Branch: "main", Enabled: true, AutoUpdate: false}); err != nil {
+		t.Fatalf("create manual market: %v", err)
+	}
+	if err := versionRepo.Create(ctx, &model.TeamPackageVersion{WorkflowID: uuid.New(), Name: "devmind", Category: "team", Version: "1.0.0"}); err != nil {
+		t.Fatalf("create local version: %v", err)
+	}
+
+	checker.check()
+
+	local, err := versionRepo.FindByName(ctx, "devmind")
+	if err != nil || local == nil || local.Version != "1.0.0" {
+		t.Fatalf("local version changed unexpectedly: %+v err=%v", local, err)
+	}
+
+	fastChecker := NewSyncChecker(service, marketRepo, versionRepo, time.Hour, zap.NewNop())
+	done := make(chan struct{})
+	go func() {
+		fastChecker.runLoop()
+		close(done)
+	}()
+	fastChecker.Stop()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("runLoop did not stop")
+	}
+}
+
 func writeSyncFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
@@ -257,6 +300,7 @@ func openSyncServiceTestDB(t *testing.T) *sql.DB {
 		`CREATE TABLE subagents (id TEXT PRIMARY KEY, name TEXT, description TEXT, created_at TIMESTAMP, updated_at TIMESTAMP)`,
 		`CREATE TABLE rules (id TEXT PRIMARY KEY, name TEXT, description TEXT, created_at TIMESTAMP, updated_at TIMESTAMP)`,
 		`CREATE TABLE settings (id TEXT PRIMARY KEY, name TEXT, description TEXT, directory_path TEXT, created_at TIMESTAMP, updated_at TIMESTAMP)`,
+		`CREATE TABLE markets (id TEXT PRIMARY KEY, name TEXT, url TEXT, branch TEXT, enabled INTEGER, auto_update INTEGER, check_interval TEXT, last_synced_at TEXT, last_error TEXT, created_at TIMESTAMP, updated_at TIMESTAMP)`,
 	}
 	for _, stmt := range schema {
 		if _, err := db.Exec(stmt); err != nil {

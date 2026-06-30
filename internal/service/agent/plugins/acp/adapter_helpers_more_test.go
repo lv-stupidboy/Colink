@@ -1,10 +1,15 @@
 package acp
 
 import (
+	"bufio"
+	"context"
 	"encoding/json"
+	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/service/agent"
@@ -212,6 +217,13 @@ func TestElicitationAndAnswerHelpers(t *testing.T) {
 }
 
 func TestPortAndErrorHelpers(t *testing.T) {
+	port, err := FindFreePort()
+	if err != nil {
+		t.Skipf("FindFreePort unavailable in this sandbox: %v", err)
+	}
+	if port <= 0 {
+		t.Fatalf("FindFreePort() = %d", port)
+	}
 	if got := ExtractPortFromArgs([]string{"--foo", "x", "--port", "4567"}); got != 4567 {
 		t.Fatalf("ExtractPortFromArgs = %d", got)
 	}
@@ -235,6 +247,187 @@ func TestPortAndErrorHelpers(t *testing.T) {
 	}
 	if got := extractReadableErrorLine(json.RawMessage(`{bad`)); got != "{bad" {
 		t.Fatalf("bad json readable error = %q", got)
+	}
+}
+
+func TestBaseACPAdapterCheckHealth(t *testing.T) {
+	adapter := NewBaseACPAdapter(AcpAdapterConfig{
+		CliPath: writeFakeACPHealthCLI(t),
+		BuildArgs: func(req *agent.ExecutionRequest) []string {
+			return []string{"--health"}
+		},
+		BuildEnv: func(req *agent.ExecutionRequest) []string {
+			return []string{"ACP_HEALTH_TEST=1"}
+		},
+	}, &model.BaseAgent{DefaultModel: "test-model"})
+	if err := adapter.CheckHealth(context.Background()); err != nil {
+		t.Fatalf("CheckHealth() error = %v", err)
+	}
+
+	bad := NewBaseACPAdapter(AcpAdapterConfig{
+		CliPath: filepath.Join(t.TempDir(), "missing-cli"),
+		BuildArgs: func(req *agent.ExecutionRequest) []string {
+			return nil
+		},
+		BuildEnv: func(req *agent.ExecutionRequest) []string {
+			return nil
+		},
+	}, nil)
+	if err := bad.CheckHealth(context.Background()); err == nil {
+		t.Fatal("CheckHealth(missing cli) error = nil, want error")
+	}
+}
+
+func TestBaseACPAdapterConfigureSessionVariants(t *testing.T) {
+	adapter := NewBaseACPAdapter(AcpAdapterConfig{
+		ModelRef: func() string { return "provider/model-b" },
+	}, &model.BaseAgent{DefaultModel: "model-a"})
+	transport, calls, closeTransport := newRecordingACPTransport(t, nil)
+	defer closeTransport()
+
+	err := adapter.configureSession(transport, &acpSession{id: "acp-session"}, &acpNewSessionResult{
+		ConfigOptions: []acpSessionConfigOpt{{ConfigID: "model", Name: "Model", Type: "select"}},
+	}, &agent.ExecutionRequest{})
+	if err != nil {
+		t.Fatalf("configureSession configOptions returned error: %v", err)
+	}
+	call := readRecordedACPCall(t, calls)
+	if call.Method != "session/set_config_option" || !strings.Contains(string(call.Params), `"value":"provider/model-b"`) {
+		t.Fatalf("config option call = %#v", call)
+	}
+
+	legacy := NewBaseACPAdapter(AcpAdapterConfig{LegacyModelConfig: true}, &model.BaseAgent{DefaultModel: "legacy-model"})
+	err = legacy.configureSession(transport, &acpSession{id: "legacy-session"}, &acpNewSessionResult{
+		ConfigOptions: []acpSessionConfigOpt{{ConfigID: "model"}},
+	}, &agent.ExecutionRequest{})
+	if err != nil {
+		t.Fatalf("configureSession legacy returned error: %v", err)
+	}
+	call = readRecordedACPCall(t, calls)
+	if call.Method != "session/set_model" || !strings.Contains(string(call.Params), `"modelId":"legacy-model"`) {
+		t.Fatalf("legacy call = %#v", call)
+	}
+
+	skipping := NewBaseACPAdapter(AcpAdapterConfig{
+		SkipModelConfig: func(req *agent.ExecutionRequest) bool { return true },
+	}, &model.BaseAgent{DefaultModel: "skip-model"})
+	if err := skipping.configureSession(transport, &acpSession{id: "skip-session"}, &acpNewSessionResult{
+		ConfigOptions: []acpSessionConfigOpt{{ConfigID: "model"}},
+	}, &agent.ExecutionRequest{}); err != nil {
+		t.Fatalf("configureSession skip returned error: %v", err)
+	}
+	assertNoRecordedACPCall(t, calls)
+}
+
+func TestBaseACPAdapterConfigureSessionAndAuthenticateErrors(t *testing.T) {
+	transport, _, closeTransport := newRecordingACPTransport(t, func(method string, params json.RawMessage) (any, *jsonrpcError) {
+		if method == "session/set_config_option" {
+			return nil, &jsonrpcError{Code: -32602, Message: "bad model"}
+		}
+		return map[string]any{}, nil
+	})
+	defer closeTransport()
+
+	adapter := NewBaseACPAdapter(AcpAdapterConfig{}, &model.BaseAgent{DefaultModel: "bad-model"})
+	err := adapter.configureSession(transport, &acpSession{id: "session"}, &acpNewSessionResult{
+		ConfigOptions: []acpSessionConfigOpt{{ConfigID: "model"}},
+	}, &agent.ExecutionRequest{})
+	if err == nil || !strings.Contains(err.Error(), "bad model") {
+		t.Fatalf("configureSession error = %v", err)
+	}
+
+	noGateway := NewBaseACPAdapter(AcpAdapterConfig{}, nil)
+	if err := noGateway.sendAuthenticate(transport); err != nil {
+		t.Fatalf("sendAuthenticate without gateway returned error: %v", err)
+	}
+
+	authTransport, authCalls, closeAuthTransport := newRecordingACPTransport(t, nil)
+	defer closeAuthTransport()
+	gateway := NewBaseACPAdapter(AcpAdapterConfig{
+		GatewayBaseURL: "https://gateway.example.test",
+		GatewayHeaders: map[string]string{"x-api-key": "secret"},
+	}, nil)
+	if err := gateway.sendAuthenticate(authTransport); err != nil {
+		t.Fatalf("sendAuthenticate returned error: %v", err)
+	}
+	call := readRecordedACPCall(t, authCalls)
+	if call.Method != "authenticate" || !strings.Contains(string(call.Params), "https://gateway.example.test") || !strings.Contains(string(call.Params), "x-api-key") {
+		t.Fatalf("authenticate call = %#v", call)
+	}
+}
+
+type recordedACPCall struct {
+	Method string
+	Params json.RawMessage
+}
+
+func newRecordingACPTransport(t *testing.T, respond func(method string, params json.RawMessage) (any, *jsonrpcError)) (*acpTransport, <-chan recordedACPCall, func()) {
+	t.Helper()
+	clientToServerR, clientToServerW := io.Pipe()
+	serverToClientR, serverToClientW := io.Pipe()
+	calls := make(chan recordedACPCall, 16)
+	done := make(chan struct{})
+	transport := newACPTransport(clientToServerW, serverToClientR, nil)
+	if err := transport.Start(); err != nil {
+		t.Fatalf("transport.Start: %v", err)
+	}
+
+	go func() {
+		defer close(done)
+		scanner := bufio.NewScanner(clientToServerR)
+		for scanner.Scan() {
+			var msg struct {
+				ID     uint64          `json:"id"`
+				Method string          `json:"method"`
+				Params json.RawMessage `json:"params"`
+			}
+			if err := json.Unmarshal(scanner.Bytes(), &msg); err != nil {
+				continue
+			}
+			calls <- recordedACPCall{Method: msg.Method, Params: append(json.RawMessage(nil), msg.Params...)}
+			var result any = map[string]any{}
+			var rpcErr *jsonrpcError
+			if respond != nil {
+				result, rpcErr = respond(msg.Method, msg.Params)
+			}
+			if rpcErr != nil {
+				writeRPCLine(t, serverToClientW, map[string]any{"jsonrpc": "2.0", "id": msg.ID, "error": rpcErr})
+				continue
+			}
+			writeRPCLine(t, serverToClientW, map[string]any{"jsonrpc": "2.0", "id": msg.ID, "result": result})
+		}
+	}()
+
+	closeFn := func() {
+		_ = transport.Close()
+		_ = clientToServerR.Close()
+		_ = serverToClientW.Close()
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatalf("recording ACP server did not stop")
+		}
+	}
+	return transport, calls, closeFn
+}
+
+func readRecordedACPCall(t *testing.T, calls <-chan recordedACPCall) recordedACPCall {
+	t.Helper()
+	select {
+	case call := <-calls:
+		return call
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for recorded ACP call")
+		return recordedACPCall{}
+	}
+}
+
+func assertNoRecordedACPCall(t *testing.T, calls <-chan recordedACPCall) {
+	t.Helper()
+	select {
+	case call := <-calls:
+		t.Fatalf("unexpected ACP call: %#v", call)
+	case <-time.After(50 * time.Millisecond):
 	}
 }
 
@@ -266,4 +459,17 @@ func findACPServer(servers []interface{}, name string) map[string]interface{} {
 
 func TestMain(m *testing.M) {
 	os.Exit(m.Run())
+}
+
+func writeFakeACPHealthCLI(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "fake-acp-health")
+	script := `#!/bin/sh
+read line
+echo '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":2025,"serverCapabilities":{}}}'
+`
+	if err := os.WriteFile(path, []byte(script), 0755); err != nil {
+		t.Fatalf("write fake ACP CLI: %v", err)
+	}
+	return path
 }
