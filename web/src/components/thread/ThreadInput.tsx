@@ -45,6 +45,8 @@ export const ThreadInput: React.FC<ThreadInputProps> = memo(({
 }) => {
   const inputRef = useRef<any>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  // 记录当前 @mention 的范围 [start, end)：start 为 @ 位置，end 为光标位置
+  const mentionRangeRef = useRef<{ start: number; end: number }>({ start: -1, end: -1 });
   const [inputValue, setInputValue] = useState('');
   const [images, setImages] = useState<ImageAttachment[]>([]);
   const [mentionListVisible, setMentionListVisible] = useState(false);
@@ -153,27 +155,45 @@ export const ThreadInput: React.FC<ThreadInputProps> = memo(({
     const value = e.target.value;
     setInputValue(value);
 
-    // 检测 @ 符号
-    const lastAtIndex = value.lastIndexOf('@');
-    if (lastAtIndex >= 0 && lastAtIndex === value.length - 1) {
+    // 基于光标位置检测 @ 提及：取光标前最近的 @，且 @ 到光标之间不含空白
+    const cursorPos = e.target.selectionStart ?? value.length;
+    const textBeforeCursor = value.slice(0, cursorPos);
+    const atIndex = textBeforeCursor.lastIndexOf('@');
+    const query = atIndex >= 0 ? textBeforeCursor.slice(atIndex + 1) : '';
+
+    if (atIndex >= 0 && !/\s/.test(query)) {
+      mentionRangeRef.current = { start: atIndex, end: cursorPos };
       setMentionListVisible(true);
-      setMentionFilter('');
-      setHighlightedIndex(0);
-    } else if (lastAtIndex >= 0 && value.indexOf(' ', lastAtIndex) === -1) {
-      setMentionListVisible(true);
-      setMentionFilter(value.substring(lastAtIndex + 1).toLowerCase());
+      setMentionFilter(query.toLowerCase());
       setHighlightedIndex(0);
     } else {
+      mentionRangeRef.current = { start: -1, end: -1 };
       setMentionListVisible(false);
     }
   }, []);
 
   // 选择 mention
   const selectMention = useCallback((name: string) => {
-    const lastAtIndex = inputValue.lastIndexOf('@');
-    if (lastAtIndex >= 0) {
-      setInputValue(inputValue.substring(0, lastAtIndex) + '@' + name + ' ');
+    const { start, end } = mentionRangeRef.current;
+    if (start >= 0) {
+      // 只替换 @ 到光标之间的查询片段，保留光标之后的已有文本
+      const before = inputValue.slice(0, start);
+      const after = inputValue.slice(end);
+      const insert = '@' + name + ' ';
+      const newValue = before + insert + after;
+      setInputValue(newValue);
+
+      // 光标移动到插入的 mention 之后
+      const newCursor = before.length + insert.length;
+      setTimeout(() => {
+        const textarea = inputRef.current?.resizableTextArea?.textArea;
+        if (textarea) {
+          textarea.focus();
+          textarea.setSelectionRange(newCursor, newCursor);
+        }
+      }, 0);
     }
+    mentionRangeRef.current = { start: -1, end: -1 };
     setMentionListVisible(false);
     inputRef.current?.focus();
   }, [inputValue]);
