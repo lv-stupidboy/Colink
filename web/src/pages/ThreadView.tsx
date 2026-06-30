@@ -217,6 +217,14 @@ const ThreadView: React.FC = () => {
   const [isResizing, setIsResizing] = useState(false);
   const resizeStartX = useRef(0);
   const resizeStartWidth = useRef(0);
+  const [fileSidebarWidth, setFileSidebarWidth] = useState(280);
+  const [isFileResizing, setIsFileResizing] = useState(false);
+  const fileResizeStartX = useRef(0);
+  const fileResizeStartWidth = useRef(0);
+  const [statusPanelWidth, setStatusPanelWidth] = useState(320);
+  const [isStatusResizing, setIsStatusResizing] = useState(false);
+  const statusResizeStartX = useRef(0);
+  const statusResizeStartWidth = useRef(0);
 
   // 代码文件列表
   const [codeFiles, setCodeFiles] = useState<FileChange[]>([]);
@@ -613,6 +621,62 @@ const ThreadView: React.FC = () => {
       document.removeEventListener('mouseup', handleMouseUp);
     };
   }, [isResizing]);
+
+  // 文件树侧边栏拖拽调整大小
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isFileResizing) return;
+      const deltaX = e.clientX - fileResizeStartX.current;
+      const newWidth = Math.max(200, Math.min(600, fileResizeStartWidth.current + deltaX));
+      setFileSidebarWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      if (isFileResizing) {
+        setIsFileResizing(false);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+    };
+
+    if (isFileResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isFileResizing]);
+
+  // 状态侧边栏拖拽调整大小
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isStatusResizing) return;
+      const deltaX = statusResizeStartX.current - e.clientX;
+      const newWidth = Math.max(240, Math.min(700, statusResizeStartWidth.current + deltaX));
+      setStatusPanelWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      if (isStatusResizing) {
+        setIsStatusResizing(false);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+    };
+
+    if (isStatusResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isStatusResizing]);
 
   const connectWebSocket = (id: string) => {
     // 先关闭已有连接，避免重复连接
@@ -1878,11 +1942,32 @@ const ThreadView: React.FC = () => {
     document.body.style.userSelect = 'none';
   };
 
+  // 文件树侧边栏拖拽调整大小
+  const handleFileResizeStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsFileResizing(true);
+    fileResizeStartX.current = e.clientX;
+    fileResizeStartWidth.current = fileSidebarWidth;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  };
+
+  // 状态侧边栏拖拽调整大小
+  const handleStatusResizeStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsStatusResizing(true);
+    statusResizeStartX.current = e.clientX;
+    statusResizeStartWidth.current = statusPanelWidth;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  };
+
   return (
     <div className="thread-view-wrapper">
       {/* 左侧文件树侧边栏 */}
       {fileSidebarVisible && (isDebugMode || projectId) && (
-        <div className="file-sidebar">
+        <>
+        <div className="file-sidebar" style={{ width: fileSidebarWidth, minWidth: fileSidebarWidth }}>
           {/* 工作目录显示/输入 */}
           <div className="file-sidebar-path">
             <span className="path-label">目录：</span>
@@ -1915,6 +2000,12 @@ const ThreadView: React.FC = () => {
             )}
           </div>
         </div>
+        <div
+          className={`resize-handle ${isFileResizing ? 'resizing' : ''}`}
+          onMouseDown={handleFileResizeStart}
+          style={{ width: isFileResizing ? 3 : 6 }}
+        />
+        </>
       )}
 
       {/* 消息区域 */}
@@ -2065,7 +2156,12 @@ const ThreadView: React.FC = () => {
 
           {/* 右侧面板（代码/沙箱） */}
           {/* StatusPanel - 状态栏 */}
-          <StatusPanel width={320} threadId={threadId || debugThreadId || undefined} projectPath={displayProjectPath} memoryRefreshKey={memoryRefreshKey} />
+          <div
+            className={`resize-handle ${isStatusResizing ? 'resizing' : ''}`}
+            onMouseDown={handleStatusResizeStart}
+            style={{ width: isStatusResizing ? 3 : 6 }}
+          />
+          <StatusPanel width={statusPanelWidth} threadId={threadId || debugThreadId || undefined} projectPath={displayProjectPath} memoryRefreshKey={memoryRefreshKey} />
           {/* 文件预览面板 */}
           {filePreviewVisible && filePreviewPath && (
             <FilePreviewPanel
