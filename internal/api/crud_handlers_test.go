@@ -23,6 +23,7 @@ import (
 	mcpservice "github.com/anthropic/isdp/internal/service/mcp"
 	projectservice "github.com/anthropic/isdp/internal/service/project"
 	ruleservice "github.com/anthropic/isdp/internal/service/rule"
+	sandboxservice "github.com/anthropic/isdp/internal/service/sandbox"
 	settingsservice "github.com/anthropic/isdp/internal/service/settings"
 	skillservice "github.com/anthropic/isdp/internal/service/skill"
 	subagentservice "github.com/anthropic/isdp/internal/service/subagent"
@@ -1257,6 +1258,69 @@ func TestKnowledgeHandlerCRUDAndQueryErrors(t *testing.T) {
 	} {
 		if w := performAPILightJSON(router, tc.method, tc.path, tc.body); w.Code == http.StatusOK || w.Code == http.StatusCreated || w.Code == http.StatusNoContent {
 			t.Fatalf("expected error for %s %s, got %d body=%s", tc.method, tc.path, w.Code, w.Body.String())
+		}
+	}
+}
+
+func TestSandboxHandlerValidationAndMissingServerPaths(t *testing.T) {
+	service := sandboxservice.NewSandboxService(nil, nil)
+	handler := NewSandboxHandler(service)
+	router := setupAPILightRouter(func(group *gin.RouterGroup) {
+		handler.RegisterRoutes(group)
+		group.GET("/sandbox/:id/proxy-url", handler.GetProxyURL)
+		group.GET("/sandbox/:id/ws/*path", handler.ProxySandboxWebSocket)
+	})
+
+	runInvalidJSON := performAPILightJSON(router, http.MethodPost, "/api/v1/sandbox/run", "{")
+	if runInvalidJSON.Code != http.StatusBadRequest {
+		t.Fatalf("invalid run json code=%d body=%s", runInvalidJSON.Code, runInvalidJSON.Body.String())
+	}
+	runInvalidThread := performAPILightJSON(router, http.MethodPost, "/api/v1/sandbox/run", map[string]any{
+		"threadId":    "not-a-uuid",
+		"projectPath": "demo",
+	})
+	if runInvalidThread.Code != http.StatusBadRequest {
+		t.Fatalf("invalid thread code=%d body=%s", runInvalidThread.Code, runInvalidThread.Body.String())
+	}
+	runInvalidMode := performAPILightJSON(router, http.MethodPost, "/api/v1/sandbox/run", map[string]any{
+		"threadId":    uuid.New().String(),
+		"projectPath": "demo",
+		"mode":        "unknown",
+	})
+	if runInvalidMode.Code != http.StatusInternalServerError || !bytes.Contains(runInvalidMode.Body.Bytes(), []byte("unsupported run mode")) {
+		t.Fatalf("invalid mode code=%d body=%s", runInvalidMode.Code, runInvalidMode.Body.String())
+	}
+
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/sandbox", nil); w.Code != http.StatusOK || w.Body.String() != "[]" {
+		t.Fatalf("list sandbox code=%d body=%s", w.Code, w.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/sandbox/docker/status", nil); w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte(`"available":false`)) {
+		t.Fatalf("docker status code=%d body=%s", w.Code, w.Body.String())
+	}
+
+	missingID := uuid.New().String()
+	for _, tc := range []struct {
+		method string
+		path   string
+		want   int
+	}{
+		{http.MethodGet, "/api/v1/sandbox/not-a-uuid", http.StatusBadRequest},
+		{http.MethodPost, "/api/v1/sandbox/not-a-uuid/stop", http.StatusBadRequest},
+		{http.MethodGet, "/api/v1/sandbox/not-a-uuid/logs", http.StatusBadRequest},
+		{http.MethodGet, "/api/v1/sandbox/preview/not-a-uuid", http.StatusBadRequest},
+		{http.MethodGet, "/api/v1/sandbox/not-a-uuid/proxy/index.html", http.StatusBadRequest},
+		{http.MethodGet, "/api/v1/sandbox/not-a-uuid/proxy-url", http.StatusBadRequest},
+		{http.MethodGet, "/api/v1/sandbox/not-a-uuid/ws/socket", http.StatusBadRequest},
+		{http.MethodGet, "/api/v1/sandbox/" + missingID, http.StatusNotFound},
+		{http.MethodPost, "/api/v1/sandbox/" + missingID + "/stop", http.StatusNotFound},
+		{http.MethodGet, "/api/v1/sandbox/" + missingID + "/logs", http.StatusNotFound},
+		{http.MethodGet, "/api/v1/sandbox/preview/" + missingID, http.StatusNotFound},
+		{http.MethodGet, "/api/v1/sandbox/" + missingID + "/proxy/index.html", http.StatusNotFound},
+		{http.MethodGet, "/api/v1/sandbox/" + missingID + "/ws/socket", http.StatusNotFound},
+		{http.MethodGet, "/api/v1/sandbox/" + missingID + "/proxy-url", http.StatusOK},
+	} {
+		if w := performAPILightJSON(router, tc.method, tc.path, nil); w.Code != tc.want {
+			t.Fatalf("%s %s code=%d want=%d body=%s", tc.method, tc.path, w.Code, tc.want, w.Body.String())
 		}
 	}
 }
