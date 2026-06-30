@@ -227,6 +227,27 @@ func TestAssetRepositoriesAndBindings(t *testing.T) {
 	ids, err = settingsBindingRepo.FindBySettingsID(ctx, settings.ID)
 	assertUUIDList(t, ids, err, agent.ID, "settings agents")
 
+	commandsByAgent, err := commandBindingRepo.FindCommandsByAgentRoleID(ctx, agent.ID)
+	if err != nil || len(commandsByAgent) != 1 || commandsByAgent[0].ID != command.ID || commandsByAgent[0].Name != "Build" {
+		t.Fatalf("FindCommandsByAgentRoleID = %+v err=%v", commandsByAgent, err)
+	}
+	rulesByAgent, err := ruleBindingRepo.FindRulesByAgentRoleID(ctx, agent.ID)
+	if err != nil || len(rulesByAgent) != 1 || rulesByAgent[0].ID != rule.ID || rulesByAgent[0].Name != "Secure" {
+		t.Fatalf("FindRulesByAgentRoleID = %+v err=%v", rulesByAgent, err)
+	}
+	subagentsByAgent, err := subagentBindingRepo.FindSubagentsByAgentRoleID(ctx, agent.ID)
+	if err != nil || len(subagentsByAgent) != 1 || subagentsByAgent[0].ID != subagent.ID || subagentsByAgent[0].Name != "Reviewer" {
+		t.Fatalf("FindSubagentsByAgentRoleID = %+v err=%v", subagentsByAgent, err)
+	}
+	commandSkills, err := commandSkillRepo.FindSkillsByCommandID(ctx, command.ID)
+	if err != nil || len(commandSkills) != 1 || commandSkills[0].ID != skill.ID || commandSkills[0].Name != "Review" {
+		t.Fatalf("FindSkillsByCommandID = %+v err=%v", commandSkills, err)
+	}
+	subagentSkills, err := subagentSkillRepo.FindSkillsBySubagentID(ctx, subagent.ID)
+	if err != nil || len(subagentSkills) != 1 || subagentSkills[0].ID != skill.ID || subagentSkills[0].Name != "Review" {
+		t.Fatalf("FindSkillsBySubagentID = %+v err=%v", subagentSkills, err)
+	}
+
 	exists, err := skillBindingRepo.ExistsBinding(ctx, agent.ID, skill.ID)
 	assertExists(t, exists, err, "agent skill")
 	exists, err = commandBindingRepo.ExistsBinding(ctx, agent.ID, command.ID)
@@ -241,6 +262,19 @@ func TestAssetRepositoriesAndBindings(t *testing.T) {
 	assertExists(t, exists, err, "command skill")
 	exists, err = subagentSkillRepo.ExistsBinding(ctx, subagent.ID, skill.ID)
 	assertExists(t, exists, err, "subagent skill")
+
+	mustRepo(t, commandBindingRepo.DeleteByAgentRoleID(ctx, agent.ID))
+	mustRepo(t, commandBindingRepo.Create(ctx, &model.AgentCommandBinding{ID: uuid.New(), AgentRoleID: agent.ID, CommandID: command.ID, CreatedAt: now}))
+	mustRepo(t, subagentBindingRepo.DeleteByAgentRoleID(ctx, agent.ID))
+	mustRepo(t, subagentBindingRepo.Create(ctx, &model.AgentSubagentBinding{ID: uuid.New(), AgentRoleID: agent.ID, SubagentID: subagent.ID, CreatedAt: now}))
+	mustRepo(t, ruleBindingRepo.DeleteByAgentRoleID(ctx, agent.ID))
+	mustRepo(t, ruleBindingRepo.Create(ctx, &model.AgentRuleBinding{ID: uuid.New(), AgentRoleID: agent.ID, RuleID: rule.ID, CreatedAt: now}))
+	mustRepo(t, settingsBindingRepo.DeleteByAgentRoleID(ctx, agent.ID))
+	mustRepo(t, settingsBindingRepo.Create(ctx, &model.AgentSettingsBinding{ID: uuid.New(), AgentRoleID: agent.ID, SettingsID: settings.ID, CreatedAt: now}))
+	mustRepo(t, commandSkillRepo.DeleteByCommandID(ctx, command.ID))
+	mustRepo(t, commandSkillRepo.Create(ctx, &model.CommandSkillBinding{ID: uuid.New(), CommandID: command.ID, SkillID: skill.ID, CreatedAt: now}))
+	mustRepo(t, subagentSkillRepo.DeleteBySubagentID(ctx, subagent.ID))
+	mustRepo(t, subagentSkillRepo.Create(ctx, &model.SubagentSkillBinding{ID: uuid.New(), SubagentID: subagent.ID, SkillID: skill.ID, CreatedAt: now}))
 
 	mustRepo(t, skillBindingRepo.DeleteBinding(ctx, agent.ID, skill.ID))
 	mustRepo(t, commandBindingRepo.DeleteBinding(ctx, agent.ID, command.ID))
