@@ -3,6 +3,8 @@ package agent
 import (
 	"strings"
 	"testing"
+
+	"github.com/google/uuid"
 )
 
 func TestBuildPromptFromRequestAndLayers(t *testing.T) {
@@ -55,4 +57,21 @@ func TestBuildPromptUsesA2AInputTag(t *testing.T) {
 	if !strings.Contains(got, "<user>\n\n</user>") {
 		t.Fatalf("empty input should still be wrapped as user input: %q", got)
 	}
+}
+
+func TestExecutionServicePromptFormattingFacade(t *testing.T) {
+	es := NewExecutionService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, false, nil)
+	got := es.formatFullPrompt(&ContextLayers{Layer0: "system"}, "hello")
+	if !strings.Contains(got, "<system>\nsystem\n</system>") || !strings.Contains(got, "<user>\nhello\n</user>") {
+		t.Fatalf("formatFullPrompt = %q", got)
+	}
+	es.broadcastFullPrompt(uuidMustParseForPromptTest("00000000-0000-0000-0000-000000000001"), uuidMustParseForPromptTest("00000000-0000-0000-0000-000000000002"), got)
+}
+
+func uuidMustParseForPromptTest(value string) uuid.UUID {
+	id, err := uuid.Parse(value)
+	if err != nil {
+		panic(err)
+	}
+	return id
 }
