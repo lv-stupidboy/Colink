@@ -127,6 +127,104 @@ func TestLocalRepoServiceConfigureGitAndHelpers(t *testing.T) {
 	if name := inferRepoNameFromGitUrl("git@github.com:owner/repo.git"); name != "repo" {
 		t.Fatalf("inferRepoNameFromGitUrl = %q", name)
 	}
+	if name := inferRepoNameFromGitUrl("ssh://git@github.com/owner/repo.git?depth=1"); name != "repo.git" {
+		t.Fatalf("inferRepoNameFromGitUrl ssh form = %q", name)
+	}
+	if name := inferRepoNameFromGitUrl("git@github.com:owner/repo.GIT"); name != "repo" {
+		t.Fatalf("inferRepoNameFromGitUrl uppercase suffix = %q", name)
+	}
+	if !pathWithin(localPath, filepath.Join(localPath, "child")) || pathWithin(localPath, filepath.Dir(localPath)) {
+		t.Fatalf("pathWithin returned unexpected result")
+	}
+}
+
+func TestLocalRepoServiceBrowseCloneSyncAndSortingGuards(t *testing.T) {
+	ctx := context.Background()
+	db := openLocalRepoTestDB(t)
+	repository := repo.NewLocalRepoRepository(db, repo.DBTypeSQLite)
+	service := NewService(repository, nil, &config.GitURLConversionConfig{})
+
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "b-dir"), 0755); err != nil {
+		t.Fatalf("mkdir b-dir: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "a-dir"), 0755); err != nil {
+		t.Fatalf("mkdir a-dir: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".hidden"), 0755); err != nil {
+		t.Fatalf("mkdir hidden: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "file.txt"), []byte("file"), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	browse, err := service.BrowsePath(ctx, root)
+	if err != nil {
+		t.Fatalf("BrowsePath returned error: %v", err)
+	}
+	if !browse.IsValid || browse.CurrentPath != root || browse.ParentPath == "" {
+		t.Fatalf("unexpected browse response: %+v", browse)
+	}
+	if len(browse.Entries) != 2 || browse.Entries[0].Name != "a-dir" || browse.Entries[1].Name != "b-dir" {
+		t.Fatalf("unexpected browse entries: %+v", browse.Entries)
+	}
+
+	fileResp, err := service.BrowsePath(ctx, filepath.Join(root, "file.txt"))
+	if err != nil {
+		t.Fatalf("BrowsePath file returned error: %v", err)
+	}
+	if fileResp.IsValid || fileResp.Error != "路径不是目录" {
+		t.Fatalf("expected non-directory browse error, got %+v", fileResp)
+	}
+	missingResp, err := service.BrowsePath(ctx, filepath.Join(root, "missing"))
+	if err != nil {
+		t.Fatalf("BrowsePath missing returned error: %v", err)
+	}
+	if missingResp.IsValid || missingResp.Error != "路径不存在" {
+		t.Fatalf("expected missing path browse error, got %+v", missingResp)
+	}
+
+	if err := service.CreateFolder(ctx, filepath.Join(root, "missing-parent"), "child"); err == nil || !strings.Contains(err.Error(), "父目录不存在") {
+		t.Fatalf("missing parent error = %v", err)
+	}
+	if err := service.CreateFolder(ctx, filepath.Join(root, "file.txt"), "child"); err == nil || !strings.Contains(err.Error(), "父路径不是目录") {
+		t.Fatalf("file parent error = %v", err)
+	}
+
+	if _, err := service.Clone(ctx, &model.CloneRepoRequest{GitUrl: "https://example.com/owner/repo.git", TargetPath: root}); err == nil || !strings.Contains(err.Error(), "SSH") {
+		t.Fatalf("clone invalid URL error = %v", err)
+	}
+	if _, err := service.Clone(ctx, &model.CloneRepoRequest{GitUrl: "git@github.com:owner/repo.git"}); err == nil || !strings.Contains(err.Error(), "目标路径") {
+		t.Fatalf("clone missing target error = %v", err)
+	}
+	if _, err := service.GetRemoteBranches("https://example.com/owner/repo.git"); err == nil || !strings.Contains(err.Error(), "SSH") {
+		t.Fatalf("remote branches invalid URL error = %v", err)
+	}
+
+	localRepo := &model.LocalRepo{
+		ID:        uuid.New(),
+		Name:      "nogit",
+		LocalPath: root,
+		Status:    model.RepoStatusPending,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+	if err := repository.Create(ctx, localRepo); err != nil {
+		t.Fatalf("create local repo: %v", err)
+	}
+	if _, err := service.Sync(ctx, localRepo.ID); err == nil || !strings.Contains(err.Error(), "GIT地址未配置") {
+		t.Fatalf("sync without git error = %v", err)
+	}
+
+	files := []model.FileInfo{
+		{Name: "z-file", IsDir: false},
+		{Name: "b-dir", IsDir: true},
+		{Name: "a-dir", IsDir: true},
+	}
+	sortFiles(files)
+	if files[0].Name != "a-dir" || files[1].Name != "b-dir" || files[2].Name != "z-file" {
+		t.Fatalf("sortFiles result = %+v", files)
+	}
 }
 
 func openLocalRepoTestDB(t *testing.T) *sql.DB {
