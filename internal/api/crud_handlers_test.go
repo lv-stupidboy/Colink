@@ -12,10 +12,12 @@ import (
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
 	agentservice "github.com/anthropic/isdp/internal/service/agent"
+	commandservice "github.com/anthropic/isdp/internal/service/command"
 	workflowservice "github.com/anthropic/isdp/internal/service/workflow"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	_ "modernc.org/sqlite"
+	"go.uber.org/zap"
 )
 
 func TestBaseAgentHandlerCRUDDefaultAndInvalidRequests(t *testing.T) {
@@ -324,6 +326,121 @@ func TestAgentHandlerCRUDCopyReferencesAndBatchOperations(t *testing.T) {
 	}
 }
 
+func TestCommandHandlerCRUDAndBindings(t *testing.T) {
+	db := openAPICRUDTestDB(t)
+	storage := t.TempDir()
+	commandRepo := repo.NewCommandRepository(db, repo.DBTypeSQLite)
+	skillRepo := repo.NewSkillRepository(db, repo.DBTypeSQLite)
+	agentRepo := repo.NewAgentConfigRepository(db, repo.DBTypeSQLite)
+	commandSkillRepo := repo.NewCommandSkillBindingRepository(db, repo.DBTypeSQLite)
+	agentCommandRepo := repo.NewAgentCommandBindingRepository(db, repo.DBTypeSQLite)
+	svc := commandservice.NewService(commandRepo, commandSkillRepo, agentCommandRepo, agentRepo, skillRepo, storage, zap.NewNop())
+	router := setupAPILightRouter(func(group *gin.RouterGroup) {
+		NewCommandHandler(svc, storage, 1024*1024, nil, agentRepo).RegisterRoutes(group)
+	})
+
+	agentID := insertAPIAgentConfig(t, db, "Coder")
+	skillID := insertAPISkill(t, db, "review-skill")
+
+	createW := performAPILightJSON(router, http.MethodPost, "/api/v1/commands", map[string]any{
+		"name":        "build-app",
+		"description": "builds app",
+		"content":     "# Build\nrun tests",
+	})
+	if createW.Code != http.StatusCreated {
+		t.Fatalf("Create command code=%d body=%s", createW.Code, createW.Body.String())
+	}
+	var created model.Command
+	if err := json.Unmarshal(createW.Body.Bytes(), &created); err != nil {
+		t.Fatalf("unmarshal command: %v", err)
+	}
+	if created.ID == uuid.Nil {
+		t.Fatalf("created command = %#v", created)
+	}
+	if w := performAPILightJSON(router, http.MethodPost, "/api/v1/commands", map[string]any{"name": "BadName"}); w.Code != http.StatusBadRequest {
+		t.Fatalf("invalid command name code=%d", w.Code)
+	}
+	if w := performAPILightJSON(router, http.MethodPost, "/api/v1/commands", map[string]any{"name": "build-app"}); w.Code != http.StatusConflict {
+		t.Fatalf("duplicate command code=%d body=%s", w.Code, w.Body.String())
+	}
+
+	listW := performAPILightJSON(router, http.MethodGet, "/api/v1/commands?search=build", nil)
+	if listW.Code != http.StatusOK || !bytes.Contains(listW.Body.Bytes(), []byte("build-app")) {
+		t.Fatalf("List command code=%d body=%s", listW.Code, listW.Body.String())
+	}
+	getW := performAPILightJSON(router, http.MethodGet, "/api/v1/commands/"+created.ID.String(), nil)
+	if getW.Code != http.StatusOK || !bytes.Contains(getW.Body.Bytes(), []byte("run tests")) {
+		t.Fatalf("Get command code=%d body=%s", getW.Code, getW.Body.String())
+	}
+	updateW := performAPILightJSON(router, http.MethodPut, "/api/v1/commands/"+created.ID.String(), map[string]any{
+		"description": "updated",
+		"content":     "# Updated",
+	})
+	if updateW.Code != http.StatusOK || !bytes.Contains(updateW.Body.Bytes(), []byte("updated")) {
+		t.Fatalf("Update command code=%d body=%s", updateW.Code, updateW.Body.String())
+	}
+
+	bindSkillsW := performAPILightJSON(router, http.MethodPost, "/api/v1/commands/"+created.ID.String()+"/skills", map[string]any{"skillIds": []string{skillID.String()}})
+	if bindSkillsW.Code != http.StatusNoContent {
+		t.Fatalf("BindSkills code=%d body=%s", bindSkillsW.Code, bindSkillsW.Body.String())
+	}
+	getSkillsW := performAPILightJSON(router, http.MethodGet, "/api/v1/commands/"+created.ID.String()+"/skills", nil)
+	if getSkillsW.Code != http.StatusOK || !bytes.Contains(getSkillsW.Body.Bytes(), []byte("review-skill")) {
+		t.Fatalf("GetSkills code=%d body=%s", getSkillsW.Code, getSkillsW.Body.String())
+	}
+	unbindSkillW := performAPILightJSON(router, http.MethodDelete, "/api/v1/commands/"+created.ID.String()+"/skills/"+skillID.String(), nil)
+	if unbindSkillW.Code != http.StatusNoContent {
+		t.Fatalf("UnbindSkill code=%d body=%s", unbindSkillW.Code, unbindSkillW.Body.String())
+	}
+
+	bindCommandW := performAPILightJSON(router, http.MethodPost, "/api/v1/agents/"+agentID.String()+"/commands", map[string]any{"commandIds": []string{created.ID.String()}})
+	if bindCommandW.Code != http.StatusNoContent {
+		t.Fatalf("BindCommands code=%d body=%s", bindCommandW.Code, bindCommandW.Body.String())
+	}
+	getAgentCommandsW := performAPILightJSON(router, http.MethodGet, "/api/v1/agents/"+agentID.String()+"/commands", nil)
+	if getAgentCommandsW.Code != http.StatusOK || !bytes.Contains(getAgentCommandsW.Body.Bytes(), []byte("build-app")) {
+		t.Fatalf("GetAgentCommands code=%d body=%s", getAgentCommandsW.Code, getAgentCommandsW.Body.String())
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/commands/"+created.ID.String()+"/agents", nil); w.Code != http.StatusInternalServerError {
+		t.Fatalf("GetBoundAgents without generator code=%d", w.Code)
+	}
+	deleteBoundW := performAPILightJSON(router, http.MethodDelete, "/api/v1/commands/"+created.ID.String(), nil)
+	if deleteBoundW.Code != http.StatusInternalServerError {
+		t.Fatalf("Delete bound command code=%d body=%s", deleteBoundW.Code, deleteBoundW.Body.String())
+	}
+	unbindCommandW := performAPILightJSON(router, http.MethodDelete, "/api/v1/agents/"+agentID.String()+"/commands/"+created.ID.String(), nil)
+	if unbindCommandW.Code != http.StatusNoContent {
+		t.Fatalf("UnbindCommand code=%d body=%s", unbindCommandW.Code, unbindCommandW.Body.String())
+	}
+	deleteW := performAPILightJSON(router, http.MethodDelete, "/api/v1/commands/"+created.ID.String(), nil)
+	if deleteW.Code != http.StatusNoContent {
+		t.Fatalf("Delete command code=%d body=%s", deleteW.Code, deleteW.Body.String())
+	}
+
+	for _, tc := range []struct {
+		method string
+		path   string
+		body   any
+	}{
+		{http.MethodGet, "/api/v1/commands/not-a-uuid", nil},
+		{http.MethodPut, "/api/v1/commands/not-a-uuid", map[string]any{}},
+		{http.MethodDelete, "/api/v1/commands/not-a-uuid", nil},
+		{http.MethodGet, "/api/v1/commands/not-a-uuid/skills", nil},
+		{http.MethodPost, "/api/v1/commands/not-a-uuid/skills", map[string]any{}},
+		{http.MethodDelete, "/api/v1/commands/" + uuid.New().String() + "/skills/not-a-uuid", nil},
+		{http.MethodGet, "/api/v1/agents/not-a-uuid/commands", nil},
+		{http.MethodPost, "/api/v1/agents/not-a-uuid/commands", map[string]any{}},
+		{http.MethodDelete, "/api/v1/agents/" + uuid.New().String() + "/commands/not-a-uuid", nil},
+	} {
+		if w := performAPILightJSON(router, tc.method, tc.path, tc.body); w.Code != http.StatusBadRequest {
+			t.Fatalf("%s %s code=%d body=%s", tc.method, tc.path, w.Code, w.Body.String())
+		}
+	}
+	if w := performAPILightJSON(router, http.MethodGet, "/api/v1/commands/"+uuid.New().String(), nil); w.Code != http.StatusNotFound {
+		t.Fatalf("missing command get code=%d", w.Code)
+	}
+}
+
 func openAPICRUDTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	db, err := sql.Open("sqlite", ":memory:")
@@ -336,11 +453,14 @@ func openAPICRUDTestDB(t *testing.T) *sql.DB {
 		`CREATE TABLE agent_configs (id TEXT PRIMARY KEY, name TEXT, role TEXT, description TEXT, system_prompt TEXT, max_tokens INTEGER, temperature REAL, base_agent_id TEXT, is_default INTEGER, is_system INTEGER, requires_human INTEGER, mention_patterns BLOB, config_generated_at TEXT, config_path TEXT, created_at TIMESTAMP, updated_at TIMESTAMP)`,
 		`CREATE TABLE workflow_templates (id TEXT PRIMARY KEY, name TEXT, description TEXT, agent_ids BLOB, transitions BLOB, checkpoints BLOB, estimated_time TEXT, is_system INTEGER, is_default INTEGER, routable_teams BLOB, created_at TIMESTAMP, updated_at TIMESTAMP)`,
 		`CREATE TABLE projects (id TEXT PRIMARY KEY, workflow_template_id TEXT)`,
+		`CREATE TABLE commands (id TEXT PRIMARY KEY, name TEXT, description TEXT, created_at TIMESTAMP, updated_at TIMESTAMP)`,
+		`CREATE TABLE skills (id TEXT PRIMARY KEY, name TEXT, description TEXT, tags BLOB, source_type TEXT, source_registry_id TEXT, source_path TEXT, author_id TEXT, project_id TEXT, use_count INTEGER, status TEXT, is_public INTEGER, created_at TIMESTAMP, updated_at TIMESTAMP)`,
 		`CREATE TABLE agent_skill_bindings (id TEXT PRIMARY KEY, agent_role_id TEXT, skill_id TEXT, created_at TIMESTAMP)`,
 		`CREATE TABLE agent_command_bindings (id TEXT PRIMARY KEY, agent_role_id TEXT, command_id TEXT, created_at TIMESTAMP)`,
 		`CREATE TABLE agent_subagent_bindings (id TEXT PRIMARY KEY, agent_role_id TEXT, subagent_id TEXT, created_at TIMESTAMP)`,
 		`CREATE TABLE agent_rule_bindings (id TEXT PRIMARY KEY, agent_role_id TEXT, rule_id TEXT, created_at TIMESTAMP)`,
 		`CREATE TABLE agent_settings_bindings (id TEXT PRIMARY KEY, agent_role_id TEXT, settings_id TEXT, created_at TIMESTAMP)`,
+		`CREATE TABLE command_skill_bindings (id TEXT PRIMARY KEY, command_id TEXT, skill_id TEXT, created_at TIMESTAMP)`,
 	}
 	for _, stmt := range schema {
 		if _, err := db.Exec(stmt); err != nil {
@@ -348,6 +468,24 @@ func openAPICRUDTestDB(t *testing.T) *sql.DB {
 		}
 	}
 	return db
+}
+
+func insertAPIAgentConfig(t *testing.T, db *sql.DB, name string) uuid.UUID {
+	t.Helper()
+	id := uuid.New()
+	now := time.Now()
+	mustAPIExec(t, db, `INSERT INTO agent_configs (id, name, role, description, system_prompt, max_tokens, temperature, base_agent_id, is_default, is_system, requires_human, mention_patterns, config_generated_at, config_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id.String(), name, "agent", "", "system", 0, 0, nil, 0, 0, 0, []byte(`[]`), nil, "", now, now)
+	return id
+}
+
+func insertAPISkill(t *testing.T, db *sql.DB, name string) uuid.UUID {
+	t.Helper()
+	id := uuid.New()
+	now := time.Now()
+	mustAPIExec(t, db, `INSERT INTO skills (id, name, description, tags, source_type, source_registry_id, source_path, author_id, project_id, use_count, status, is_public, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id.String(), name, "skill", []byte(`[]`), model.SkillSourcePersonal, nil, "", nil, nil, 0, model.SkillStatusActive, 1, now, now)
+	return id
 }
 
 func insertAPIBaseAgent(t *testing.T, db *sql.DB, id uuid.UUID, name string, typ string, isDefault bool) {
