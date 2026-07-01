@@ -15,7 +15,6 @@ import (
 
 // A2ATriggerDeps A2A 触发依赖
 type A2ATriggerDeps struct {
-	Registry        *InvocationRegistry
 	Orchestrator    *agent.Orchestrator
 	WSHub           *ws.Hub
 	Queue           *InvocationQueue
@@ -162,11 +161,6 @@ func EnqueueA2ATargets(ctx context.Context, deps *A2ATriggerDeps, opts *A2ATrigg
 		// 检查是否是人类角色，如果是则创建人工任务
 		if handled, enqueuedID := handleHumanRoleTask(ctx, deps, opts, roleConfigID); handled {
 			enqueued = append(enqueued, enqueuedID)
-			continue
-		}
-
-		// 检查 slot 是否被占用
-		if deps.Registry.HasActiveSlot(opts.ThreadID, catID) {
 			continue
 		}
 

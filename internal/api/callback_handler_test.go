@@ -12,7 +12,6 @@ import (
 
 	"github.com/anthropic/isdp/internal/model"
 	"github.com/anthropic/isdp/internal/repo"
-	"github.com/anthropic/isdp/internal/service/a2a"
 	"github.com/anthropic/isdp/internal/service/message"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -21,10 +20,9 @@ import (
 
 func TestCallbackHandlerPostMessageAuthStaleAndPersistence(t *testing.T) {
 	db := openCallbackHandlerTestDB(t)
-	registry := a2a.NewInvocationRegistry()
 	msgRepo := repo.NewMessageRepository(db, repo.DBTypeSQLite)
+	invocationRepo := repo.NewAgentInvocationRepository(db, repo.DBTypeSQLite)
 	handler := NewCallbackHandler(
-		registry,
 		nil,
 		message.NewService(msgRepo, nil),
 		msgRepo,
@@ -36,7 +34,7 @@ func TestCallbackHandlerPostMessageAuthStaleAndPersistence(t *testing.T) {
 		nil,
 		nil,
 		nil,
-		nil,
+		invocationRepo,
 		nil,
 		nil,
 		nil,
@@ -46,9 +44,21 @@ func TestCallbackHandlerPostMessageAuthStaleAndPersistence(t *testing.T) {
 
 	threadID := uuid.New()
 	invocationID := uuid.New()
-	token, err := registry.Register(&a2a.InvocationRecord{ID: invocationID, ThreadID: threadID, CatID: "planner"})
-	if err != nil {
-		t.Fatalf("register invocation: %v", err)
+	agentConfigID := uuid.New()
+	token := "test-callback-token"
+	now := time.Now()
+	if err := invocationRepo.Create(context.Background(), &model.AgentInvocation{
+		ID:            invocationID,
+		ThreadID:      threadID,
+		AgentConfigID: agentConfigID,
+		Role:          model.AgentRoleAgent,
+		AgentName:     "Planner",
+		Status:        model.InvocationStatusRunning,
+		CallbackToken: token,
+		CreatedAt:     now,
+		StartedAt:     &now,
+	}); err != nil {
+		t.Fatalf("create invocation: %v", err)
 	}
 	replyTo := uuid.New()
 	okW := performAPILightJSON(router, http.MethodPost, "/api/v1/callbacks/post-message", map[string]any{
@@ -63,7 +73,7 @@ func TestCallbackHandlerPostMessageAuthStaleAndPersistence(t *testing.T) {
 		t.Fatalf("PostMessage ok code=%d body=%s", okW.Code, okW.Body.String())
 	}
 	var count int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM messages WHERE thread_id = ? AND agent_id = ? AND origin = ?`, threadID.String(), "planner", "callback").Scan(&count); err != nil {
+	if err := db.QueryRow(`SELECT COUNT(*) FROM messages WHERE thread_id = ? AND agent_id = ? AND origin = ?`, threadID.String(), agentConfigID.String(), "callback").Scan(&count); err != nil {
 		t.Fatalf("count messages: %v", err)
 	}
 	if count != 1 {
@@ -90,31 +100,13 @@ func TestCallbackHandlerPostMessageAuthStaleAndPersistence(t *testing.T) {
 		t.Fatalf("bad thread id code=%d", w.Code)
 	}
 
-	staleID := uuid.New()
-	staleToken, err := registry.Register(&a2a.InvocationRecord{ID: staleID, ThreadID: threadID, CatID: "planner"})
-	if err != nil {
-		t.Fatalf("register stale invocation: %v", err)
-	}
-	_, err = registry.Register(&a2a.InvocationRecord{ID: uuid.New(), ThreadID: threadID, CatID: "planner"})
-	if err != nil {
-		t.Fatalf("register latest invocation: %v", err)
-	}
-	staleW := performAPILightJSON(router, http.MethodPost, "/api/v1/callbacks/post-message", map[string]any{
-		"invocationId":  staleID.String(),
-		"callbackToken": staleToken,
-		"content":       "old",
-	})
-	if staleW.Code != http.StatusOK || !bytes.Contains(staleW.Body.Bytes(), []byte("stale_ignored")) {
-		t.Fatalf("stale code=%d body=%s", staleW.Code, staleW.Body.String())
-	}
-
 	if _, err := msgRepo.FindByThreadID(context.Background(), threadID, 10); err != nil {
 		t.Fatalf("message repo remains usable: %v", err)
 	}
 }
 
 func TestCallbackHandlerUnavailableMemoryAndInvalidIdentity(t *testing.T) {
-	handler := NewCallbackHandler(a2a.NewInvocationRegistry(), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	handler := NewCallbackHandler(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	router := setupAPILightRouter(handler.RegisterRoutes)
 
 	if w := performAPILightJSON(router, http.MethodPost, "/api/v1/callbacks/memory", map[string]any{}); w.Code != http.StatusServiceUnavailable {
@@ -134,27 +126,11 @@ func TestCallbackHandlerUnavailableMemoryAndInvalidIdentity(t *testing.T) {
 func TestCallbackHandlerIdentityAndMemoryScopeHelpers(t *testing.T) {
 	ctx := context.Background()
 	db := openCallbackHandlerTestDB(t)
-	registry := a2a.NewInvocationRegistry()
 	projectRepo := repo.NewProjectRepository(db, repo.DBTypeSQLite)
 	threadRepo := repo.NewThreadRepository(db, repo.DBTypeSQLite)
 	workflowRepo := repo.NewWorkflowTemplateRepository(db, repo.DBTypeSQLite)
 	invocationRepo := repo.NewAgentInvocationRepository(db, repo.DBTypeSQLite)
-	handler := NewCallbackHandler(registry, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, invocationRepo, projectRepo, threadRepo, workflowRepo, nil)
-
-	threadID := uuid.New()
-	invocationID := uuid.New()
-	token, err := registry.Register(&a2a.InvocationRecord{ID: invocationID, ThreadID: threadID, CatID: "planner"})
-	if err != nil {
-		t.Fatalf("register invocation: %v", err)
-	}
-	c := newCallbackTestContext(http.MethodGet, "/", map[string]string{
-		"X-Invocation-ID":  invocationID.String(),
-		"X-Callback-Token": token,
-	})
-	identity, ok := handler.verifyCallbackIdentity(c, "", "")
-	if !ok || identity.InvocationID != invocationID || identity.ThreadID != threadID || identity.AgentID != "planner" {
-		t.Fatalf("registry identity = %#v ok=%v", identity, ok)
-	}
+	handler := NewCallbackHandler(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, invocationRepo, projectRepo, threadRepo, workflowRepo, nil)
 
 	dbInvocationID := uuid.New()
 	dbThreadID := uuid.New()
@@ -172,7 +148,7 @@ func TestCallbackHandlerIdentityAndMemoryScopeHelpers(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create invocation: %v", err)
 	}
-	identity, ok = handler.verifyCallbackIdentity(newCallbackTestContext(http.MethodGet, "/", nil), dbInvocationID.String(), "db-token")
+	identity, ok := handler.verifyCallbackIdentity(newCallbackTestContext(http.MethodGet, "/", nil), dbInvocationID.String(), "db-token")
 	if !ok || identity.ThreadID != dbThreadID || identity.AgentID != dbAgentID.String() {
 		t.Fatalf("db identity = %#v ok=%v", identity, ok)
 	}

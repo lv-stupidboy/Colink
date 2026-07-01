@@ -227,7 +227,6 @@ func main() {
 	workflowEngine := agent.NewWorkflowEngine(threadRepo, messageRepo, configService)
 	workflowService := workflow.NewService(workflowRepo)
 	mcpAuthService := a2a.NewMCPAuthService(cfg.MCP.TokenTTL)
-	invocationRegistry := a2a.NewInvocationRegistry() // 新增：调用注册表
 	invocationQueue := a2a.NewInvocationQueue()       // 新增：请求队列
 
 	// 初始化 Mention 模式注册表和解析器（支持动态 patterns 和博弈场景）
@@ -480,7 +479,6 @@ func main() {
 	// 创建队列处理器（在 orchestrator 创建之后）
 	queueProcessor := a2a.NewQueueProcessor(a2a.QueueProcessorDeps{
 		Queue:    invocationQueue,
-		Registry: invocationRegistry,
 		WSHub:    wsHub,
 		SpawnAgent: func(ctx context.Context, threadID uuid.UUID, catID string, content string, chainHistory *agent.A2AChainContext, triggeredBy uuid.UUID) error {
 			// 通过 Orchestrator 触发 Agent
@@ -710,7 +708,7 @@ func main() {
 	runtimeConfigHandler.RegisterRoutes(v1)
 
 	// MCP Callback Handler - 注册在 /api 下（不含 /v1），与 MCP client URL 一致
-	callbackHandler := api.NewCallbackHandler(invocationRegistry, mcpAuthService, messageService, messageRepo, wsHub, orchestrator, baseAgentRepo, invocationQueue, queueProcessor, mentionParser, humanTaskSvc, agentConfigRepo, invocationRepo, projectRepo, threadRepo, workflowRepo, memoryManager)
+	callbackHandler := api.NewCallbackHandler(mcpAuthService, messageService, messageRepo, wsHub, orchestrator, baseAgentRepo, invocationQueue, queueProcessor, mentionParser, humanTaskSvc, agentConfigRepo, invocationRepo, projectRepo, threadRepo, workflowRepo, memoryManager)
 	callbackHandler.RegisterRoutes(router.Group("/api"))
 
 	// WebSocket

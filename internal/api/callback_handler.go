@@ -24,7 +24,6 @@ import (
 
 // CallbackHandler MCP Callback 路由处理器
 type CallbackHandler struct {
-	registry       *a2a.InvocationRegistry
 	mcpAuth        *a2a.MCPAuthService
 	messageSvc     *message.Service
 	msgRepo        *repo.MessageRepository
@@ -49,7 +48,6 @@ type CallbackHandler struct {
 
 // NewCallbackHandler 创建 Callback 处理器
 func NewCallbackHandler(
-	registry *a2a.InvocationRegistry,
 	mcpAuth *a2a.MCPAuthService,
 	messageSvc *message.Service,
 	msgRepo *repo.MessageRepository,
@@ -68,7 +66,6 @@ func NewCallbackHandler(
 	memoryManager *memory.MemoryManager,
 ) *CallbackHandler {
 	return &CallbackHandler{
-		registry:        registry,
 		mcpAuth:         mcpAuth,
 		messageSvc:      messageSvc,
 		msgRepo:         msgRepo,
@@ -147,15 +144,14 @@ func (h *CallbackHandler) PostMessage(c *gin.Context) {
 		return
 	}
 
-	invocationID, err := uuid.Parse(req.InvocationID)
-	if err != nil {
+	if _, err := uuid.Parse(req.InvocationID); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid invocationId"})
 		return
 	}
 
-	// 验证调用身份
-	record := h.registry.Verify(invocationID, req.CallbackToken)
-	if record == nil {
+	// 验证调用身份（DB 比对 CallbackToken）
+	identity, ok := h.verifyWithRecord(c, req.InvocationID, req.CallbackToken)
+	if !ok || identity == nil {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"error":   "expired_credentials",
 			"message": "Invocation ID or callback token is invalid or expired",
@@ -163,17 +159,9 @@ func (h *CallbackHandler) PostMessage(c *gin.Context) {
 		return
 	}
 
-	// 过期调用保护
-	if !h.registry.IsLatest(invocationID) {
-		c.JSON(http.StatusOK, PostMessageResponse{
-			Status: "stale_ignored",
-		})
-		return
-	}
-
 	// 确定目标线程
-	effectiveThreadID := record.ThreadID
-	if req.ThreadID != "" && req.ThreadID != record.ThreadID.String() {
+	effectiveThreadID := identity.ThreadID
+	if req.ThreadID != "" && req.ThreadID != identity.ThreadID.String() {
 		targetThreadID, err := uuid.Parse(req.ThreadID)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid threadId"})
@@ -193,7 +181,7 @@ func (h *CallbackHandler) PostMessage(c *gin.Context) {
 	var mentions []string
 	if h.mentionParser != nil {
 		var err error
-		mentions, err = h.mentionParser.Parse(c.Request.Context(), req.Content, record.CatID)
+		mentions, err = h.mentionParser.Parse(c.Request.Context(), req.Content, identity.AgentID)
 		if err != nil {
 			fmt.Printf("[Callback] PostMessage: mentionParser.Parse error=%v\n", err)
 			// 解析失败，记录错误，使用空列表
@@ -213,7 +201,7 @@ func (h *CallbackHandler) PostMessage(c *gin.Context) {
 	msg := &model.Message{
 		ThreadID: effectiveThreadID,
 		Role:     model.MessageRoleAgent,
-		AgentID:  record.CatID,
+		AgentID:  identity.AgentID,
 		Content:  req.Content,
 		Mentions: allMentions,
 		Origin:   "callback",
@@ -240,7 +228,7 @@ func (h *CallbackHandler) PostMessage(c *gin.Context) {
 			Timestamp: msg.CreatedAt.UnixMilli(),
 			Payload: map[string]interface{}{
 				"messageId": msg.ID.String(),
-				"agentId":   record.CatID,
+				"agentId":   identity.AgentID,
 				"content":   req.Content,
 				"origin":    "callback",
 				"mentions":  allMentions,
@@ -250,7 +238,7 @@ func (h *CallbackHandler) PostMessage(c *gin.Context) {
 
 	// 触发 A2A
 	if len(allMentions) > 0 && h.orchestrator != nil {
-		go h.triggerA2A(context.Background(), effectiveThreadID, allMentions, req.Content, record)
+		go h.triggerA2A(context.Background(), effectiveThreadID, allMentions, req.Content, identity)
 	}
 
 	c.JSON(http.StatusOK, PostMessageResponse{
@@ -425,15 +413,14 @@ func (h *CallbackHandler) PendingMentions(c *gin.Context) {
 		return
 	}
 
-	invocationID, err := uuid.Parse(req.InvocationID)
-	if err != nil {
+	if _, err := uuid.Parse(req.InvocationID); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid invocationId"})
 		return
 	}
 
-	// 验证调用身份
-	record := h.registry.Verify(invocationID, req.CallbackToken)
-	if record == nil {
+	// 验证调用身份（DB 比对 CallbackToken）
+	identity, ok := h.verifyWithRecord(c, req.InvocationID, req.CallbackToken)
+	if !ok || identity == nil {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"error":   "expired_credentials",
 			"message": "Invocation ID or callback token is invalid or expired",
@@ -442,7 +429,7 @@ func (h *CallbackHandler) PendingMentions(c *gin.Context) {
 	}
 
 	// 获取该 Agent 被 mention 的消息
-	messages, err := h.msgRepo.FindMentionsForAgent(c.Request.Context(), record.ThreadID, record.CatID, 20)
+	messages, err := h.msgRepo.FindMentionsForAgent(c.Request.Context(), identity.ThreadID, identity.AgentID, 20)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -492,15 +479,14 @@ func (h *CallbackHandler) ThreadContext(c *gin.Context) {
 		return
 	}
 
-	invocationID, err := uuid.Parse(req.InvocationID)
-	if err != nil {
+	if _, err := uuid.Parse(req.InvocationID); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid invocationId"})
 		return
 	}
 
-	// 验证调用身份
-	record := h.registry.Verify(invocationID, req.CallbackToken)
-	if record == nil {
+	// 验证调用身份（DB 比对 CallbackToken）
+	identity, ok := h.verifyWithRecord(c, req.InvocationID, req.CallbackToken)
+	if !ok || identity == nil {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"error":   "expired_credentials",
 			"message": "Invocation ID or callback token is invalid or expired",
@@ -509,7 +495,7 @@ func (h *CallbackHandler) ThreadContext(c *gin.Context) {
 	}
 
 	// 确定目标线程
-	threadID := record.ThreadID
+	threadID := identity.ThreadID
 	if req.ThreadID != "" {
 		targetThreadID, err := uuid.Parse(req.ThreadID)
 		if err != nil {
@@ -566,26 +552,25 @@ func (h *CallbackHandler) ThreadContext(c *gin.Context) {
 
 // triggerA2A 触发 A2A 协作
 // 参考 Clowder AI 的 enqueueA2ATargets 实现
-func (h *CallbackHandler) triggerA2A(ctx context.Context, threadID uuid.UUID, mentions []string, content string, record *a2a.InvocationRecord) {
+func (h *CallbackHandler) triggerA2A(ctx context.Context, threadID uuid.UUID, mentions []string, content string, identity *callbackIdentity) {
 	if len(mentions) == 0 {
 		return
 	}
 
-	fmt.Printf("[Callback] triggerA2A: mentions=%v, content=%s, callerCatID=%s\n", mentions, content, record.CatID)
+	fmt.Printf("[Callback] triggerA2A: mentions=%v, content=%s, callerCatID=%s\n", mentions, content, identity.AgentID)
 
 	// 构建触发消息
 	triggerMsg := &model.Message{
 		ID:       uuid.New(),
 		ThreadID: threadID,
 		Content:  content,
-		AgentID:  record.CatID,
+		AgentID:  identity.AgentID,
 		Mentions: mentions,
 		Origin:   "callback",
 	}
 
 	// 构建依赖
 	deps := &a2a.A2ATriggerDeps{
-		Registry:        h.registry,
 		Orchestrator:    h.orchestrator,
 		WSHub:           h.wsHub,
 		Queue:           h.queue,
@@ -599,17 +584,16 @@ func (h *CallbackHandler) triggerA2A(ctx context.Context, threadID uuid.UUID, me
 	opts := &a2a.A2ATriggerOptions{
 		TargetCats:         mentions,
 		Content:            content,
-		UserID:             record.UserID,
 		ThreadID:           threadID,
 		TriggerMessage:     triggerMsg,
-		CallerCatID:        record.CatID,
-		ParentInvocationID: &record.ID,
+		CallerCatID:        identity.AgentID,
+		ParentInvocationID: &identity.InvocationID,
 	}
 
 	// 构建上游 Agent 的交接 ChainHistory（含上游输出），注入下游 prompt 的 <a2a-context>
 	// 上游 Agent 此刻仍在运行，其输出尚未追加到 a2aContexts，故在此主动构建快照
 	if h.orchestrator != nil {
-		fromAgentID, err := uuid.Parse(record.CatID)
+		fromAgentID, err := uuid.Parse(identity.AgentID)
 		if err == nil {
 			var fromName, fromRole string
 			if h.agentConfigRepo != nil {
@@ -655,7 +639,10 @@ func (h *CallbackHandler) RegisterRoutes(r *gin.RouterGroup) {
 
 // 辅助函数
 
-func (h *CallbackHandler) verifyCallbackIdentity(c *gin.Context, bodyInvocationID, bodyToken string) (*callbackIdentity, bool) {
+// verifyWithRecord 校验调用身份并返回 callbackIdentity。
+// 通过 invocationRepo 比对 CallbackToken 完成认证。
+// 返回的 identity 用于下游 triggerA2A 等逻辑。
+func (h *CallbackHandler) verifyWithRecord(c *gin.Context, bodyInvocationID, bodyToken string) (*callbackIdentity, bool) {
 	invocationIDStr := strings.TrimSpace(bodyInvocationID)
 	if invocationIDStr == "" {
 		invocationIDStr = strings.TrimSpace(c.GetHeader("X-Invocation-ID"))
@@ -665,35 +652,49 @@ func (h *CallbackHandler) verifyCallbackIdentity(c *gin.Context, bodyInvocationI
 		token = strings.TrimSpace(c.GetHeader("X-Callback-Token"))
 	}
 	if invocationIDStr == "" || token == "" {
+		fmt.Printf("[Callback] verifyWithRecord: missing identity, hasInvocationID=%v, hasToken=%v\n",
+			invocationIDStr != "", token != "")
 		return nil, false
 	}
 	invocationID, err := uuid.Parse(invocationIDStr)
 	if err != nil {
+		fmt.Printf("[Callback] verifyWithRecord: invalid invocationId=%s err=%v\n", invocationIDStr, err)
 		return nil, false
 	}
 
-	if h.registry != nil {
-		if record := h.registry.Verify(invocationID, token); record != nil {
-			return &callbackIdentity{
-				InvocationID: invocationID,
-				ThreadID:     record.ThreadID,
-				AgentID:      record.CatID,
-			}, true
-		}
+	tokenPreview := token
+	if len(token) > 16 {
+		tokenPreview = token[:16] + "..."
 	}
 
 	if h.invocationRepo == nil {
+		fmt.Printf("[Callback] verifyWithRecord: invocationRepo nil, invocationID=%s token=%s\n",
+			invocationID, tokenPreview)
 		return nil, false
 	}
-	invocation, err := h.invocationRepo.FindByID(c.Request.Context(), invocationID)
-	if err != nil || invocation == nil || invocation.CallbackToken == "" || invocation.CallbackToken != token {
+	inv, err := h.invocationRepo.FindByID(c.Request.Context(), invocationID)
+	if err != nil || inv == nil {
+		fmt.Printf("[Callback] verifyWithRecord: DB lookup failed, invocationID=%s err=%v found=%v token=%s\n",
+			invocationID, err, inv != nil, tokenPreview)
 		return nil, false
 	}
+	if inv.CallbackToken == "" || inv.CallbackToken != token {
+		fmt.Printf("[Callback] verifyWithRecord: DB token mismatch, invocationID=%s token=%s\n",
+			invocationID, tokenPreview)
+		return nil, false
+	}
+
+	fmt.Printf("[Callback] verifyWithRecord: authenticated, invocationID=%s threadID=%s agentConfigID=%s token=%s\n",
+		invocationID, inv.ThreadID, inv.AgentConfigID, tokenPreview)
 	return &callbackIdentity{
 		InvocationID: invocationID,
-		ThreadID:     invocation.ThreadID,
-		AgentID:      invocation.AgentConfigID.String(),
+		ThreadID:     inv.ThreadID,
+		AgentID:      inv.AgentConfigID.String(),
 	}, true
+}
+
+func (h *CallbackHandler) verifyCallbackIdentity(c *gin.Context, bodyInvocationID, bodyToken string) (*callbackIdentity, bool) {
+	return h.verifyWithRecord(c, bodyInvocationID, bodyToken)
 }
 
 func (h *CallbackHandler) resolveWorkspacePath(ctx context.Context, threadID uuid.UUID) string {
