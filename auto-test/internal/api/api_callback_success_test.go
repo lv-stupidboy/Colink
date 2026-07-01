@@ -21,11 +21,13 @@ import (
 // @feature F001 - Agent 对话核心
 // @priority P1
 // @id API-02-49
-func TestCallbackHandler_PostMessagePendingMentionsAndThreadContext(t *testing.T) {
+// pending-mentions 与 thread-context 端点：直接 seed 消息验证（不经 PostMessage）。
+// PostMessage 已改为注入上游流式 chunk，不再创建独立消息，故不在此断言其持久化。
+func TestCallbackHandler_PendingMentionsAndThreadContext(t *testing.T) {
 	f := setupAPISurfaceFixture(t)
 	msgRepo := repo.NewMessageRepository(f.db, repo.DBTypeSQLite)
 	invocationRepo := repo.NewAgentInvocationRepository(f.db, repo.DBTypeSQLite)
-	api.NewCallbackHandler(nil, nil, msgRepo, nil, nil, nil, nil, nil, nil, nil, nil, invocationRepo, nil, nil, nil, nil).RegisterRoutes(f.router.Group("/api/v1"))
+	api.NewCallbackHandler(nil, nil, msgRepo, nil, nil, nil, nil, nil, invocationRepo, nil, nil, nil, nil).RegisterRoutes(f.router.Group("/api/v1"))
 
 	threadID := uuid.New()
 	invocationID := uuid.New()
@@ -44,31 +46,25 @@ func TestCallbackHandler_PostMessagePendingMentionsAndThreadContext(t *testing.T
 		StartedAt:     &now,
 	}))
 
+	// 用户消息（@mention 该 Agent）
 	_, err := f.db.Exec(
 		`INSERT INTO messages (id, thread_id, role, agent_id, content, created_at, mentions, origin)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		uuid.New().String(),
-		threadID.String(),
-		"user",
-		"",
-		"please review this",
-		time.Now().Format("2006-01-02 15:04:05"),
-		`["`+agentConfigID.String()+`"]`,
-		"user",
+		uuid.New().String(), threadID.String(), "user", "",
+		"please review this", time.Now().Format("2006-01-02 15:04:05"),
+		`["`+agentConfigID.String()+`"]`, "user",
 	)
 	require.NoError(t, err)
 
-	postW := performJSON(f.router, http.MethodPost, "/api/v1/callbacks/post-message", map[string]any{
-		"invocationId":    invocationID.String(),
-		"callbackToken":   token,
-		"content":         "callback response",
-		"targetCats":      []string{"agent-b"},
-		"clientMessageId": "client-1",
-	})
-	require.Equal(t, http.StatusOK, postW.Code)
-	assert.Contains(t, postW.Body.String(), `"status":"ok"`)
-	assert.Contains(t, postW.Body.String(), `"threadId":"`+threadID.String()+`"`)
-	assert.Contains(t, postW.Body.String(), `"clientMessageId":"client-1"`)
+	// Agent 消息（用于 thread-context catId 过滤验证）
+	_, err = f.db.Exec(
+		`INSERT INTO messages (id, thread_id, role, agent_id, content, created_at, mentions, origin)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		uuid.New().String(), threadID.String(), "agent", agentConfigID.String(),
+		"callback response", time.Now().Format("2006-01-02 15:04:05"),
+		`[]`, "callback",
+	)
+	require.NoError(t, err)
 
 	pendingW := performJSON(f.router, http.MethodGet, "/api/v1/callbacks/pending-mentions?invocationId="+invocationID.String()+"&callbackToken="+token, nil)
 	require.Equal(t, http.StatusOK, pendingW.Code)
@@ -83,23 +79,13 @@ func TestCallbackHandler_PostMessagePendingMentionsAndThreadContext(t *testing.T
 
 // @feature F001 - Agent 对话核心
 // @priority P1
-// @id API-02-50
-func TestCallbackHandler_StaleInvocationIsIgnored(t *testing.T) {
-	// staleness 保护已随 InvocationRegistry 死代码一并移除：
-	// registry.Register/Complete 在生产中从未被调用，IsLatest 永远 false，
-	// 该特性从未在生产中生效。DB 路径无 staleness 信息。
-	t.Skip("staleness protection removed with InvocationRegistry dead code")
-}
-
-// @feature F001 - Agent 对话核心
-// @priority P1
 // @id API-02-56
 func TestCallbackHandler_MemoryAndTeamAgentsLifecycle(t *testing.T) {
 	router := setupStandaloneRouter(func(group *gin.RouterGroup) {})
 	db := mustSetupCallbackDB(t)
 	invocationRepo := repo.NewAgentInvocationRepository(db, repo.DBTypeSQLite)
 	manager := memory.NewMemoryManagerWithTeamPath(nil, t.TempDir())
-	api.NewCallbackHandler(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, invocationRepo, nil, nil, nil, manager).RegisterRoutes(router.Group("/api/v1"))
+	api.NewCallbackHandler(nil, nil, nil, nil, nil, nil, nil, nil, invocationRepo, nil, nil, nil, manager).RegisterRoutes(router.Group("/api/v1"))
 
 	threadID := uuid.New()
 	invocationID := uuid.New()
@@ -156,7 +142,7 @@ func TestCallbackHandler_MemoryAndTeamAgentsLifecycle(t *testing.T) {
 // @id API-02-57
 func TestCallbackHandler_MemoryRejectsUnavailableAndInvalidIdentity(t *testing.T) {
 	router := setupStandaloneRouter(func(group *gin.RouterGroup) {})
-	api.NewCallbackHandler(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil).RegisterRoutes(router.Group("/api/v1"))
+	api.NewCallbackHandler(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil).RegisterRoutes(router.Group("/api/v1"))
 
 	unavailableMemoryW := performJSON(router, http.MethodPost, "/api/v1/callbacks/memory", map[string]any{
 		"action": "search",
@@ -167,7 +153,7 @@ func TestCallbackHandler_MemoryRejectsUnavailableAndInvalidIdentity(t *testing.T
 	assert.Equal(t, http.StatusServiceUnavailable, unavailableAgentsW.Code)
 
 	memoryRouter := setupStandaloneRouter(func(group *gin.RouterGroup) {})
-	api.NewCallbackHandler(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, memory.NewMemoryManagerWithTeamPath(nil, t.TempDir())).RegisterRoutes(memoryRouter.Group("/api/v1"))
+	api.NewCallbackHandler(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, memory.NewMemoryManagerWithTeamPath(nil, t.TempDir())).RegisterRoutes(memoryRouter.Group("/api/v1"))
 
 	badIdentityW := performJSON(memoryRouter, http.MethodPost, "/api/v1/callbacks/memory", map[string]any{
 		"invocationId":  "not-a-uuid",

@@ -61,6 +61,7 @@ type RunningAgent struct {
 
 	// 流式输出累积（用于 WebSocket 重连恢复）
 	AccumulatedOutput string     // 累积的输出内容
+	InjectedText      string     // post_message 注入的文本（completion 时合并进 output 供 checkSignalRouting 解析），与 AccumulatedOutput 同锁
 	OutputMu          sync.Mutex // 保护输出累积字段
 
 	// 结构化内容块累积（用于持久化）

@@ -797,6 +797,20 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 	}
 
 	output := outputBuilder.String()
+
+	// 合并 post_message 注入的文本（AppendAgentText 累积到 RunningAgent.InjectedText）。
+	// outputBuilder 是本地变量，注入文本不会进入其中，需在此显式补齐，
+	// 以确保 checkSignalRouting 能解析到注入内容里的 @mention 触发下游。
+	es.mu.Lock()
+	if runningAgent, ok := es.runningAgents[invocation.ID]; ok {
+		runningAgent.OutputMu.Lock()
+		if runningAgent.InjectedText != "" {
+			output += runningAgent.InjectedText
+		}
+		runningAgent.OutputMu.Unlock()
+	}
+	es.mu.Unlock()
+
 	logInfo("Execution completed", zap.Int("outputLength", len(output)), zap.String("invocationID", invocation.ID.String()), zap.String("invocationSessionId", invocation.SessionID))
 
 	// 更新调用记录前，检查是否已被取消（使用新的 context，因为 ctx 可能已被取消）
@@ -2703,6 +2717,31 @@ func truncateToolInputValueForBroadcast(v interface{}) interface{} {
 	default:
 		return v
 	}
+}
+
+// AppendAgentText 将文本作为流式 text chunk 注入到正在运行的 invocation。
+// 用于 MCP post_message：内容作为上游 Agent 的流式 chunk 追加（而非独立消息），
+// 广播 agent_output_chunk 到前端上游气泡，累积进 AccumulatedContentBlocks 供持久化，
+// 并累积进 InjectedText 供 completion 时合并回 output（供 checkSignalRouting 解析 @mention）。
+// 若 invocation 未在运行（已完成/不存在），返回 error。
+func (es *ExecutionService) AppendAgentText(threadID, invocationID uuid.UUID, text, agentID string) error {
+	es.mu.Lock()
+	runningAgent, exists := es.runningAgents[invocationID]
+	if !exists {
+		es.mu.Unlock()
+		return fmt.Errorf("invocation %s is not running", invocationID)
+	}
+	agentName := ""
+	if runningAgent.AgentConfig != nil {
+		agentName = runningAgent.AgentConfig.Name
+	}
+	runningAgent.OutputMu.Lock()
+	runningAgent.InjectedText += text
+	runningAgent.OutputMu.Unlock()
+	es.mu.Unlock()
+
+	es.broadcastChunk(threadID, invocationID, Chunk{Type: ChunkTypeText, Content: text}, agentID, agentName)
+	return nil
 }
 
 // broadcastChunk 广播输出块（实时流式输出）

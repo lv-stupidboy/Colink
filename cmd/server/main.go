@@ -716,7 +716,7 @@ func main() {
 	runtimeConfigHandler.RegisterRoutes(v1)
 
 	// MCP Callback Handler - 注册在 /api 下（不含 /v1），与 MCP client URL 一致
-	callbackHandler := api.NewCallbackHandler(mcpAuthService, messageService, messageRepo, wsHub, orchestrator, baseAgentRepo, invocationQueue, queueProcessor, mentionParser, humanTaskSvc, agentConfigRepo, invocationRepo, projectRepo, threadRepo, workflowRepo, memoryManager)
+	callbackHandler := api.NewCallbackHandler(mcpAuthService, messageService, messageRepo, wsHub, orchestrator, baseAgentRepo, humanTaskSvc, agentConfigRepo, invocationRepo, projectRepo, threadRepo, workflowRepo, memoryManager)
 	callbackHandler.RegisterRoutes(router.Group("/api"))
 
 	// WebSocket

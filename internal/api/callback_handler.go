@@ -15,7 +15,6 @@ import (
 	"github.com/anthropic/isdp/internal/service/agent"
 	"github.com/anthropic/isdp/internal/service/humantask"
 	"github.com/anthropic/isdp/internal/service/memory"
-	"github.com/anthropic/isdp/internal/service/mention"
 	"github.com/anthropic/isdp/internal/service/message"
 	"github.com/anthropic/isdp/internal/ws"
 	"github.com/gin-gonic/gin"
@@ -24,17 +23,12 @@ import (
 
 // CallbackHandler MCP Callback 路由处理器
 type CallbackHandler struct {
-	mcpAuth        *a2a.MCPAuthService
-	messageSvc     *message.Service
-	msgRepo        *repo.MessageRepository
-	wsHub          *ws.Hub
-	orchestrator   *agent.Orchestrator
-	baseAgentRepo  *repo.BaseAgentRepository
-	queue          *a2a.InvocationQueue
-	queueProcessor *a2a.QueueProcessor
-
-	// Mention 解析器（支持动态 patterns）
-	mentionParser *mention.Parser
+	mcpAuth       *a2a.MCPAuthService
+	messageSvc    *message.Service
+	msgRepo       *repo.MessageRepository
+	wsHub         *ws.Hub
+	orchestrator  *agent.Orchestrator
+	baseAgentRepo *repo.BaseAgentRepository
 
 	// Human 任务服务（用于人角色触发）
 	humanTaskSvc    *humantask.Service
@@ -54,9 +48,6 @@ func NewCallbackHandler(
 	wsHub *ws.Hub,
 	orchestrator *agent.Orchestrator,
 	baseAgentRepo *repo.BaseAgentRepository,
-	queue *a2a.InvocationQueue,
-	queueProcessor *a2a.QueueProcessor,
-	mentionParser *mention.Parser,
 	humanTaskSvc *humantask.Service,
 	agentConfigRepo *repo.AgentConfigRepository,
 	invocationRepo *repo.AgentInvocationRepository,
@@ -72,9 +63,6 @@ func NewCallbackHandler(
 		wsHub:           wsHub,
 		orchestrator:    orchestrator,
 		baseAgentRepo:   baseAgentRepo,
-		queue:           queue,
-		queueProcessor:  queueProcessor,
-		mentionParser:   mentionParser,
 		humanTaskSvc:    humanTaskSvc,
 		agentConfigRepo: agentConfigRepo,
 		invocationRepo:  invocationRepo,
@@ -137,6 +125,10 @@ type callbackIdentity struct {
 
 // PostMessage Agent 主动发消息
 // POST /api/callbacks/post-message
+//
+// 将 Agent 内容作为其所在 invocation 的流式 text chunk 注入（而非创建独立消息），
+// 避免上游流式过程中会话被切成两段。下游 Agent 不在此立即触发——上游完成后由
+// checkSignalRouting 解析 output 里的 @mention 统一触发（保证时序 + 消除双重触发）。
 func (h *CallbackHandler) PostMessage(c *gin.Context) {
 	var req PostMessageRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -159,93 +151,32 @@ func (h *CallbackHandler) PostMessage(c *gin.Context) {
 		return
 	}
 
-	// 确定目标线程
-	effectiveThreadID := identity.ThreadID
+	// 不支持跨线程发送：内容需注入到发送方自己所在 invocation 的流
 	if req.ThreadID != "" && req.ThreadID != identity.ThreadID.String() {
-		targetThreadID, err := uuid.Parse(req.ThreadID)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid threadId"})
-			return
-		}
-		// TODO: 验证用户对目标线程的访问权限
-		effectiveThreadID = targetThreadID
-	}
-
-	// 幂等性检查
-	if req.ClientMessageID != "" {
-		// TODO: 实现客户端消息 ID 去重
-		// 可以使用 Redis 或内存缓存
-	}
-
-	// 解析 A2A mentions（使用动态 MentionParser）
-	var mentions []string
-	if h.mentionParser != nil {
-		var err error
-		mentions, err = h.mentionParser.Parse(c.Request.Context(), req.Content, identity.AgentID)
-		if err != nil {
-			fmt.Printf("[Callback] PostMessage: mentionParser.Parse error=%v\n", err)
-			// 解析失败，记录错误，使用空列表
-			// 不再回退到硬编码的静态解析
-		} else {
-			fmt.Printf("[Callback] PostMessage: parsed mentions=%v from content=%s\n", mentions, req.Content)
-		}
-	} else {
-		fmt.Printf("[Callback] PostMessage: mentionParser is nil\n")
-	}
-
-	// 合并显式指定的目标
-	allMentions := mergeMentions(mentions, req.TargetCats)
-	fmt.Printf("[Callback] PostMessage: allMentions=%v\n", allMentions)
-
-	// 存储消息
-	msg := &model.Message{
-		ThreadID: effectiveThreadID,
-		Role:     model.MessageRoleAgent,
-		AgentID:  identity.AgentID,
-		Content:  req.Content,
-		Mentions: allMentions,
-		Origin:   "callback",
-	}
-
-	// 处理回复
-	if req.ReplyTo != "" {
-		replyToID, err := uuid.Parse(req.ReplyTo)
-		if err == nil {
-			msg.ReplyTo = &replyToID
-		}
-	}
-
-	if err := h.msgRepo.Create(c.Request.Context(), msg); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cross-thread post not supported"})
 		return
 	}
 
-	// 广播消息到 WebSocket
-	if h.wsHub != nil {
-		h.wsHub.BroadcastToThread(effectiveThreadID.String(), ws.WSMessage{
-			Type:      "agent_message",
-			ThreadID:  effectiveThreadID.String(),
-			Timestamp: msg.CreatedAt.UnixMilli(),
-			Payload: map[string]interface{}{
-				"messageId": msg.ID.String(),
-				"agentId":   identity.AgentID,
-				"content":   req.Content,
-				"origin":    "callback",
-				"mentions":  allMentions,
-			},
-		})
+	// 将内容作为流式 chunk 注入上游 invocation（前端追加进上游气泡，
+	// 内容进入 output 供 checkSignalRouting 完成后解析 @mention 触发下游）
+	if h.orchestrator == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "execution service unavailable"})
+		return
 	}
-
-	// 触发 A2A
-	if len(allMentions) > 0 && h.orchestrator != nil {
-		go h.triggerA2A(context.Background(), effectiveThreadID, allMentions, req.Content, identity)
+	execSvc := h.orchestrator.GetExecutionService()
+	if execSvc == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "execution service unavailable"})
+		return
+	}
+	if err := execSvc.AppendAgentText(identity.ThreadID, identity.InvocationID, req.Content, identity.AgentID); err != nil {
+		fmt.Printf("[Callback] PostMessage: AppendAgentText error=%v (invocationID=%s)\n", err, identity.InvocationID)
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		return
 	}
 
 	c.JSON(http.StatusOK, PostMessageResponse{
 		Status:          "ok",
-		ThreadID:        effectiveThreadID.String(),
-		MessageID:       msg.ID.String(),
-		ReplyTo:         req.ReplyTo,
+		ThreadID:        identity.ThreadID.String(),
 		ClientMessageID: req.ClientMessageID,
 	})
 }
@@ -550,81 +481,6 @@ func (h *CallbackHandler) ThreadContext(c *gin.Context) {
 	})
 }
 
-// triggerA2A 触发 A2A 协作
-// 参考 Clowder AI 的 enqueueA2ATargets 实现
-func (h *CallbackHandler) triggerA2A(ctx context.Context, threadID uuid.UUID, mentions []string, content string, identity *callbackIdentity) {
-	if len(mentions) == 0 {
-		return
-	}
-
-	fmt.Printf("[Callback] triggerA2A: mentions=%v, content=%s, callerCatID=%s\n", mentions, content, identity.AgentID)
-
-	// 构建触发消息
-	triggerMsg := &model.Message{
-		ID:       uuid.New(),
-		ThreadID: threadID,
-		Content:  content,
-		AgentID:  identity.AgentID,
-		Mentions: mentions,
-		Origin:   "callback",
-	}
-
-	// 构建依赖
-	deps := &a2a.A2ATriggerDeps{
-		Orchestrator:    h.orchestrator,
-		WSHub:           h.wsHub,
-		Queue:           h.queue,
-		HumanTaskSvc:    h.humanTaskSvc,
-		AgentConfigRepo: h.agentConfigRepo,
-	}
-
-	fmt.Printf("[Callback] triggerA2A: deps.HumanTaskSvc=%v, deps.AgentConfigRepo=%v\n", deps.HumanTaskSvc != nil, deps.AgentConfigRepo != nil)
-
-	// 构建选项
-	opts := &a2a.A2ATriggerOptions{
-		TargetCats:         mentions,
-		Content:            content,
-		ThreadID:           threadID,
-		TriggerMessage:     triggerMsg,
-		CallerCatID:        identity.AgentID,
-		ParentInvocationID: &identity.InvocationID,
-	}
-
-	// 构建上游 Agent 的交接 ChainHistory（含上游输出），注入下游 prompt 的 <a2a-context>
-	// 上游 Agent 此刻仍在运行，其输出尚未追加到 a2aContexts，故在此主动构建快照
-	if h.orchestrator != nil {
-		fromAgentID, err := uuid.Parse(identity.AgentID)
-		if err == nil {
-			var fromName, fromRole string
-			if h.agentConfigRepo != nil {
-				if cfg, cfgErr := h.agentConfigRepo.FindByID(ctx, fromAgentID); cfgErr == nil && cfg != nil {
-					fromName = cfg.Name
-					fromRole = string(cfg.Role)
-				}
-			}
-			if chainHistory := h.orchestrator.BuildChainHistoryForHandoff(ctx, threadID, fromAgentID, fromName, fromRole, content); chainHistory != nil {
-				opts.ChainHistory = chainHistory
-				fmt.Printf("[Callback] triggerA2A: 构建交接 ChainHistory, fromAgent=%s(%s), previousResponses=%d\n",
-					fromName, fromRole, len(chainHistory.PreviousResponses))
-			}
-		}
-	}
-
-	// 调用 A2A 触发
-	result, err := a2a.EnqueueA2ATargets(ctx, deps, opts)
-	if err != nil {
-		fmt.Printf("[Callback] triggerA2A: EnqueueA2ATargets error=%v\n", err)
-		return
-	}
-
-	fmt.Printf("[Callback] triggerA2A: result.Enqueued=%v, result.Fallback=%v\n", result.Enqueued, result.Fallback)
-
-	// 如果有入队的条目且 QueueProcessor 可用，触发自动执行
-	if len(result.Enqueued) > 0 && h.queueProcessor != nil {
-		_ = h.queueProcessor.TryAutoExecute(ctx, threadID)
-	}
-}
-
 // RegisterRoutes 注册路由
 func (h *CallbackHandler) RegisterRoutes(r *gin.RouterGroup) {
 	callbacks := r.Group("/callbacks")
@@ -641,7 +497,6 @@ func (h *CallbackHandler) RegisterRoutes(r *gin.RouterGroup) {
 
 // verifyWithRecord 校验调用身份并返回 callbackIdentity。
 // 通过 invocationRepo 比对 CallbackToken 完成认证。
-// 返回的 identity 用于下游 triggerA2A 等逻辑。
 func (h *CallbackHandler) verifyWithRecord(c *gin.Context, bodyInvocationID, bodyToken string) (*callbackIdentity, bool) {
 	invocationIDStr := strings.TrimSpace(bodyInvocationID)
 	if invocationIDStr == "" {
@@ -749,27 +604,6 @@ func (h *CallbackHandler) resolveMemoryScope(ctx context.Context, threadID uuid.
 		}
 	}
 	return scope
-}
-
-func mergeMentions(parsed []string, explicit []string) []string {
-	seen := make(map[string]bool)
-	var result []string
-
-	for _, m := range parsed {
-		if !seen[m] {
-			seen[m] = true
-			result = append(result, m)
-		}
-	}
-
-	for _, m := range explicit {
-		if !seen[m] {
-			seen[m] = true
-			result = append(result, m)
-		}
-	}
-
-	return result
 }
 
 func getFrom(msg *model.Message) string {

@@ -1,10 +1,8 @@
 package api
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -18,17 +16,13 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-func TestCallbackHandlerPostMessageAuthStaleAndPersistence(t *testing.T) {
+func TestCallbackHandlerPostMessageAuthValidation(t *testing.T) {
 	db := openCallbackHandlerTestDB(t)
-	msgRepo := repo.NewMessageRepository(db, repo.DBTypeSQLite)
 	invocationRepo := repo.NewAgentInvocationRepository(db, repo.DBTypeSQLite)
 	handler := NewCallbackHandler(
 		nil,
-		message.NewService(msgRepo, nil),
-		msgRepo,
-		nil,
-		nil,
-		nil,
+		message.NewService(repo.NewMessageRepository(db, repo.DBTypeSQLite), nil),
+		repo.NewMessageRepository(db, repo.DBTypeSQLite),
 		nil,
 		nil,
 		nil,
@@ -60,53 +54,27 @@ func TestCallbackHandlerPostMessageAuthStaleAndPersistence(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("create invocation: %v", err)
 	}
-	replyTo := uuid.New()
-	okW := performAPILightJSON(router, http.MethodPost, "/api/v1/callbacks/post-message", map[string]any{
-		"invocationId":    invocationID.String(),
-		"callbackToken":   token,
-		"content":         "hello @coder",
-		"replyTo":         replyTo.String(),
-		"clientMessageId": "client-1",
-		"targetCats":      []string{"coder", "reviewer"},
-	})
-	if okW.Code != http.StatusOK || !bytes.Contains(okW.Body.Bytes(), []byte(`"status":"ok"`)) || !bytes.Contains(okW.Body.Bytes(), []byte("client-1")) {
-		t.Fatalf("PostMessage ok code=%d body=%s", okW.Code, okW.Body.String())
-	}
-	var count int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM messages WHERE thread_id = ? AND agent_id = ? AND origin = ?`, threadID.String(), agentConfigID.String(), "callback").Scan(&count); err != nil {
-		t.Fatalf("count messages: %v", err)
-	}
-	if count != 1 {
-		t.Fatalf("message count = %d", count)
-	}
-	var mentions []byte
-	if err := db.QueryRow(`SELECT mentions FROM messages WHERE thread_id = ?`, threadID.String()).Scan(&mentions); err != nil {
-		t.Fatalf("select mentions: %v", err)
-	}
-	if !json.Valid(mentions) || !bytes.Contains(mentions, []byte("coder")) || !bytes.Contains(mentions, []byte("reviewer")) {
-		t.Fatalf("mentions = %s", mentions)
-	}
 
+	// missing fields
 	if w := performAPILightJSON(router, http.MethodPost, "/api/v1/callbacks/post-message", map[string]any{}); w.Code != http.StatusBadRequest {
 		t.Fatalf("missing fields code=%d", w.Code)
 	}
+	// bad invocation
 	if w := performAPILightJSON(router, http.MethodPost, "/api/v1/callbacks/post-message", map[string]any{"invocationId": "bad", "callbackToken": "x", "content": "x"}); w.Code != http.StatusBadRequest {
 		t.Fatalf("bad invocation code=%d", w.Code)
 	}
+	// wrong token
 	if w := performAPILightJSON(router, http.MethodPost, "/api/v1/callbacks/post-message", map[string]any{"invocationId": invocationID.String(), "callbackToken": "wrong", "content": "x"}); w.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthorized code=%d", w.Code)
 	}
-	if w := performAPILightJSON(router, http.MethodPost, "/api/v1/callbacks/post-message", map[string]any{"invocationId": invocationID.String(), "callbackToken": token, "content": "x", "threadId": "bad"}); w.Code != http.StatusBadRequest {
-		t.Fatalf("bad thread id code=%d", w.Code)
-	}
-
-	if _, err := msgRepo.FindByThreadID(context.Background(), threadID, 10); err != nil {
-		t.Fatalf("message repo remains usable: %v", err)
+	// cross-thread rejection
+	if w := performAPILightJSON(router, http.MethodPost, "/api/v1/callbacks/post-message", map[string]any{"invocationId": invocationID.String(), "callbackToken": token, "content": "x", "threadId": uuid.New().String()}); w.Code != http.StatusBadRequest {
+		t.Fatalf("cross-thread code=%d body=%s", w.Code, w.Body.String())
 	}
 }
 
 func TestCallbackHandlerUnavailableMemoryAndInvalidIdentity(t *testing.T) {
-	handler := NewCallbackHandler(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	handler := NewCallbackHandler(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	router := setupAPILightRouter(handler.RegisterRoutes)
 
 	if w := performAPILightJSON(router, http.MethodPost, "/api/v1/callbacks/memory", map[string]any{}); w.Code != http.StatusServiceUnavailable {
@@ -130,7 +98,7 @@ func TestCallbackHandlerIdentityAndMemoryScopeHelpers(t *testing.T) {
 	threadRepo := repo.NewThreadRepository(db, repo.DBTypeSQLite)
 	workflowRepo := repo.NewWorkflowTemplateRepository(db, repo.DBTypeSQLite)
 	invocationRepo := repo.NewAgentInvocationRepository(db, repo.DBTypeSQLite)
-	handler := NewCallbackHandler(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, invocationRepo, projectRepo, threadRepo, workflowRepo, nil)
+	handler := NewCallbackHandler(nil, nil, nil, nil, nil, nil, nil, nil, invocationRepo, projectRepo, threadRepo, workflowRepo, nil)
 
 	dbInvocationID := uuid.New()
 	dbThreadID := uuid.New()
