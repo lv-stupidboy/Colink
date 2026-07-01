@@ -484,10 +484,18 @@ func main() {
 			// 通过 Orchestrator 触发 Agent
 			req := &agent.SpawnRequest{
 				ThreadID:     threadID,
-				Role:         getRoleFromCatID(catID),
 				Input:        content,
 				ChainHistory: chainHistory,
 				TriggeredBy:  triggeredBy,
+			}
+			// catID 是 Agent 配置 UUID（由 mention 解析得到）。
+			// 设为 ConfigID 让 resolveConfigAndBaseAgent 走 GetByID 精确查找，
+			// Role 从配置派生（与 T2T checkSignalRouting 路径一致）。
+			// 若 catID 非 UUID（旧路径按 role 名），退回按 Role 解析。
+			if configID, parseErr := uuid.Parse(catID); parseErr == nil {
+				req.ConfigID = configID
+			} else {
+				req.Role = getRoleFromCatID(catID)
 			}
 			_, err := orchestrator.SpawnAgent(ctx, req)
 			return err

@@ -165,12 +165,13 @@ func EnqueueA2ATargets(ctx context.Context, deps *A2ATriggerDeps, opts *A2ATrigg
 		}
 
 		// 直接触发 Agent
-		// catID 就是 role（如 "backend_developer"），直接使用
+		// catID 是 Agent 配置 UUID（roleConfigID），作为 ConfigID 传入，
+		// 让 resolveConfigAndBaseAgent 走 GetByID 精确查找，Role 从配置派生。
 		if deps.Orchestrator != nil {
-			go func(targetCatID string) {
+			go func(targetConfigID uuid.UUID) {
 				req := &agent.SpawnRequest{
 					ThreadID:     opts.ThreadID,
-					Role:         model.AgentRole(targetCatID),
+					ConfigID:     targetConfigID,
 					Input:        opts.Content,
 					ChainHistory: opts.ChainHistory,
 				}
@@ -178,7 +179,7 @@ func EnqueueA2ATargets(ctx context.Context, deps *A2ATriggerDeps, opts *A2ATrigg
 					req.TriggeredBy = *opts.ParentInvocationID
 				}
 				_, _ = deps.Orchestrator.SpawnAgent(context.Background(), req)
-			}(catID)
+			}(roleConfigID)
 		}
 
 		enqueued = append(enqueued, catID)
