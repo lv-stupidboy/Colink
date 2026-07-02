@@ -118,6 +118,7 @@ func (v *SkillValidator) extractHandoffBlock(output string) (string, bool) {
 // validateFiveParts 校验五件套完整性
 func (v *SkillValidator) validateFiveParts(handoffContent string, result *ValidationResult) {
 	requiredParts := []string{
+		"### To",
 		"### Goal",
 		"### Context",
 		"### Done",
@@ -131,6 +132,10 @@ func (v *SkillValidator) validateFiveParts(handoffContent string, result *Valida
 			result.Errors = append(result.Errors, "缺少必填字段: "+part)
 			result.Suggestions = append(result.Suggestions, "请补充 "+part+" 部分")
 		} else {
+			// ### To 是路由句柄，天然较短，不做最小长度校验
+			if part == "### To" {
+				continue
+			}
 			// 检查字段是否有内容（至少一句话）
 			partContent := v.extractPartContent(handoffContent, part)
 			if len(strings.TrimSpace(partContent)) < 10 {

@@ -2,11 +2,14 @@ package im
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/anthropic/isdp/internal/model"
+	"github.com/anthropic/isdp/internal/repo"
 	"github.com/anthropic/isdp/internal/service/agent"
 	"github.com/anthropic/isdp/pkg/config"
 	"github.com/google/uuid"
@@ -411,6 +414,120 @@ func TestOnAgentChunk_Status(t *testing.T) {
 		}
 	case <-time.After(100 * time.Millisecond):
 		t.Error("completion card not sent")
+	}
+}
+
+func TestFeishuBridgeServiceOnAgentChunkRealService(t *testing.T) {
+	service, threadID, logPath := newRealFeishuBridgeService(t, "chat-real")
+	invocationID := uuid.New()
+
+	longText := strings.Repeat("x", 210)
+	service.OnAgentChunk(threadID, invocationID, agent.Chunk{Type: agent.ChunkTypeText, Content: longText}, "agent1", "Agent")
+	waitForLarkLog(t, logPath, "im +messages-send --chat-id chat-real --text "+longText)
+
+	service.OnAgentChunk(threadID, invocationID, agent.Chunk{Type: agent.ChunkTypeToolUse, ToolName: "bash"}, "agent1", "Agent")
+	waitForLarkLog(t, logPath, "Using tool: bash")
+
+	service.OnAgentChunk(threadID, invocationID, agent.Chunk{Type: agent.ChunkTypeToolResult, ToolName: "bash"}, "agent1", "Agent")
+	waitForLarkLog(t, logPath, "bash completed")
+
+	service.OnAgentChunk(threadID, invocationID, agent.Chunk{Type: agent.ChunkTypeError, Content: "boom"}, "agent1", "Agent")
+	waitForLarkLog(t, logPath, "Error: boom")
+
+	service.OnAgentChunk(threadID, invocationID, agent.Chunk{Type: agent.ChunkTypeStatus, Content: "failed"}, "agent1", "Agent")
+	waitForLarkLog(t, logPath, "状态: failed")
+}
+
+func TestFeishuBridgeServiceOnAgentChunkSkipsWhenUnhealthyOrMissingSession(t *testing.T) {
+	service, threadID, logPath := newRealFeishuBridgeService(t, "chat-skip")
+	service.SetLarkHealthy(false)
+	service.OnAgentChunk(threadID, uuid.New(), agent.Chunk{Type: agent.ChunkTypeToolUse, ToolName: "bash"}, "agent1", "Agent")
+	assertLarkLogEmpty(t, logPath)
+
+	service.SetLarkHealthy(true)
+	service.OnAgentChunk(uuid.New(), uuid.New(), agent.Chunk{Type: agent.ChunkTypeToolUse, ToolName: "bash"}, "agent1", "Agent")
+	assertLarkLogEmpty(t, logPath)
+}
+
+func TestFeishuBridgeServiceFlushBufferLocked(t *testing.T) {
+	service, _, logPath := newRealFeishuBridgeService(t, "chat-flush")
+	key := "chat-flush:invocation"
+	buf := &chunkBuffer{chatID: "chat-flush", invocationID: "invocation"}
+	buf.text.WriteString("buffered text")
+	buf.timer = time.NewTimer(time.Hour)
+
+	service.buffers[key] = buf
+	service.bufferMu.Lock()
+	service.flushBufferLocked(key, buf)
+	service.bufferMu.Unlock()
+
+	waitForLarkLog(t, logPath, "buffered text")
+	if _, ok := service.buffers[key]; ok {
+		t.Fatal("buffer should be removed after flush")
+	}
+}
+
+func newRealFeishuBridgeService(t *testing.T, chatID string) (*FeishuBridgeService, uuid.UUID, string) {
+	t.Helper()
+
+	db := setupBridgeTestDB(t)
+	t.Cleanup(func() { _ = db.Close() })
+
+	sessionRepo := repo.NewIMSessionRepository(db)
+	threadRepo := repo.NewThreadRepository(db, repo.DBTypeSQLite)
+	threadID := uuid.New()
+
+	session := &model.IMSession{
+		ID:        uuid.New(),
+		Platform:  model.IMPlatformFeishu,
+		ChatID:    chatID,
+		ChatType:  "group",
+		ThreadID:  threadID,
+		ProjectID: uuid.Nil,
+		IsActive:  true,
+	}
+	if err := sessionRepo.Create(context.Background(), session); err != nil {
+		t.Fatalf("create im session: %v", err)
+	}
+
+	cliPath := writeFakeLarkCLI(t)
+	logPath := filepath.Join(t.TempDir(), "lark.log")
+	t.Setenv("LARK_CLI_LOG", logPath)
+
+	lark := NewLarkCLIClient(cliPath, zap.NewNop())
+	lark.timeout = time.Second
+	service := NewFeishuBridgeService(sessionRepo, threadRepo, nil, nil, lark, nil, config.FeishuConfig{}, zap.NewNop())
+	return service, threadID, logPath
+}
+
+func waitForLarkLog(t *testing.T, logPath, want string) {
+	t.Helper()
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		body, _ := os.ReadFile(logPath)
+		if strings.Contains(string(body), want) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	body, _ := os.ReadFile(logPath)
+	t.Fatalf("lark log missing %q; log:\n%s", want, string(body))
+}
+
+func assertLarkLogEmpty(t *testing.T, logPath string) {
+	t.Helper()
+
+	time.Sleep(50 * time.Millisecond)
+	body, err := os.ReadFile(logPath)
+	if err != nil && os.IsNotExist(err) {
+		return
+	}
+	if err != nil {
+		t.Fatalf("read lark log: %v", err)
+	}
+	if strings.TrimSpace(string(body)) != "" {
+		t.Fatalf("lark log should be empty, got:\n%s", string(body))
 	}
 }
 

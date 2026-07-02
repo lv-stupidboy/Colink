@@ -22,7 +22,7 @@ type mockSpawner struct {
 	calls    int
 }
 
-func (m *mockSpawner) SpawnAgentForUserMessage(ctx context.Context, threadID uuid.UUID, userMessage string) error {
+func (m *mockSpawner) SpawnAgentForUserMessage(ctx context.Context, threadID uuid.UUID, userMessage string, images []model.ImageContent) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.threadID = threadID

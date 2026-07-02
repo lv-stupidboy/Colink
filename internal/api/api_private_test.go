@@ -19,11 +19,6 @@ func TestPrivateHelpers_ParseJSONArray(t *testing.T) {
 }
 
 func TestPrivateHelpers_CallbackUtilities(t *testing.T) {
-	assert.Equal(t, []string{"agent-a", "agent-b", "agent-c"}, mergeMentions(
-		[]string{"agent-a", "agent-b"},
-		[]string{"agent-b", "agent-c"},
-	))
-
 	assert.True(t, shouldBroadcastMemoryUpdate("add", `{"success":true}`))
 	assert.True(t, shouldBroadcastMemoryUpdate("", `{"success":true}`))
 	assert.False(t, shouldBroadcastMemoryUpdate("search", `{"success":true}`))

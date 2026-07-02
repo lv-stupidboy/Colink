@@ -1,7 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { Table, Button, Card, Modal, Form, Input, Select, message, Space, Tag, Typography, Tooltip, Alert, Spin, Collapse, Switch, Dropdown } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, RobotOutlined, BugOutlined, CopyOutlined, CrownOutlined, ExclamationCircleOutlined, EyeOutlined, SettingOutlined, BookOutlined, ApiOutlined, CodeOutlined, SafetyCertificateOutlined, MoreOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { PlusOutlined, EditOutlined, DeleteOutlined, RobotOutlined, CopyOutlined, CrownOutlined, ExclamationCircleOutlined, EyeOutlined, SettingOutlined, BookOutlined, ApiOutlined, CodeOutlined, SafetyCertificateOutlined, MoreOutlined } from '@ant-design/icons';
 import api from '@/api/client';
 import { getTypeColorByIndex } from '@/config/agentTypeColors';
 import AgentTypeIcon from '@/components/AgentTypeIcon';
@@ -40,7 +39,6 @@ const truncateText = (text: string, maxLength: number = 50): string => {
 };
 
 const AgentRoleList: React.FC = () => {
-  const navigate = useNavigate();
   const [configs, setConfigs] = useState<AgentConfig[]>([]);
   const [baseAgents, setBaseAgents] = useState<BaseAgent[]>([]);
   const [agentTypes, setAgentTypes] = useState<BaseAgentTypeInfo[]>([]);
@@ -622,10 +620,6 @@ const AgentRoleList: React.FC = () => {
     }
   };
 
-  const handleDebug = (record: AgentConfig) => {
-    navigate(`/agents/${record.id}/debug`);
-  };
-
   const handleCopy = async (record: AgentConfig) => {
     try {
       await api.agents.copy(record.id);
@@ -839,13 +833,6 @@ const AgentRoleList: React.FC = () => {
             label: '生成配置',
             icon: <SettingOutlined />,
             onClick: () => handlePreviewConfig(record),
-          },
-          {
-            key: 'debug',
-            label: '调试',
-            icon: <BugOutlined />,
-            disabled: !record.configPath,
-            onClick: () => handleDebug(record),
           },
           {
             key: 'refs',

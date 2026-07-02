@@ -34,11 +34,10 @@ Agent output contains @AgentName
 
 | Type | Role |
 |------|------|
-| `A2ATriggerDeps` | Dependencies: Registry, Orchestrator, WSHub, Queue |
+| `A2ATriggerDeps` | Dependencies: Orchestrator, WSHub, Queue |
 | `A2ATriggerOptions` | Input: TargetCats, Content, ThreadID, CallerCatID, ParentInvocationID |
 | `InvocationQueue` | Thread-scoped queue. `Enqueue()`, `Dequeue()`, `Peek()` |
 | `QueueProcessor` | Monitors completion, triggers next. `TryAutoExecute()`, `OnInvocationComplete()` |
-| `InvocationRegistry` | Active invocation tracking. Concurrency-safe. |
 | `SessionChainStore` | Maps agent+thread to session chains for `--resume` support |
 | `MCPAuthService` | `GenerateToken()` / `ValidateToken()` for callback auth |
 

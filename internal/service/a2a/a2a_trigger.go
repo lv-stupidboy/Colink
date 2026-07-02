@@ -15,7 +15,6 @@ import (
 
 // A2ATriggerDeps A2A 触发依赖
 type A2ATriggerDeps struct {
-	Registry        *InvocationRegistry
 	Orchestrator    *agent.Orchestrator
 	WSHub           *ws.Hub
 	Queue           *InvocationQueue
@@ -32,6 +31,9 @@ type A2ATriggerOptions struct {
 	TriggerMessage     *model.Message // 触发消息
 	CallerCatID        string        // 调用者 Agent ID
 	ParentInvocationID *uuid.UUID    // 父调用 ID
+
+	// A2A 交接信息
+	ChainHistory *agent.A2AChainContext // 上游链路历史快照（注入下游 prompt 的 <a2a-context>）
 }
 
 // A2AResult A2A 触发结果
@@ -118,6 +120,10 @@ func EnqueueA2ATargets(ctx context.Context, deps *A2ATriggerDeps, opts *A2ATrigg
 				Intent:        "execute",
 				AutoExecute:   true,
 				CallerAgentID: opts.CallerCatID,
+				ChainHistory:  opts.ChainHistory,
+			}
+			if opts.ParentInvocationID != nil {
+				entry.TriggeredBy = *opts.ParentInvocationID
 			}
 
 			if _, err := deps.Queue.Enqueue(entry); err != nil {
@@ -158,22 +164,22 @@ func EnqueueA2ATargets(ctx context.Context, deps *A2ATriggerDeps, opts *A2ATrigg
 			continue
 		}
 
-		// 检查 slot 是否被占用
-		if deps.Registry.HasActiveSlot(opts.ThreadID, catID) {
-			continue
-		}
-
 		// 直接触发 Agent
-		// catID 就是 role（如 "backend_developer"），直接使用
+		// catID 是 Agent 配置 UUID（roleConfigID），作为 ConfigID 传入，
+		// 让 resolveConfigAndBaseAgent 走 GetByID 精确查找，Role 从配置派生。
 		if deps.Orchestrator != nil {
-			go func(targetCatID string) {
+			go func(targetConfigID uuid.UUID) {
 				req := &agent.SpawnRequest{
-					ThreadID: opts.ThreadID,
-					Role:     model.AgentRole(targetCatID),
-					Input:    opts.Content,
+					ThreadID:     opts.ThreadID,
+					ConfigID:     targetConfigID,
+					Input:        opts.Content,
+					ChainHistory: opts.ChainHistory,
+				}
+				if opts.ParentInvocationID != nil {
+					req.TriggeredBy = *opts.ParentInvocationID
 				}
 				_, _ = deps.Orchestrator.SpawnAgent(context.Background(), req)
-			}(catID)
+			}(roleConfigID)
 		}
 
 		enqueued = append(enqueued, catID)

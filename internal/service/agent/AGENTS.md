@@ -26,7 +26,6 @@ tracker.go              → Tracks active agent invocations
 logger.go               → Structured logging helpers (exported for plugins)
 base_agent_service.go   → BaseAgent CRUD
 config_service.go       → AgentRoleConfig CRUD
-debug_thread_manager.go → Solo/debug mode thread management
 ```
 
 ## Key Types

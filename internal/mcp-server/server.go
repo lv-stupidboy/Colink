@@ -69,11 +69,13 @@ func NewServer(apiURL, invocationID, callbackToken string) *Server {
 		InvocationID:  invocationID,
 		CallbackToken: callbackToken,
 	})
-	s.registerTool(&tools.PostMessageTool{
-		APIURL:        apiURL,
-		InvocationID:  invocationID,
-		CallbackToken: callbackToken,
-	})
+	// post_message 工具调用不稳定，暂时禁用注册，模型改用 @mention 触发下游。
+	// 代码保留，后续调试稳定后再启用。
+	// s.registerTool(&tools.PostMessageTool{
+	// 	APIURL:        apiURL,
+	// 	InvocationID:  invocationID,
+	// 	CallbackToken: callbackToken,
+	// })
 	s.registerTool(&tools.ThreadContextTool{
 		APIURL:        apiURL,
 		InvocationID:  invocationID,

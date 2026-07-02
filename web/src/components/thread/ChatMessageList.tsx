@@ -33,7 +33,7 @@ interface ChatMessageListProps {
     createdAt: string;
   }>;
   agentConfigs: AgentConfig[];
-  agentTypes?: { type: string }[];
+  agentTypes?: { type: string; name?: string }[];
   projectPath?: string;
   toolEvents?: Record<string, ToolEvent[]>;
   onStopAgent?: (invocationId: string) => void;

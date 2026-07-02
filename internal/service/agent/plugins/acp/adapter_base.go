@@ -815,12 +815,12 @@ func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, 
 			zap.String("sessionId", inputRequest.SessionID),
 			zap.String("toolCallId", inputRequest.ToolCallID),
 			zap.String("toolName", inputRequest.ToolName),
-			zap.Any("input", inputRequest.Input))
+			zap.String("input", truncateJSONForLog(inputRequest.Input)))
 
-		// 详细打印 input 结构（用于调试解析问题，高频降级为 Debug）
+		// 详细打印 input 结构（用于调试解析问题，高频降级为 Debug；截断防 Edit/Write 大文件阻塞）
 		inputJSON, _ := json.MarshalIndent(inputRequest.Input, "", "  ")
 		LogDebug("ACP: user input request - detailed input structure",
-			zap.String("inputJSON", string(inputJSON)))
+			zap.String("inputJSON", truncateForLog(string(inputJSON))))
 
 		// 解析问题并创建 question chunk（调试日志降级为 Debug）
 		chunk := parseACPUserInputRequest(inputRequest)
@@ -860,8 +860,8 @@ func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, 
 				zap.String("sessionId", session.id))
 			return
 		}
-		// 工具调用更新日志降级为 Debug（高频）
-		LogDebug("ACP: received session/tool_call_update notification", zap.String("params", string(params)))
+		// 工具调用更新日志降级为 Debug（高频；截断防止 Edit/Write 全文件内容阻塞日志）
+		LogDebug("ACP: received session/tool_call_update notification", zap.String("params", truncateForLog(string(params))))
 
 		// 尝试解析通知参数
 		var updateParams struct {
@@ -909,7 +909,7 @@ func (a *BaseACPAdapter) handleNotification(session *acpSession, method string, 
 		// 未知通知方法降级为 Debug
 		LogDebug("ACP: unknown notification method",
 			zap.String("method", method),
-			zap.String("params", string(params)))
+			zap.String("params", truncateForLog(string(params))))
 	}
 }
 
@@ -977,7 +977,7 @@ func (a *BaseACPAdapter) handleServerRequest(session *acpSession, id interface{}
 		zap.Any("id", id),
 		zap.String("method", method),
 		zap.String("sessionId", session.id),
-		zap.String("params", string(params)))
+		zap.String("params", truncateForLog(string(params))))
 
 	switch method {
 	case "session/request_permission":

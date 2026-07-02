@@ -4,12 +4,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/anthropic/isdp/internal/service/agent"
 	"github.com/google/uuid"
 )
 
 // 队列配置常量
 const (
-	MaxQueueDepth = 5 // 每用户每线程最多排队条数
+	MaxQueueDepth = 5 // 每用户每线程最多排队条目
 )
 
 // QueueEntry 队列条目
@@ -27,6 +28,10 @@ type QueueEntry struct {
 	CreatedAt     time.Time   // 创建时间
 	AutoExecute   bool        // A2A 自动执行标记
 	CallerAgentID string      // A2A 调用者 ID
+
+	// A2A 交接信息（上游 Agent → 下游 Agent）
+	ChainHistory *agent.A2AChainContext // 上游链路历史快照（含上游输出）
+	TriggeredBy  uuid.UUID              // 上游 invocation ID（SpawnRequest.TriggeredBy）
 }
 
 // EnqueueResult 入队结果
@@ -85,6 +90,13 @@ func (q *InvocationQueue) Enqueue(entry *QueueEntry) (*EnqueueResult, error) {
 			tail.Content += "\n" + entry.Content
 			if entry.MessageID != nil {
 				tail.MergedMsgIDs = append(tail.MergedMsgIDs, *entry.MessageID)
+			}
+			// A2A 交接信息以最新的为准（后到的 @mention 携带更完整的上游输出）
+			if entry.ChainHistory != nil {
+				tail.ChainHistory = entry.ChainHistory
+			}
+			if entry.TriggeredBy != uuid.Nil {
+				tail.TriggeredBy = entry.TriggeredBy
 			}
 			return &EnqueueResult{
 				Outcome: "merged",

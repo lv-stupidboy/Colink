@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -17,7 +16,6 @@ import (
 	"github.com/anthropic/isdp/internal/service/mention"
 	"github.com/anthropic/isdp/internal/ws"
 	"github.com/google/uuid"
-	"go.uber.org/zap"
 )
 
 // Orchestrator Agent编排器
@@ -33,9 +31,8 @@ type Orchestrator struct {
 	workflowRepo     *repo.WorkflowTemplateRepository // 新增：工作流模板仓库
 	projectRepo      *repo.ProjectRepository          // 新增：项目仓库，用于获取项目路径
 	wsHub            *ws.Hub
-	defaultAdapter   AgentAdapter        // 默认适配器，用于向后兼容
-	executionService *ExecutionService   // 统一执行服务
-	debugThreadMgr   *DebugThreadManager // 调试线程管理器
+	defaultAdapter   AgentAdapter      // 默认适配器，用于向后兼容
+	executionService *ExecutionService // 统一执行服务
 
 	// Mention 解析器（支持动态 patterns）
 	mentionParser *mention.Parser
@@ -64,6 +61,7 @@ type RunningAgent struct {
 
 	// 流式输出累积（用于 WebSocket 重连恢复）
 	AccumulatedOutput string     // 累积的输出内容
+	InjectedText      string     // post_message 注入的文本（completion 时合并进 output 供 checkSignalRouting 解析），与 AccumulatedOutput 同锁
 	OutputMu          sync.Mutex // 保护输出累积字段
 
 	// 结构化内容块累积（用于持久化）
@@ -351,17 +349,18 @@ var (
 	ErrAgentNotFound = errors.New("agent not found")
 )
 
+// BuildChainHistoryForHandoff 为 MCP post_message 触发的 A2A 交接构建链路历史
+// 上游 Agent 通过 @mention 触发下游时，由 callback_handler 调用
+func (o *Orchestrator) BuildChainHistoryForHandoff(ctx context.Context, threadID, fromAgentID uuid.UUID, fromAgentName, fromAgentRole, output string) *A2AChainContext {
+	return o.executionService.BuildChainHistoryForHandoff(ctx, threadID, fromAgentID, fromAgentName, fromAgentRole, output)
+}
+
 // SpawnAgentForUserMessage 为用户消息触发Agent响应
 // 实现message.AgentSpawner接口
 // 使用工作流模板中指定的Agent，而不是根据Phase硬编码选择
 func (o *Orchestrator) SpawnAgentForUserMessage(ctx context.Context, threadID uuid.UUID, userMessage string, images []model.ImageContent) error {
 	// 委托给执行服务
 	return o.executionService.SpawnAgentForUserMessage(ctx, threadID, userMessage, images)
-}
-
-// SetDebugThreadManager 设置调试线程管理器
-func (o *Orchestrator) SetDebugThreadManager(mgr *DebugThreadManager) {
-	o.debugThreadMgr = mgr
 }
 
 // GetExecutionService 获取执行服务实例（供外部注册 ChunkListener）
@@ -386,251 +385,7 @@ func (o *Orchestrator) SetMCPBindingRepository(repo *repo.AgentMCPBindingReposit
 
 // SetCursorStore 启用/关闭 DeliveryCursor 拉模式（S2W4）
 // 由 cmd/server/main.go 根据 config.Agent.DeliveryCursor.Enabled 决定是否调用。
+// 注意：外部访问 ExecutionService 请用 GetExecutionService()。
 func (o *Orchestrator) SetCursorStore(store *DeliveryCursorStore, enabled bool) {
 	o.executionService.SetCursorStore(store, enabled)
-}
-
-// ExecutionService 暴露内部 executionService（供 S2W4 装配额外能力）
-func (o *Orchestrator) ExecutionService() *ExecutionService {
-	return o.executionService
-}
-
-// SpawnDebugAgent 调试模式启动Agent
-func (o *Orchestrator) SpawnDebugAgent(ctx context.Context, req *SpawnRequest) (*model.AgentInvocation, error) {
-	if o.debugThreadMgr == nil {
-		return nil, fmt.Errorf("debug thread manager not initialized")
-	}
-
-	// 验证调试线程存在
-	debugThread := o.debugThreadMgr.GetThread(req.ThreadID)
-	if debugThread == nil {
-		return nil, fmt.Errorf("debug thread not found: %s", req.ThreadID)
-	}
-
-	// 原子地将状态从 idle 或 completed 转换为 running
-	if !o.debugThreadMgr.TryStartExecution(req.ThreadID) {
-		return nil, fmt.Errorf("agent is busy, current status: %s", debugThread.Status)
-	}
-
-	// 获取Agent配置
-	config, err := o.configSvc.GetByID(ctx, req.ConfigID)
-	if err != nil {
-		o.debugThreadMgr.SetStatus(req.ThreadID, DebugThreadStatusIdle)
-		return nil, fmt.Errorf("agent config not found: %w", err)
-	}
-
-	// 获取基础Agent（直接从repo获取，包含ApiToken）
-	var baseAgent *model.BaseAgent
-	if config.BaseAgentID != uuid.Nil {
-		baseAgent, err = o.baseAgentRepo.FindByID(ctx, config.BaseAgentID)
-		if err != nil {
-			logInfo("SpawnDebugAgent: baseAgent not found for config, trying default", zap.String("configId", config.ID.String()), zap.Error(err))
-			baseAgent = nil
-		}
-	}
-
-	// 如果角色未指定基础Agent或获取失败，使用默认基础Agent
-	// 注意：直接使用 repo.FindDefault 获取完整信息（含 ApiToken）
-	// 不能使用 baseAgentSvc.GetDefault，因为它会 sanitize 清除 ApiToken
-	if baseAgent == nil {
-		baseAgent, err = o.baseAgentRepo.FindDefault(ctx)
-		if err != nil || baseAgent == nil {
-			o.debugThreadMgr.SetStatus(req.ThreadID, DebugThreadStatusIdle)
-			return nil, fmt.Errorf("未找到可用的基础Agent，请先设置一个默认的基础Agent")
-		}
-		logInfo("SpawnDebugAgent: using default baseAgent",
-			zap.String("id", baseAgent.ID.String()),
-			zap.String("name", baseAgent.Name))
-	}
-
-	logInfo("SpawnDebugAgent: got baseAgent",
-		zap.String("id", baseAgent.ID.String()),
-		zap.String("name", baseAgent.Name),
-		zap.String("type", string(baseAgent.Type)),
-		zap.String("defaultModel", baseAgent.DefaultModel),
-		zap.Bool("hasApiToken", baseAgent.ApiToken != ""),
-		zap.String("apiUrl", baseAgent.ApiURL),
-		zap.String("cliPath", baseAgent.CliPath),
-		zap.String("configPath", config.ConfigPath),
-	)
-
-	// 创建适配器
-	adapter := GetAdapter(baseAgent)
-	if adapter == nil {
-		o.debugThreadMgr.SetStatus(req.ThreadID, DebugThreadStatusIdle)
-		return nil, fmt.Errorf("不支持的基础Agent类型: %s", baseAgent.Type)
-	}
-
-	// 添加用户消息到内存
-	userMsg := &model.Message{
-		ID:        uuid.New(),
-		ThreadID:  req.ThreadID,
-		Role:      model.MessageRoleUser,
-		Content:   req.Input,
-		CreatedAt: time.Now(),
-	}
-	o.debugThreadMgr.AddMessage(req.ThreadID, userMsg)
-
-	// 创建调用记录（内存中，不写数据库）
-	invocation := &model.AgentInvocation{
-		ID:            uuid.New(),
-		ThreadID:      req.ThreadID,
-		AgentConfigID: req.ConfigID,
-		Role:          req.Role,
-		RequiresHuman: req.RequiresHuman,
-		Status:        model.InvocationStatusRunning,
-		Input:         req.Input,
-		StartedAt:     timePtr(time.Now()),
-	}
-
-	// 人类触发：使用统一的 A2AContext 系统
-	if req.ChainHistory == nil && req.Input != "" && req.TriggeredBy == uuid.Nil {
-		req.ChainHistory = o.executionService.getOrCreateHumanChainHistory(ctx, req.ThreadID, req.Input)
-	}
-
-	// 启动goroutine执行Agent
-	go o.executeDebugAgent(req.ThreadID, invocation, adapter, config, baseAgent, req)
-
-	return invocation, nil
-}
-
-// executeDebugAgent 执行调试Agent（异步）
-func (o *Orchestrator) executeDebugAgent(
-	threadID uuid.UUID,
-	invocation *model.AgentInvocation,
-	adapter AgentAdapter,
-	config *model.AgentRoleConfig,
-	baseAgent *model.BaseAgent,
-	req *SpawnRequest,
-) {
-	ctx := context.Background()
-	invocationID := invocation.ID.String()
-
-	// 构建执行上下文
-	execReq := &ExecutionRequest{
-		Input:     req.Input,
-		WorkDir:   req.ProjectPath,
-		Config:    config,
-		BaseAgent: baseAgent,
-		ConfigDir: config.ConfigPath, // 使用生成的配置目录
-		Context: &ContextLayers{
-			Layer0: config.SystemPrompt,
-		},
-	}
-
-	// 创建输出收集器
-	var outputBuilder strings.Builder
-	agentID := config.ID.String()
-	agentName := config.Name
-	agentRole := string(config.Role)
-
-	// 执行Agent并收集输出
-	chunkCount := 0
-	result, err := adapter.ExecuteWithStream(ctx, execReq, func(chunk Chunk) {
-		outputBuilder.WriteString(chunk.Content)
-		chunkCount++
-		// 广播流式输出
-		logInfo("executeDebugAgent: calling BroadcastChunk", zap.Int("chunkNum", chunkCount), zap.String("type", string(chunk.Type)), zap.Int("contentLen", len(chunk.Content)))
-		o.debugThreadMgr.BroadcastChunk(threadID.String(), invocationID, agentID, agentName, chunk.Content)
-	})
-
-	logInfo("executeDebugAgent: stream complete", zap.Int("chunkCount", chunkCount), zap.Error(err))
-
-	if err != nil {
-		o.debugThreadMgr.SetStatus(threadID, DebugThreadStatusError)
-		o.debugThreadMgr.BroadcastError(threadID.String(), fmt.Sprintf("Agent执行失败: %v", err))
-		return
-	}
-
-	// 使用 result.Output 如果有内容
-	output := result.Output
-	if output == "" {
-		output = outputBuilder.String()
-	}
-
-	// 构建 metadata（保存基础Agent信息）
-	metadata := map[string]string{
-		"baseAgentType":  string(baseAgent.Type),
-		"baseAgentModel": baseAgent.DefaultModel,
-	}
-	// 从插件注册中心获取类型名称
-	pluginMeta := GetMeta(baseAgent.Type)
-	if pluginMeta != nil {
-		metadata["baseAgentTypeName"] = pluginMeta.Name
-	}
-	metadataJSON, _ := json.Marshal(metadata)
-
-	// 添加Agent消息到内存
-	agentMsg := &model.Message{
-		ID:        uuid.New(),
-		ThreadID:  threadID,
-		Role:      model.MessageRoleAgent,
-		AgentID:   config.ID.String(),
-		Content:   output,
-		CreatedAt: time.Now(),
-		Metadata:  metadataJSON,
-	}
-	o.debugThreadMgr.AddMessage(threadID, agentMsg)
-
-	// 广播完整消息
-	o.debugThreadMgr.BroadcastMessage(threadID.String(), agentMsg.ID.String(), agentID, agentName, agentRole, agentMsg.Content)
-
-	// 更新线程状态为完成
-	o.debugThreadMgr.SetStatus(threadID, DebugThreadStatusCompleted)
-}
-
-// ContinueDebugAgent 继续调试会话
-func (o *Orchestrator) ContinueDebugAgent(ctx context.Context, threadID uuid.UUID, message string) error {
-	// DEBUG: 记录 message 详细信息，用于定位多行文本截断问题
-	messageLines := strings.Split(message, "\n")
-	logInfo("ContinueDebugAgent: message 详情",
-		zap.Int("messageLen", len(message)),
-		zap.Int("messageLineCount", len(messageLines)),
-		zap.String("messageFirstLine", messageLines[0]),
-		zap.String("messageLastLine", messageLines[len(messageLines)-1]))
-
-	if o.debugThreadMgr == nil {
-		return fmt.Errorf("debug thread manager not initialized")
-	}
-
-	// 验证调试线程存在
-	debugThread := o.debugThreadMgr.GetThread(threadID)
-	if debugThread == nil {
-		return fmt.Errorf("debug thread not found: %s", threadID)
-	}
-
-	// 获取最后一条Agent消息确定配置
-	var lastConfigID uuid.UUID
-	for i := len(debugThread.Messages) - 1; i >= 0; i-- {
-		if debugThread.Messages[i].Role == model.MessageRoleAgent && debugThread.Messages[i].AgentID != "" {
-			lastConfigID, _ = uuid.Parse(debugThread.Messages[i].AgentID)
-			break
-		}
-	}
-
-	if lastConfigID == uuid.Nil {
-		return fmt.Errorf("no previous agent context found")
-	}
-
-	// 获取Agent配置以获取Role
-	config, err := o.configSvc.GetByID(ctx, lastConfigID)
-	if err != nil {
-		return fmt.Errorf("agent config not found: %w", err)
-	}
-
-	// 获取存储的项目路径
-	projectPath := o.debugThreadMgr.GetProjectPath(threadID)
-
-	// 使用相同的配置继续执行
-	req := &SpawnRequest{
-		ThreadID:      threadID,
-		ConfigID:      lastConfigID,
-		Role:          config.Role,
-		RequiresHuman: config.RequiresHuman,
-		Input:         message,
-		ProjectPath:   projectPath,
-	}
-
-	_, err = o.SpawnDebugAgent(ctx, req)
-	return err
 }

@@ -5,7 +5,7 @@ import (
 )
 
 // GovernanceDigestVersion 治理摘要版本
-const GovernanceDigestVersion = "v1.3.3"
+const GovernanceDigestVersion = "v1.3.4"
 
 // GovernanceDigest 治理规则摘要（嵌入每个 Agent 调用的 L0）
 // 参考 clowder-ai GOVERNANCE_L0_DIGEST 设计：编译后约 150 tokens
@@ -13,10 +13,11 @@ const GovernanceDigestVersion = "v1.3.3"
 // v1.3.0: 合并协作规则，增加下游接力判断强制要求
 // v1.3.1: 强化 @mention 格式规则，增加正确/错误示例
 // v1.3.3: A2A 交接块改为 Goal/Context/Done/Constraints/Task 五字段
+// v1.3.4: 交接块新增 ### To 路由字段（结构化指定下游，避免依赖行首 @mention）
 var GovernanceDigest = `## ⚠️ 强制规则（必须遵守）
 
 **完成工作后必须判断是否需要下游接力：**
-需要 → 另起一行，行首写 @mention（严禁嵌入句子）
+需要 → 另起一行，行首写 @mention（严禁嵌入句子），并在交接块 ### To 中指定下游
 不需要 → 回复"无需下游：{原因}"
 
 **@mention 格式（强制）**：
@@ -30,6 +31,9 @@ var GovernanceDigest = `## ⚠️ 强制规则（必须遵守）
 
 **交接块**（触发下游时必须）：
 <a2a-handoff>
+### To
+@下游句柄（路由目标，必填，单独一行；多个下游各占一行）
+
 ### Goal
 全局目标：用户最终要达成什么。
 局部目标：本次交给下游要完成什么。

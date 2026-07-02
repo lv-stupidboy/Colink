@@ -157,7 +157,7 @@ const ThreadView: React.FC = () => {
   const [debugWsConnected, setDebugWsConnected] = useState(false);
 
   // Agent 类型列表（用于颜色动态分配）
-  const [agentTypes, setAgentTypes] = useState<{ type: string }[]>([]);
+  const [agentTypes, setAgentTypes] = useState<{ type: string; name?: string }[]>([]);
 
   // 工具事件本地状态（用于旧版 CLI 输出块兼容显示）
   const [toolEvents, setToolEvents] = useState<Record<string, ToolEvent[]>>({});
@@ -207,6 +207,9 @@ const ThreadView: React.FC = () => {
 
   // Agent 完成后预填入状态
   const [prefilledMention, setPrefilledMention] = useState<string | undefined>(undefined);
+  // A2A 交接预填入延迟计时器：上游 Agent 完成后不立即预填入，等待短窗口；
+  // 若期间下游 Agent 启动（A2A 交接），则取消上游预填入，改由下游完成时预填入。
+  const prefillTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 点击 Agent 头像/名称追加 @mention 状态
   const [appendMention, setAppendMention] = useState<string | undefined>(undefined);
   const [rightPanelActiveTab, setRightPanelActiveTab] = useState<'code' | 'sandbox'>('code');
@@ -214,6 +217,14 @@ const ThreadView: React.FC = () => {
   const [isResizing, setIsResizing] = useState(false);
   const resizeStartX = useRef(0);
   const resizeStartWidth = useRef(0);
+  const [fileSidebarWidth, setFileSidebarWidth] = useState(280);
+  const [isFileResizing, setIsFileResizing] = useState(false);
+  const fileResizeStartX = useRef(0);
+  const fileResizeStartWidth = useRef(0);
+  const [statusPanelWidth, setStatusPanelWidth] = useState(320);
+  const [isStatusResizing, setIsStatusResizing] = useState(false);
+  const statusResizeStartX = useRef(0);
+  const statusResizeStartWidth = useRef(0);
 
   // 代码文件列表
   const [codeFiles, setCodeFiles] = useState<FileChange[]>([]);
@@ -453,6 +464,10 @@ const ThreadView: React.FC = () => {
         wsRef.current = null;
         wsConnectedRef.current = false;
       }
+      if (prefillTimerRef.current) {
+        clearTimeout(prefillTimerRef.current);
+        prefillTimerRef.current = null;
+      }
     };
   }, [threadId, isDebugMode]);
 
@@ -606,6 +621,62 @@ const ThreadView: React.FC = () => {
       document.removeEventListener('mouseup', handleMouseUp);
     };
   }, [isResizing]);
+
+  // 文件树侧边栏拖拽调整大小
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isFileResizing) return;
+      const deltaX = e.clientX - fileResizeStartX.current;
+      const newWidth = Math.max(200, Math.min(600, fileResizeStartWidth.current + deltaX));
+      setFileSidebarWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      if (isFileResizing) {
+        setIsFileResizing(false);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+    };
+
+    if (isFileResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isFileResizing]);
+
+  // 状态侧边栏拖拽调整大小
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isStatusResizing) return;
+      const deltaX = statusResizeStartX.current - e.clientX;
+      const newWidth = Math.max(240, Math.min(700, statusResizeStartWidth.current + deltaX));
+      setStatusPanelWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      if (isStatusResizing) {
+        setIsStatusResizing(false);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      }
+    };
+
+    if (isStatusResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isStatusResizing]);
 
   const connectWebSocket = (id: string) => {
     // 先关闭已有连接，避免重复连接
@@ -1014,14 +1085,30 @@ const ThreadView: React.FC = () => {
         console.log('[agent_status] Received:', { status, invocId, agentName, agentId, hasErrorDetails: !!errorDetails });
         // failed 状态时传递 errorDetails 作为 input（用于保存错误信息）
         updateAgentStatus(invocId, status, agentName, errorDetails || input);
+        // 下游 Agent 启动：取消上游 Agent 完成时挂起的预填入（A2A 交接场景）
+        if (status === 'started' || status === 'running') {
+          if (prefillTimerRef.current) {
+            clearTimeout(prefillTimerRef.current);
+            prefillTimerRef.current = null;
+          }
+        }
         // Agent 完成或中断时清理工具事件（包括 cancelled）
         if (status === 'completed' || status === 'failed' || status === 'interrupted' || status === 'cancelled') {
           clearToolEvents(invocId);
 
           // Agent 完成后预填入：设置上一个对话的 Agent 名称
           // 只在 completed 状态且非调试模式下预填入（interrupted 不预填入，用户需要回答问题）
+          // A2A 交接场景：上游 Agent 完成时，下游 Agent 可能即将启动（后端在广播 completed 后才 spawn 下游）。
+          // 延迟预填入，若延迟窗口内下游启动（见上方 started 分支），则取消上游预填入，避免误 @ 上游。
           if (status === 'completed' && !isDebugMode && agentName) {
-            setPrefilledMention(agentName);
+            if (prefillTimerRef.current) {
+              clearTimeout(prefillTimerRef.current);
+            }
+            const pendingAgentName = agentName;
+            prefillTimerRef.current = setTimeout(() => {
+              setPrefilledMention(pendingAgentName);
+              prefillTimerRef.current = null;
+            }, 800);
           }
 
           // 检测调度结束阻塞：Agent 完成且没有调用下一个 agent
@@ -1855,11 +1942,32 @@ const ThreadView: React.FC = () => {
     document.body.style.userSelect = 'none';
   };
 
+  // 文件树侧边栏拖拽调整大小
+  const handleFileResizeStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsFileResizing(true);
+    fileResizeStartX.current = e.clientX;
+    fileResizeStartWidth.current = fileSidebarWidth;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  };
+
+  // 状态侧边栏拖拽调整大小
+  const handleStatusResizeStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsStatusResizing(true);
+    statusResizeStartX.current = e.clientX;
+    statusResizeStartWidth.current = statusPanelWidth;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  };
+
   return (
     <div className="thread-view-wrapper">
       {/* 左侧文件树侧边栏 */}
       {fileSidebarVisible && (isDebugMode || projectId) && (
-        <div className="file-sidebar">
+        <>
+        <div className="file-sidebar" style={{ width: fileSidebarWidth, minWidth: fileSidebarWidth }}>
           {/* 工作目录显示/输入 */}
           <div className="file-sidebar-path">
             <span className="path-label">目录：</span>
@@ -1892,6 +2000,12 @@ const ThreadView: React.FC = () => {
             )}
           </div>
         </div>
+        <div
+          className={`resize-handle ${isFileResizing ? 'resizing' : ''}`}
+          onMouseDown={handleFileResizeStart}
+          style={{ width: isFileResizing ? 3 : 6 }}
+        />
+        </>
       )}
 
       {/* 消息区域 */}
@@ -2042,7 +2156,12 @@ const ThreadView: React.FC = () => {
 
           {/* 右侧面板（代码/沙箱） */}
           {/* StatusPanel - 状态栏 */}
-          <StatusPanel width={320} threadId={threadId || debugThreadId || undefined} projectPath={displayProjectPath} memoryRefreshKey={memoryRefreshKey} />
+          <div
+            className={`resize-handle ${isStatusResizing ? 'resizing' : ''}`}
+            onMouseDown={handleStatusResizeStart}
+            style={{ width: isStatusResizing ? 3 : 6 }}
+          />
+          <StatusPanel width={statusPanelWidth} threadId={threadId || debugThreadId || undefined} projectPath={displayProjectPath} memoryRefreshKey={memoryRefreshKey} />
           {/* 文件预览面板 */}
           {filePreviewVisible && filePreviewPath && (
             <FilePreviewPanel

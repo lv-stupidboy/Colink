@@ -6,16 +6,21 @@ import (
 	"time"
 
 	"github.com/anthropic/isdp/internal/model"
+	"github.com/anthropic/isdp/internal/service/agent"
 	"github.com/anthropic/isdp/internal/ws"
 	"github.com/google/uuid"
 )
 
+// slotKey 生成 slot 键（threadID:catID）
+func slotKey(threadID uuid.UUID, catID string) string {
+	return threadID.String() + ":" + catID
+}
+
 // QueueProcessorDeps QueueProcessor 依赖
 type QueueProcessorDeps struct {
 	Queue          *InvocationQueue
-	Registry       *InvocationRegistry
 	WSHub          *ws.Hub
-	SpawnAgent     func(ctx context.Context, threadID uuid.UUID, catID string, content string) error
+	SpawnAgent     func(ctx context.Context, threadID uuid.UUID, catID string, content string, chainHistory *agent.A2AChainContext, triggeredBy uuid.UUID) error
 	MessageUpdater func(ctx context.Context, messageID string, deliveredAt int64) error
 }
 
@@ -149,11 +154,6 @@ func (p *QueueProcessor) tryExecuteNextAcrossUsers(ctx context.Context, threadID
 		return nil
 	}
 
-	// 检查是否已有活跃调用
-	if p.deps.Registry != nil && p.deps.Registry.HasActiveSlot(threadID, entryCat) {
-		return nil
-	}
-
 	// 标记为处理中
 	p.processingSlots.Store(slotKeyStr, true)
 
@@ -192,11 +192,6 @@ func (p *QueueProcessor) tryAutoExecute(ctx context.Context, threadID uuid.UUID)
 
 		// 跳过忙碌的 slot
 		if _, busy := p.processingSlots.Load(slotKeyStr); busy {
-			continue
-		}
-
-		// 跳过已有活跃调用的 slot
-		if p.deps.Registry != nil && p.deps.Registry.HasActiveSlot(threadID, entryCat) {
 			continue
 		}
 
@@ -242,7 +237,7 @@ func (p *QueueProcessor) executeEntry(ctx context.Context, entry *QueueEntry) {
 
 	// 调用 SpawnAgent
 	if p.deps.SpawnAgent != nil {
-		if err := p.deps.SpawnAgent(ctx, threadID, primaryCat, entry.Content); err != nil {
+		if err := p.deps.SpawnAgent(ctx, threadID, primaryCat, entry.Content, entry.ChainHistory, entry.TriggeredBy); err != nil {
 			finalStatus = "failed"
 		} else {
 			finalStatus = "succeeded"

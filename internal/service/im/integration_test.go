@@ -115,7 +115,7 @@ type spawnRecord struct {
 	message  string
 }
 
-func (f *fakeOrchestrator) SpawnAgentForUserMessage(ctx context.Context, threadID uuid.UUID, userMessage string) error {
+func (f *fakeOrchestrator) SpawnAgentForUserMessage(ctx context.Context, threadID uuid.UUID, userMessage string, images []model.ImageContent) error {
 	f.mu.Lock()
 	f.spawned = append(f.spawned, spawnRecord{threadID: threadID, message: userMessage})
 	onChunk := f.onChunk

@@ -13,7 +13,7 @@ import (
 
 func setupCallbackRouter() *gin.Engine {
 	return setupStandaloneRouter(func(group *gin.RouterGroup) {
-		api.NewCallbackHandler(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil).RegisterRoutes(group)
+		api.NewCallbackHandler(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil).RegisterRoutes(group)
 	})
 }
 

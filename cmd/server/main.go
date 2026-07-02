@@ -177,10 +177,6 @@ func main() {
 	go wsHub.Run()
 	ws.SetWSLogger(logger) // 设置 WebSocket 日志记录器
 
-	// 初始化调试线程管理器
-	debugThreadMgr := agent.NewDebugThreadManager(wsHub)
-	defer debugThreadMgr.Stop() // 优雅关闭调试线程管理器
-
 	// 初始化Repositories
 	dbType := cfg.Database.Type
 	projectRepo := repo.NewProjectRepository(db, dbType)
@@ -235,7 +231,6 @@ func main() {
 	workflowEngine := agent.NewWorkflowEngine(threadRepo, messageRepo, configService)
 	workflowService := workflow.NewService(workflowRepo)
 	mcpAuthService := a2a.NewMCPAuthService(cfg.MCP.TokenTTL)
-	invocationRegistry := a2a.NewInvocationRegistry() // 新增：调用注册表
 	invocationQueue := a2a.NewInvocationQueue()       // 新增：请求队列
 
 	// 初始化 Mention 模式注册表和解析器（支持动态 patterns 和博弈场景）
@@ -436,8 +431,6 @@ func main() {
 		memoryManager,
 	)
 
-	// 在Orchestrator中设置调试管理器
-	orchestrator.SetDebugThreadManager(debugThreadMgr)
 	// 设置 API URL 到 executionService（用于 MCP server 回调）
 	orchestrator.SetExecutionServiceAPIURL(apiURL)
 	logger.Info("MemoryManager initialized and injected into Orchestrator", zap.String("apiURL", apiURL))
@@ -506,14 +499,23 @@ func main() {
 	// 创建队列处理器（在 orchestrator 创建之后）
 	queueProcessor := a2a.NewQueueProcessor(a2a.QueueProcessorDeps{
 		Queue:    invocationQueue,
-		Registry: invocationRegistry,
 		WSHub:    wsHub,
-		SpawnAgent: func(ctx context.Context, threadID uuid.UUID, catID string, content string) error {
+		SpawnAgent: func(ctx context.Context, threadID uuid.UUID, catID string, content string, chainHistory *agent.A2AChainContext, triggeredBy uuid.UUID) error {
 			// 通过 Orchestrator 触发 Agent
 			req := &agent.SpawnRequest{
-				ThreadID: threadID,
-				Role:     getRoleFromCatID(catID),
-				Input:    content,
+				ThreadID:     threadID,
+				Input:        content,
+				ChainHistory: chainHistory,
+				TriggeredBy:  triggeredBy,
+			}
+			// catID 是 Agent 配置 UUID（由 mention 解析得到）。
+			// 设为 ConfigID 让 resolveConfigAndBaseAgent 走 GetByID 精确查找，
+			// Role 从配置派生（与 T2T checkSignalRouting 路径一致）。
+			// 若 catID 非 UUID（旧路径按 role 名），退回按 Role 解析。
+			if configID, parseErr := uuid.Parse(catID); parseErr == nil {
+				req.ConfigID = configID
+			} else {
+				req.Role = getRoleFromCatID(catID)
 			}
 			_, err := orchestrator.SpawnAgent(ctx, req)
 			return err
@@ -659,7 +661,7 @@ func main() {
 	messageHandler := api.NewMessageHandler(messageService)
 	messageHandler.RegisterRoutes(v1)
 
-	agentHandler := api.NewAgentHandler(configService, baseAgentService, orchestrator, threadRepo, debugThreadMgr, workflowRepo, configGenService, autoGenerator,
+	agentHandler := api.NewAgentHandler(configService, baseAgentService, orchestrator, threadRepo, workflowRepo, configGenService, autoGenerator,
 		agentSkillBindingRepo, agentSubagentBindingRepo, agentCommandBindingRepo, agentRuleBindingRepo, agentSettingsBindingRepo)
 	// configGenHandler 必须在 agentHandler 前注册，否则 /agents/:id/config/* 路由会被 /agents/:id 捕获
 	configGenHandler := api.NewConfigGenHandler(configGenService, autoGenerator, agentConfigRepo, baseAgentRepo)
@@ -734,7 +736,7 @@ func main() {
 	runtimeConfigHandler.RegisterRoutes(v1)
 
 	// MCP Callback Handler - 注册在 /api 下（不含 /v1），与 MCP client URL 一致
-	callbackHandler := api.NewCallbackHandler(invocationRegistry, mcpAuthService, messageService, messageRepo, wsHub, orchestrator, baseAgentRepo, invocationQueue, queueProcessor, mentionParser, humanTaskSvc, agentConfigRepo, invocationRepo, projectRepo, threadRepo, workflowRepo, memoryManager)
+	callbackHandler := api.NewCallbackHandler(mcpAuthService, messageService, messageRepo, wsHub, orchestrator, baseAgentRepo, humanTaskSvc, agentConfigRepo, invocationRepo, projectRepo, threadRepo, workflowRepo, memoryManager)
 	callbackHandler.RegisterRoutes(router.Group("/api"))
 
 	// WebSocket

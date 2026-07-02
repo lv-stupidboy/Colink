@@ -44,8 +44,22 @@ func (t *PostMessageTool) Execute(args map[string]interface{}) (interface{}, err
 	// 调用 ISDP callback API
 	client := client.NewAuthClient(t.APIURL, t.InvocationID, t.CallbackToken)
 
-	reqBody := map[string]string{
-		"message": message,
+	reqBody := map[string]interface{}{
+		"invocationId":  t.InvocationID,
+		"callbackToken": t.CallbackToken,
+		"content":       message,
+	}
+	if threadID, ok := args["threadId"].(string); ok && threadID != "" {
+		reqBody["threadId"] = threadID
+	}
+	if replyTo, ok := args["replyTo"].(string); ok && replyTo != "" {
+		reqBody["replyTo"] = replyTo
+	}
+	if clientMessageID, ok := args["clientMessageId"].(string); ok && clientMessageID != "" {
+		reqBody["clientMessageId"] = clientMessageID
+	}
+	if targetCats, ok := args["targetCats"].([]interface{}); ok && len(targetCats) > 0 {
+		reqBody["targetCats"] = targetCats
 	}
 
 	respBody, err := client.CallAPI("POST", "/post-message", reqBody)

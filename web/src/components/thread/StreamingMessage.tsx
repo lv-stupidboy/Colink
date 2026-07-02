@@ -7,7 +7,7 @@ import type { ProgressInfo } from './ChatMessage';
 
 interface StreamingMessageProps {
   agentConfigs: AgentConfig[];
-  agentTypes?: { type: string }[];
+  agentTypes?: { type: string; name?: string }[];
   projectPath?: string;
   toolEvents: Record<string, ToolEvent[]>;
   onStop?: (invocationId: string) => void;

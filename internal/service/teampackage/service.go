@@ -1623,10 +1623,22 @@ func (s *Service) importSettings(ctx context.Context, tempDir string, item model
 					zap.String("baseAgentID", baseAgentID.String()),
 					zap.String("baseAgentName", defaultAgent.Name))
 			} else {
-				// 没有默认基础 Agent，保持为空
-				baseAgentID = uuid.Nil
-				s.logger.Info("新建角色，无默认 BaseAgent，保持为空",
-					zap.String("roleID", roleID.String()))
+				// 没有默认基础 Agent：回退使用第一个可用的基础 Agent
+				// 避免角色 BaseAgentID 为空，导致后续 spawn 时报"未找到可用的基础Agent"
+				agents, listErr := s.baseAgentRepo.List(ctx)
+				if listErr == nil && len(agents) > 0 {
+					baseAgentID = agents[0].ID
+					s.logger.Info("新建角色，无默认 BaseAgent，回退使用第一个基础 Agent",
+						zap.String("roleID", roleID.String()),
+						zap.String("baseAgentID", baseAgentID.String()),
+						zap.String("baseAgentName", agents[0].Name))
+				} else {
+					// 确实没有任何基础 Agent，保持为空
+					baseAgentID = uuid.Nil
+					s.logger.Warn("新建角色，无默认且无可用 BaseAgent，保持为空",
+						zap.String("roleID", roleID.String()),
+						zap.Error(listErr))
+				}
 			}
 		} else {
 			// baseAgentRepo 为空，无法获取默认基础 Agent，保持为空
