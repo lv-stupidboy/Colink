@@ -24,16 +24,24 @@ ALTER TABLE messages ADD COLUMN sortable_id TEXT DEFAULT NULL;
 -- 2) Backfill：按 (created_at ASC, id ASC) 分配单调 ID
 --    格式对齐 Go 端：16位毫秒 - 6位序号 - 8字符后缀（此处用 substr(id) 兜底）
 --    SQLite ROW_NUMBER() 从 3.25 开始支持；modernc.org/sqlite 内嵌版本远高于此
+--
+--    C2 修复：原实现用相关子查询 SELECT COUNT(*) FROM messages m2 WHERE ...
+--    严格 O(N²)，万级消息升级会锁库分钟级。改用 CTE + ROW_NUMBER() 单次全表扫。
+WITH numbered AS (
+    SELECT id,
+           ROW_NUMBER() OVER (ORDER BY created_at, id) - 1 AS seq
+    FROM messages
+    WHERE sortable_id IS NULL
+)
 UPDATE messages
 SET sortable_id = printf(
     '%016d-%06d-%s',
     COALESCE(
-        CAST(strftime('%s', created_at) AS INTEGER) * 1000,
+        CAST(strftime('%s', messages.created_at) AS INTEGER) * 1000,
         0
     ),
-    (SELECT COUNT(*) FROM messages m2 WHERE m2.created_at < messages.created_at
-        OR (m2.created_at = messages.created_at AND m2.id < messages.id)),
-    substr(replace(id, '-', ''), 1, 8)
+    (SELECT seq FROM numbered WHERE numbered.id = messages.id),
+    substr(replace(messages.id, '-', ''), 1, 8)
 )
 WHERE sortable_id IS NULL;
 

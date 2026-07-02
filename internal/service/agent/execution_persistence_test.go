@@ -136,7 +136,6 @@ func openExecutionPersistenceDB(t *testing.T) *sql.DB {
 	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { db.Close() })
 	schema := []string{
-		`CREATE TABLE messages (id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, role TEXT NOT NULL, agent_id TEXT, content TEXT, content_blocks BLOB, message_type TEXT, metadata BLOB, created_at TEXT NOT NULL, reported_at TIMESTAMP NULL, mentions BLOB, origin TEXT, reply_to TEXT)`,
 		`CREATE TABLE messages (id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, role TEXT NOT NULL, agent_id TEXT, content TEXT, content_blocks BLOB, message_type TEXT, metadata BLOB, created_at TEXT NOT NULL, sortable_id TEXT, reported_at TIMESTAMP NULL, mentions BLOB, origin TEXT, reply_to TEXT)`,
 		`CREATE TABLE agent_invocations (id TEXT PRIMARY KEY, thread_id TEXT, agent_config_id TEXT, role TEXT, agent_name TEXT, status TEXT, input TEXT, full_prompt TEXT, output TEXT, started_at TIMESTAMP, completed_at TIMESTAMP, created_at TIMESTAMP, process_id TEXT, session_id TEXT, input_tokens INTEGER DEFAULT 0, output_tokens INTEGER DEFAULT 0, cache_read_tokens INTEGER DEFAULT 0, cache_creation_tokens INTEGER DEFAULT 0, cost_usd REAL DEFAULT 0, duration_ms INTEGER DEFAULT 0, duration_api_ms INTEGER DEFAULT 0, callback_token TEXT, triggered_by TEXT)`,
 		`CREATE TABLE invocation_content_blocks (id TEXT PRIMARY KEY, invocation_id TEXT NOT NULL, type TEXT NOT NULL, content TEXT, tool_name TEXT, tool_id TEXT, input BLOB, output TEXT, is_error BOOLEAN, status TEXT, timestamp INTEGER NOT NULL, started_at INTEGER, completed_at INTEGER, created_at TIMESTAMP)`,

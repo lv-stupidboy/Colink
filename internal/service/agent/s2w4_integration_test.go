@@ -73,7 +73,7 @@ func TestS2W4_IncrementalMode_EndToEnd(t *testing.T) {
 }
 
 // TestS2W4_ExecutionService_IncrementalMode_FlushOnCleanup
-// 验证 ExecutionService 集成层：SetCursorStore(store, true) 后
+// 验证 ExecutionService 集成层：SetCursorStore(store, true, 0, 0) 后
 // buildContextLayers → 累积 boundary → flushBoundaryBufferByPair → cursor 推进
 func TestS2W4_ExecutionService_IncrementalMode_FlushOnCleanup(t *testing.T) {
 	db, cleanup := setupTestDBWithMessages(t)
@@ -86,7 +86,7 @@ func TestS2W4_ExecutionService_IncrementalMode_FlushOnCleanup(t *testing.T) {
 		msgRepo:        msgRepo,
 		pairBoundaries: make(map[string]*CursorBoundaryBuffer),
 	}
-	es.SetCursorStore(store, true)
+	es.SetCursorStore(store, true, 0, 0)
 
 	tid := uuid.New()
 	self := uuid.New()

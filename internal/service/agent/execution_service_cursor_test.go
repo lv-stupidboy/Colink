@@ -24,19 +24,19 @@ func TestExecutionService_SetCursorStore_Toggle(t *testing.T) {
 	store := NewDeliveryCursorStore(repo.NewDeliveryCursorRepository(db, repo.DBTypeSQLite))
 
 	// enabled=false → 依然算关闭
-	es.SetCursorStore(store, false)
+	es.SetCursorStore(store, false, 0, 0)
 	if es.IsIncrementalModeEnabled() {
 		t.Fatal("enabled=false should keep disabled")
 	}
 
 	// enabled=true + store!=nil → 开启
-	es.SetCursorStore(store, true)
+	es.SetCursorStore(store, true, 0, 0)
 	if !es.IsIncrementalModeEnabled() {
 		t.Fatal("enabled=true with store should enable")
 	}
 
 	// store=nil → 强制关闭
-	es.SetCursorStore(nil, true)
+	es.SetCursorStore(nil, true, 0, 0)
 	if es.IsIncrementalModeEnabled() {
 		t.Fatal("nil store should force disabled regardless of enabled")
 	}
@@ -52,7 +52,7 @@ func TestExecutionService_BoundaryBuffer_Lifecycle(t *testing.T) {
 	es := &ExecutionService{
 		pairBoundaries: make(map[string]*CursorBoundaryBuffer),
 	}
-	es.SetCursorStore(store, true)
+	es.SetCursorStore(store, true, 0, 0)
 
 	tid := uuid.New()
 	a1 := uuid.New()
@@ -128,7 +128,7 @@ func TestExecutionService_PairKeyIsolation(t *testing.T) {
 	es := &ExecutionService{
 		pairBoundaries: make(map[string]*CursorBoundaryBuffer),
 	}
-	es.SetCursorStore(store, true)
+	es.SetCursorStore(store, true, 0, 0)
 
 	t1, t2 := uuid.New(), uuid.New()
 	a1, a2 := uuid.New(), uuid.New()

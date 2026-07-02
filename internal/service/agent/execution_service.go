@@ -90,6 +90,26 @@ func SetSessionRecorder(recorder SessionRecorder) {
 	globalSessionRecorder = recorder
 }
 
+// CliSessionStore 跨 SessionChainStore 持久化 CLI session ID 的窄接口。
+//
+// C3 修复：ExecutionService.cliSessions 是进程内 map，重启后为空；SessionChainStore
+// 有 DB 持久化能力但两者未打通，导致 Resume 场景重启后 sessionID 拿不到。此接口
+// 由 a2a.SessionChainStore 实现，main.go 里注入。
+type CliSessionStore interface {
+	// PersistCliSession 同步持久化 sessionID（cache + DB）。
+	PersistCliSession(threadID, configID, sessionID string) error
+	// GetCliSession 兜底查询 —— 进程内存 cache miss 时读它（可能从 DB 已恢复）。
+	// 返回 "" 表示无缓存。
+	GetCliSession(threadID, configID string) string
+}
+
+var globalCliSessionStore CliSessionStore
+
+// SetCliSessionStore 由 main.go 启动时注入（传 a2a.GetSessionChainStore()）。
+func SetCliSessionStore(store CliSessionStore) {
+	globalCliSessionStore = store
+}
+
 // ExecutionService 统一执行服务，整合Orchestrator和InteractiveSession的功能
 type ExecutionService struct {
 	invocationRepo *repo.AgentInvocationRepository
@@ -163,6 +183,9 @@ type ExecutionService struct {
 	// cursorStore == nil 时增量模式关闭，走 legacy 路径（保持 S2W4 前不动）
 	cursorStore     *DeliveryCursorStore
 	incrementalMode bool // feature flag（S2W4 从 config 读入）
+	// H3 修复：DeliveryCursor 限额由 config 驱动，不再 buildContextLayers 硬编码
+	cursorMaxMessages int
+	cursorMaxTokens   int
 	// pairBoundaries key = IdentityKey("", agentID, threadID)
 	// 用 (threadID, agentID) 而不是 invocationID —— SessionMutex 保证同 pair
 	// 一次只跑一个 invocation，所以不会跨 invocation 混淆
@@ -231,9 +254,17 @@ func NewExecutionService(
 // 传入 nil 关闭增量模式；传入非 nil 且 enabled=true 时启用拉模式。
 // 保持 backward-compatible：现有 NewExecutionService caller 无需改动，
 // S2W4 灰度阶段由 cmd/server/main.go 通过 config 决定是否调用本方法。
-func (es *ExecutionService) SetCursorStore(store *DeliveryCursorStore, enabled bool) {
+//
+// H3 修复：接受 maxMessages/maxTokens 配置。传 <=0 表示走默认值（200/4000）。
+func (es *ExecutionService) SetCursorStore(store *DeliveryCursorStore, enabled bool, maxMessages, maxTokens int) {
 	es.cursorStore = store
 	es.incrementalMode = enabled && store != nil
+	if maxMessages > 0 {
+		es.cursorMaxMessages = maxMessages
+	}
+	if maxTokens > 0 {
+		es.cursorMaxTokens = maxTokens
+	}
 }
 
 // IsIncrementalModeEnabled 供调用方 / 测试查询当前模式
@@ -738,6 +769,19 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 		es.csMu.RLock()
 		sessionID = es.cliSessions[sessionKey]
 		es.csMu.RUnlock()
+		// C3 修复：进程内 cache miss 时兜底查 SessionChainStore（进程重启后可从 DB 回填）
+		if sessionID == "" && globalCliSessionStore != nil {
+			sessionID = globalCliSessionStore.GetCliSession(req.ThreadID.String(), config.ID.String())
+			if sessionID != "" {
+				// 回填进程内 cache，避免下次再走 DB 路径
+				es.csMu.Lock()
+				es.cliSessions[sessionKey] = sessionID
+				es.csMu.Unlock()
+				logInfo("从 SessionChainStore 恢复 SessionID（DB 兜底）",
+					zap.String("sessionKey", sessionKey),
+					zap.String("sessionId", sessionID))
+			}
+		}
 		if sessionID == "" && req.SessionID != "" {
 			sessionID = req.SessionID
 			logInfo("使用请求中的 SessionID（从数据库获取）",
@@ -867,7 +911,8 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 			zap.String("agentID", config.ID.String()),
 			zap.String("invocationID", invocation.ID.String()))
 		// Circuit Breaker: 检查连续失败次数，防止反复恢复失败 session
-		if globalSessionRecorder.CheckAndSealOnOverflow(req.ThreadID.String(), config.ID.String()) {
+		// H1 修复：加 nil guard（其它调用点都有此保护，此处遗漏，未初始化 recorder 时 panic）
+		if globalSessionRecorder != nil && globalSessionRecorder.CheckAndSealOnOverflow(req.ThreadID.String(), config.ID.String()) {
 			logWarn("Circuit Breaker triggered, sealing session",
 				zap.String("threadID", req.ThreadID.String()),
 				zap.String("configID", config.ID.String()))
@@ -997,6 +1042,12 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 		es.csMu.Lock()
 		es.cliSessions[sessionKey] = newACPSessionID
 		es.csMu.Unlock()
+		// C3 修复：同步持久化到 SessionChainStore（DB backed），下次进程重启依然可 Resume
+		if globalCliSessionStore != nil {
+			if err := globalCliSessionStore.PersistCliSession(req.ThreadID.String(), config.ID.String(), newACPSessionID); err != nil {
+				logInfo("PersistCliSession 失败（非致命）", zap.Error(err), zap.String("sessionKey", sessionKey))
+			}
+		}
 		logInfo("cliSessions cache updated",
 			zap.String("sessionKey", sessionKey),
 			zap.String("acpSessionId", newACPSessionID))
@@ -1216,6 +1267,12 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 		es.csMu.Lock()
 		es.cliSessions[sessionKey] = result.SessionID
 		es.csMu.Unlock()
+		// C3 修复：同步持久化到 SessionChainStore（DB backed），跨进程重启也能 Resume
+		if globalCliSessionStore != nil {
+			if perr := globalCliSessionStore.PersistCliSession(req.ThreadID.String(), config.ID.String(), result.SessionID); perr != nil {
+				logInfo("PersistCliSession 失败（非致命）", zap.Error(perr), zap.String("sessionKey", sessionKey))
+			}
+		}
 		// 同时保存到 invocation 对象（持久化到数据库用于问题定位）
 		invocation.SessionID = result.SessionID
 		logInfo("Session ID assigned to invocation", zap.String("invocationID", invocation.ID.String()), zap.String("sessionId", result.SessionID))
@@ -2140,10 +2197,20 @@ func (es *ExecutionService) buildContextLayers(ctx context.Context, threadID uui
 		//       替代 legacy in-memory PreviousResponses 累积。
 		//       Cursor 未 ack —— 由 caller 在 invocation 结束时统一 flush。
 		if es.IsIncrementalModeEnabled() {
+			// H3 修复：MaxMessages/MaxTokens 从 config 读取（SetCursorStore 注入），
+			// 未配置时回退到 200/4000 默认
+			maxMessages := es.cursorMaxMessages
+			if maxMessages <= 0 {
+				maxMessages = 200
+			}
+			maxTokens := es.cursorMaxTokens
+			if maxTokens <= 0 {
+				maxTokens = 4000
+			}
 			opts := AssembleOptions{
 				SelfAgentID: config.ID,
-				MaxMessages: 200,
-				MaxTokens:   4000,
+				MaxMessages: maxMessages,
+				MaxTokens:   maxTokens,
 			}
 			deps := &IncrementalContextDeps{MsgRepo: es.msgRepo, CursorStore: es.cursorStore}
 			incRes, incErr := AssembleIncrementalContext(ctx, deps, threadID, opts)

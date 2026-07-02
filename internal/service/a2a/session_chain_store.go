@@ -110,8 +110,13 @@ func NewSessionChainStore(db *sql.DB) *SessionChainStore {
 		db:          db,
 	}
 	// 启动时恢复缓存
+	// C5 修复：原代码丢弃 RestoreFromDB 返回值，migration 未跑 / 表不存在等错误
+	// 全部静默。改为 warn log，便于运维在启动阶段发现。
 	if db != nil {
-		s.RestoreFromDB()
+		if err := s.RestoreFromDB(); err != nil {
+			zap.L().Warn("RestoreFromDB failed at startup (cliSessions cache empty this session)",
+				zap.Error(err))
+		}
 	}
 	return s
 }
@@ -471,6 +476,10 @@ func (s *SessionChainStore) Size() int {
 }
 
 // PersistCliSession 持久化CLI session到数据库
+//
+// C4 修复：改为同步写入。原实现每次 fire-and-forget 起 goroutine，A2A 密集时
+// SetMaxOpenConns=1 会导致 goroutine 排队爆炸。同步写在 SQLite 上就是一次
+// 微秒级 INSERT OR REPLACE，反而更快、无 goroutine 泄漏风险。
 func (s *SessionChainStore) PersistCliSession(threadID, configID, sessionID string) error {
 	// 1. 写入内存缓存（快速路径）
 	key := threadID + ":" + configID
@@ -478,36 +487,66 @@ func (s *SessionChainStore) PersistCliSession(threadID, configID, sessionID stri
 	s.cliSessions[key] = sessionID
 	s.mu.Unlock()
 
-	// 2. 异步写入数据库（持久化）
+	// 2. 同步写入数据库（持久化）
 	if s.db != nil {
-		go func() {
-			_, err := s.db.Exec(`
-				INSERT OR REPLACE INTO cli_session_cache
-				(thread_id, config_id, session_id, updated_at)
-				VALUES (?, ?, ?, ?)
-			`, threadID, configID, sessionID, time.Now())
-			if err != nil {
-				zap.L().Warn("cliSessions持久化失败",
-					zap.String("threadID", threadID),
-					zap.String("configID", configID),
-					zap.Error(err))
-			}
-		}()
+		if _, err := s.db.Exec(`
+			INSERT OR REPLACE INTO cli_session_cache
+			(thread_id, config_id, session_id, updated_at)
+			VALUES (?, ?, ?, ?)
+		`, threadID, configID, sessionID, time.Now()); err != nil {
+			zap.L().Warn("cliSessions持久化失败",
+				zap.String("threadID", threadID),
+				zap.String("configID", configID),
+				zap.Error(err))
+			return err
+		}
 	}
 	return nil
 }
 
+// GetCliSession C3 修复：暴露内存缓存的 cliSessions 读接口，供 ExecutionService
+// 在 es.cliSessions 缓存 miss 时兜底查询（进程重启后回填）。
+// 返回 "" 表示无缓存。
+func (s *SessionChainStore) GetCliSession(threadID, configID string) string {
+	key := threadID + ":" + configID
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.cliSessions[key]
+}
+
 // RestoreFromDB 启动时从数据库恢复缓存
+// DefaultRestoreWindowHours restore 窗口默认值。
+// C5 修复：从原来硬编码 24h 提升到 7 天，避免用户周末关机后 AI 失忆。
+// main.go 可通过 SetRestoreWindow 覆盖此值（配置化）。
+const DefaultRestoreWindowHours = 168
+
+var restoreWindowHours = DefaultRestoreWindowHours
+
+// SetRestoreWindowHours 由 main.go 根据 config.yaml 调整 restore 窗口。
+// 传 <=0 表示回退到默认值。仅影响 NewSessionChainStore 后续 RestoreFromDB 调用。
+func SetRestoreWindowHours(h int) {
+	if h > 0 {
+		restoreWindowHours = h
+	} else {
+		restoreWindowHours = DefaultRestoreWindowHours
+	}
+}
+
 func (s *SessionChainStore) RestoreFromDB() error {
 	if s.db == nil {
 		return nil
+	}
+
+	windowHours := restoreWindowHours
+	if windowHours <= 0 {
+		windowHours = DefaultRestoreWindowHours
 	}
 
 	rows, err := s.db.Query(`
 		SELECT thread_id, config_id, session_id
 		FROM cli_session_cache
 		WHERE updated_at > ?
-	`, time.Now().Add(-24*time.Hour))
+	`, time.Now().Add(-time.Duration(windowHours)*time.Hour))
 	if err != nil {
 		return err
 	}
@@ -521,10 +560,12 @@ func (s *SessionChainStore) RestoreFromDB() error {
 			s.cliSessions[key] = sessionID
 		}
 	}
+	count := len(s.cliSessions)
 	s.mu.Unlock()
 
 	zap.L().Info("cliSessions缓存已恢复",
-		zap.Int("count", len(s.cliSessions)))
+		zap.Int("count", count),
+		zap.Int("windowHours", windowHours))
 	return nil
 }
 

@@ -144,19 +144,32 @@ func (r *SessionRecorderImpl) CheckAndSealOnOverflow(threadID, configID string) 
 	}
 
 	// 检查连续失败次数是否达到阈值
-	if sessionRecord.ConsecutiveRestoreFailures >= agent.MAX_CONSECUTIVE_FAILURES {
-		// 标记 session 为 sealed 状态
-		sessionRecord.Status = SessionStatusSealed
-		sessionRecord.SealReason = SealReasonThreshold
-		sessionRecord.SealedAt = new(int64)
-		*sessionRecord.SealedAt = time.Now().Unix()
-
-		zap.L().Warn("Circuit Breaker triggered, sealing session",
-			zap.String("threadId", threadID),
-			zap.String("configId", configID),
-			zap.Int("consecutiveFailures", sessionRecord.ConsecutiveRestoreFailures))
-		return true
+	if sessionRecord.ConsecutiveRestoreFailures < agent.MAX_CONSECUTIVE_FAILURES {
+		return false
 	}
 
-	return false
+	// 通过 store.Update 加锁封装完成 seal，避免直接改指针字段与 Get/List 并发的 race
+	// （C1 code review 修复：Status/SealReason/SealedAt 是路由决策读取的字段，
+	// 半更新状态会导致下游走错分支）
+	sealedAt := time.Now().Unix()
+	sealed := SessionStatusSealed
+	reason := SealReasonThreshold
+	updated := store.Update(sessionRecord.ID, SessionRecordPatch{
+		Status:     &sealed,
+		SealReason: &reason,
+		SealedAt:   &sealedAt,
+	})
+	if updated == nil {
+		zap.L().Warn("Circuit Breaker seal failed: session vanished before update",
+			zap.String("threadId", threadID),
+			zap.String("configId", configID),
+			zap.String("recordId", sessionRecord.ID))
+		return false
+	}
+
+	zap.L().Warn("Circuit Breaker triggered, sealing session",
+		zap.String("threadId", threadID),
+		zap.String("configId", configID),
+		zap.Int("consecutiveFailures", sessionRecord.ConsecutiveRestoreFailures))
+	return true
 }

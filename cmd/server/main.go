@@ -131,6 +131,10 @@ func main() {
 	// 设置 SessionRecorder（用于记录 A2A 失败/成功会话）
 	agent.SetSessionRecorder(a2a.NewSessionRecorderImpl())
 
+	// C3 修复：注入 CliSessionStore，把 SessionChainStore 的 DB backed cliSessions
+	// 和 ExecutionService 的进程内 cache 打通，Resume 场景跨进程重启也可用。
+	agent.SetCliSessionStore(a2a.GetSessionChainStore())
+
 	// 设置 Claude Code ACP 模式（根据 config.yaml 的 claude_code.use_acp 配置）
 	// 开启后 Claude Code adapter 使用 claude-agent-acp CLI（ACP 协议）
 	// 关闭后使用原生 claude CLI（Anthropic API streaming format）
@@ -153,8 +157,11 @@ func main() {
 	logger.Info("Database connected successfully")
 
 	// 初始化全局 SessionChainStore（启动时恢复 cliSessions 缓存）
+	// C5 修复：允许 config 定制恢复窗口（默认 7 天）
+	a2a.SetRestoreWindowHours(cfg.Agent.SessionChain.RestoreWindowHours)
 	a2a.InitGlobalSessionChainStore(db)
-	logger.Info("SessionChainStore initialized, cliSessions cache will be restored")
+	logger.Info("SessionChainStore initialized, cliSessions cache will be restored",
+		zap.Int("restoreWindowHours", cfg.Agent.SessionChain.RestoreWindowHours))
 
 	// 检查数据库关键表是否存在（用于定位安装时迁移问题）
 	checkDatabaseTables(db, logger)
@@ -455,7 +462,7 @@ func main() {
 		dcCfg := cfg.Agent.DeliveryCursor
 		deliveryCursorRepo := repo.NewDeliveryCursorRepository(db, dbType)
 		cursorStore := agent.NewDeliveryCursorStore(deliveryCursorRepo)
-		orchestrator.SetCursorStore(cursorStore, dcCfg.Enabled)
+		orchestrator.SetCursorStore(cursorStore, dcCfg.Enabled, dcCfg.MaxMessages, dcCfg.MaxTokens)
 		logger.Info("DeliveryCursor configured",
 			zap.Bool("enabled", dcCfg.Enabled),
 			zap.Int("maxMessages", dcCfg.MaxMessages),
