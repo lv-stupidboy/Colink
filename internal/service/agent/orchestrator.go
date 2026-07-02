@@ -384,6 +384,17 @@ func (o *Orchestrator) SetMCPBindingRepository(repo *repo.AgentMCPBindingReposit
 	o.executionService.SetMCPBindingRepository(repo)
 }
 
+// SetCursorStore 启用/关闭 DeliveryCursor 拉模式（S2W4）
+// 由 cmd/server/main.go 根据 config.Agent.DeliveryCursor.Enabled 决定是否调用。
+func (o *Orchestrator) SetCursorStore(store *DeliveryCursorStore, enabled bool) {
+	o.executionService.SetCursorStore(store, enabled)
+}
+
+// ExecutionService 暴露内部 executionService（供 S2W4 装配额外能力）
+func (o *Orchestrator) ExecutionService() *ExecutionService {
+	return o.executionService
+}
+
 // SpawnDebugAgent 调试模式启动Agent
 func (o *Orchestrator) SpawnDebugAgent(ctx context.Context, req *SpawnRequest) (*model.AgentInvocation, error) {
 	if o.debugThreadMgr == nil {

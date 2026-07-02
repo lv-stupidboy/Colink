@@ -74,6 +74,12 @@ type SessionRecorder interface {
 	RecordSuccessfulSession(threadID, configID, sessionID string)
 	// RecordPendingSession 记录待执行会话（CLI 执行前持久化，确保取消后可 resume）
 	RecordPendingSession(threadID, configID, sessionID string)
+	// IncrementConsecutiveFailures 增加连续恢复失败计数
+	IncrementConsecutiveFailures(threadID, configID, sessionID string)
+	// ResetConsecutiveFailures 重置连续恢复失败计数
+	ResetConsecutiveFailures(threadID, configID, sessionID string)
+	// CheckAndSealOnOverflow Circuit Breaker 检查，返回是否应该终止执行
+	CheckAndSealOnOverflow(threadID, configID string) bool
 }
 
 // 全局 SessionRecorder 实例（通过 SetSessionRecorder 设置）
@@ -152,6 +158,16 @@ type ExecutionService struct {
 
 	// MCP Server 绑定仓库（显式 MCP 资产管理）
 	mcpBindingRepo *repo.AgentMCPBindingRepository
+
+	// S2W3: DeliveryCursor 拉模式相关（S2W4 通过 SetCursorStore 注入）
+	// cursorStore == nil 时增量模式关闭，走 legacy 路径（保持 S2W4 前不动）
+	cursorStore     *DeliveryCursorStore
+	incrementalMode bool // feature flag（S2W4 从 config 读入）
+	// pairBoundaries key = IdentityKey("", agentID, threadID)
+	// 用 (threadID, agentID) 而不是 invocationID —— SessionMutex 保证同 pair
+	// 一次只跑一个 invocation，所以不会跨 invocation 混淆
+	pairBoundaries map[string]*CursorBoundaryBuffer
+	pbMu           sync.Mutex
 }
 
 // NewExecutionService 创建统一执行服务
@@ -202,12 +218,72 @@ func NewExecutionService(
 		tokenBudgetManager: NewTokenBudgetManager(),
 		processPool:        NewProcessPool(PoolConfig{}),     // 进程池初始化
 		sessionMutex:       NewSessionMutex(),               // SessionMutex 初始化
+		pairBoundaries:     make(map[string]*CursorBoundaryBuffer),
 	}
 
 	// 启动后台清理 goroutine，定期清理超时的 Agent
 	go es.cleanupStaleAgents()
 
 	return es
+}
+
+// SetCursorStore 注入 DeliveryCursor 存储（S2W3）
+// 传入 nil 关闭增量模式；传入非 nil 且 enabled=true 时启用拉模式。
+// 保持 backward-compatible：现有 NewExecutionService caller 无需改动，
+// S2W4 灰度阶段由 cmd/server/main.go 通过 config 决定是否调用本方法。
+func (es *ExecutionService) SetCursorStore(store *DeliveryCursorStore, enabled bool) {
+	es.cursorStore = store
+	es.incrementalMode = enabled && store != nil
+}
+
+// IsIncrementalModeEnabled 供调用方 / 测试查询当前模式
+func (es *ExecutionService) IsIncrementalModeEnabled() bool {
+	return es.incrementalMode && es.cursorStore != nil
+}
+
+// getOrCreateBoundaryBufferByPair 为一次 invocation 获取 boundary 累积器
+//
+// Key = IdentityKey("", agentID, threadID) —— 与 SessionMutex 保护范围一致：
+// 同 (threadID, agentID) 一次只有一个 invocation 在跑，所以 pair-level 缓冲不会跨
+// invocation 污染。
+func (es *ExecutionService) getOrCreateBoundaryBufferByPair(threadID, agentID uuid.UUID) *CursorBoundaryBuffer {
+	key := IdentityKey("", agentID.String(), threadID.String())
+	es.pbMu.Lock()
+	defer es.pbMu.Unlock()
+	if buf, ok := es.pairBoundaries[key]; ok {
+		return buf
+	}
+	buf := NewCursorBoundaryBuffer()
+	es.pairBoundaries[key] = buf
+	return buf
+}
+
+// flushBoundaryBufferByPair 一次性 ack 所有累积的 boundary 并清理 buffer
+//
+// 借鉴 clowder-ai AgentRouter.ts:1722-1730 ackCollectedCursors 的三处调用：
+//   - success: messages.ts:1424-1426
+//   - abort:   messages.ts:1382-1385
+//   - catch:   messages.ts:1517-1524
+//
+// 关键：错误时**也要 ack**，避免"messages 已进入 prompt 却不 ack"导致无限重投
+func (es *ExecutionService) flushBoundaryBufferByPair(ctx context.Context, threadID, agentID uuid.UUID) {
+	key := IdentityKey("", agentID.String(), threadID.String())
+	es.pbMu.Lock()
+	buf, ok := es.pairBoundaries[key]
+	if ok {
+		delete(es.pairBoundaries, key)
+	}
+	es.pbMu.Unlock()
+
+	if !ok || buf == nil || es.cursorStore == nil {
+		return
+	}
+	if err := buf.AckAll(ctx, es.cursorStore, threadID); err != nil {
+		logError("flushBoundaryBufferByPair: ack failed", zap.Error(err),
+			zap.String("threadId", threadID.String()),
+			zap.String("agentId", agentID.String()),
+			zap.Int("boundaryCount", buf.Size()))
+	}
 }
 
 // AddChunkListener 注册外部 chunk 监听器
@@ -262,7 +338,7 @@ func (es *ExecutionService) WarmupProcessPool(db *sql.DB, agentConfigRepo *repo.
 
 	// 查询最近24小时活跃的Agent配置
 	rows, err := db.Query(`
-		SELECT DISTINCT ai.agent_config_id, p.workspace_path
+		SELECT DISTINCT ai.agent_config_id, p.local_path
 		FROM agent_invocations ai
 		JOIN threads t ON ai.thread_id = t.id
 		JOIN projects p ON t.project_id = p.id
@@ -336,12 +412,15 @@ func (es *ExecutionService) WarmupProcessPool(db *sql.DB, agentConfigRepo *repo.
 		}
 
 		// 启动 session（预热进程）
-		sessionID := uuid.New().String()
-		if err := adapter.StartSession(ctx, sessionID, req); err != nil {
+		// ✅ 生成预热sessionID（用于进程状态检查，不会持久化到数据库）
+		// adapter内部会用CLI真实ID覆盖（已修复优先级逻辑）
+		// 预热进程启动后，session状态保持Running，ProcessPool可以复用
+		warmupSessionID := uuid.New().String()
+		if err := adapter.StartSession(ctx, warmupSessionID, req); err != nil {
 			return nil, fmt.Errorf("failed to start warmup session: %w", err)
 		}
 
-		return &warmupProcessClient{adapter: adapter, sessionID: sessionID}, nil
+		return &warmupProcessClient{adapter: adapter, sessionID: warmupSessionID}, nil
 	}
 
 	// 调用 Warmup（后台异步执行）
@@ -604,6 +683,21 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 	}
 	logInfo("[PERF] buildContextLayers", zap.Duration("duration", time.Since(contextStart)))
 
+	// S2W4: 无论 invocation 走到哪个终结点（success / abort / error / panic），
+	// 都要 flush cursor boundary 到 DB。借鉴 clowder-ai messages.ts 三处 ack 调用：
+	//   - success (L1424-1426)
+	//   - abort   (L1382-1385)
+	//   - catch   (L1517-1524)
+	// Go 用 defer 统一处理，避免遗漏任何路径。
+	// 注意：只有 IsIncrementalModeEnabled() && 曾经 UpsertMax 过时才有实际 ack；
+	// flushBoundaryBufferByPair 内部对 nil/no-entry 是安全的 no-op。
+	if es.IsIncrementalModeEnabled() {
+		defer func() {
+			// 用 background ctx 避免 ctx 已 cancel 导致 ack 失败
+			es.flushBoundaryBufferByPair(context.Background(), req.ThreadID, config.ID)
+		}()
+	}
+
 	// 构建完整 prompt 并存储（用于调用日志显示）
 	fullPrompt := es.formatFullPrompt(contextLayers, req.Input)
 	invocation.FullPrompt = fullPrompt
@@ -635,9 +729,8 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 	execReqBuildStart := time.Now()
 	mcpServers := es.loadBoundMCPServers(ctx, config, baseAgent)
 
-	// 根据会话策略决定是否使用 --resume
-	// 跨角色调用（SessionStrategyNew）：不传递历史，使用新会话
-	// 同角色调用（SessionStrategyResume）：传递历史，尝试恢复会话
+	// === SessionID获取逻辑 ===
+	sessionIDStart := time.Now()
 	sessionKey := fmt.Sprintf("%s:%s", req.ThreadID.String(), config.ID.String())
 	var sessionID string
 	if req.SessionStrategy == SessionStrategyResume {
@@ -651,37 +744,41 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 				zap.String("sessionKey", sessionKey),
 				zap.String("sessionId", sessionID))
 		}
-		logInfo("A2A 会话策略: resume，尝试复用会话",
+		logInfo("[PERF-TIMING] SessionID获取完成(resume)",
+			zap.Duration("duration", time.Since(sessionIDStart)),
 			zap.String("sessionKey", sessionKey),
 			zap.String("sessionId", sessionID),
 			zap.Bool("hasSession", sessionID != ""))
 	} else {
 		// 跨角色调用或默认：不使用会话缓存，确保新会话
-		// adapter 会通过 CLI session/new 创建新 sessionID，无需提前生成
-		logInfo("A2A 会话策略: new，使用新会话（adapter 会创建 sessionID）",
+		// 明确设置 SessionStrategy 为 New，让 adapter 通过 CLI session/new 创建真实 sessionID
+		req.SessionStrategy = SessionStrategyNew
+		logInfo("[PERF-TIMING] SessionID获取完成(new)",
+			zap.Duration("duration", time.Since(sessionIDStart)),
 			zap.String("sessionKey", sessionKey))
 	}
 
-	// === 新增：提前生成 sessionID 并持久化 pending 状态 ===
-	// 确保 CLI 执行前 sessionID 已持久化，取消或崩溃后仍可 resume
-	// 仅对 SessionStrategyNew 且无缓存 sessionID 的情况生成
-	if req.SessionStrategy == SessionStrategyNew && sessionID == "" {
-		sessionID = generateSessionID()
+	// === SessionID 持久化策略（参考 clowder-ai 正确实现）===
+	// ❌ 禁止提前生成假SessionID（会导致CLI session/load失败）
+	// ✅ 正确流程：
+	//   - 新会话：CLI session/new → 真实ID → adapter回调持久化
+	//   - 恢复会话：数据库加载真实ID → adapter session/load
+	// ✅ sessionID持久化由adapter内部处理（OnSessionIDAcquired回调）
+	// 不需要在这里提前生成假ID
 
-		// 立即持久化 pending 状态
-		if globalSessionRecorder != nil {
-			globalSessionRecorder.RecordPendingSession(
-				req.ThreadID.String(),
-				config.ID.String(),
-				sessionID,
-			)
-			logInfo("SessionID 提前生成并持久化 pending 状态",
-				zap.String("sessionID", sessionID),
-				zap.String("threadID", req.ThreadID.String()),
-				zap.String("configID", config.ID.String()),
-				zap.String("invocationID", invocation.ID.String()))
-		}
-	}
+	// === Prompt 注入决策（S1W2 borrow from clowder-ai invoke-single-cat.ts:1682-1720）===
+	// 计算 PromptMode 与 ResumeFallbackSystemPrompt：
+	//   1) isResume：SessionStrategy == Resume 且已拿到 sessionID
+	//   2) forceReinjection：consumed-once flag（压缩检测 / 手工触发）
+	//   3) registryChanged：AgentConfigRegistry.revision 与上次注入时不一致
+	// 任一 forceReinjection / registryChanged / 非 resume → 全量重注（ForceRefresh 或 New）。
+	//
+	// 决定后：
+	//   - New / ForceRefresh：injectSystemPrompt=true，走 BuildPromptV2 全量注入
+	//   - Resume：跳过静态段，但同时携带 ResumeFallbackSystemPrompt 兜底
+	promptMode, resumeFallbackSysPrompt := es.decidePromptMode(
+		req.ThreadID.String(), config.ID.String(), sessionID, req.SessionStrategy, contextLayers,
+	)
 
 	// === ProcessPool: 进程预热复用（性能优化）===
 	// PoolKey: workDir::roleID（工作目录 + AgentRoleConfig.ID）
@@ -707,22 +804,25 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 					zap.String("invocationID", invocation.ID.String()))
 			}
 		},
-		BaseAgent:       baseAgent,
-		Context:         contextLayers,
-		Input:           req.Input,
-		Images:          req.Images,
-		WorkDir:         req.ProjectPath,
-		ConfigDir:       config.ConfigPath,
-		MCPServers:      mcpServers,
-		SessionID:       sessionID,
-		SessionStrategy: req.SessionStrategy,
-		InvocationID:    invocation.ID,            // 用于 AskUserQuestion 答案发送
-		CallbackToken:   invocation.CallbackToken, // 用于 MCP server 回调
-		APIURL:          es.apiURL,                // 用于 MCP server 回调
+		BaseAgent:                  baseAgent,
+		Context:                    contextLayers,
+		Input:                      req.Input,
+		Images:                     req.Images,
+		WorkDir:                    req.ProjectPath,
+		ConfigDir:                  config.ConfigPath,
+		MCPServers:                 mcpServers,
+		SessionID:                  sessionID,
+		SessionStrategy:            req.SessionStrategy,
+		PromptMode:                 promptMode,
+		ResumeFallbackSystemPrompt: resumeFallbackSysPrompt,
+		InvocationID:               invocation.ID,            // 用于 AskUserQuestion 答案发送
+		CallbackToken:              invocation.CallbackToken, // 用于 MCP server 回调
+		APIURL:                     es.apiURL,                // 用于 MCP server 回调
 	}
 	logInfo("[PERF] buildExecutionRequest", zap.Duration("duration", time.Since(execReqBuildStart)), zap.String("sessionID", sessionID), zap.String("sessionStrategy", string(req.SessionStrategy)))
 
 	// === ACP 原生 session/resume 模式 ===
+	acpSessionStart := time.Now()
 	var acpSessionID string
 	var newACPSessionID string
 	if es.sessionManager != nil {
@@ -733,9 +833,11 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 			logError("GetOrCreateSession failed", zap.Error(handleErr))
 		} else if sessionHandle != nil {
 			acpSessionID = sessionHandle.GetACPSessionID()
-			logInfo("SessionManager: got session handle",
+			logInfo("[PERF-TIMING] SessionManager.GetOrCreateSession完成",
+				zap.Duration("duration", time.Since(acpSessionStart)),
 				zap.String("acpSessionId", acpSessionID),
-				zap.String("strategy", string(sessionHandle.GetStrategy())))
+				zap.String("strategy", string(sessionHandle.GetStrategy())),
+				zap.Bool("hasAcpSessionId", acpSessionID != ""))
 		}
 	}
 
@@ -764,6 +866,14 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 			zap.String("threadID", req.ThreadID.String()),
 			zap.String("agentID", config.ID.String()),
 			zap.String("invocationID", invocation.ID.String()))
+		// Circuit Breaker: 检查连续失败次数，防止反复恢复失败 session
+		if globalSessionRecorder.CheckAndSealOnOverflow(req.ThreadID.String(), config.ID.String()) {
+			logWarn("Circuit Breaker triggered, sealing session",
+				zap.String("threadID", req.ThreadID.String()),
+				zap.String("configID", config.ID.String()))
+			es.handleAgentError(ctx, invocation, errors.New("session sealed due to consecutive restore failures"))
+			return
+		}
 		// 确保执行完成后释放锁
 		defer func() {
 			if sessionMutexRelease != nil {
@@ -778,24 +888,53 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 
 	// === ProcessPool: 进程预热复用（性能优化）===
 	// 尝试从进程池获取进程租约（所有执行时，不仅仅 resume）
+	processPoolStart := time.Now()
 	if es.processPool != nil {
+		// ✅ 核心修复：Resume时使用acpSessionID（从数据库加载，不为空）
+		// 修复问题：Resume时sessionID可能为空 → ProcessPool无法复用进程 → 性能退化
+		// 参考 clowder-ai: ProcessPool.Acquire传入从数据库加载的真实sessionId
+		var processPoolSessionID string
+		if req.SessionStrategy == SessionStrategyResume && acpSessionID != "" {
+			// Resume时使用acpSessionID（从session_records表加载，保证不为空）
+			processPoolSessionID = acpSessionID
+			logInfo("[PERF-TIMING] ProcessPool准备: Resume策略使用acpSessionID",
+				zap.Duration("prepDuration", time.Since(processPoolStart)),
+				zap.String("acpSessionId", acpSessionID),
+				zap.String("threadId", req.ThreadID.String()),
+				zap.String("agentId", config.ID.String()))
+		} else {
+			// New时使用sessionID（可能为空，ProcessPool会走cold start）
+			processPoolSessionID = sessionID
+			logInfo("[PERF-TIMING] ProcessPool准备: New策略使用sessionID",
+				zap.Duration("prepDuration", time.Since(processPoolStart)),
+				zap.String("sessionId", sessionID),
+				zap.Bool("hasSessionId", sessionID != ""))
+		}
+
 		// 尝试从进程池获取进程租约（传递 supportsMultiplexing 参数）
-		processLease, err = es.processPool.Acquire(poolKey, sessionID, baseAgent.SupportsMultiplexing)
+		acquireStart := time.Now()
+		processLease, err = es.processPool.Acquire(poolKey, processPoolSessionID, baseAgent.SupportsMultiplexing)
+		acquireDuration := time.Since(acquireStart)
+
 		if err != nil {
 			// 获取失败（pool at capacity 或其他错误），记录日志但继续执行
 			// 降级为 cold start（不影响功能）
-			logWarn("ProcessPool.Acquire failed, fallback to cold start",
+			logWarn("[PERF-TIMING] ProcessPool.Acquire失败(cold start)",
+				zap.Duration("acquireDuration", acquireDuration),
 				zap.Error(err),
 				zap.String("workDir", req.ProjectPath),
 				zap.String("roleID", config.ID.String()),
 				zap.Bool("supportsMultiplexing", baseAgent.SupportsMultiplexing))
 			processLease = nil
 		} else {
-			logInfo("ProcessPool lease acquired",
+			logInfo("[PERF-TIMING] ProcessPool.Acquire成功",
+				zap.Duration("acquireDuration", acquireDuration),
+				zap.Duration("totalDuration", time.Since(processPoolStart)),
 				zap.String("workDir", req.ProjectPath),
 				zap.String("roleID", config.ID.String()),
 				zap.String("invocationID", invocation.ID.String()),
-				zap.Bool("warmHit", processLease.Client != nil))
+				zap.Bool("warmHit", processLease.Client != nil),
+				zap.String("strategy", string(req.SessionStrategy)))
 			// 确保执行完成后归还进程
 			defer func() {
 				if processLease != nil && processLease.Release != nil {
@@ -810,18 +949,28 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 	}
 
 	// 检查 adapter 是否支持 ACP 原生 session/resume
+	cliExecStart := time.Now()
 	resumeCapable, ok := adapter.(SessionResumeCapable)
 	if ok && acpSessionID != "" {
 		// 使用 ACP 原生 session/resume 执行
-		logInfo("Using ACP native session/resume",
+		logInfo("[PERF-TIMING] CLI执行开始(Resume模式)",
 			zap.String("invocationID", invocation.ID.String()),
-			zap.String("acpSessionId", acpSessionID))
+			zap.String("acpSessionId", acpSessionID),
+			zap.Duration("prepDuration", time.Since(cliExecStart)))
 		result, newACPSessionID, err = resumeCapable.ExecuteWithResume(ctx, execReq, acpSessionID, func(chunk Chunk) {
 			outputBuilder.WriteString(chunk.Content)
 			es.broadcastChunk(req.ThreadID, invocation.ID, chunk, config.ID.String(), config.Name)
 		})
+		logInfo("[PERF-TIMING] CLI执行完成(Resume模式)",
+			zap.Duration("cliDuration", time.Since(cliExecStart)),
+			zap.String("invocationID", invocation.ID.String()),
+			zap.Bool("success", err == nil))
 	} else {
 		// 普通执行（新 session）
+		logInfo("[PERF-TIMING] CLI执行开始(New模式)",
+			zap.String("invocationID", invocation.ID.String()),
+			zap.Bool("hasAcpSessionId", acpSessionID != ""),
+			zap.Duration("prepDuration", time.Since(cliExecStart)))
 		result, err = adapter.ExecuteWithStream(ctx, execReq, func(chunk Chunk) {
 			outputBuilder.WriteString(chunk.Content)
 			es.broadcastChunk(req.ThreadID, invocation.ID, chunk, config.ID.String(), config.Name)
@@ -829,6 +978,10 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 		if result != nil {
 			newACPSessionID = result.SessionID
 		}
+		logInfo("[PERF-TIMING] CLI执行完成(New模式)",
+			zap.Duration("cliDuration", time.Since(cliExecStart)),
+			zap.String("invocationID", invocation.ID.String()),
+			zap.Bool("success", err == nil))
 	}
 
 	// 保存 ACP session ID 到数据库
@@ -837,6 +990,16 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 		if saveErr != nil {
 			logError("SaveACPSessionID failed", zap.Error(saveErr))
 		}
+
+		// ✅ 辅助修复：同时更新cliSessions缓存（用于下次Resume时快速获取）
+		// 修复问题：cliSessions缓存未正确填充 → Resume时sessionID为空
+		sessionKey := fmt.Sprintf("%s:%s", req.ThreadID.String(), config.ID.String())
+		es.csMu.Lock()
+		es.cliSessions[sessionKey] = newACPSessionID
+		es.csMu.Unlock()
+		logInfo("cliSessions cache updated",
+			zap.String("sessionKey", sessionKey),
+			zap.String("acpSessionId", newACPSessionID))
 	}
 
 	// === ProcessPool: 记录 session 归属 ===
@@ -851,11 +1014,41 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 	}
 
 	// 会话恢复失败降级机制
+	//
+	// 借鉴 clowder-ai AcpAgentService.ts:186-284：
+	//   resume 失败 → 用 fresh session 重启 + 把 ResumeFallbackSystemPrompt 塞回 prompt 前缀
+	//   同时把 InjectionState 里的 lastInjectedRegistryVersion 清掉，
+	//   下轮 decidePromptMode 会重新走 New/ForceRefresh 分支。
 	if err != nil && acpSessionID != "" && isResumeFallbackError(err) {
 		logWarn("Session resume failed, falling back to new session",
 			zap.String("invocationId", invocation.ID.String()),
 			zap.String("acpSessionId", acpSessionID),
 			zap.Error(err))
+
+		// 1) 清 sessionID，让 adapter 走 --session-id 新会话分支
+		execReq.SessionID = ""
+		execReq.SessionStrategy = SessionStrategyNew
+
+		// 2) 升级 PromptMode 到 ForceRefresh：这次必须重发完整 systemPrompt
+		execReq.PromptMode = PromptModeForceRefresh
+
+		// 3) 把 ResumeFallbackSystemPrompt 塞回 prompt 前缀
+		//    首选：走 Context.Layer0（BuildPromptV2 会自动注入）
+		//    降级：若 Context 为空则直接前缀拼接 Input
+		if execReq.ResumeFallbackSystemPrompt != "" {
+			if execReq.Context != nil && execReq.Context.Layer0 == "" {
+				execReq.Context.Layer0 = execReq.ResumeFallbackSystemPrompt
+			} else if execReq.Context == nil {
+				execReq.Input = execReq.ResumeFallbackSystemPrompt + "\n\n---\n\n" + execReq.Input
+			}
+			logInfo("Fallback: restored system prompt from ResumeFallbackSystemPrompt",
+				zap.Int("fallbackLen", len(execReq.ResumeFallbackSystemPrompt)))
+		}
+
+		// 4) 让 InjectionState 忘记上次注入记录 —— 下轮 decidePromptMode 才不会
+		//    把这个 identity 当做 "已注入过" 误判为 Resume
+		identityKey := IdentityKey("", config.ID.String(), req.ThreadID.String())
+		ClearInjectedRegistryVersion(identityKey)
 
 		// 降级：使用新会话重试
 		outputBuilder.Reset()
@@ -1008,6 +1201,10 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 			// 记录失败会话（通过 sessionRecorder）
 			if globalSessionRecorder != nil {
 				globalSessionRecorder.RecordFailedSession(req.ThreadID.String(), config.ID.String(), result.SessionID)
+				// 检测 context window overflow error，增加连续失败计数
+				if IsContextWindowOverflowError(err) {
+					globalSessionRecorder.IncrementConsecutiveFailures(req.ThreadID.String(), config.ID.String(), result.SessionID)
+				}
 			}
 		}
 		es.handleAgentErrorWithContext(ctx, invocation, fmt.Errorf("adapter execution failed: %w", err), execReq)
@@ -1025,6 +1222,8 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 		// 记录成功会话（通过 sessionRecorder）
 		if globalSessionRecorder != nil {
 			globalSessionRecorder.RecordSuccessfulSession(req.ThreadID.String(), config.ID.String(), result.SessionID)
+			// 成功执行后重置连续失败计数
+			globalSessionRecorder.ResetConsecutiveFailures(req.ThreadID.String(), config.ID.String(), result.SessionID)
 		}
 		logInfo("Session ID saved for future resume and persistence", zap.String("sessionKey", sessionKey), zap.String("sessionId", result.SessionID))
 	} else {
@@ -1119,6 +1318,16 @@ func (es *ExecutionService) executeAgent(ctx context.Context, invocation *model.
 			Role:      string(config.Role),
 			Timestamp: time.Now().Unix(),
 		})
+		// S2W4: 滑窗裁剪 —— 与用户消息路径 (execution_service.go:2624-2628) 对齐
+		// 未修前此路径不裁剪，长时间跑的 thread PreviousResponses 会无界增长
+		if len(a2aCtx.PreviousResponses) > MaxPreviousResponses {
+			dropped := len(a2aCtx.PreviousResponses) - MaxPreviousResponses
+			a2aCtx.PreviousResponses = a2aCtx.PreviousResponses[dropped:]
+			logInfo("A2A: PreviousResponses 达到上限，裁剪最早记录",
+				zap.Int("dropped", dropped),
+				zap.Int("kept", MaxPreviousResponses),
+				zap.String("threadId", req.ThreadID.String()))
+		}
 		a2aCtx.ChainIndex++
 		logInfo("A2A: Agent 输出追加到 PreviousResponses",
 			zap.String("agentId", config.ID.String()),
@@ -1469,6 +1678,12 @@ func isResumeFallbackError(err error) bool {
 		"pipe is being closed", // 进程退出导致管道关闭
 		"broken pipe",          // 管道断裂
 		"process not alive",    // 进程已退出
+
+		// Claude CLI --resume 特有：找不到 session ID 对应的 transcript
+		"no conversation found",
+		"conversation not found",
+		"unable to resume",
+		"invalid signature in thinking block", // 需要 rescue 后重启（clowder-ai ClaudeThinkingRescue.ts:5）
 	}
 	for _, pattern := range fallbackPatterns {
 		if strings.Contains(errStr, pattern) {
@@ -1476,6 +1691,80 @@ func isResumeFallbackError(err error) bool {
 		}
 	}
 	return false
+}
+
+// decidePromptMode 计算本次调用的 PromptMode 与 ResumeFallbackSystemPrompt
+//
+// 借鉴 clowder-ai invoke-single-cat.ts:1682-1720 的决策逻辑：
+//
+//	isResume                          = 有 sessionID 且策略是 Resume
+//	canSkipOnResume                   = 该 Agent 支持 CLI 原生 resume（当前假设所有 Resume 都支持）
+//	forceReinjection                  = 消费 _needsReinjection Set（consumed-once）
+//	registryChanged                   = AgentConfigRegistry.revision 与上次注入时不同
+//	injectSystemPrompt = !canSkipOnResume || !isResume || forceReinjection || registryChanged
+//
+// 返回 (mode, fallback)：
+//   - mode: 决定 BuildPromptV2 走哪个分支
+//   - fallback: 仅在 Resume 场景下 = layers.Layer0（供 adapter 降级用）
+//
+// 决定为 New / ForceRefresh 后，立即在 InjectionState 里记录本次注入的 registry 版本，
+// 让后续 Resume 场景能拿到"上次注入过什么"来比较。
+func (es *ExecutionService) decidePromptMode(
+	threadID, agentID, sessionID string,
+	strategy SessionStrategy,
+	layers *ContextLayers,
+) (PromptMode, string) {
+	identity := IdentityKey("", agentID, threadID) // userId 暂时留空（Colink 目前无 per-user 隔离）
+
+	// 1) isResume：策略 = Resume 且真实拿到了 sessionID
+	isResume := strategy == SessionStrategyResume && sessionID != ""
+
+	// 2) forceReinjection：consumed-once 消费 —— 压缩检测 / 手工触发时会 set 这个 flag
+	forceReinjection := ConsumeReinjectionFlag(identity)
+
+	// 3) registryChanged：与上次注入时看到的 revision 对比
+	currentRev := DefaultAgentConfigRegistry.GetRevision()
+	lastRev, hasLast := GetLastInjectedRegistryVersion(identity)
+	registryChanged := isResume && hasLast && lastRev != currentRev
+
+	// 4) 汇总决策
+	var mode PromptMode
+	switch {
+	case forceReinjection || registryChanged:
+		mode = PromptModeForceRefresh
+	case isResume:
+		mode = PromptModeResume
+	default:
+		mode = PromptModeNew
+	}
+
+	// 5) 记录本次注入的 revision（只在真正注入时才更新，避免 Resume 分支覆盖上次记录）
+	//    另外对首次 Resume（hasLast=false）也补记录一次，防止下轮判断 registryChanged 时误报"变过"
+	if mode == PromptModeNew || mode == PromptModeForceRefresh {
+		RecordInjectedRegistryVersion(identity, currentRev)
+	} else if isResume && !hasLast {
+		RecordInjectedRegistryVersion(identity, currentRev)
+	}
+
+	// 6) ResumeFallbackSystemPrompt：只在 Resume 场景生成
+	//    New / ForceRefresh 时 systemPrompt 已进 prompt，不需要 fallback
+	var fallback string
+	if mode == PromptModeResume && layers != nil && layers.Layer0 != "" {
+		fallback = layers.Layer0
+	}
+
+	logInfo("[S1W2] prompt mode decision",
+		zap.String("identity", identity),
+		zap.String("mode", mode.String()),
+		zap.Bool("isResume", isResume),
+		zap.Bool("forceReinjection", forceReinjection),
+		zap.Bool("registryChanged", registryChanged),
+		zap.Int64("currentRev", currentRev),
+		zap.Int64("lastRev", lastRev),
+		zap.Bool("hasFallback", fallback != ""),
+	)
+
+	return mode, fallback
 }
 
 // logErrorDiagnostics 输出详细的错误诊断日志
@@ -1833,8 +2122,44 @@ func (es *ExecutionService) buildContextLayers(ctx context.Context, threadID uui
 	// 根据场景注入 ChainHistory（A2A 链路历史）
 	// 规则：仅 A2A 场景注入
 	if isA2A {
-		layers.ChainHistory = BuildChainHistoryLayer(req.ChainHistory)
-		logInfo("buildContextLayers: 注入 ChainHistory（A2A 链路历史）", zap.Int("length", len(layers.ChainHistory)))
+		// S2W4: 增量拉模式启用时，优先从 messages 表按 cursor 拉取，
+		//       替代 legacy in-memory PreviousResponses 累积。
+		//       Cursor 未 ack —— 由 caller 在 invocation 结束时统一 flush。
+		if es.IsIncrementalModeEnabled() {
+			opts := AssembleOptions{
+				SelfAgentID: config.ID,
+				MaxMessages: 200,
+				MaxTokens:   4000,
+			}
+			deps := &IncrementalContextDeps{MsgRepo: es.msgRepo, CursorStore: es.cursorStore}
+			incRes, incErr := AssembleIncrementalContext(ctx, deps, threadID, opts)
+			if incErr != nil {
+				// 拉失败 → 降级 legacy（保守：宁可重复注入，不能丢消息）
+				logError("[S2W4] AssembleIncrementalContext failed, falling back to legacy chain history",
+					zap.Error(incErr),
+					zap.String("threadId", threadID.String()),
+					zap.String("agentId", config.ID.String()))
+				layers.ChainHistory = BuildChainHistoryLayer(req.ChainHistory)
+			} else if incRes != nil {
+				// 累积 boundary 到 (threadID, agentID) 索引的 buffer；
+				// 每次 invocation 结束时 caller 调 flushBoundaryBufferByThreadAgent 统一 ack
+				if incRes.BoundaryID != "" {
+					buf := es.getOrCreateBoundaryBufferByPair(threadID, config.ID)
+					buf.UpsertMax(config.ID, incRes.BoundaryID)
+				}
+				layers.ChainHistory = incRes.ContextText // 全过滤时为 ""
+				logInfo("[S2W4] incremental context assembled",
+					zap.Int("unread", incRes.UnreadCount),
+					zap.Int("delivered", incRes.DeliveredCount),
+					zap.Bool("truncated", incRes.Truncated),
+					zap.String("boundary", incRes.BoundaryID))
+			}
+		} else {
+			layers.ChainHistory = BuildChainHistoryLayer(req.ChainHistory)
+		}
+		logInfo("buildContextLayers: 注入 ChainHistory（A2A 链路历史）",
+			zap.Int("length", len(layers.ChainHistory)),
+			zap.Bool("incremental", es.IsIncrementalModeEnabled()))
 	} else {
 		layers.ChainHistory = ""
 	}
@@ -3439,6 +3764,68 @@ broadcast:
 				zap.Int64("contextUsed", chunk.Usage.ContextUsed),
 				zap.Int64("contextSize", chunk.Usage.ContextSize),
 				zap.Float64("costUsd", chunk.Usage.CostUsd))
+
+				// ========== Token 预算阈值检查（新增集成点）==========
+				// 更新 usage 缓存
+				es.tokenBudgetManager.UpdateUsageFromCLI(invocationID, chunk.Usage)
+
+				// ========== S1W2 Task 6: 压缩检测联动 needsReinjection ==========
+				// 借鉴 clowder-ai invoke-single-cat.ts:2022-2030：
+				//
+				//   if (prevFill && usedTokens < prevFill * 0.4) {
+				//     _needsReinjection.add(cKey);
+				//   }
+				//
+				// 语义：CLI 自身触发 auto-compact 后 contextUsed 会骤降。
+				// 骤降 >60% 视为压缩事件，flag 一个 consumed-once 标记，
+				// 下轮 decidePromptMode 会走 ForceRefresh 重注 systemPrompt。
+				if chunk.Usage.ContextUsed > 0 {
+					identity := IdentityKey("", agentID, threadID.String())
+					usedTokens := int(chunk.Usage.ContextUsed)
+					if prevFill, ok := GetPrevContextFill(identity); ok {
+						// 阈值 0.4 = 60% 下降；prevFill * 4 / 10 避免浮点
+						if prevFill > 0 && usedTokens < prevFill*4/10 {
+							FlagNeedsReinjection(identity)
+							zap.L().Warn("[S1W2] context compression detected, will re-inject systemPrompt on next turn",
+								zap.String("identity", identity),
+								zap.Int("prevFill", prevFill),
+								zap.Int("usedTokens", usedTokens),
+								zap.Float64("dropRatio", 1.0-float64(usedTokens)/float64(prevFill)))
+						}
+					}
+					RecordContextFill(identity, usedTokens)
+				}
+				// ================================================================
+
+				// 计算 FillRatio（使用 ACP 报告的 context 信息）
+				if chunk.Usage.ContextSize > 0 {
+					fillRatio := float64(chunk.Usage.ContextUsed) / float64(chunk.Usage.ContextSize)
+					remainingTokens := int(chunk.Usage.ContextSize - chunk.Usage.ContextUsed)
+
+					// 检查阈值决策
+					action := ShouldTakeAction(fillRatio, remainingTokens)
+
+					// 执行决策
+					switch action {
+					case ActionWarn:
+						zap.L().Warn("Token budget warning: recommend context compression",
+							zap.String("threadId", threadID.String()),
+							zap.String("invocationId", invocationID.String()),
+							zap.Float64("fillRatio", fillRatio),
+							zap.Int("remainingTokens", remainingTokens),
+							zap.Int64("contextUsed", chunk.Usage.ContextUsed),
+							zap.Int64("contextSize", chunk.Usage.ContextSize))
+
+					case ActionSeal:
+						zap.L().Error("Token budget exceeded: must seal session",
+							zap.String("threadId", threadID.String()),
+							zap.String("invocationId", invocationID.String()),
+							zap.Float64("fillRatio", fillRatio),
+							zap.Int("remainingTokens", remainingTokens))
+						// TODO: 集成 session seal 逻辑（需获取 configID）
+						// 当前仅记录错误日志，seal 由 Circuit Breaker 处理
+					}
+				}
 			// 注：不再广播 usage_update WebSocket 事件，前端已移除 TOKEN 统计显示
 			// es.wsHub.BroadcastToThread(threadID.String(), ws.WSMessage{
 			// 	Type:      "usage_update",
@@ -4712,6 +5099,8 @@ func (w *warmupProcessClient) IsAlive() bool {
 	if w.adapter == nil {
 		return false
 	}
+	// ✅ 使用sessionID查询状态（更准确，不依赖ProcessState）
+	// 预热进程启动后，session状态仍可能为Running/Idle
 	status := w.adapter.GetSessionStatus(w.sessionID)
 	return status == SessionStatusRunning || status == SessionStatusIdle
 }

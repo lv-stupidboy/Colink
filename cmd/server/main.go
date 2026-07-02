@@ -456,6 +456,19 @@ func main() {
 	orchestrator.SetMCPBindingRepository(agentMCPBindingRepo)
 	logger.Info("SessionManager initialized and injected into Orchestrator")
 
+	// S2W4: DeliveryCursor 拉模式（feature flag: agent.delivery_cursor.enabled）
+	// 关闭时（默认）保持 legacy 行为；启用后 A2A 下游走增量拉取 + deferred ack。
+	{
+		dcCfg := cfg.Agent.DeliveryCursor
+		deliveryCursorRepo := repo.NewDeliveryCursorRepository(db, dbType)
+		cursorStore := agent.NewDeliveryCursorStore(deliveryCursorRepo)
+		orchestrator.SetCursorStore(cursorStore, dcCfg.Enabled)
+		logger.Info("DeliveryCursor configured",
+			zap.Bool("enabled", dcCfg.Enabled),
+			zap.Int("maxMessages", dcCfg.MaxMessages),
+			zap.Int("maxTokens", dcCfg.MaxTokens))
+	}
+
 	// 设置 MCP server 路径（用于 Agent 记忆工具调用）
 	// 开发模式与安装模式：均从 bin 目录查找 mcp-server
 	// 安装器会将 resources/bin/ 整体复制到安装目录的 bin/

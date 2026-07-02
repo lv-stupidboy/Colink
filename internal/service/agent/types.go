@@ -131,6 +131,23 @@ type ExecutionRequest struct {
 	CallbackToken   string             // MCP server 回调认证 Token
 	APIURL          string             // MCP server 回调 API URL
 
+	// PromptMode 决定 prompt 组装策略（借鉴 clowder-ai injectSystemPrompt 决策）
+	// 由 execution_service 在 buildContextLayers 后计算，adapter 侧根据此字段
+	// 决定是否携带完整 systemPrompt 或走 CLI 原生 resume 通道。
+	//
+	// 未显式设置时默认 PromptModeNew（零值），保持向后兼容。
+	PromptMode PromptMode
+
+	// ResumeFallbackSystemPrompt 用于 Resume 加载失败时的降级重注
+	// 借鉴 clowder-ai invoke-single-cat.ts:1802-1803 的语义：
+	//   上游乐观地跳过 systemPrompt 注入以节省 tokens，但同时携带一份"备用"
+	//   传给 provider；provider 侧一旦检测到 loadSession 失败 / --resume 报错，
+	//   把 fallback 重新塞回 prompt 前缀，避免整轮丢失身份定义。
+	//
+	// 仅在 PromptMode = PromptModeResume 时才有意义；其它 mode 下 systemPrompt
+	// 已经出现在 Input 里，不需要 fallback。
+	ResumeFallbackSystemPrompt string
+
 	// OnSessionIDAcquired 在 adapter 拿到 session ID 时立即回调（不等进程退出）
 	// 用于提前持久化 session ID，确保取消/崩溃后仍可 resume
 	OnSessionIDAcquired func(sessionID string)
