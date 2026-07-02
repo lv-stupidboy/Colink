@@ -144,29 +144,39 @@ func AssembleIncrementalContext(
 	}
 
 	// 5) 按 token 预算裁剪（保尾丢头 —— 越新越重要）
-	kept, truncated := trimMessagesByTokenBudget(relevant, opts.MaxTokens)
+	//    先对每条 content 做 CompactMessageContent 精简（handoff 优先 / 剥 thinking / 头尾截断），
+	//    再基于精简后的长度做 token 预算裁剪。避免长 thinking 块吃掉全部预算。
+	compacted := make([]compactedMessage, len(relevant))
+	for i, m := range relevant {
+		compacted[i] = compactedMessage{
+			m:       m,
+			content: CompactMessageContent(m.Content, 800),
+		}
+	}
+	kept, truncated := trimCompactedByTokenBudget(compacted, opts.MaxTokens)
 
 	// 6) 组装 <incremental-context> 块
 	var sb strings.Builder
 	sb.WriteString("<incremental-context>\n")
 	if truncated {
-		sb.WriteString(fmt.Sprintf("<!-- 已裁剪 %d 条较早未读消息（token 预算） -->\n", len(relevant)-len(kept)))
+		sb.WriteString(fmt.Sprintf("<!-- 已裁剪 %d 条较早未读消息（token 预算） -->\n", len(compacted)-len(kept)))
 	}
-	for _, m := range kept {
+	for _, c := range kept {
 		sender := "用户"
-		if m.Role == model.MessageRoleAgent {
-			sender = m.AgentID
+		if c.m.Role == model.MessageRoleAgent {
+			sender = c.m.AgentID
 			if sender == "" {
 				sender = "agent"
 			}
 		}
-		sb.WriteString(fmt.Sprintf("[%s @ %s]\n%s\n\n", sender, m.CreatedAt.Format("15:04:05"), m.Content))
+		// 精简 header：省掉秒级时间戳（保留分钟即可，节省 ~3 chars/条）
+		sb.WriteString(fmt.Sprintf("[%s @ %s]\n%s\n\n", sender, c.m.CreatedAt.Format("15:04"), c.content))
 	}
 	sb.WriteString("</incremental-context>\n")
 
 	note := ""
 	if truncated {
-		note = fmt.Sprintf("kept %d of %d relevant unread within %d tokens", len(kept), len(relevant), opts.MaxTokens)
+		note = fmt.Sprintf("kept %d of %d relevant unread within %d tokens", len(kept), len(compacted), opts.MaxTokens)
 	}
 
 	return &IncrementalContextResult{
@@ -177,6 +187,35 @@ func AssembleIncrementalContext(
 		Truncated:      truncated,
 		TruncationNote: note,
 	}, nil
+}
+
+// compactedMessage 消息 + 已精简后的 content
+// 用于避免在预算裁剪循环里重复计算 CompactMessageContent
+type compactedMessage struct {
+	m       *model.Message
+	content string
+}
+
+// trimCompactedByTokenBudget 保尾丢头版本
+// 与 trimMessagesByTokenBudget 语义相同，只是 body 用精简后的 content 计算 tokens。
+func trimCompactedByTokenBudget(msgs []compactedMessage, maxTokens int) (kept []compactedMessage, truncated bool) {
+	if len(msgs) == 0 || maxTokens <= 0 {
+		return msgs, false
+	}
+	used := 0
+	start := len(msgs)
+	for i := len(msgs) - 1; i >= 0; i-- {
+		tk := EstimateTokens(msgs[i].content) + 20 // +20 for header overhead
+		if used+tk > maxTokens {
+			break
+		}
+		used += tk
+		start = i
+	}
+	if start == 0 {
+		return msgs, false
+	}
+	return msgs[start:], true
 }
 
 // trimMessagesByTokenBudget 按预算裁剪，保尾丢头
