@@ -2506,6 +2506,18 @@
   border-left: 3px solid #22c55e;
 }
 
+.layer-card.layer-teal {
+  border-left: 3px solid #14b8a6;
+}
+
+.layer-card.layer-cyan {
+  border-left: 3px solid #06b6d4;
+}
+
+.layer-card.layer-indigo {
+  border-left: 3px solid #6366f1;
+}
+
 .layer-card.layer-gray {
   border-left: 3px solid #6b7280;
 }
@@ -2538,6 +2550,18 @@
 
 .layer-card.layer-green .layer-card-header {
   background: #f0fdf4;
+}
+
+.layer-card.layer-teal .layer-card-header {
+  background: #ccfbf1;
+}
+
+.layer-card.layer-cyan .layer-card-header {
+  background: #cffafe;
+}
+
+.layer-card.layer-indigo .layer-card-header {
+  background: #e0e7ff;
 }
 
 .layer-card.layer-gray .layer-card-header {
@@ -2725,6 +2749,18 @@
   background: rgba(34, 197, 94, 0.15);
 }
 
+[data-theme='dark'] .layer-card.layer-teal .layer-card-header {
+  background: rgba(20, 184, 166, 0.15);
+}
+
+[data-theme='dark'] .layer-card.layer-cyan .layer-card-header {
+  background: rgba(6, 182, 212, 0.15);
+}
+
+[data-theme='dark'] .layer-card.layer-indigo .layer-card-header {
+  background: rgba(99, 102, 241, 0.15);
+}
+
 [data-theme='dark'] .layer-card.layer-gray .layer-card-header {
   background: var(--bg-base);
 }
@@ -2743,6 +2779,18 @@
 
 [data-theme='dark'] .layer-card.layer-green {
   border-left-color: #4ade80;
+}
+
+[data-theme='dark'] .layer-card.layer-teal {
+  border-left-color: #2dd4bf;
+}
+
+[data-theme='dark'] .layer-card.layer-cyan {
+  border-left-color: #22d3ee;
+}
+
+[data-theme='dark'] .layer-card.layer-indigo {
+  border-left-color: #818cf8;
 }
 
 [data-theme='dark'] .layer-card.layer-gray {

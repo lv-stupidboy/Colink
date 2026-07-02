@@ -7,7 +7,9 @@ import {
   SettingOutlined,
   MessageOutlined,
   FileOutlined,
-  EnvironmentOutlined,
+  BranchesOutlined,
+  UserOutlined,
+  BookOutlined,
   SearchOutlined,
   CopyOutlined,
   CheckOutlined,
@@ -19,17 +21,33 @@ import { DurationDisplay } from './DurationDisplay';
 import type { AgentInvocation } from '@/types';
 
 // Layer Context 解析结果
+// - system / conversation / artifacts / memory：静态语义块
+// - a2aContext：A2A 场景专用（合并 <a2a-context> / <incremental-context> / <a2a-handoff-from-upstream>）
+// - userInput：用户实际输入（<user> 或 <a2a_input>）
+// - environment：解析出来仅用于剥离，不展示（用户诉求：太杂，无信息量）
+// - remainingContent：其他未识别块
 interface LayerContextInfo {
   hasLayers: boolean;
   systemPrompt: string;
   conversation: string;
   artifacts: string;
-  environment: string;
+  memory: string;
+  a2aContext: string;
+  userInput: string;
   remainingContent: string;
 }
 
 /**
  * 解析 Layer XML 标签提取上下文分块
+ *
+ * 覆盖后端 prompt_builder.go 里所有已知标签，按语义归类：
+ *   - <system>          → systemPrompt
+ *   - <conversation>    → conversation
+ *   - <artifacts>       → artifacts
+ *   - <memory>          → memory
+ *   - <environment>     → 剥离（不展示）
+ *   - <a2a-context> / <incremental-context> / <a2a-handoff-from-upstream> → a2aContext（合并）
+ *   - <user> / <a2a_input> → userInput（合并）
  */
 const parseLayerContext = (content: string): LayerContextInfo => {
   const extractTag = (tagName: string): string => {
@@ -39,15 +57,43 @@ const parseLayerContext = (content: string): LayerContextInfo => {
     return match ? match[1].trim() : '';
   };
 
+  // 拼接多个标签的内容（用两个换行分隔）
+  const extractMerged = (tagNames: string[]): string => {
+    const parts = tagNames
+      .map((tag) => {
+        const raw = extractTag(tag);
+        return raw ? `<!-- ${tag} -->\n${raw}` : '';
+      })
+      .filter(Boolean);
+    return parts.join('\n\n');
+  };
+
   const systemPrompt = extractTag('system');
   const conversation = extractTag('conversation');
   const artifacts = extractTag('artifacts');
-  const environment = extractTag('environment');
+  const memory = extractTag('memory');
+  const a2aContext = extractMerged(['a2a-context', 'incremental-context', 'a2a-handoff-from-upstream']);
+  const userInput = extractMerged(['user', 'a2a_input']);
 
-  const hasLayers: boolean = Boolean(systemPrompt || conversation || artifacts || environment);
+  const hasLayers: boolean = Boolean(
+    systemPrompt || conversation || artifacts || memory || a2aContext || userInput
+  );
 
+  // 剥离所有已识别的标签（含 environment，虽然不展示但也要剥掉避免落入 remainingContent）
   let remainingContent = content;
-  ['system', 'conversation', 'artifacts', 'environment'].forEach(tag => {
+  const strippedTags = [
+    'system',
+    'conversation',
+    'artifacts',
+    'memory',
+    'environment',
+    'a2a-context',
+    'incremental-context',
+    'a2a-handoff-from-upstream',
+    'user',
+    'a2a_input',
+  ];
+  strippedTags.forEach((tag) => {
     const pattern = `<${tag}[^>]*>[\\s\\S]*?</${tag}>`;
     remainingContent = remainingContent.replace(new RegExp(pattern, 'gi'), '');
   });
@@ -58,7 +104,9 @@ const parseLayerContext = (content: string): LayerContextInfo => {
     systemPrompt,
     conversation,
     artifacts,
-    environment,
+    memory,
+    a2aContext,
+    userInput,
     remainingContent,
   };
 };
@@ -90,7 +138,7 @@ type StatusFilter = 'all' | 'running' | 'completed' | 'failed';
  * 支持外部强制展开，同时也支持用户单独切换
  */
 const LayerCard: React.FC<{
-  type: 'system' | 'conversation' | 'artifacts' | 'environment' | 'remaining';
+  type: 'system' | 'conversation' | 'artifacts' | 'memory' | 'a2aContext' | 'userInput' | 'remaining';
   content: string;
   allExpanded?: boolean; // 全局展开状态（来自父组件）
 }> = ({ type, content, allExpanded }) => {
@@ -106,7 +154,9 @@ const LayerCard: React.FC<{
     system: { icon: <SettingOutlined />, label: 'System Prompt', color: 'purple' },
     conversation: { icon: <MessageOutlined />, label: 'Conversation History', color: 'blue' },
     artifacts: { icon: <FileOutlined />, label: 'Artifacts', color: 'orange' },
-    environment: { icon: <EnvironmentOutlined />, label: 'Environment', color: 'green' },
+    memory: { icon: <BookOutlined />, label: 'Memory', color: 'teal' },
+    a2aContext: { icon: <BranchesOutlined />, label: 'A2A 上下文', color: 'cyan' },
+    userInput: { icon: <UserOutlined />, label: '用户输入', color: 'indigo' },
     remaining: { icon: <FileTextOutlined />, label: '其他内容', color: 'gray' },
   }[type];
 
@@ -219,7 +269,7 @@ const DetailPanel: React.FC<{ invocation: AgentInvocation | null }> = ({ invocat
               </button>
             </div>
 
-            {/* Layer 分块展示 */}
+            {/* Layer 分块展示 —— 语义顺序：静态背景 → 动态上下文 → 用户输入 → 其他 */}
             {layerInfo.hasLayers ? (
               <div className="layer-cards-container">
                 {layerInfo.systemPrompt && (
@@ -231,9 +281,16 @@ const DetailPanel: React.FC<{ invocation: AgentInvocation | null }> = ({ invocat
                 {layerInfo.artifacts && (
                   <LayerCard type="artifacts" content={layerInfo.artifacts} allExpanded={allExpanded} />
                 )}
-                {layerInfo.environment && (
-                  <LayerCard type="environment" content={layerInfo.environment} allExpanded={allExpanded} />
+                {layerInfo.memory && (
+                  <LayerCard type="memory" content={layerInfo.memory} allExpanded={allExpanded} />
                 )}
+                {layerInfo.a2aContext && (
+                  <LayerCard type="a2aContext" content={layerInfo.a2aContext} allExpanded={allExpanded} />
+                )}
+                {layerInfo.userInput && (
+                  <LayerCard type="userInput" content={layerInfo.userInput} allExpanded={allExpanded} />
+                )}
+                {/* environment 按用户诉求不再展示 */}
                 {layerInfo.remainingContent && (
                   <LayerCard type="remaining" content={layerInfo.remainingContent} allExpanded={allExpanded} />
                 )}

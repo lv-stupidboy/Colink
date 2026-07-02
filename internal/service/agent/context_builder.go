@@ -336,9 +336,17 @@ func BuildDynamicSystemPromptFromContext(tc *ThreadContext, config *model.AgentR
 	// 注入协作提示
 	if len(transitions) > 0 {
 		sb.WriteString("\n\n## 下游协作方（需要时 @ 触发）\n")
-		sb.WriteString("**重要格式规则**：@mention 必须单独成行，不能嵌入句子中。\n")
-		sb.WriteString("正确示例：\n```\n@后端开发工程师 请实现用户登录 API\n```\n")
-		sb.WriteString("错误示例：\n```\n确认后我将 @后端开发工程师 进行实现  ← 无效，不会触发\n```\n\n")
+		sb.WriteString("**⚠️ 触发规则（必须精确遵守，否则下游不会被拉起）**：\n")
+		sb.WriteString("@mention 必须是**整行的第一个字符**（允许前导空白，不允许任何其他字符）。\n\n")
+		sb.WriteString("✅ 触发格式（下游会被拉起）：\n```\n@全栈开发工程师 请实现登录 API\n```\n\n")
+		sb.WriteString("❌ 以下写法**全部无效**，下游不会被拉起：\n")
+		sb.WriteString("- Markdown 加粗前缀：`**接收方：** @全栈开发工程师`\n")
+		sb.WriteString("- 列表项前缀：`- @全栈开发工程师 请实现`\n")
+		sb.WriteString("- 表格单元格：`| 接收方 | @全栈开发工程师 |`\n")
+		sb.WriteString("- 引用块：`> @全栈开发工程师`\n")
+		sb.WriteString("- 标题内：`## @全栈开发工程师`\n")
+		sb.WriteString("- 嵌入句子：`确认后我 @全栈开发工程师 实现`\n\n")
+		sb.WriteString("**自检**：写完后逐行看 —— 触发 @mention 的那一行，去掉前导空格后，**第一个字符必须是 @**，否则改写。\n\n")
 		sb.WriteString("可用的下游协作方：\n")
 		for _, t := range transitions {
 			toAgent := agentMap[t.ToAgentID]
