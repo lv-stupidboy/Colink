@@ -239,6 +239,7 @@ func openContextBuilderTestDB(t *testing.T) *sql.DB {
 			message_type TEXT,
 			metadata BLOB,
 			created_at TEXT NOT NULL,
+			sortable_id TEXT,
 			reported_at TIMESTAMP NULL,
 			mentions BLOB,
 			origin TEXT,

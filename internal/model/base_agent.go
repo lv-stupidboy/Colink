@@ -13,19 +13,20 @@ type BaseAgentType string
 
 // BaseAgent 基础Agent配置模型
 type BaseAgent struct {
-	ID             uuid.UUID     `json:"id"`
-	Name           string        `json:"name"`
-	Type           BaseAgentType `json:"type"`
-	ApiURL         string        `json:"apiUrl,omitempty"`
-	ApiToken       string        `json:"apiToken,omitempty"` // 加密存储，返回时隐藏
-	DefaultModel   string        `json:"defaultModel"`
-	CliPath        string        `json:"cliPath"`
-	GitBashPath    string        `json:"gitBashPath,omitempty"` // Windows下git-bash路径，用于Claude CLI
-	MaxTokens      int           `json:"maxTokens"`
-	TimeoutMinutes int           `json:"timeoutMinutes"`
-	IsDefault      bool          `json:"is_default"` // 是否为默认基础Agent
-	CreatedAt      time.Time     `json:"createdAt"`
-	UpdatedAt      time.Time     `json:"updatedAt"`
+	ID                  uuid.UUID     `json:"id"`
+	Name                string        `json:"name"`
+	Type                BaseAgentType `json:"type"`
+	ApiURL              string        `json:"apiUrl,omitempty"`
+	ApiToken            string        `json:"apiToken,omitempty"` // 加密存储，返回时隐藏
+	DefaultModel        string        `json:"defaultModel"`
+	CliPath             string        `json:"cliPath"`
+	GitBashPath         string        `json:"gitBashPath,omitempty"` // Windows下git-bash路径，用于Claude CLI
+	MaxTokens           int           `json:"maxTokens"`
+	TimeoutMinutes      int           `json:"timeoutMinutes"`
+	IsDefault           bool          `json:"is_default"` // 是否为默认基础Agent
+	SupportsMultiplexing bool         `json:"supportsMultiplexing"` // 是否支持多lease共享进程
+	CreatedAt           time.Time     `json:"createdAt"`
+	UpdatedAt           time.Time     `json:"updatedAt"`
 }
 
 func (b *BaseAgent) TableName() string {

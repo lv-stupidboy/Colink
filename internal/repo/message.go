@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/anthropic/isdp/internal/model"
+	"github.com/anthropic/isdp/pkg/sortid"
 	"github.com/google/uuid"
 )
 
@@ -24,13 +25,18 @@ func NewMessageRepository(db *sql.DB, dbType DBType) *MessageRepository {
 }
 
 // Create 创建消息
+//
+// S2W1: SortableID 在此内部生成，保证与 CreatedAt 单调对齐。
+// 上层不应也不需要自己填 msg.SortableID（会被覆盖）。
 func (r *MessageRepository) Create(ctx context.Context, msg *model.Message) error {
 	query := `
-		INSERT INTO messages (id, thread_id, role, agent_id, content, content_blocks, message_type, metadata, created_at, mentions, origin, reply_to)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO messages (id, thread_id, role, agent_id, content, content_blocks, message_type, metadata, created_at, sortable_id, mentions, origin, reply_to)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	msg.ID = uuid.New()
 	msg.CreatedAt = time.Now()
+	// SortableID 必须在 CreatedAt 之后生成，保证与之单调对齐
+	msg.SortableID = sortid.NewAt(msg.CreatedAt)
 
 	var replyTo interface{}
 	if msg.ReplyTo != nil {
@@ -38,7 +44,7 @@ func (r *MessageRepository) Create(ctx context.Context, msg *model.Message) erro
 	}
 
 	_, err := r.DB().ExecContext(ctx, query,
-		msg.ID.String(), msg.ThreadID.String(), msg.Role, msg.AgentID, msg.Content, msg.ContentBlocks, msg.MessageType, msg.Metadata, msg.CreatedAt,
+		msg.ID.String(), msg.ThreadID.String(), msg.Role, msg.AgentID, msg.Content, msg.ContentBlocks, msg.MessageType, msg.Metadata, msg.CreatedAt, msg.SortableID,
 		serializeStrings(msg.Mentions), msg.Origin, replyTo,
 	)
 	return err
@@ -48,7 +54,7 @@ func (r *MessageRepository) Create(ctx context.Context, msg *model.Message) erro
 func (r *MessageRepository) FindByThreadID(ctx context.Context, threadID uuid.UUID, limit int) ([]*model.Message, error) {
 	// 先用 DESC 取最新的 N 条，然后反转顺序
 	query := `
-		SELECT id, thread_id, role, agent_id, content, content_blocks, message_type, metadata, created_at, mentions, origin, reply_to
+		SELECT id, thread_id, role, agent_id, content, content_blocks, message_type, metadata, created_at, sortable_id, mentions, origin, reply_to
 		FROM messages WHERE thread_id = ? ORDER BY created_at DESC LIMIT ?
 	`
 	rows, err := r.DB().QueryContext(ctx, query, threadID.String(), limit)
@@ -87,7 +93,7 @@ func (r *MessageRepository) FindByThreadIDBeforeCursor(ctx context.Context, thre
 
 	// 查询比 cursor 更早的消息，用 DESC 取最新的 N 条，然后反转
 	query := `
-		SELECT id, thread_id, role, agent_id, content, content_blocks, message_type, metadata, created_at, mentions, origin, reply_to
+		SELECT id, thread_id, role, agent_id, content, content_blocks, message_type, metadata, created_at, sortable_id, mentions, origin, reply_to
 		FROM messages WHERE thread_id = ? AND created_at < ? ORDER BY created_at DESC LIMIT ?
 	`
 	rows, err := r.DB().QueryContext(ctx, query, threadID.String(), cursorTime.Time, limit)
@@ -124,7 +130,7 @@ func (r *MessageRepository) CountByThreadID(ctx context.Context, threadID uuid.U
 // GetRecent 获取最近消息
 func (r *MessageRepository) GetRecent(ctx context.Context, threadID uuid.UUID, limit int) ([]*model.Message, error) {
 	query := `
-		SELECT id, thread_id, role, agent_id, content, content_blocks, message_type, metadata, created_at, mentions, origin, reply_to
+		SELECT id, thread_id, role, agent_id, content, content_blocks, message_type, metadata, created_at, sortable_id, mentions, origin, reply_to
 		FROM messages WHERE thread_id = ? ORDER BY created_at DESC LIMIT ?
 	`
 	rows, err := r.DB().QueryContext(ctx, query, threadID.String(), limit)
@@ -149,7 +155,7 @@ func (r *MessageRepository) FindMentionsForAgent(ctx context.Context, threadID u
 	// 使用 JSON 数组查询：检查 mentions 数组中是否包含 catID
 	// SQLite/MySQL JSON 函数: JSON_CONTAINS 或 LIKE
 	query := `
-		SELECT id, thread_id, role, agent_id, content, content_blocks, message_type, metadata, created_at, mentions, origin, reply_to
+		SELECT id, thread_id, role, agent_id, content, content_blocks, message_type, metadata, created_at, sortable_id, mentions, origin, reply_to
 		FROM messages
 		WHERE thread_id = ? AND mentions LIKE ?
 		ORDER BY created_at DESC
@@ -176,11 +182,65 @@ func (r *MessageRepository) FindMentionsForAgent(ctx context.Context, threadID u
 // GetByID 根据ID获取消息
 func (r *MessageRepository) GetByID(ctx context.Context, id uuid.UUID) (*model.Message, error) {
 	query := `
-		SELECT id, thread_id, role, agent_id, content, content_blocks, message_type, metadata, created_at, mentions, origin, reply_to
+		SELECT id, thread_id, role, agent_id, content, content_blocks, message_type, metadata, created_at, sortable_id, mentions, origin, reply_to
 		FROM messages WHERE id = ?
 	`
 	row := r.DB().QueryRowContext(ctx, query, id.String())
 	return r.scanMessageRow(row)
+}
+
+// GetByThreadAfter 拉取 thread 中 sortable_id > afterID 的消息，按 sortable_id 升序。
+//
+// 借鉴 clowder-ai RedisMessageStore.ts:472-503 getByThreadAfter 语义：
+//   - afterID == "" → 从头拉（该 thread 全部消息）
+//   - afterID != "" → 拉严格大于 afterID 的所有消息
+//   - limit == 0    → 无限制（拉全部，交给内存层过滤 / 裁剪）
+//
+// 与旧 FindByThreadIDBeforeCursor 不同：
+//   - Before 按 created_at 倒序取分页，用于历史向上滚动加载
+//   - After  按 sortable_id 正序取增量，用于 delivery cursor 拉未读
+func (r *MessageRepository) GetByThreadAfter(ctx context.Context, threadID uuid.UUID, afterID string, limit int) ([]*model.Message, error) {
+	var (
+		query string
+		args  []interface{}
+	)
+	if afterID == "" {
+		if limit > 0 {
+			query = `SELECT id, thread_id, role, agent_id, content, content_blocks, message_type, metadata, created_at, sortable_id, mentions, origin, reply_to
+				FROM messages WHERE thread_id = ? ORDER BY sortable_id ASC LIMIT ?`
+			args = []interface{}{threadID.String(), limit}
+		} else {
+			query = `SELECT id, thread_id, role, agent_id, content, content_blocks, message_type, metadata, created_at, sortable_id, mentions, origin, reply_to
+				FROM messages WHERE thread_id = ? ORDER BY sortable_id ASC`
+			args = []interface{}{threadID.String()}
+		}
+	} else {
+		if limit > 0 {
+			query = `SELECT id, thread_id, role, agent_id, content, content_blocks, message_type, metadata, created_at, sortable_id, mentions, origin, reply_to
+				FROM messages WHERE thread_id = ? AND sortable_id > ? ORDER BY sortable_id ASC LIMIT ?`
+			args = []interface{}{threadID.String(), afterID, limit}
+		} else {
+			query = `SELECT id, thread_id, role, agent_id, content, content_blocks, message_type, metadata, created_at, sortable_id, mentions, origin, reply_to
+				FROM messages WHERE thread_id = ? AND sortable_id > ? ORDER BY sortable_id ASC`
+			args = []interface{}{threadID.String(), afterID}
+		}
+	}
+
+	rows, err := r.DB().QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	msgs := make([]*model.Message, 0)
+	for rows.Next() {
+		msg, err := r.scanMessage(rows)
+		if err != nil {
+			return nil, err
+		}
+		msgs = append(msgs, msg)
+	}
+	return msgs, nil
 }
 
 // scanMessage 扫描消息行
@@ -192,10 +252,11 @@ func (r *MessageRepository) scanMessage(rows *sql.Rows) (*model.Message, error) 
 	var mentionsJSON []byte
 	var origin sql.NullString
 	var replyTo sql.NullString
+	var sortableID sql.NullString
 	var createdAt SQLiteTimeScanner
 
 	err := rows.Scan(
-		&idStr, &threadIDStr, &msg.Role, &msg.AgentID, &msg.Content, &contentBlocks, &msg.MessageType, &metadata, &createdAt,
+		&idStr, &threadIDStr, &msg.Role, &msg.AgentID, &msg.Content, &contentBlocks, &msg.MessageType, &metadata, &createdAt, &sortableID,
 		&mentionsJSON, &origin, &replyTo,
 	)
 	if err != nil {
@@ -208,6 +269,7 @@ func (r *MessageRepository) scanMessage(rows *sql.Rows) (*model.Message, error) 
 	msg.Metadata = json.RawMessage(metadata)
 	msg.Mentions = deserializeStrings(mentionsJSON)
 	msg.Origin = origin.String
+	msg.SortableID = sortableID.String
 	msg.CreatedAt = createdAt.Time
 	if replyTo.Valid {
 		replyToID, _ := uuid.Parse(replyTo.String)
@@ -226,10 +288,11 @@ func (r *MessageRepository) scanMessageRow(row *sql.Row) (*model.Message, error)
 	var mentionsJSON []byte
 	var origin sql.NullString
 	var replyTo sql.NullString
+	var sortableID sql.NullString
 	var createdAt SQLiteTimeScanner
 
 	err := row.Scan(
-		&idStr, &threadIDStr, &msg.Role, &msg.AgentID, &msg.Content, &contentBlocks, &msg.MessageType, &metadata, &createdAt,
+		&idStr, &threadIDStr, &msg.Role, &msg.AgentID, &msg.Content, &contentBlocks, &msg.MessageType, &metadata, &createdAt, &sortableID,
 		&mentionsJSON, &origin, &replyTo,
 	)
 	if err != nil {
@@ -242,6 +305,7 @@ func (r *MessageRepository) scanMessageRow(row *sql.Row) (*model.Message, error)
 	msg.Metadata = json.RawMessage(metadata)
 	msg.Mentions = deserializeStrings(mentionsJSON)
 	msg.Origin = origin.String
+	msg.SortableID = sortableID.String
 	msg.CreatedAt = createdAt.Time
 	if replyTo.Valid {
 		replyToID, _ := uuid.Parse(replyTo.String)
@@ -287,7 +351,7 @@ func (r *MessageRepository) Update(ctx context.Context, msg *model.Message) erro
 // 按 created_at 升序排列，限制单次上报数量
 func (r *MessageRepository) FindUnreportedForReporting(ctx context.Context, limit int) ([]*model.Message, error) {
 	query := `
-		SELECT id, thread_id, role, agent_id, content, content_blocks, message_type, metadata, created_at, reported_at, mentions, origin, reply_to
+		SELECT id, thread_id, role, agent_id, content, content_blocks, message_type, metadata, created_at, sortable_id, reported_at, mentions, origin, reply_to
 		FROM messages
 		WHERE reported_at IS NULL AND role IN ('user', 'agent')
 		ORDER BY created_at ASC
@@ -319,11 +383,12 @@ func (r *MessageRepository) scanMessageWithReported(rows *sql.Rows) (*model.Mess
 	var mentionsJSON []byte
 	var origin sql.NullString
 	var replyTo sql.NullString
+	var sortableID sql.NullString
 	var createdAt SQLiteTimeScanner
 	var reportedAt sql.NullTime // 使用 sql.NullTime 处理 NULL 值
 
 	err := rows.Scan(
-		&idStr, &threadIDStr, &msg.Role, &msg.AgentID, &msg.Content, &contentBlocks, &msg.MessageType, &metadata, &createdAt,
+		&idStr, &threadIDStr, &msg.Role, &msg.AgentID, &msg.Content, &contentBlocks, &msg.MessageType, &metadata, &createdAt, &sortableID,
 		&reportedAt, // 新增字段
 		&mentionsJSON, &origin, &replyTo,
 	)
@@ -337,6 +402,7 @@ func (r *MessageRepository) scanMessageWithReported(rows *sql.Rows) (*model.Mess
 	msg.Metadata = json.RawMessage(metadata)
 	msg.Mentions = deserializeStrings(mentionsJSON)
 	msg.Origin = origin.String
+	msg.SortableID = sortableID.String
 	msg.CreatedAt = createdAt.Time
 	if reportedAt.Valid {
 		msg.ReportedAt = &reportedAt.Time

@@ -46,6 +46,12 @@ type Message struct {
 	CreatedAt   time.Time       `json:"createdAt"`
 	ReportedAt  *time.Time      `json:"reportedAt,omitempty"` // 上报时间，NULL 表示未上报
 
+	// SortableID 字典序单调 ID，供 A2A 拉模式 cursor 使用
+	// 格式：{ts_ms_16padded}-{seq_6padded}-{uuid_prefix_8}
+	// 由 repo.MessageRepository.Create 内部生成（保证与 CreatedAt 单调对齐），
+	// 上层不需要也不应该自己填。
+	SortableID string `json:"sortableId,omitempty"`
+
 	// A2A 相关字段
 	Mentions     []string    `json:"mentions,omitempty"`      // 被 @mention 的 Agent IDs
 	MentionsUser bool        `json:"mentionsUser,omitempty"` // 是否 @用户

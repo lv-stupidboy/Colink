@@ -2,7 +2,9 @@ package a2a
 
 import (
 	"context"
+	"time"
 
+	"github.com/anthropic/isdp/internal/service/agent"
 	"go.uber.org/zap"
 )
 
@@ -75,4 +77,99 @@ func (r *SessionRecorderImpl) RecordSuccessfulSession(threadID, configID, sessio
 			zap.String("catId", configID),
 			zap.String("recordId", record.ID))
 	}
+}
+
+// RecordPendingSession 记录待执行会话（CLI 执行前持久化）
+// 确保 CLI 取消或崩溃后仍能通过 sessionID resume 上下文
+func (r *SessionRecorderImpl) RecordPendingSession(threadID, configID, sessionID string) {
+	if sessionID == "" {
+		return
+	}
+
+	store := GetSessionChainStore()
+
+	// 创建会话记录（active 状态，表示正在执行）
+	record := store.Create(CreateSessionInput{
+		CLISessionID: sessionID,
+		ThreadID:     threadID,
+		CatID:        configID,
+		UserID:       "",
+	})
+
+	if record != nil {
+		zap.L().Info("Pending session recorded (before CLI execution)",
+			zap.String("sessionId", sessionID),
+			zap.String("threadId", threadID),
+			zap.String("catId", configID),
+			zap.String("recordId", record.ID))
+	}
+}
+
+// IncrementConsecutiveFailures 增加连续恢复失败计数
+func (r *SessionRecorderImpl) IncrementConsecutiveFailures(threadID, configID, sessionID string) {
+	if sessionID == "" {
+		return
+	}
+
+	store := GetSessionChainStore()
+	store.IncrementConsecutiveFailures(configID, sessionID)
+	zap.L().Warn("ConsecutiveRestoreFailures incremented",
+		zap.String("sessionId", sessionID),
+		zap.String("threadId", threadID),
+		zap.String("catId", configID))
+}
+
+// ResetConsecutiveFailures 重置连续恢复失败计数
+func (r *SessionRecorderImpl) ResetConsecutiveFailures(threadID, configID, sessionID string) {
+	if sessionID == "" {
+		return
+	}
+
+	store := GetSessionChainStore()
+	store.ResetConsecutiveFailures(configID, sessionID)
+	zap.L().Info("ConsecutiveRestoreFailures reset",
+		zap.String("sessionId", sessionID),
+		zap.String("threadId", threadID),
+		zap.String("catId", configID))
+}
+
+// CheckAndSealOnOverflow Circuit Breaker 检查，返回是否应该终止执行
+func (r *SessionRecorderImpl) CheckAndSealOnOverflow(threadID, configID string) bool {
+	store := GetSessionChainStore()
+
+	// 获取活跃 session
+	sessionRecord := store.GetActive(configID, threadID)
+	if sessionRecord == nil {
+		return false
+	}
+
+	// 检查连续失败次数是否达到阈值
+	if sessionRecord.ConsecutiveRestoreFailures < agent.MAX_CONSECUTIVE_FAILURES {
+		return false
+	}
+
+	// 通过 store.Update 加锁封装完成 seal，避免直接改指针字段与 Get/List 并发的 race
+	// （C1 code review 修复：Status/SealReason/SealedAt 是路由决策读取的字段，
+	// 半更新状态会导致下游走错分支）
+	sealedAt := time.Now().Unix()
+	sealed := SessionStatusSealed
+	reason := SealReasonThreshold
+	updated := store.Update(sessionRecord.ID, SessionRecordPatch{
+		Status:     &sealed,
+		SealReason: &reason,
+		SealedAt:   &sealedAt,
+	})
+	if updated == nil {
+		zap.L().Warn("Circuit Breaker seal failed: session vanished before update",
+			zap.String("threadId", threadID),
+			zap.String("configId", configID),
+			zap.String("recordId", sessionRecord.ID))
+		return false
+	}
+
+	zap.L().Warn("Circuit Breaker triggered, sealing session",
+		zap.String("threadId", threadID),
+		zap.String("configId", configID),
+		zap.Int("consecutiveFailures", sessionRecord.ConsecutiveRestoreFailures))
+	return true
 }

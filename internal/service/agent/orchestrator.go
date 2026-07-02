@@ -382,3 +382,12 @@ func (o *Orchestrator) SetSessionManager(sm *SessionManager) {
 func (o *Orchestrator) SetMCPBindingRepository(repo *repo.AgentMCPBindingRepository) {
 	o.executionService.SetMCPBindingRepository(repo)
 }
+
+// SetCursorStore 启用/关闭 DeliveryCursor 拉模式（S2W4）
+// 由 cmd/server/main.go 根据 config.Agent.DeliveryCursor.Enabled 决定是否调用。
+// 注意：外部访问 ExecutionService 请用 GetExecutionService()。
+//
+// H3 修复：maxMessages/maxTokens 支持配置化，传 <=0 走默认值。
+func (o *Orchestrator) SetCursorStore(store *DeliveryCursorStore, enabled bool, maxMessages, maxTokens int) {
+	o.executionService.SetCursorStore(store, enabled, maxMessages, maxTokens)
+}

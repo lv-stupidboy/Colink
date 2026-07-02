@@ -25,6 +25,12 @@ func (r *testSessionRecorder) RecordSuccessfulSession(threadID, configID, sessio
 	r.successful = append(r.successful, threadID+":"+configID+":"+sessionID)
 }
 
+// 以下方法用于满足合并后扩展的 SessionRecorder 接口，测试中默认为 no-op。
+func (r *testSessionRecorder) RecordPendingSession(threadID, configID, sessionID string) {}
+func (r *testSessionRecorder) IncrementConsecutiveFailures(threadID, configID, sessionID string) {}
+func (r *testSessionRecorder) ResetConsecutiveFailures(threadID, configID, sessionID string)     {}
+func (r *testSessionRecorder) CheckAndSealOnOverflow(threadID, configID string) bool             { return false }
+
 func TestExecutionErrorHelpers(t *testing.T) {
 	cases := []struct {
 		err  error

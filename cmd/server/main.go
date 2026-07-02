@@ -131,6 +131,10 @@ func main() {
 	// 设置 SessionRecorder（用于记录 A2A 失败/成功会话）
 	agent.SetSessionRecorder(a2a.NewSessionRecorderImpl())
 
+	// C3 修复：注入 CliSessionStore，把 SessionChainStore 的 DB backed cliSessions
+	// 和 ExecutionService 的进程内 cache 打通，Resume 场景跨进程重启也可用。
+	agent.SetCliSessionStore(a2a.GetSessionChainStore())
+
 	// 设置 Claude Code ACP 模式（根据 config.yaml 的 claude_code.use_acp 配置）
 	// 开启后 Claude Code adapter 使用 claude-agent-acp CLI（ACP 协议）
 	// 关闭后使用原生 claude CLI（Anthropic API streaming format）
@@ -151,6 +155,13 @@ func main() {
 	_ = dialect // 方言对象保留供后续使用
 
 	logger.Info("Database connected successfully")
+
+	// 初始化全局 SessionChainStore（启动时恢复 cliSessions 缓存）
+	// C5 修复：允许 config 定制恢复窗口（默认 7 天）
+	a2a.SetRestoreWindowHours(cfg.Agent.SessionChain.RestoreWindowHours)
+	a2a.InitGlobalSessionChainStore(db)
+	logger.Info("SessionChainStore initialized, cliSessions cache will be restored",
+		zap.Int("restoreWindowHours", cfg.Agent.SessionChain.RestoreWindowHours))
 
 	// 检查数据库关键表是否存在（用于定位安装时迁移问题）
 	checkDatabaseTables(db, logger)
@@ -445,6 +456,19 @@ func main() {
 	orchestrator.SetMCPBindingRepository(agentMCPBindingRepo)
 	logger.Info("SessionManager initialized and injected into Orchestrator")
 
+	// S2W4: DeliveryCursor 拉模式（feature flag: agent.delivery_cursor.enabled）
+	// 关闭时（默认）保持 legacy 行为；启用后 A2A 下游走增量拉取 + deferred ack。
+	{
+		dcCfg := cfg.Agent.DeliveryCursor
+		deliveryCursorRepo := repo.NewDeliveryCursorRepository(db, dbType)
+		cursorStore := agent.NewDeliveryCursorStore(deliveryCursorRepo)
+		orchestrator.SetCursorStore(cursorStore, dcCfg.Enabled, dcCfg.MaxMessages, dcCfg.MaxTokens)
+		logger.Info("DeliveryCursor configured",
+			zap.Bool("enabled", dcCfg.Enabled),
+			zap.Int("maxMessages", dcCfg.MaxMessages),
+			zap.Int("maxTokens", dcCfg.MaxTokens))
+	}
+
 	// 设置 MCP server 路径（用于 Agent 记忆工具调用）
 	// 开发模式与安装模式：均从 bin 目录查找 mcp-server
 	// 安装器会将 resources/bin/ 整体复制到安装目录的 bin/
@@ -472,6 +496,9 @@ func main() {
 	// 启动恢复：检测并标记孤儿 invocation（后台执行支持）
 	startupReconciler := agent.NewStartupReconciler(invocationRepo, contentBlockRepo)
 	startupReconciler.Reconcile(context.Background())
+
+	// ProcessPool 预热：后台异步预热常用Agent进程，减少首次调用延迟
+	warmupProcessPool(db, orchestrator, agentConfigRepo, logger)
 
 	// 连接Message服务和Agent编排器（用户消息触发Agent）
 	messageService.SetAgentSpawner(orchestrator)
@@ -1099,4 +1126,21 @@ func checkDatabaseTables(db *sql.DB, logger *zap.Logger) {
 				zap.String("size_mb", fmt.Sprintf("%.2f", float64(dbSize)/1024/1024)))
 		}
 	}
+}
+
+
+// warmupProcessPool 预热进程池（服务启动时后台异步预热常用Agent）
+// 减少首次调用延迟：5秒 → 0.5秒（目标：85%）
+func warmupProcessPool(db *sql.DB, orchestrator *agent.Orchestrator, agentConfigRepo *repo.AgentConfigRepository, logger *zap.Logger) {
+	// 获取 ExecutionService
+	execSvc := orchestrator.GetExecutionService()
+	if execSvc == nil {
+		logger.Warn("ProcessPool warmup: ExecutionService not available")
+		return
+	}
+
+	// 调用 ExecutionService 的 WarmupProcessPool 方法
+	execSvc.WarmupProcessPool(db, agentConfigRepo)
+
+	logger.Info("ProcessPool warmup initiated")
 }

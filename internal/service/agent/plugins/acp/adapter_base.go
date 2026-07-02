@@ -121,7 +121,13 @@ func (a *BaseACPAdapter) Execute(ctx context.Context, req *agent.ExecutionReques
 }
 
 func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.ExecutionRequest, onChunk func(agent.Chunk)) (*agent.ExecutionResult, error) {
-	cliStartTime := time.Now()
+	// === SessionID 处理策略 ===
+	// 新会话（SessionStrategyNew）：让 CLI session/new 生成真实 SessionID，不提前生成假 ID
+	// 恢复会话（SessionStrategyResume）：已有真实 SessionID（从持久化加载），不需重新生成
+	// ❌ 禁止提前生成假 SessionID（会导致 CLI session/load 失败）
+	// ✅ 正确流程：
+	//   - 新会话：调用 CLI session/new → 获取真实 ID → 使用真实 ID
+	//   - 恢复会话：从数据库加载真实 ID → 调用 CLI session/load
 
 	args := a.Config.BuildArgs(req)
 	cmd := exec.CommandContext(ctx, a.Config.CliPath, args...)
@@ -178,8 +184,6 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 		psCmd.WriteString("'")
 	}
 	LogInfo("ACP: PowerShell command", zap.String("psCommand", psCmd.String()))
-
-	LogInfo("[PERF] ACP cmd.Start", zap.Duration("duration", time.Since(cliStartTime)))
 
 	// 设置 invocationID 用于 AskUserQuestion 答案发送
 	var invocationIDStr string
@@ -242,6 +246,12 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 	session.transport = transport
 	transport.Start()
 
+	// ProcessPool 集成：进程初始化完成，通知 ExecutionService 填充 Lease.Client
+	if req.OnProcessInitialized != nil {
+		req.OnProcessInitialized(session)
+		LogInfo("ACP: OnProcessInitialized callback called", zap.String("isdpID", invocationIDStr))
+	}
+
 	initResult, err := transport.SendRequest("initialize", &acpInitializeParams{
 		ProtocolVersion: 2025,
 		ClientCapabilities: acpClientCapabilities{
@@ -261,8 +271,6 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 	if err := json.Unmarshal(initResult, &initResp); err != nil {
 		LogWarn("ACP: initialize response parse warning", zap.Error(err))
 	}
-	LogInfo("[PERF] ACP initialize handshake", zap.Duration("duration", time.Since(cliStartTime)),
-		zap.Int("protocolVersion", initResp.ProtocolVersion))
 
 	// 发送 gateway authenticate（如果配置了第三方 API）
 	if err := a.sendAuthenticate(transport); err != nil {
@@ -296,15 +304,38 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 	if err := json.Unmarshal(sessionNewResult, &sessionResp); err != nil {
 		LogWarn("ACP: session/new response parse warning", zap.Error(err))
 	}
+
+	// === SessionID 优先级（参考 clowder-ai 正确实现）===
+	// ✅ 正确逻辑：真实 ID 覆盖假 ID（恢复原始逻辑）
+	// 1. 优先使用 CLI session/new 返回的真实 SessionID
+	// 2. 如果 CLI 未返回，使用 req.SessionID（可能是从数据库加载的真实 ID）
+	// 3. 如果两者都为空，生成后备 ID（极少情况）
 	if sessionResp.SessionID != "" {
+		// ✅ CLI 返回真实 SessionID → 使用真实 ID（覆盖可能的假 ID）
 		session.id = sessionResp.SessionID
+		LogInfo("ACP: using CLI-generated sessionID",
+			zap.String("sessionId", session.id),
+			zap.String("invocationId", invocationIDStr))
+	} else if req.SessionID != "" {
+		// CLI 未返回，使用 req.SessionID（可能从数据库加载）
+		session.id = req.SessionID
+		LogInfo("ACP: using req.SessionID (from persistence)",
+			zap.String("sessionId", session.id),
+			zap.String("invocationId", invocationIDStr))
 	} else {
+		// 后备：两者都为空，生成新 ID（极少情况）
 		session.id = uuid.New().String()
+		LogWarn("ACP: fallback UUID generation (CLI and req both empty)",
+			zap.String("sessionId", session.id),
+			zap.String("invocationId", invocationIDStr))
 	}
 
-	// 立即回调持久化 session ID，不等进程退出，确保取消/崩溃后仍可 resume
-	if req.OnSessionIDAcquired != nil {
-		req.OnSessionIDAcquired(session.id)
+	// 如果 req.SessionID 为空（未提前生成），现在立即回调持久化
+	// 如果已提前生成并持久化，这里不重复调用
+	if req.SessionID == "" {
+		if req.OnSessionIDAcquired != nil {
+			req.OnSessionIDAcquired(session.id)
+		}
 	}
 
 	LogInfo("ACP: session created",
@@ -319,6 +350,7 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 	// 构建内容块列表（文本 + 图片）
 	contentBlocks := a.buildContentBlocks(prompt, req.Images)
 	LogInfo("ACP: buildContentBlocks", zap.Int("textLen", len(prompt)), zap.Int("imagesCount", len(req.Images)), zap.Int("blocksCount", len(contentBlocks)))
+
 	promptResult, err := transport.SendRequest("session/prompt", &acpPromptParams{
 		SessionID: session.id,
 		Prompt:    contentBlocks,
@@ -337,11 +369,6 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 		LogWarn("ACP: prompt response parse warning", zap.Error(err))
 	}
 
-	LogInfo("[PERF] ACP total execution",
-		zap.Duration("duration", time.Since(cliStartTime)),
-		zap.String("stopReason", promptResp.StopReason),
-		zap.String("promptResultRaw", string(promptResult)))
-
 	// 注意：不调用 session/close，因为它会释放资源并清理 session 数据
 	// SDK 会自动持久化 session 到磁盘，不需要显式调用 close
 	// 只有需要删除 session 时才调用 session/delete
@@ -358,7 +385,21 @@ func (a *BaseACPAdapter) ExecuteWithStream(ctx context.Context, req *agent.Execu
 
 	session.mu.Lock()
 	output := session.output.String()
+	stderrContent := session.stderrOutput.String()
 	session.mu.Unlock()
+
+	// 静默失败检测：CLI 正常退出但没有产生任何 output，通常意味着上游认证/gateway
+	// 失败被吞了（典型：apiKey 字段污染）。返回明确错误让上层能感知并展示。
+	if silentErr := detectSilentFailure(output, stderrContent, promptResp.StopReason); silentErr != nil {
+		LogWarn("ACP: silent failure detected in ExecuteWithStream",
+			zap.String("sessionId", session.id),
+			zap.String("stopReason", promptResp.StopReason),
+			zap.Error(silentErr))
+		return &agent.ExecutionResult{
+			Output:    output,
+			SessionID: session.id,
+		}, silentErr
+	}
 
 	return &agent.ExecutionResult{
 		Output:    output,
@@ -1507,6 +1548,48 @@ func (a *BaseACPAdapter) configureViaConfigOptions(transport *acpTransport, sess
 	return nil
 }
 
+// detectSilentFailure identifies ACP invocations that reported "success" but
+// produced no output — the classic symptom of an upstream auth / gateway error
+// that the CLI swallowed. Returns a non-nil error when the caller should treat
+// the invocation as failed instead of silently completing.
+//
+// Trigger conditions（三条同时满足才判定为静默失败）：
+//   - output 为空（session.output.Len() == 0）
+//   - stderr 也无内容（进程没有报告任何错误）
+//   - stopReason 属于"非预期完结"（空 / cancelled / refusal）
+//     ("end_turn" 是模型主动收尾的正常语义，但空输出 + end_turn 仍是可疑
+//      —— 典型场景：认证失败被 CLI 吞掉。用 stopReason 加强诊断信息。)
+//
+// 显式指出根因：认证 / API key 污染是最常见的诱因，直接在错误消息中提示，
+// 让 A2A 上层的 handleAgentErrorWithContext 能把这个信号展示给用户。
+func detectSilentFailure(output string, stderr string, stopReason string) error {
+	if len(output) > 0 {
+		return nil
+	}
+	// stderr 有内容说明 CLI 已报错，走 CLI error 路径即可，不再做二次判定
+	if len(stderr) > 0 {
+		return nil
+	}
+	// end_turn 空输出：最典型的认证/gateway 静默失败
+	// cancelled/refusal：语义就是失败
+	switch stopReason {
+	case "", "end_turn", "cancelled", "refusal":
+		reasonHint := stopReason
+		if reasonHint == "" {
+			reasonHint = "unknown"
+		}
+		return fmt.Errorf(
+			"ACP invocation produced no output (stopReason=%q, stderr empty). "+
+				"Likely causes: (1) API key / apiKey field contaminated or invalid, "+
+				"(2) gateway auth rejected, "+
+				"(3) model provider silently refused. "+
+				"Check Agent's base_agent config, especially the apiKey and baseURL fields.",
+			reasonHint,
+		)
+	}
+	return nil
+}
+
 func (a *BaseACPAdapter) cleanup(session *acpSession) {
 	// 诊断：cleanup 调用时打印关键指标（info 级别）
 	session.mu.Lock()
@@ -2459,6 +2542,12 @@ func (a *BaseACPAdapter) ExecuteWithResume(ctx context.Context, req *agent.Execu
 		session.transport = transport
 		transport.Start()
 
+		// ProcessPool 集成：进程初始化完成，通知 ExecutionService 填充 Lease.Client
+		if req.OnProcessInitialized != nil {
+			req.OnProcessInitialized(session)
+			LogInfo("ACP: OnProcessInitialized callback called (ExecuteWithResume)", zap.String("isdpID", isdpIDStr))
+		}
+
 		// 保存 session 到 sessions map
 		a.mu.Lock()
 		a.sessions[isdpIDStr] = session
@@ -2608,16 +2697,29 @@ func (a *BaseACPAdapter) ExecuteWithResume(ctx context.Context, req *agent.Execu
 		if err := json.Unmarshal(promptResult, &promptResp); err != nil {
 			LogWarn("ACP: prompt response parse warning", zap.Error(err))
 		}
-		LogInfo("[PERF] ACP ExecuteWithResume execution",
-			zap.String("acpSessionId", acpSessionID),
-			zap.String("stopReason", promptResp.StopReason))
 
 		a.cleanup(session)
 		wg.Wait()
 
 		session.mu.Lock()
 		output := session.output.String()
+		stderrContent := session.stderrOutput.String()
 		session.mu.Unlock()
+
+		// 静默失败检测：CLI 正常退出但没有产生任何 output，通常意味着上游认证/gateway
+		// 失败被吞了（典型：apiKey 字段污染）。返回明确错误让上层能感知并展示。
+		if silentErr := detectSilentFailure(output, stderrContent, promptResp.StopReason); silentErr != nil {
+			LogWarn("ACP: silent failure detected in ExecuteWithResume",
+				zap.String("sessionId", session.id),
+				zap.String("acpSessionId", acpSessID),
+				zap.String("stopReason", promptResp.StopReason),
+				zap.Error(silentErr))
+			result = &agent.ExecutionResult{
+				Output:    output,
+				SessionID: acpSessID,
+			}
+			return result, acpSessID, silentErr
+		}
 
 		result = &agent.ExecutionResult{
 			Output:    output,

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"strconv"
 	"strings"
 	"sync"
 
@@ -19,6 +20,20 @@ const (
 
 	// A2A Handoff 预算控制
 	DefaultHandoffMaxTokens = 800 // 五件套交接块最大 token 数
+
+	// Token 预算阈值分级
+	WarnThreshold   = 0.75  // 警告阈值：建议采取行动
+	ActionThreshold = 0.85  // 行动阈值：必须采取行动
+	TurnBudget      = 12000 // 单轮 Token 预算
+)
+
+// StrategyAction 表示根据 Token 预算状态应采取的行动类型
+type StrategyAction int
+
+const (
+	ActionNone StrategyAction = iota // 无需行动
+	ActionWarn                        // 警告：建议压缩上下文
+	ActionSeal                        // 行动：必须 seal session
 )
 
 // TokenBudgetInfo Token 预算信息（用于 A2AChainContext）
@@ -109,6 +124,14 @@ func (m *TokenBudgetManager) GetRemainingBudget(model string, usage *TokenUsage)
 	windowSize := m.GetContextWindowSize(model)
 	used := usage.InputTokens + usage.OutputTokens
 	return windowSize - used
+}
+
+// FillRatio returns the ratio of used tokens to window size (0.0-1.0)
+func (m *TokenBudgetManager) FillRatio(model string, usage *TokenUsage) float64 {
+	remaining := m.GetRemainingBudget(model, usage)
+	windowSize := m.GetContextWindowSize(model)
+	used := windowSize - remaining
+	return float64(used) / float64(windowSize)
 }
 
 // GetContextWindowSize 获取模型上下文窗口大小
@@ -202,22 +225,9 @@ func TruncateHeadTail(content string, limit int) string {
 // formatDropped 格式化截断数量
 func formatDropped(n int) string {
 	if n >= 1000 {
-		return formatNumberCompact(n/1000) + "k"
+		return strconv.Itoa(n/1000) + "k"
 	}
-	return formatNumberCompact(n)
-}
-
-// formatNumberCompact 格式化数字
-func formatNumberCompact(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	digits := []byte{}
-	for n > 0 {
-		digits = append([]byte{byte('0' + n%10)}, digits...)
-		n /= 10
-	}
-	return string(digits)
+	return strconv.Itoa(n)
 }
 
 // BudgetForContext 计算上下文可用 Token 预算
@@ -266,17 +276,19 @@ func EstimateTokenBudget(systemParts []string, prompt string, maxTokens int) *To
 	return CreateTokenBudgetInfo(maxTokens, usedTokens)
 }
 
-// GetDefaultMaxMessages 获取默认最大消息数
-func GetDefaultMaxMessages() int {
-	return DefaultMaxMessages
-}
-
-// GetDefaultMaxContentLength 获取默认单条消息最大长度
-func GetDefaultMaxContentLength() int {
-	return DefaultMaxContentLength
-}
-
-// GetDefaultMaxTotalTokens 获取默认最大总 token
-func GetDefaultMaxTotalTokens() int {
-	return DefaultMaxTotalTokens
+// ShouldTakeAction 根据 Token 预算状态判断应采取的行动
+// fillRatio: 已用 token 占上下文窗口的比例 (0.0-1.0)
+// remainingTokens: 剩余可用 token 数
+// 返回值: 应采取的行动类型 (ActionNone, ActionWarn, ActionSeal)
+func ShouldTakeAction(fillRatio float64, remainingTokens int) StrategyAction {
+	// 优先检查行动阈值或剩余预算不足
+	if fillRatio >= ActionThreshold || remainingTokens < TurnBudget {
+		return ActionSeal
+	}
+	// 检查警告阈值
+	if fillRatio >= WarnThreshold {
+		return ActionWarn
+	}
+	// 无需行动
+	return ActionNone
 }

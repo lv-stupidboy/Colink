@@ -126,3 +126,117 @@ func TestGetContextWindowSize(t *testing.T) {
 		}
 	}
 }
+
+// TestFillRatio 测试填充比率计算
+func TestFillRatio(t *testing.T) {
+	manager := NewTokenBudgetManager()
+	model := "claude-sonnet-4-6" // 200K context window
+
+	tests := []struct {
+		name     string
+		usage    *TokenUsage
+		expected float64
+	}{
+		{
+			name:     "empty window - no tokens used",
+			usage:    &TokenUsage{InputTokens: 0, OutputTokens: 0},
+			expected: 0.0,
+		},
+		{
+			name:     "half full - 50% usage",
+			usage:    &TokenUsage{InputTokens: 100_000, OutputTokens: 0},
+			expected: 0.5,
+		},
+		{
+			name:     "nearly full - 90% usage",
+			usage:    &TokenUsage{InputTokens: 100_000, OutputTokens: 80_000},
+			expected: 0.9,
+		},
+		{
+			name:     "mixed input and output tokens",
+			usage:    &TokenUsage{InputTokens: 75_000, OutputTokens: 25_000},
+			expected: 0.5,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ratio := manager.FillRatio(model, tt.usage)
+			// Allow small floating point error
+			if ratio < tt.expected-0.0001 || ratio > tt.expected+0.0001 {
+				t.Errorf("FillRatio() = %f, want %f", ratio, tt.expected)
+			}
+		})
+	}
+}
+
+// TestFillRatioUnknownModel 测试未知模型的填充比率
+func TestFillRatioUnknownModel(t *testing.T) {
+	manager := NewTokenBudgetManager()
+
+	// Unknown model should use default 200K window
+	usage := &TokenUsage{InputTokens: 50_000, OutputTokens: 50_000}
+	ratio := manager.FillRatio("unknown-model", usage)
+
+	expected := 0.5 // 100K / 200K = 0.5
+	if ratio < expected-0.0001 || ratio > expected+0.0001 {
+		t.Errorf("FillRatio for unknown model = %f, want %f", ratio, expected)
+	}
+}
+
+// TestShouldTakeAction 测试 ShouldTakeAction 决策逻辑
+func TestShouldTakeAction(t *testing.T) {
+	tests := []struct {
+		name            string
+		fillRatio       float64
+		remainingTokens int
+		expected        StrategyAction
+	}{
+		{
+			name:            "no action needed - low fill ratio and sufficient tokens",
+			fillRatio:       0.5,
+			remainingTokens: 15000,
+			expected:        ActionNone,
+		},
+		{
+			name:            "warn threshold - fill ratio at 0.75",
+			fillRatio:       0.75,
+			remainingTokens: 15000, // Above TurnBudget to test fillRatio condition
+			expected:        ActionWarn,
+		},
+		{
+			name:            "action threshold - fill ratio at 0.85",
+			fillRatio:       0.85,
+			remainingTokens: 5000,
+			expected:        ActionSeal,
+		},
+		{
+			name:            "seal required - low remaining tokens below TurnBudget",
+			fillRatio:       0.6,
+			remainingTokens: 10000, // Below TurnBudget (12000)
+			expected:        ActionSeal,
+		},
+		{
+			name:            "seal required - fill ratio exceeds ActionThreshold",
+			fillRatio:       0.90,
+			remainingTokens: 20000,
+			expected:        ActionSeal,
+		},
+		{
+			name:            "warn - fill ratio between WarnThreshold and ActionThreshold",
+			fillRatio:       0.80,
+			remainingTokens: 15000,
+			expected:        ActionWarn,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ShouldTakeAction(tt.fillRatio, tt.remainingTokens)
+			if result != tt.expected {
+				t.Errorf("ShouldTakeAction(%f, %d) = %v, want %v",
+					tt.fillRatio, tt.remainingTokens, result, tt.expected)
+			}
+		})
+	}
+}

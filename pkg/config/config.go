@@ -204,9 +204,43 @@ type SandboxConfig struct {
 
 // AgentConfig Agent配置
 type AgentConfig struct {
-	MaxDepth        int `mapstructure:"max_depth"`
-	MaxRetries      int `mapstructure:"max_retries"`
-	ContextMaxLines int `mapstructure:"context_max_lines"`
+	MaxDepth        int                    `mapstructure:"max_depth"`
+	MaxRetries      int                    `mapstructure:"max_retries"`
+	ContextMaxLines int                    `mapstructure:"context_max_lines"`
+	ProcessPool     ProcessPoolConfig      `mapstructure:"process_pool"` // 进程池配置
+	DeliveryCursor  DeliveryCursorConfig   `mapstructure:"delivery_cursor"` // S2W4 增量拉模式开关
+
+	// SessionChain C5 修复：SessionChainStore 恢复窗口配置化
+	SessionChain SessionChainConfig `mapstructure:"session_chain"`
+}
+
+// SessionChainConfig SessionChainStore 恢复策略（C5）
+type SessionChainConfig struct {
+	// RestoreWindowHours 启动时从 cli_session_cache 表恢复多久内的会话。
+	// 默认 168 (7 天)。设为 0 使用默认。
+	// 增大该值可以让长时间关机后启动的用户依然可以 Resume。
+	RestoreWindowHours int `mapstructure:"restore_window_hours"`
+}
+
+// DeliveryCursorConfig 增量拉模式配置（S2W4）
+//
+// 启用后：
+//   - Agent 完成时把 storedContent 写入 messages 表（已有行为，无需变更）
+//   - 下游 Agent spawn 前通过 DeliveryCursor 从 messages 表拉未读，替代 in-memory PreviousResponses 累积
+//   - Invocation 结束时统一 ack cursor
+//
+// 灰度策略：默认 false 保持 legacy 行为；生产环境按 thread 逐步放量。
+type DeliveryCursorConfig struct {
+	Enabled     bool `mapstructure:"enabled"`      // 总开关，默认 false
+	MaxMessages int  `mapstructure:"max_messages"` // 单次拉取上限，默认 200
+	MaxTokens   int  `mapstructure:"max_tokens"`   // 单次组装 token 预算，默认 4000
+}
+
+// ProcessPoolConfig 进程池配置
+type ProcessPoolConfig struct {
+	MaxLiveProcesses  int `mapstructure:"max_live_processes"`  // 最大存活进程数，默认 10
+	IdleTtlMs         int `mapstructure:"idle_ttl_ms"`         // 空闲 TTL（毫秒），默认 1800000 (30min)
+	HealthCheckMs     int `mapstructure:"health_check_ms"`     // 健康检查间隔（毫秒），默认 30000 (30s)
 }
 
 // LoggingConfig 日志配置
@@ -732,6 +766,15 @@ func setDefaults() {
 	viper.SetDefault("server.mode", "debug")
 	viper.SetDefault("redis.addr", "localhost:6379")
 	viper.SetDefault("agent.max_depth", 15)
+	viper.SetDefault("agent.delivery_cursor.enabled", false)
+	viper.SetDefault("agent.delivery_cursor.max_messages", 200)
+	viper.SetDefault("agent.delivery_cursor.max_tokens", 4000)
+	// H2 修复：ProcessPool 缺 SetDefault，用户升级但未同步 config.yaml 时字段全为 0
+	viper.SetDefault("agent.process_pool.max_live_processes", 10)
+	viper.SetDefault("agent.process_pool.idle_ttl_ms", 1800000)
+	viper.SetDefault("agent.process_pool.health_check_ms", 30000)
+	// C5 修复：SessionChain 恢复窗口默认 7 天，避免长时间关机后 AI 失忆
+	viper.SetDefault("agent.session_chain.restore_window_hours", 168)
 	viper.SetDefault("mcp.base_url", "http://localhost:26305/api/v1/mcp")
 	viper.SetDefault("mcp.token_ttl", "30m")
 	viper.SetDefault("skill.use_count_update_interval", "1h")

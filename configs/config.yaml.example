@@ -49,6 +49,18 @@ redis:
 # Agent A2A 深度配置
 agent:
   max_depth: 15  # A2A 链最大深度，防止无限递归
+  # 进程池配置（CLI 进程预热复用）
+  process_pool:
+    max_live_processes: 10   # 最大存活进程数
+    idle_ttl_ms: 1800000     # 空闲 TTL（毫秒），默认 30min
+    health_check_ms: 30000   # 健康检查间隔（毫秒），默认 30s
+  # S2W4: DeliveryCursor 增量拉模式（借鉴 clowder-ai deliveryCursorStore）
+  # 启用后 A2A 下游 Agent 通过游标从 messages 表拉未读消息，
+  # 替代 in-memory PreviousResponses 累积，防止 O(N²) 上下文膨胀。
+  delivery_cursor:
+    enabled: false          # 灰度开关，默认 false 保持 legacy 行为
+    max_messages: 200       # 单次拉取上限
+    max_tokens: 4000        # 单次组装 token 预算（保尾丢头裁剪）
 
 mcp:
   base_url: http://localhost:26305/api/v1/mcp
