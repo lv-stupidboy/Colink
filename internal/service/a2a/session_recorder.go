@@ -2,7 +2,9 @@ package a2a
 
 import (
 	"context"
+	"time"
 
+	"github.com/anthropic/isdp/internal/service/agent"
 	"go.uber.org/zap"
 )
 
@@ -101,4 +103,60 @@ func (r *SessionRecorderImpl) RecordPendingSession(threadID, configID, sessionID
 			zap.String("catId", configID),
 			zap.String("recordId", record.ID))
 	}
+}
+
+// IncrementConsecutiveFailures 增加连续恢复失败计数
+func (r *SessionRecorderImpl) IncrementConsecutiveFailures(threadID, configID, sessionID string) {
+	if sessionID == "" {
+		return
+	}
+
+	store := GetSessionChainStore()
+	store.IncrementConsecutiveFailures(configID, sessionID)
+	zap.L().Warn("ConsecutiveRestoreFailures incremented",
+		zap.String("sessionId", sessionID),
+		zap.String("threadId", threadID),
+		zap.String("catId", configID))
+}
+
+// ResetConsecutiveFailures 重置连续恢复失败计数
+func (r *SessionRecorderImpl) ResetConsecutiveFailures(threadID, configID, sessionID string) {
+	if sessionID == "" {
+		return
+	}
+
+	store := GetSessionChainStore()
+	store.ResetConsecutiveFailures(configID, sessionID)
+	zap.L().Info("ConsecutiveRestoreFailures reset",
+		zap.String("sessionId", sessionID),
+		zap.String("threadId", threadID),
+		zap.String("catId", configID))
+}
+
+// CheckAndSealOnOverflow Circuit Breaker 检查，返回是否应该终止执行
+func (r *SessionRecorderImpl) CheckAndSealOnOverflow(threadID, configID string) bool {
+	store := GetSessionChainStore()
+
+	// 获取活跃 session
+	sessionRecord := store.GetActive(configID, threadID)
+	if sessionRecord == nil {
+		return false
+	}
+
+	// 检查连续失败次数是否达到阈值
+	if sessionRecord.ConsecutiveRestoreFailures >= agent.MAX_CONSECUTIVE_FAILURES {
+		// 标记 session 为 sealed 状态
+		sessionRecord.Status = SessionStatusSealed
+		sessionRecord.SealReason = SealReasonThreshold
+		sessionRecord.SealedAt = new(int64)
+		*sessionRecord.SealedAt = time.Now().Unix()
+
+		zap.L().Warn("Circuit Breaker triggered, sealing session",
+			zap.String("threadId", threadID),
+			zap.String("configId", configID),
+			zap.Int("consecutiveFailures", sessionRecord.ConsecutiveRestoreFailures))
+		return true
+	}
+
+	return false
 }

@@ -15,6 +15,10 @@ interface TextBlockProps {
  *
  * 使用 GFM (GitHub Flavored Markdown) 渲染，支持表格、任务列表等
  * 同时高亮 @mention 内容
+ *
+ * 性能优化：
+ * - useMemo 缓存 Markdown 解析结果，避免重复解析已完成内容
+ * - 只在 block.content 变化时才重新解析
  */
 const TextBlock: React.FC<TextBlockProps> = ({ block, agentConfigs = [] }) => {
   // 检查是否有 @mention
@@ -59,14 +63,20 @@ const TextBlock: React.FC<TextBlockProps> = ({ block, agentConfigs = [] }) => {
     },
   }), [agentConfigs]);
 
+  // ✅ 性能优化：缓存 Markdown 解析结果
+  // 只在 block.content 变化时才重新解析，避免重复解析已完成内容
+  const markdownContent = useMemo(() => (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={customComponents}
+    >
+      {block.content}
+    </ReactMarkdown>
+  ), [block.content, customComponents]);
+
   return (
     <div className="text-block">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={customComponents}
-      >
-        {block.content}
-      </ReactMarkdown>
+      {markdownContent}
     </div>
   );
 };

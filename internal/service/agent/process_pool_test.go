@@ -65,7 +65,7 @@ func TestProcessPoolAcquireColdStart(t *testing.T) {
 		RoleID:  uuid.New(),
 	}
 
-	lease, err := pool.Acquire(key, "")
+	lease, err := pool.Acquire(key, "", false)
 	if err != nil {
 		t.Errorf("Acquire() error = %v", err)
 	}
@@ -105,7 +105,7 @@ func TestProcessPoolRememberSession(t *testing.T) {
 		RoleID:  uuid.New(),
 	}
 
-	lease, err := pool.Acquire(key, "")
+	lease, err := pool.Acquire(key, "", false)
 	if err != nil {
 		t.Fatalf("Acquire() error = %v", err)
 	}
@@ -135,7 +135,7 @@ func TestProcessPoolClose(t *testing.T) {
 		RoleID:  uuid.New(),
 	}
 
-	_, err := pool.Acquire(key, "")
+	_, err := pool.Acquire(key, "", false)
 	if err != nil {
 		t.Fatalf("Acquire() error = %v", err)
 	}
@@ -147,7 +147,7 @@ func TestProcessPoolClose(t *testing.T) {
 	}
 
 	// 再次 Acquire 应失败
-	_, err = pool.Acquire(key, "")
+	_, err = pool.Acquire(key, "", false)
 	if err != ErrPoolClosed {
 		t.Errorf("Acquire after Close() error = %v, want ErrPoolClosed", err)
 	}

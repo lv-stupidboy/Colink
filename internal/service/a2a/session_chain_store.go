@@ -57,6 +57,11 @@ type SessionRecord struct {
 	UpdatedAt                int64         `json:"updatedAt"`
 }
 
+// GetConsecutiveRestoreFailures 实现 CircuitBreakerSession 接口
+func (r *SessionRecord) GetConsecutiveRestoreFailures() int {
+	return r.ConsecutiveRestoreFailures
+}
+
 // CreateSessionInput 创建会话输入
 type CreateSessionInput struct {
 	CLISessionID string
@@ -323,6 +328,46 @@ func (s *SessionChainStore) IncrementCompressionCount(id string) int {
 	record.CompressionCount++
 	record.UpdatedAt = time.Now().UnixMilli()
 	return record.CompressionCount
+}
+
+// IncrementConsecutiveFailures 增加连续恢复失败计数
+// 参数: configID (catId), cliSessionID
+func (s *SessionChainStore) IncrementConsecutiveFailures(configID, cliSessionID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	recordID := s.cliIndex[cliSessionID]
+	if recordID == "" {
+		return
+	}
+
+	record := s.records[recordID]
+	if record == nil {
+		return
+	}
+
+	record.ConsecutiveRestoreFailures++
+	record.UpdatedAt = time.Now().UnixMilli()
+}
+
+// ResetConsecutiveFailures 重置连续恢复失败计数
+// 参数: configID (catId), cliSessionID
+func (s *SessionChainStore) ResetConsecutiveFailures(configID, cliSessionID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	recordID := s.cliIndex[cliSessionID]
+	if recordID == "" {
+		return
+	}
+
+	record := s.records[recordID]
+	if record == nil {
+		return
+	}
+
+	record.ConsecutiveRestoreFailures = 0
+	record.UpdatedAt = time.Now().UnixMilli()
 }
 
 // ListSealingSessions 列出所有处于 sealing 状态的会话 ID
